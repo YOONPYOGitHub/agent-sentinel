@@ -1,4 +1,8 @@
-import type { AgentConnector, ApprovalContext } from '@agent-sentinel/connector-sdk'
+import type {
+  AgentConnector,
+  ApprovalContext,
+  ConnectorDescriptor,
+} from '@agent-sentinel/connector-sdk'
 import {
   assertEstateSnapshot,
   type EstateSnapshot,
@@ -64,6 +68,78 @@ const evidence: Evidence[] = [
     confidence: 0.96,
     summary: 'CRM-derived payload can be passed to the remote MCP tool call.',
   },
+  {
+    id: 'evidence-hr-agent-manifest',
+    source: 'Azure OpenAI Service',
+    sourceObjectId: 'agent/hr-policy/v12',
+    observedAt,
+    freshness: 'recent',
+    confidence: 1,
+    summary: 'Production HR Policy Assistant deployment manifest.',
+  },
+  {
+    id: 'evidence-hr-identity-role',
+    source: 'Microsoft Entra ID',
+    sourceObjectId: 'servicePrincipal/hr-policy-agent',
+    observedAt,
+    freshness: 'live',
+    confidence: 1,
+    summary: 'HR agent identity has a scoped knowledge-reader role.',
+  },
+  {
+    id: 'evidence-hr-data-classification',
+    source: 'Microsoft Purview',
+    sourceObjectId: 'dataAsset/hr-policy-knowledge-base',
+    observedAt,
+    freshness: 'recent',
+    confidence: 0.99,
+    summary: 'HR policy knowledge is classified for internal use.',
+  },
+  {
+    id: 'evidence-hr-mcp-approved',
+    source: 'Agent Sentinel Trust Catalog',
+    sourceObjectId: 'mcp/hr-sharepoint',
+    observedAt,
+    freshness: 'recent',
+    confidence: 1,
+    summary: 'HR SharePoint MCP is approved and trusted.',
+  },
+  {
+    id: 'evidence-cr-agent-manifest',
+    source: 'GitHub Copilot Extensions',
+    sourceObjectId: 'agent/code-review-copilot/v3',
+    observedAt,
+    freshness: 'recent',
+    confidence: 1,
+    summary: 'Development Code Review Copilot extension manifest.',
+  },
+  {
+    id: 'evidence-cr-identity-role',
+    source: 'GitHub',
+    sourceObjectId: 'app/code-review-copilot',
+    observedAt,
+    freshness: 'live',
+    confidence: 1,
+    summary: 'Code review identity has read-only repository access.',
+  },
+  {
+    id: 'evidence-cr-data-classification',
+    source: 'Microsoft Purview',
+    sourceObjectId: 'dataAsset/engineering-codebase',
+    observedAt,
+    freshness: 'recent',
+    confidence: 0.98,
+    summary: 'Engineering codebase is classified Confidential.',
+  },
+  {
+    id: 'evidence-cr-mcp-approved',
+    source: 'Agent Sentinel Trust Catalog',
+    sourceObjectId: 'mcp/github-actions',
+    observedAt,
+    freshness: 'recent',
+    confidence: 1,
+    summary: 'GitHub Actions MCP is approved and trusted.',
+  },
 ]
 
 export function createSeedSnapshot(): EstateSnapshot {
@@ -128,6 +204,96 @@ export function createSeedSnapshot(): EstateSnapshot {
         evidenceIds: ['evidence-mcp-observation'],
         metadata: { endpoint: 'mcp.partner-labs.example', catalog: 'Unapproved' },
       },
+      {
+        id: 'hr-policy-agent',
+        kind: 'agent',
+        name: 'HR Policy Assistant',
+        description: 'Answers employee questions from approved HR policies.',
+        environment: 'production',
+        owner: 'People & Culture',
+        trust: 'trusted',
+        evidenceIds: ['evidence-hr-agent-manifest'],
+        metadata: { version: '12', platform: 'Azure OpenAI Service', status: 'Published' },
+      },
+      {
+        id: 'hr-agent-identity',
+        kind: 'identity',
+        name: 'hr-policy-agent-prod',
+        description: 'Scoped managed identity for the HR Policy Assistant.',
+        environment: 'production',
+        owner: 'People & Culture',
+        trust: 'trusted',
+        evidenceIds: ['evidence-hr-identity-role'],
+        metadata: { permission: 'HR.Policy.Read', privilege: 'Low' },
+      },
+      {
+        id: 'hr-knowledge-base',
+        kind: 'data',
+        name: 'HR Policy Knowledge Base',
+        description: 'Approved employee handbook and HR policy content.',
+        environment: 'production',
+        owner: 'People & Culture',
+        sensitivity: 'internal',
+        trust: 'trusted',
+        evidenceIds: ['evidence-hr-data-classification'],
+        metadata: { label: 'Internal' },
+      },
+      {
+        id: 'hr-sharepoint-mcp',
+        kind: 'mcp',
+        name: 'HR SharePoint MCP',
+        description: 'Approved SharePoint retrieval server for HR policy content.',
+        environment: 'production',
+        owner: 'People & Culture',
+        trust: 'trusted',
+        evidenceIds: ['evidence-hr-mcp-approved'],
+        metadata: { catalog: 'Approved', endpoint: 'hr-sharepoint' },
+      },
+      {
+        id: 'code-review-copilot',
+        kind: 'agent',
+        name: 'Code Review Copilot',
+        description: 'Reviews pull requests against engineering standards.',
+        environment: 'development',
+        owner: 'Engineering Platform',
+        trust: 'trusted',
+        evidenceIds: ['evidence-cr-agent-manifest'],
+        metadata: { version: '3', platform: 'GitHub Copilot Extensions', status: 'Development' },
+      },
+      {
+        id: 'cr-agent-identity',
+        kind: 'identity',
+        name: 'code-review-copilot-app',
+        description: 'Read-only GitHub App identity for code review.',
+        environment: 'development',
+        owner: 'Engineering Platform',
+        trust: 'trusted',
+        evidenceIds: ['evidence-cr-identity-role'],
+        metadata: { permission: 'Contents.Read', privilege: 'Low' },
+      },
+      {
+        id: 'cr-codebase-data',
+        kind: 'data',
+        name: 'Engineering Codebase',
+        description: 'Source code available to the code review extension.',
+        environment: 'development',
+        owner: 'Engineering Platform',
+        sensitivity: 'confidential',
+        trust: 'trusted',
+        evidenceIds: ['evidence-cr-data-classification'],
+        metadata: { label: 'Confidential' },
+      },
+      {
+        id: 'cr-github-actions-mcp',
+        kind: 'mcp',
+        name: 'GitHub Actions MCP',
+        description: 'Approved server for read-only workflow context.',
+        environment: 'development',
+        owner: 'Engineering Platform',
+        trust: 'trusted',
+        evidenceIds: ['evidence-cr-mcp-approved'],
+        metadata: { catalog: 'Approved', endpoint: 'github-actions' },
+      },
     ],
     edges: [
       {
@@ -163,22 +329,65 @@ export function createSeedSnapshot(): EstateSnapshot {
         active: true,
         removable: true,
       },
+      {
+        id: 'edge-hr-runs-as',
+        from: 'hr-policy-agent',
+        to: 'hr-agent-identity',
+        relationship: 'RUNS_AS',
+        evidenceIds: ['evidence-hr-agent-manifest', 'evidence-hr-identity-role'],
+        active: true,
+      },
+      {
+        id: 'edge-hr-can-read',
+        from: 'hr-agent-identity',
+        to: 'hr-knowledge-base',
+        relationship: 'CAN_READ',
+        evidenceIds: ['evidence-hr-identity-role', 'evidence-hr-data-classification'],
+        active: true,
+      },
+      {
+        id: 'edge-hr-can-call',
+        from: 'hr-policy-agent',
+        to: 'hr-sharepoint-mcp',
+        relationship: 'CAN_CALL',
+        evidenceIds: ['evidence-hr-agent-manifest', 'evidence-hr-mcp-approved'],
+        active: true,
+      },
+      {
+        id: 'edge-cr-runs-as',
+        from: 'code-review-copilot',
+        to: 'cr-agent-identity',
+        relationship: 'RUNS_AS',
+        evidenceIds: ['evidence-cr-agent-manifest', 'evidence-cr-identity-role'],
+        active: true,
+      },
+      {
+        id: 'edge-cr-can-read',
+        from: 'cr-agent-identity',
+        to: 'cr-codebase-data',
+        relationship: 'CAN_READ',
+        evidenceIds: ['evidence-cr-identity-role', 'evidence-cr-data-classification'],
+        active: true,
+      },
+      {
+        id: 'edge-cr-can-call',
+        from: 'code-review-copilot',
+        to: 'cr-github-actions-mcp',
+        relationship: 'CAN_CALL',
+        evidenceIds: ['evidence-cr-agent-manifest', 'evidence-cr-mcp-approved'],
+        active: true,
+      },
     ],
   })
 }
 
 export class MockAgentConnector implements AgentConnector {
-  readonly descriptor = {
+  readonly descriptor: ConnectorDescriptor = {
     id: 'mock-agent-estate',
     name: 'Seeded Agent Estate',
     apiVersion: '2026-08-14',
-    releaseStatus: 'mock' as const,
-    capabilities: [
-      'discovery',
-      'evidence',
-      'remediation-simulation',
-      'remediation-execution',
-    ] as const,
+    releaseStatus: 'mock',
+    capabilities: ['discovery', 'evidence', 'remediation-simulation', 'remediation-execution'],
     requiredPermissions: [],
     blindSpots: ['Synthetic data only', 'No production control-plane execution'],
   }
@@ -199,9 +408,7 @@ export class MockAgentConnector implements AgentConnector {
 
   getEvidence(evidenceId: string): Promise<Evidence> {
     const item = this.snapshot.evidence.find((candidate) => candidate.id === evidenceId)
-    if (item === undefined) {
-      return Promise.reject(new Error(`Unknown evidence: ${evidenceId}`))
-    }
+    if (item === undefined) return Promise.reject(new Error(`Unknown evidence: ${evidenceId}`))
     return Promise.resolve(structuredClone(item))
   }
 

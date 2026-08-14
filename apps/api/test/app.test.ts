@@ -18,6 +18,8 @@ describe('demo API', () => {
     const initialResponse = await app.inject({ method: 'GET', url: '/api/demo/state' })
     expect(initialResponse.statusCode).toBe(200)
     const initial = agentSentinelStateSchema.parse(initialResponse.json())
+    expect(initial.snapshot.nodes.filter((node) => node.kind === 'agent')).toHaveLength(3)
+    expect(initial.findings).toHaveLength(1)
     expect(initial.findings[0]?.path.status).toBe('theoretical')
     expect(initial.snapshot.edges.find((edge) => edge.id === 'edge-data-mcp')?.active).toBe(true)
 
