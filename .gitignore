@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+.turbo
+coverage
+dist
+node_modules
+playwright-report
+test-results
+storybook-static
+*.local
+*.log
+*.tsbuildinfo
