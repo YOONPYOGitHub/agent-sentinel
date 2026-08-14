@@ -41,59 +41,63 @@ export function ExposureGraph({ snapshot, pathStatus, onEvidenceSelect }: Exposu
 
   const nodes = useMemo<AgentGraphNodeType[]>(
     () =>
-      snapshot.nodes.map((node) => ({
-        id: node.id,
-        type: 'agentGraphNode',
-        position: positions[node.id] ?? { x: 0, y: 0 },
-        data: {
-          kind: node.kind,
-          label: node.name,
-          detail:
-            node.metadata.permission ??
-            node.metadata.label ??
-            node.metadata.platform ??
-            node.metadata.catalog ??
-            node.metadata.channel ??
-            node.environment,
-          status:
-            pathStatus === 'mitigated'
-              ? node.id === 'external-enrichment-mcp'
-                ? 'mitigated'
-                : 'safe'
-              : node.trust === 'untrusted'
-                ? 'critical'
-                : node.trust === 'conditional'
-                  ? 'warning'
-                  : 'safe',
-          evidenceId: node.evidenceIds[0] ?? '',
-        },
-      })),
+      snapshot.nodes
+        .filter((node) => node.id in positions)
+        .map((node) => ({
+          id: node.id,
+          type: 'agentGraphNode',
+          position: positions[node.id] ?? { x: 0, y: 0 },
+          data: {
+            kind: node.kind,
+            label: node.name,
+            detail:
+              node.metadata.permission ??
+              node.metadata.label ??
+              node.metadata.platform ??
+              node.metadata.catalog ??
+              node.metadata.channel ??
+              node.environment,
+            status:
+              pathStatus === 'mitigated'
+                ? node.id === 'external-enrichment-mcp'
+                  ? 'mitigated'
+                  : 'safe'
+                : node.trust === 'untrusted'
+                  ? 'critical'
+                  : node.trust === 'conditional'
+                    ? 'warning'
+                    : 'safe',
+            evidenceId: node.evidenceIds[0] ?? '',
+          },
+        })),
     [pathStatus, snapshot.nodes],
   )
 
   const edges = useMemo<Edge[]>(
     () =>
-      snapshot.edges.map((edge) => {
-        const disabled = !edge.active
-        return {
-          id: edge.id,
-          source: edge.from,
-          target: edge.to,
-          animated: !disabled && pathStatus === 'validated',
-          ariaLabel: `${edge.relationship.replaceAll('_', ' ')} relationship${
-            disabled ? ', blocked by remediation' : ''
-          }`,
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: disabled ? '#54b17a' : '#f76363',
-          },
-          style: {
-            stroke: disabled ? '#54b17a' : '#f76363',
-            strokeDasharray: disabled ? '7 5' : undefined,
-            strokeWidth: pathStatus === 'validated' && !disabled ? 3 : 2,
-          },
-        }
-      }),
+      snapshot.edges
+        .filter((edge) => edge.from in positions && edge.to in positions)
+        .map((edge) => {
+          const disabled = !edge.active
+          return {
+            id: edge.id,
+            source: edge.from,
+            target: edge.to,
+            animated: !disabled && pathStatus === 'validated',
+            ariaLabel: `${edge.relationship.replaceAll('_', ' ')} relationship${
+              disabled ? ', blocked by remediation' : ''
+            }`,
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: disabled ? '#54b17a' : '#f76363',
+            },
+            style: {
+              stroke: disabled ? '#54b17a' : '#f76363',
+              strokeDasharray: disabled ? '7 5' : undefined,
+              strokeWidth: pathStatus === 'validated' && !disabled ? 3 : 2,
+            },
+          }
+        }),
     [pathStatus, snapshot.edges],
   )
 

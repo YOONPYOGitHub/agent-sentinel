@@ -1,4 +1,16 @@
-import type { AgentSentinelState } from '@agent-sentinel/domain'
+import { agentSentinelStateSchema, type AgentSentinelState } from '@agent-sentinel/domain'
+
+function responseMessage(value: unknown): string | undefined {
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'message' in value &&
+    typeof value.message === 'string'
+  ) {
+    return value.message
+  }
+  return undefined
+}
 
 async function request(path: string, init?: RequestInit): Promise<AgentSentinelState> {
   const requestInit: RequestInit = { ...init }
@@ -7,15 +19,12 @@ async function request(path: string, init?: RequestInit): Promise<AgentSentinelS
     headers.set('Content-Type', 'application/json')
     requestInit.headers = headers
   }
-
   const response = await fetch(path, requestInit)
-
+  const body: unknown = await response.json().catch(() => undefined)
   if (!response.ok) {
-    const body = (await response.json().catch(() => undefined)) as { message?: string } | undefined
-    throw new Error(body?.message ?? `Request failed with status ${response.status}.`)
+    throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)
   }
-
-  return (await response.json()) as AgentSentinelState
+  return agentSentinelStateSchema.parse(body)
 }
 
 export const demoApi = {

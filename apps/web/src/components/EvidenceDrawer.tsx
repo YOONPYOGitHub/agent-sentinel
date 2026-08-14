@@ -1,0 +1,76 @@
+import { Badge, Button } from '@fluentui/react-components'
+import { DismissRegular, KeyRegular } from '@fluentui/react-icons'
+import type { KeyboardEventHandler, RefObject } from 'react'
+
+import type { Evidence } from '@agent-sentinel/domain'
+
+interface EvidenceDrawerProps {
+  evidence: Evidence | undefined
+  drawerRef: RefObject<HTMLElement | null>
+  onClose: () => void
+  onKeyDown: KeyboardEventHandler<HTMLElement>
+}
+
+export function EvidenceDrawer({ evidence, drawerRef, onClose, onKeyDown }: EvidenceDrawerProps) {
+  if (evidence === undefined) return null
+
+  return (
+    <div className="evidence-backdrop" role="presentation" onClick={onClose}>
+      <aside
+        ref={drawerRef}
+        className="evidence-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="evidence-title"
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="evidence-drawer__header">
+          <div>
+            <span className="eyebrow">EVIDENCE OBJECT</span>
+            <h2 id="evidence-title">{evidence.source}</h2>
+          </div>
+          <Button
+            appearance="subtle"
+            icon={<DismissRegular />}
+            aria-label="Close evidence"
+            onClick={onClose}
+          />
+        </div>
+        <Badge color={evidence.freshness === 'stale' ? 'warning' : 'success'} appearance="tint">
+          {evidence.freshness} · {Math.round(evidence.confidence * 100)}% confidence
+        </Badge>
+        <p className="evidence-lead">{evidence.summary}</p>
+        <dl>
+          <div>
+            <dt>Source object</dt>
+            <dd>{evidence.sourceObjectId}</dd>
+          </div>
+          <div>
+            <dt>Observed</dt>
+            <dd>{new Date(evidence.observedAt).toLocaleString()}</dd>
+          </div>
+          <div>
+            <dt>Evidence ID</dt>
+            <dd>{evidence.id}</dd>
+          </div>
+          <div>
+            <dt>Integrity</dt>
+            <dd>SHA-256 verified · read only</dd>
+          </div>
+        </dl>
+        <div className="evidence-note">
+          <KeyRegular />
+          <div>
+            <strong>Evidence-first decision</strong>
+            <span>
+              This object contributes to the path and risk factors. Missing or stale evidence lowers
+              confidence.
+            </span>
+          </div>
+        </div>
+      </aside>
+    </div>
+  )
+}

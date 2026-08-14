@@ -1,22 +1,19 @@
 import { expect, test } from '@playwright/test'
 
-test('contains a validated attack path and preserves the business workflow', async ({ page }) => {
-  await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Agent operations overview' })).toBeVisible()
+test.describe.configure({ mode: 'serial' })
 
+test('contains a validated attack path and preserves the business workflow', async ({ page }) => {
+  await page.goto('/overview')
+  await expect(page.getByRole('heading', { name: 'Agent operations overview' })).toBeVisible()
   await page.getByRole('button', { name: 'Reset', exact: true }).click()
   await expect(page.getByText('Theoretical exposure')).toBeVisible()
-
   await page.getByRole('button', { name: 'Run safe validation' }).click()
   await expect(page.getByText('Validated exploit')).toBeVisible()
   await expect(page.getByText('Exploit safely reproduced')).toBeVisible()
-
   await page.getByRole('button', { name: 'Build response plan' }).click()
   await expect(page.getByText('Block unapproved MCP egress')).toBeVisible()
-
   await page.getByRole('button', { name: 'Approve response' }).click()
   await expect(page.getByText('Approved by Avery Morgan')).toBeVisible()
-
   await page.getByRole('button', { name: 'Execute containment' }).click()
   await expect(page.getByText('Exposure removed')).toBeVisible()
   await expect(page.getByText('Residual risk')).toBeVisible()
@@ -24,14 +21,43 @@ test('contains a validated attack path and preserves the business workflow', asy
   await expect(page.getByTestId('graph-node-agent')).toContainText('Sales Research Agent')
 })
 
-test('opens evidence from the exposure graph', async ({ page }) => {
+test('opens evidence from the overview snapshot graph', async ({ page }) => {
   await page.goto('/')
+  await expect(page).toHaveURL(/\/overview$/)
   await page.getByRole('button', { name: 'Reset', exact: true }).click()
   await page.getByTestId('graph-node-agent').click()
-
-  await expect(page.getByRole('dialog', { name: 'Microsoft Copilot Studio' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Microsoft Copilot Studio' })).toBeFocused()
   await expect(page.getByText('Published agent manifest and configured identity.')).toBeVisible()
-  await expect(page.getByRole('dialog')).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toBeHidden()
+})
+
+test('filters the required estate facets and opens direct detail', async ({ page }) => {
+  await page.goto('/agent-estate')
+  await expect(page.getByRole('heading', { name: 'Agent estate', exact: true })).toBeVisible()
+  await expect(page.getByText('3 of 3 agents')).toBeVisible()
+  await page
+    .getByRole('combobox', { name: 'Filter agents by platform' })
+    .selectOption('Azure OpenAI Service')
+  await expect(page.getByText('1 of 3 agents')).toBeVisible()
+  await page.getByRole('link', { name: /HR Policy Assistant/ }).click()
+  await expect(page).toHaveURL(/\/agent-estate\/hr-policy-agent$/)
+  await expect(page.getByRole('heading', { name: 'HR Policy Assistant' })).toBeVisible()
+  await expect(page.getByLabel('Agent profile').getByText('hr-policy-agent-prod')).toBeVisible()
+  await expect(page.getByText('HR Policy Knowledge Base', { exact: true })).toBeVisible()
+  await expect(page.getByText('HR SharePoint MCP', { exact: true })).toBeVisible()
+  await expect(page.getByText('No active findings')).toBeVisible()
+})
+
+test('supports required routes and wildcard 404', async ({ page }) => {
+  await page.goto('/agent-estate/code-review-copilot')
+  await expect(page.getByRole('heading', { name: 'Code Review Copilot' })).toBeVisible()
+  await expect(page.getByText('Engineering Codebase', { exact: true })).toBeVisible()
+  await expect(page.getByText('GitHub Actions MCP', { exact: true })).toBeVisible()
+  await page.getByRole('main').getByRole('link', { name: 'Agent estate' }).click()
+  await expect(page).toHaveURL(/\/agent-estate$/)
+  await page.goto('/governance')
+  await expect(page.getByRole('heading', { name: 'Governance' })).toBeVisible()
+  await page.goto('/not-a-real-route')
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
 })

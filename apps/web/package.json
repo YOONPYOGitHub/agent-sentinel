@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc -b && vite build",
     "dev": "vite",
-    "lint": "eslint src vite.config.ts",
+    "lint": "eslint src vite.config.ts vitest.config.ts",
     "preview": "vite preview",
     "test": "vitest run src",
     "test:e2e": "playwright test",
@@ -18,7 +18,8 @@
     "@fluentui/react-icons": "^2.0.319",
     "@xyflow/react": "^12.8.5",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.18.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
