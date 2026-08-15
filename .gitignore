@@ -11,3 +11,5 @@ storybook-static
 *.local
 *.log
 *.tsbuildinfo
+scripts/live-validation-report.json
+infra/main.json

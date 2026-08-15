@@ -6,12 +6,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import App from '../App'
-import { demoApi } from '../api'
+import { connectorApi, demoApi } from '../api'
 import { testState } from '../test-fixture'
 
 vi.mock('../api')
 afterEach(cleanup)
-beforeEach(() => vi.mocked(demoApi.getState).mockResolvedValue(testState))
+beforeEach(() => {
+  vi.mocked(demoApi.getState).mockResolvedValue(testState)
+  vi.mocked(connectorApi.getConnectorStatus).mockResolvedValue({
+    source: 'mock',
+    connectorId: 'mock-agent-estate',
+    mode: 'mock',
+  })
+})
 
 function renderDetail(agentId: string) {
   render(

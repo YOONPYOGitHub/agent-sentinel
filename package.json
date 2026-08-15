@@ -2,6 +2,7 @@
   "name": "agent-sentinel",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@10.15.1",
   "engines": {
     "node": ">=22.0.0"
@@ -15,11 +16,16 @@
     "test": "turbo run test",
     "test:e2e": "pnpm --filter @agent-sentinel/web test:e2e",
     "typecheck": "turbo run typecheck",
+    "foundry:provision": "pnpm --filter @agent-sentinel/scripts provision-agents",
+    "foundry:cleanup": "pnpm --filter @agent-sentinel/scripts cleanup-agents",
+    "foundry:validate": "pnpm --filter @agent-sentinel/scripts validate-live",
     "validate": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
     "@types/node": "^22.18.1",
+    "@azure/core-auth": "^1.10.1",
+    "@azure/identity": "^4.11.1",
     "@typescript-eslint/eslint-plugin": "^8.42.0",
     "@typescript-eslint/parser": "^8.42.0",
     "eslint": "^9.35.0",
@@ -31,6 +37,7 @@
     "turbo": "^2.5.6",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.42.0",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "zod": "^4.1.5"
   }
 }

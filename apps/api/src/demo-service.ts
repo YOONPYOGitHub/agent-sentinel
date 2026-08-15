@@ -1,3 +1,4 @@
+import type { AgentConnector } from '@agent-sentinel/connector-sdk'
 import type {
   AgentSentinelState,
   Finding,
@@ -16,7 +17,12 @@ export class StateConflictError extends Error {
 }
 
 export class DemoService {
-  private readonly connector = new MockAgentConnector()
+  constructor(
+    private readonly connector: AgentConnector = new MockAgentConnector(),
+    private readonly connectorMode: 'mock' | 'foundry' = 'mock',
+    private readonly projectEndpoint?: string,
+  ) {}
+
   private validations: ValidationRun[] = []
   private remediations: Remediation[] = []
   private findingHistory: Finding[] | undefined
@@ -27,7 +33,6 @@ export class DemoService {
     if (this.findingHistory === undefined && currentFindings.length > 0) {
       this.findingHistory = currentFindings
     }
-
     return {
       snapshot,
       findings: structuredClone(this.findingHistory ?? currentFindings),
@@ -36,12 +41,32 @@ export class DemoService {
     }
   }
 
+  getConnectorStatus(): Promise<{
+    source: 'mock' | 'foundry'
+    connectorId: string
+    mode: 'mock' | 'foundry'
+    projectEndpoint?: string
+  }> {
+    const result: {
+      source: 'mock' | 'foundry'
+      connectorId: string
+      mode: 'mock' | 'foundry'
+      projectEndpoint?: string
+    } = {
+      source: this.connectorMode,
+      connectorId: this.connector.descriptor.id,
+      mode: this.connectorMode,
+    }
+    if (this.projectEndpoint !== undefined) {
+      result.projectEndpoint = this.projectEndpoint
+    }
+    return Promise.resolve(result)
+  }
+
   async validateFinding(findingId: string): Promise<AgentSentinelState> {
     const state = await this.getState()
     const finding = state.findings.find((candidate) => candidate.id === findingId)
-    if (finding === undefined) {
-      throw new NotFoundError(`Unknown finding: ${findingId}`)
-    }
+    if (finding === undefined) throw new NotFoundError(`Unknown finding: ${findingId}`)
     if (finding.path.status !== 'theoretical') {
       throw new StateConflictError(
         finding.path.status === 'validated'
@@ -74,20 +99,16 @@ export class DemoService {
         ? { ...candidate, path: { ...candidate.path, status: 'validated' } }
         : candidate,
     )
-
     return this.getState()
   }
 
   async proposeRemediation(findingId: string): Promise<AgentSentinelState> {
     const state = await this.getState()
     const finding = state.findings.find((candidate) => candidate.id === findingId)
-    if (finding === undefined) {
-      throw new NotFoundError(`Unknown finding: ${findingId}`)
-    }
+    if (finding === undefined) throw new NotFoundError(`Unknown finding: ${findingId}`)
     if (finding.path.status !== 'validated') {
       throw new StateConflictError('Validate the finding before proposing remediation.')
     }
-
     if (!this.remediations.some((item) => item.findingId === findingId)) {
       this.remediations = [
         {
@@ -104,7 +125,6 @@ export class DemoService {
         },
       ]
     }
-
     return this.getState()
   }
 
@@ -113,7 +133,6 @@ export class DemoService {
     if (remediation.status !== 'proposed') {
       throw new StateConflictError('Only proposed remediations can be approved.')
     }
-
     this.remediations = this.remediations.map((candidate) =>
       candidate.id === remediationId
         ? {
@@ -124,7 +143,6 @@ export class DemoService {
           }
         : candidate,
     )
-
     return this.getState()
   }
 
@@ -137,7 +155,9 @@ export class DemoService {
     ) {
       throw new StateConflictError('Remediation requires a complete approval before execution.')
     }
-
+    if (this.connector.execute === undefined) {
+      throw new StateConflictError('The selected connector does not support remediation execution.')
+    }
     const result = await this.connector.execute(remediation, {
       approvedBy: remediation.approvedBy,
       approvedAt: remediation.approvedAt,
@@ -149,12 +169,11 @@ export class DemoService {
         ? { ...finding, path: { ...finding.path, status: 'mitigated' } }
         : finding,
     )
-
     return this.getState()
   }
 
   async reset(): Promise<AgentSentinelState> {
-    this.connector.reset()
+    if (this.connector instanceof MockAgentConnector) this.connector.reset()
     this.validations = []
     this.remediations = []
     this.findingHistory = undefined
@@ -163,9 +182,7 @@ export class DemoService {
 
   private requireRemediation(remediationId: string): Remediation {
     const remediation = this.remediations.find((candidate) => candidate.id === remediationId)
-    if (remediation === undefined) {
-      throw new NotFoundError(`Unknown remediation: ${remediationId}`)
-    }
+    if (remediation === undefined) throw new NotFoundError(`Unknown remediation: ${remediationId}`)
     return remediation
   }
 }

@@ -7,6 +7,7 @@ import { DemoStateProvider } from './hooks/DemoStateProvider'
 import { useDemoState } from './hooks/useDemoState'
 import { AgentDetailPage } from './pages/AgentDetailPage'
 import { ComingSoonPage } from './pages/ComingSoonPage'
+import { ConnectorsPage } from './pages/ConnectorsPage'
 import { EstatePage } from './pages/EstatePage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { OverviewPage } from './pages/OverviewPage'
@@ -53,7 +54,7 @@ function RoutedApplication() {
         <Route path="optimization" element={<ComingSoonPage title="Optimization" />} />
         <Route path="lifecycle" element={<ComingSoonPage title="Lifecycle" />} />
         <Route path="trust-catalog" element={<ComingSoonPage title="Trust catalog" />} />
-        <Route path="connectors" element={<ComingSoonPage title="Connectors" />} />
+        <Route path="connectors" element={<ConnectorsPage />} />
         <Route path="settings" element={<ComingSoonPage title="Settings" />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

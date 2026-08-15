@@ -56,8 +56,8 @@ export function EvidenceDrawer({ evidence, drawerRef, onClose, onKeyDown }: Evid
             <dd>{evidence.id}</dd>
           </div>
           <div>
-            <dt>Integrity</dt>
-            <dd>SHA-256 verified · read only</dd>
+            <dt>Confidence</dt>
+            <dd>{Math.round(evidence.confidence * 100)}% from the cited source</dd>
           </div>
         </dl>
         <div className="evidence-note">

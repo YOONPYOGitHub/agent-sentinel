@@ -1,4 +1,14 @@
 import { agentSentinelStateSchema, type AgentSentinelState } from '@agent-sentinel/domain'
+import { z } from 'zod'
+
+const connectorStatusSchema = z.strictObject({
+  source: z.enum(['mock', 'foundry']),
+  connectorId: z.string().min(1),
+  mode: z.enum(['mock', 'foundry']),
+  projectEndpoint: z.url().optional(),
+})
+
+export type ConnectorStatus = z.infer<typeof connectorStatusSchema>
 
 function responseMessage(value: unknown): string | undefined {
   if (
@@ -41,4 +51,15 @@ export const demoApi = {
     }),
   executeRemediation: (remediationId: string) =>
     request(`/api/demo/remediations/${remediationId}/execute`, { method: 'POST' }),
+}
+
+export const connectorApi = {
+  getConnectorStatus: async (): Promise<ConnectorStatus> => {
+    const response = await fetch('/api/connector/status')
+    const body: unknown = await response.json()
+    if (!response.ok) {
+      throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)
+    }
+    return connectorStatusSchema.parse(body)
+  },
 }

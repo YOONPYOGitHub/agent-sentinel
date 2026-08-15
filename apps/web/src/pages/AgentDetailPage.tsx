@@ -164,6 +164,7 @@ export function AgentDetailPage() {
                   <strong>{item.source}</strong>
                   <span>{item.summary}</span>
                   <small>
+                    {item.source.includes('Azure AI Foundry Agent Service') ? 'Declared configuration · ' : 'Observed evidence · '}
                     {item.freshness} · {Math.round(item.confidence * 100)}% confidence
                   </small>
                 </Button>

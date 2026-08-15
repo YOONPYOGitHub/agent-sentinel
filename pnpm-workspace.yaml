@@ -2,6 +2,6 @@ packages:
   - apps/*
   - packages/*
   - connectors/*
-
+  - scripts
 onlyBuiltDependencies:
   - esbuild

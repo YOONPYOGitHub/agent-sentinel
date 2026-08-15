@@ -2,13 +2,19 @@ import cors from '@fastify/cors'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { z } from 'zod'
 
-import { DemoService, NotFoundError } from './demo-service.js'
+import { createConfiguredConnector } from './connector-factory.js'
+import { DemoService, NotFoundError, StateConflictError } from './demo-service.js'
 
 const approvalSchema = z.object({
   approvedBy: z.string().trim().min(2).max(100),
 })
 
-export async function createApp(service = new DemoService()): Promise<FastifyInstance> {
+function configuredService(): DemoService {
+  const configured = createConfiguredConnector()
+  return new DemoService(configured.connector, configured.mode, configured.projectEndpoint)
+}
+
+export async function createApp(service = configuredService()): Promise<FastifyInstance> {
   const app = Fastify({ logger: false })
 
   await app.register(cors, {
@@ -22,6 +28,7 @@ export async function createApp(service = new DemoService()): Promise<FastifyIns
   }))
 
   app.get('/api/demo/state', async () => service.getState())
+  app.get('/api/connector/status', async () => service.getConnectorStatus())
   app.post('/api/demo/reset', async () => service.reset())
 
   app.post<{ Params: { findingId: string } }>(
@@ -49,7 +56,13 @@ export async function createApp(service = new DemoService()): Promise<FastifyIns
 
   app.setErrorHandler((error, _request, reply) => {
     const statusCode =
-      error instanceof z.ZodError ? 400 : error instanceof NotFoundError ? 404 : 409
+      error instanceof z.ZodError
+        ? 400
+        : error instanceof NotFoundError
+          ? 404
+          : error instanceof StateConflictError
+            ? 409
+            : 500
     const message = error instanceof Error ? error.message : 'Unexpected operation failure.'
     void reply.status(statusCode).send({
       error:
@@ -57,7 +70,9 @@ export async function createApp(service = new DemoService()): Promise<FastifyIns
           ? 'invalid_request'
           : statusCode === 404
             ? 'not_found'
-            : 'operation_rejected',
+            : statusCode === 409
+              ? 'operation_rejected'
+              : 'internal_error',
       message,
     })
   })
