@@ -40,7 +40,7 @@ function agentValue(agent: GraphNode, key: FilterKey): string {
 }
 
 export function EstatePage() {
-  const { state } = useDemoState()
+  const { state, connectorStatus } = useDemoState()
   const [search, setSearch] = useState('')
   const [filters, setFilters] = useState<Filters>(initialFilters)
   const agents = useMemo(
@@ -82,6 +82,18 @@ export function EstatePage() {
         title="Agent estate"
         description="Inventory, ownership, trust, and evidence posture across every managed agent."
       />
+      {connectorStatus !== undefined && (
+        <div className="estate-source-banner" role="note">
+          <strong>{connectorStatus.source === 'foundry' ? 'Live · Azure AI Foundry' : 'Synthetic · Mock'}</strong> &nbsp;|&nbsp;
+          <strong>Mode:</strong> {connectorStatus.mode}
+          {connectorStatus.projectEndpoint !== undefined && (
+            <>
+              &nbsp;|&nbsp;<strong>Declared configuration:</strong>{' '}
+              {connectorStatus.projectEndpoint}
+            </>
+          )}
+        </div>
+      )}
       <section className="estate-toolbar" aria-label="Agent filters">
         <div className="estate-search">
           <SearchRegular aria-hidden="true" />

@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type { AgentSentinelState } from '@agent-sentinel/domain'
-import { demoApi } from '../api'
+import { connectorApi, demoApi, type ConnectorStatus } from '../api'
 import { DemoStateContext, type DemoStateValue, type Operation } from './DemoStateContext'
 
 export function DemoStateProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AgentSentinelState>()
+  const [connectorStatus, setConnectorStatus] = useState<ConnectorStatus>()
   const [operation, setOperation] = useState<Operation>('loading')
   const [error, setError] = useState<string>()
   const load = useCallback(async () => {
     try {
       setError(undefined)
       setOperation('loading')
-      setState(await demoApi.getState())
+      const [nextState, status] = await Promise.all([demoApi.getState(), connectorApi.getConnectorStatus()])
+      setState(nextState)
+      setConnectorStatus(status)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Agent estate could not be loaded.')
     } finally {
@@ -40,8 +43,8 @@ export function DemoStateProvider({ children }: { children: ReactNode }) {
     [],
   )
   const value = useMemo<DemoStateValue>(
-    () => ({ state, operation, error, clearError: () => setError(undefined), load, run }),
-    [error, load, operation, run, state],
+    () => ({ state, connectorStatus, operation, error, clearError: () => setError(undefined), load, run }),
+    [connectorStatus, error, load, operation, run, state],
   )
   return <DemoStateContext.Provider value={value}>{children}</DemoStateContext.Provider>
 }

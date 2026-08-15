@@ -5,13 +5,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import App from './App'
-import { demoApi } from './api'
+import { connectorApi, demoApi } from './api'
 import { testState } from './test-fixture'
 
 vi.mock('./api')
 vi.mock('./components/ExposureGraph', () => ({ ExposureGraph: () => <div /> }))
+
 afterEach(cleanup)
-beforeEach(() => vi.mocked(demoApi.getState).mockResolvedValue(testState))
+
+beforeEach(() => {
+  vi.mocked(demoApi.getState).mockResolvedValue(testState)
+  vi.mocked(connectorApi.getConnectorStatus).mockResolvedValue({
+    source: 'foundry',
+    connectorId: 'azure-ai-foundry-agent-service',
+    mode: 'foundry',
+    projectEndpoint: 'https://contoso.services.ai.azure.com/api/projects/sentinel',
+  })
+})
 
 async function renderRoute(route: string) {
   render(
@@ -47,5 +57,14 @@ describe('application routing', () => {
     cleanup()
     await renderRoute('/agent-estate/hr-policy-agent/evidence/evidence-hr-agent-manifest')
     expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeVisible()
+  })
+
+  it('renders connector status and metadata', async () => {
+    await renderRoute('/connectors')
+    expect(await screen.findByRole('heading', { name: 'Connector health' })).toBeVisible()
+    expect(
+      await screen.findByRole('heading', { name: 'azure-ai-foundry-agent-service' }),
+    ).toBeVisible()
+    expect(await screen.findByText('Project endpoint')).toBeVisible()
   })
 })

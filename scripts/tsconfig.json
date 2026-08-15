@@ -1,0 +1,14 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": "..",
+    "noEmit": true,
+    "paths": {
+      "@agent-sentinel/foundry-connector": ["connectors/foundry/src/index.ts"],
+      "@agent-sentinel/scenarios": ["packages/scenarios/src/index.ts"]
+    },
+    "rootDir": "..",
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["."]
+}

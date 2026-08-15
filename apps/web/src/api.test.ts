@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { demoApi } from './api'
+import { connectorApi, demoApi } from './api'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -27,9 +27,7 @@ describe('demoApi', () => {
       ),
     )
     vi.stubGlobal('fetch', fetchMock)
-
     await demoApi.reset()
-
     expect(fetchMock).toHaveBeenCalledWith('/api/demo/reset', {
       method: 'POST',
     })
@@ -45,7 +43,28 @@ describe('demoApi', () => {
         }),
       ),
     )
-
     await expect(demoApi.proposeRemediation('finding-1')).rejects.toThrow('Validation is required.')
+  })
+})
+
+describe('connectorApi', () => {
+  it('parses a valid connector status response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ source: 'mock', connectorId: 'mock-agent-estate', mode: 'mock' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        ),
+    )
+    const status = await connectorApi.getConnectorStatus()
+    expect(status).toMatchObject({
+      source: 'mock',
+      connectorId: 'mock-agent-estate',
+      mode: 'mock',
+    })
   })
 })

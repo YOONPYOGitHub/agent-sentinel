@@ -40,3 +40,23 @@ it does not recreate their native administration.
 - No impactful action executes without authorization and approval context.
 - Tenant and environment boundaries apply below the UI.
 - LLM output may summarize evidence but does not establish security truth.
+
+## Azure AI Foundry connector
+
+The `@agent-sentinel/foundry-connector` workspace discovers declared agent and function-tool configuration from the Foundry v1 API. This evidence is labeled **Declared configuration** and is not presented as observed runtime behavior. The `@agent-sentinel/scenarios` workspace defines the six synthetic validation agents; `@agent-sentinel/scripts` owns provisioning and live validation.
+
+Environment variables:
+- `AGENT_SENTINEL_CONNECTOR=mock|foundry` (defaults to `mock`)
+- `FOUNDRY_PROJECT_ENDPOINT`
+- `FOUNDRY_TENANT_ID`
+- `FOUNDRY_ENVIRONMENT`
+
+```bash
+cd /home/yoonpyohong/project/agent-sentinel
+FOUNDRY_PROJECT_ENDPOINT=https://ais-agent-sentinel-260814.services.ai.azure.com/api/projects/agent-sentinel-pjt tsx scripts/provision-agents.ts
+FOUNDRY_PROJECT_ENDPOINT=https://ais-agent-sentinel-260814.services.ai.azure.com/api/projects/agent-sentinel-pjt tsx scripts/validate-live.ts
+# Destructive; review before running. Deletes only manifest agent names.
+FOUNDRY_PROJECT_ENDPOINT=https://ais-agent-sentinel-260814.services.ai.azure.com/api/projects/agent-sentinel-pjt tsx scripts/cleanup-agents.ts
+```
+
+Live validation writes the sanitized, Git-ignored `scripts/live-validation-report.json`.

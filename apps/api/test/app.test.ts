@@ -1,16 +1,34 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { agentSentinelStateSchema } from '@agent-sentinel/domain'
 
 import { createApp } from '../src/app.js'
+import type { DemoService } from '../src/demo-service.js'
 
 const apps: Awaited<ReturnType<typeof createApp>>[] = []
 
+beforeEach(() => {
+  process.env['AGENT_SENTINEL_CONNECTOR'] = 'mock'
+})
+
 afterEach(async () => {
   await Promise.all(apps.splice(0).map(async (app) => app.close()))
+  delete process.env['AGENT_SENTINEL_CONNECTOR']
 })
 
 describe('demo API', () => {
+  it('reports the connector source and mode via the status endpoint', async () => {
+    const app = await createApp()
+    apps.push(app)
+    const response = await app.inject({ method: 'GET', url: '/api/connector/status' })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      source: 'mock',
+      connectorId: 'mock-agent-estate',
+      mode: 'mock',
+    })
+  })
+
   it('runs the evidence-to-remediation workflow', async () => {
     const app = await createApp()
     apps.push(app)
@@ -114,5 +132,37 @@ describe('demo API', () => {
 
     expect(response.statusCode).toBe(404)
     expect(body).toMatchObject({ error: 'not_found' })
+  })
+
+  it('returns 500 for unexpected errors, not 409', async () => {
+    const brokenService = {
+      getState: () => Promise.reject(new Error('Unexpected database failure')),
+      getConnectorStatus: () => Promise.reject(new Error('Unexpected connector failure')),
+      reset: () => Promise.reject(new Error('Unexpected reset failure')),
+      validateFinding: () => Promise.reject(new Error('Unexpected database failure')),
+      proposeRemediation: () => Promise.reject(new Error('Unexpected database failure')),
+      approveRemediation: () => Promise.reject(new Error('Unexpected database failure')),
+      executeRemediation: () => Promise.reject(new Error('Unexpected database failure')),
+    }
+    const app = await createApp(brokenService as unknown as DemoService)
+    apps.push(app)
+    const response = await app.inject({ method: 'GET', url: '/api/demo/state' })
+    expect(response.statusCode).toBe(500)
+    expect(response.json()).toMatchObject({ error: 'internal_error' })
+  })
+
+  it('maps StateConflictError to 409 and generic errors to 500', async () => {
+    // Attempting remediation before validation raises StateConflictError → 409
+    const app = await createApp()
+    apps.push(app)
+    const initial = agentSentinelStateSchema.parse(
+      (await app.inject({ method: 'GET', url: '/api/demo/state' })).json(),
+    )
+    const conflictResponse = await app.inject({
+      method: 'POST',
+      url: `/api/demo/findings/${String(initial.findings[0]?.id)}/remediations`,
+    })
+    expect(conflictResponse.statusCode).toBe(409)
+    expect(conflictResponse.json()).toMatchObject({ error: 'operation_rejected' })
   })
 })

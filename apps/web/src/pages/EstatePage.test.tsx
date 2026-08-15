@@ -6,12 +6,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import App from '../App'
-import { demoApi } from '../api'
+import { connectorApi, demoApi } from '../api'
 import { testState } from '../test-fixture'
 
 vi.mock('../api')
 afterEach(cleanup)
-beforeEach(() => vi.mocked(demoApi.getState).mockResolvedValue(testState))
+beforeEach(() => {
+  vi.mocked(demoApi.getState).mockResolvedValue(testState)
+  vi.mocked(connectorApi.getConnectorStatus).mockResolvedValue({
+    source: 'mock',
+    connectorId: 'mock-agent-estate',
+    mode: 'mock',
+  })
+})
 
 async function renderEstate() {
   render(
@@ -65,5 +72,16 @@ describe('EstatePage', () => {
     const link = screen.getByRole('link', { name: /HR Policy Assistant/ })
     expect(link).toHaveAttribute('href', '/agent-estate/hr-policy-agent')
     await waitFor(() => expect(screen.getByText('1 of 3 agents')).toBeVisible())
+  })
+
+  it('labels a Foundry endpoint as declared configuration', async () => {
+    vi.mocked(connectorApi.getConnectorStatus).mockResolvedValue({
+      source: 'foundry',
+      connectorId: 'azure-ai-foundry-agent-service',
+      mode: 'foundry',
+      projectEndpoint: 'https://example.services.ai.azure.com/api/projects/example',
+    })
+    await renderEstate()
+    expect(screen.getByText('Declared configuration:')).toBeVisible()
   })
 })

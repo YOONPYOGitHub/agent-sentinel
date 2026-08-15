@@ -1,0 +1,101 @@
+# Microsoft Foundry live agents
+
+Agent Sentinel can discover agents from Microsoft Foundry without replacing the
+Foundry control plane. The integration is read-only at runtime: remediation
+execution is explicitly rejected. Provisioning and cleanup are separate,
+operator-invoked scripts.
+
+## Prerequisites
+
+- Node.js 22 and pnpm 10.15.1
+- Azure CLI sign-in or another `DefaultAzureCredential` source
+- The deployed Foundry project endpoint from the `foundryProjectEndpoint`
+  infrastructure output
+- `Azure AI User` access scoped to the project
+
+Copy `.env.example` values into your shell. Do not put credentials or API keys
+in source files. The integration uses Microsoft Entra tokens.
+
+```bash
+export FOUNDRY_PROJECT_ENDPOINT='https://<account>.services.ai.azure.com/api/projects/<project>'
+export AZURE_TENANT_ID='<tenant-id>'
+export AGENT_SENTINEL_ENVIRONMENT='development'
+```
+
+## Scenario manifest
+
+`@agent-sentinel/scenarios` owns the strict six-agent manifest. Per-agent
+SHA-256 hashes are canonical and stable. Provisioned agents carry the manifest
+hash in metadata and both `[managed-by:agent-sentinel]` and the full hash in
+their descriptions so drift and ownership are explicit.
+
+## Provision and cleanup
+
+These commands make live changes and must be run only by an authorized
+operator. They are not part of build or test.
+
+```bash
+pnpm build
+pnpm foundry:provision
+pnpm foundry:cleanup          # dry-run; makes no changes
+pnpm foundry:cleanup -- --apply
+```
+
+Provisioning confirms matching agents by immutable ID. A matching owned version
+is unchanged; a definition change creates a new version and never patches an
+existing agent. Cleanup defaults to dry-run and requires both an exact manifest
+name and the ownership marker. Metadata or a matching name alone can never make
+an unrelated agent eligible for deletion.
+
+## API selection and connector health
+
+The API defaults to the mock connector. Select Foundry by setting all four
+values before starting the API:
+
+```bash
+export AGENT_SENTINEL_CONNECTOR=foundry
+export FOUNDRY_PROJECT_ENDPOINT='...'
+export FOUNDRY_TENANT_ID='...'
+export FOUNDRY_ENVIRONMENT='production'
+pnpm dev
+```
+
+Invalid modes or missing Foundry settings stop startup rather than silently
+falling back. `GET /api/connectors/status` returns the selected mode,
+capabilities, permissions, API maturity, known blind spots, and a measured
+connection result. The web **Connectors** page presents the same evidence.
+
+The connector validates Foundry responses, safely follows same-collection
+`nextLink` and body/header continuation tokens, and maps each source object to
+evidence and an estate agent. It does not infer tools, relationships, owners,
+or health that Foundry did not return.
+
+## Live validation
+
+Live validation is intentionally opt-in and is never run by CI:
+
+```bash
+pnpm build
+pnpm foundry:validate
+```
+
+The runner looks up all six current immutable agents by ID and exercises benign,
+agent-specific behavior, prompt-injection, and harmful-content probes through
+the Responses API. It reports service content filters separately from
+agent-level refusals. Local function calls receive synthetic outputs only; no
+external operation is performed. It writes `scripts/live-validation-report.json`.
+A missing agent, empty answer, unsafe outcome, or incomplete run fails.
+
+## Limitations and troubleshooting
+
+- Agent CRUD uses project `v1`. Live invocation isolates the current SDK-derived
+  wire assumption as `POST /openai/responses?api-version=v1` with a root
+  `agent_reference`; this should be rechecked if the service rejects that shape.
+- Runtime traces, tool authorization, and cost require separate authoritative
+  telemetry connectors; they are reported as blind spots.
+- HTTP/RBAC failures are reported as degraded health and are not replaced with
+  mock success.
+- A `403` requires project-scoped role review. A malformed response indicates
+  API contract drift and fails schema validation.
+- Always run cleanup when the six scenario agents are no longer needed to
+  avoid leaving project resources behind.

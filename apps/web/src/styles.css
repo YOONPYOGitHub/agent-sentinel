@@ -321,6 +321,88 @@ button {
   padding: 25px 28px 48px;
 }
 
+.connector-state,
+.connector-card {
+  margin: 24px;
+  border: 1px solid #273247;
+  border-radius: 12px;
+  background: #111925;
+}
+
+.connector-state {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.connector-state--error {
+  color: #ffb3b3;
+}
+
+.connector-state > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.connector-card {
+  padding: 24px;
+}
+
+.connector-card__header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #273247;
+}
+
+.connector-card__header > svg {
+  width: 28px;
+  height: 28px;
+  color: #54b17a;
+}
+
+.connector-card__header > div {
+  flex: 1;
+}
+
+.connector-card__header h2,
+.connector-card__header p {
+  margin: 0;
+}
+
+.connector-card__header p {
+  margin-top: 4px;
+  color: #9da9bd;
+}
+
+.connector-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.connector-details > div {
+  padding: 18px 0;
+  border-bottom: 1px solid #202a3b;
+}
+
+.connector-details dt {
+  color: #8f9bb0;
+  font-size: 12px;
+}
+
+.connector-details dd {
+  margin: 6px 0 0;
+}
+
+.connector-blind-spots {
+  padding-top: 20px;
+}
+
 .page-heading {
   display: flex;
   align-items: flex-end;
