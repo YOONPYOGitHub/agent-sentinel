@@ -20,10 +20,18 @@ export default defineConfig({
       },
     },
   ],
-  webServer: {
-    command: 'pnpm --dir ../.. dev',
-    url: 'http://127.0.0.1:5173',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: 'pnpm --dir ../.. --filter @agent-sentinel/api dev',
+      url: 'http://127.0.0.1:3001/health',
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+    },
+    {
+      command: 'pnpm --dir ../.. --filter @agent-sentinel/web dev',
+      url: 'http://127.0.0.1:5173',
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+    },
+  ],
 })

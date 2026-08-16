@@ -82,7 +82,9 @@ export async function provisionAgents(
     ),
   ).length
   if (verified !== agents.length) {
-    throw new Error(`Foundry verification failed: ${verified}/${agents.length} current agents found.`)
+    throw new Error(
+      `Foundry verification failed: ${verified}/${agents.length} current agents found.`,
+    )
   }
   return { created, unchanged, verified }
 }

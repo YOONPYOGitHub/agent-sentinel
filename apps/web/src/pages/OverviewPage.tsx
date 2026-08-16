@@ -55,7 +55,8 @@ const portfolioMetrics = [
 ]
 
 export function OverviewPage() {
-  const { state, operation, error, clearError, load, run } = useDemoState()
+  const { state, connectorStatus, operation, error, clearError, load, run } = useDemoState()
+  const writeEnabled = connectorStatus?.writeEnabled !== false
   const { selectedEvidence, setSelectedEvidence, drawerRef, trapFocus } = useEvidenceDrawer()
   const finding = state?.findings[0]
   const remediation = state?.remediations[0]
@@ -149,7 +150,7 @@ export function OverviewPage() {
               appearance="secondary"
               icon={<ArrowResetRegular />}
               onClick={() => void run('resetting', demoApi.reset)}
-              disabled={operation !== undefined}
+              disabled={!writeEnabled || operation !== undefined}
             >
               Reset
             </Button>
@@ -157,7 +158,7 @@ export function OverviewPage() {
               <Button
                 appearance="primary"
                 icon={<primaryAction.icon />}
-                disabled={operation !== undefined}
+                disabled={!writeEnabled || operation !== undefined}
                 onClick={() => void primaryAction.onClick()}
               >
                 {primaryAction.busy ? 'Working…' : primaryAction.label}

@@ -6,9 +6,11 @@ const connectorStatusSchema = z.strictObject({
   connectorId: z.string().min(1),
   mode: z.enum(['mock', 'foundry']),
   projectEndpoint: z.url().optional(),
+  writeEnabled: z.boolean().optional().default(true),
 })
 
-export type ConnectorStatus = z.infer<typeof connectorStatusSchema>
+export type ConnectorStatus = z.input<typeof connectorStatusSchema>
+export type WriteCapability = Pick<ConnectorStatus, 'writeEnabled'>
 
 function responseMessage(value: unknown): string | undefined {
   if (

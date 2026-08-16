@@ -20,6 +20,7 @@ beforeEach(() => {
     connectorId: 'azure-ai-foundry-agent-service',
     mode: 'foundry',
     projectEndpoint: 'https://contoso.services.ai.azure.com/api/projects/sentinel',
+    writeEnabled: true,
   })
 })
 
@@ -66,5 +67,18 @@ describe('application routing', () => {
       await screen.findByRole('heading', { name: 'azure-ai-foundry-agent-service' }),
     ).toBeVisible()
     expect(await screen.findByText('Project endpoint')).toBeVisible()
+  })
+
+  it('shows read-only mode and disables mutations when writes are blocked', async () => {
+    vi.mocked(connectorApi.getConnectorStatus).mockResolvedValue({
+      source: 'foundry',
+      connectorId: 'azure-ai-foundry-agent-service',
+      mode: 'foundry',
+      writeEnabled: false,
+    })
+    await renderRoute('/overview')
+    expect(await screen.findByText(/Read-only mode active/i)).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Run safe validation' })).toBeDisabled()
   })
 })

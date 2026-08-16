@@ -46,16 +46,19 @@ export class DemoService {
     connectorId: string
     mode: 'mock' | 'foundry'
     projectEndpoint?: string
+    writeEnabled?: boolean
   }> {
     const result: {
       source: 'mock' | 'foundry'
       connectorId: string
       mode: 'mock' | 'foundry'
       projectEndpoint?: string
+      writeEnabled?: boolean
     } = {
       source: this.connectorMode,
       connectorId: this.connector.descriptor.id,
       mode: this.connectorMode,
+      writeEnabled: process.env['AGENT_SENTINEL_WRITE_ENABLED']?.trim().toLowerCase() !== 'false',
     }
     if (this.projectEndpoint !== undefined) {
       result.projectEndpoint = this.projectEndpoint

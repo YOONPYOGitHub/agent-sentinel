@@ -48,14 +48,63 @@ export const foundryConnectorConfigSchema = z.strictObject({
 export const foundryConfigSchema = foundryConnectorConfigSchema
 export type FoundryConnectorConfig = z.infer<typeof foundryConnectorConfigSchema>
 
-const functionToolSchema = z.object({ type: z.string(), name: z.string().optional(), description: z.string().optional(), parameters: z.record(z.string(), z.unknown()).optional(), function: z.object({ name: z.string(), description: z.string().optional(), parameters: z.record(z.string(), z.unknown()).optional() }).optional() }).passthrough()
-const agentVersionSchema = z.object({ version: z.string(), description: z.string().nullable().optional(), metadata: z.record(z.string(), z.string()).optional(), definition: z.object({ kind: z.string(), name: z.string().optional(), model: z.string(), instructions: z.string().optional(), tools: z.array(functionToolSchema).optional() }).passthrough() }).passthrough()
-export const foundryAgentDefinitionSchema = z.object({
-  id: z.string().min(1), name: z.string().nullable().optional(), version: z.string().optional(), displayName: z.string().optional(), description: z.string().nullable().optional(), model: z.string().optional(), instructions: z.string().nullable().optional(), tools: z.array(functionToolSchema).optional(), metadata: z.record(z.string(), z.string()).optional(), versions: z.object({ latest: agentVersionSchema }).optional(),
-}).passthrough().transform((agent) => {
-  const latest = agent.versions?.latest
-  return { ...agent, version: agent.version ?? latest?.version, description: agent.description ?? latest?.description, model: agent.model ?? latest?.definition.model, instructions: agent.instructions ?? latest?.definition.instructions, tools: agent.tools ?? latest?.definition.tools, metadata: agent.metadata ?? latest?.metadata }
-})
+const functionToolSchema = z
+  .object({
+    type: z.string(),
+    name: z.string().optional(),
+    description: z.string().optional(),
+    parameters: z.record(z.string(), z.unknown()).optional(),
+    function: z
+      .object({
+        name: z.string(),
+        description: z.string().optional(),
+        parameters: z.record(z.string(), z.unknown()).optional(),
+      })
+      .optional(),
+  })
+  .passthrough()
+const agentVersionSchema = z
+  .object({
+    version: z.string(),
+    description: z.string().nullable().optional(),
+    metadata: z.record(z.string(), z.string()).optional(),
+    definition: z
+      .object({
+        kind: z.string(),
+        name: z.string().optional(),
+        model: z.string(),
+        instructions: z.string().optional(),
+        tools: z.array(functionToolSchema).optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough()
+export const foundryAgentDefinitionSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().nullable().optional(),
+    version: z.string().optional(),
+    displayName: z.string().optional(),
+    description: z.string().nullable().optional(),
+    model: z.string().optional(),
+    instructions: z.string().nullable().optional(),
+    tools: z.array(functionToolSchema).optional(),
+    metadata: z.record(z.string(), z.string()).optional(),
+    versions: z.object({ latest: agentVersionSchema }).optional(),
+  })
+  .passthrough()
+  .transform((agent) => {
+    const latest = agent.versions?.latest
+    return {
+      ...agent,
+      version: agent.version ?? latest?.version,
+      description: agent.description ?? latest?.description,
+      model: agent.model ?? latest?.definition.model,
+      instructions: agent.instructions ?? latest?.definition.instructions,
+      tools: agent.tools ?? latest?.definition.tools,
+      metadata: agent.metadata ?? latest?.metadata,
+    }
+  })
 export const foundryAgentSchema = foundryAgentDefinitionSchema
 export type FoundryAgentDefinition = z.input<typeof foundryAgentDefinitionSchema>
 export type FoundryAgent = FoundryAgentDefinition
@@ -77,7 +126,11 @@ export class FoundryConnectorError extends Error {
   override readonly name = 'FoundryConnectorError'
 }
 function toolNames(agent: FoundryAgentDefinition): string[] {
-  return (agent.tools ?? []).flatMap((tool) => tool.type === 'function' ? [tool.function?.name ?? tool.name].filter((name): name is string => name !== undefined) : [])
+  return (agent.tools ?? []).flatMap((tool) =>
+    tool.type === 'function'
+      ? [tool.function?.name ?? tool.name].filter((name): name is string => name !== undefined)
+      : [],
+  )
 }
 
 function trust(agent: FoundryAgentDefinition): 'trusted' | 'conditional' | 'untrusted' {
@@ -276,7 +329,10 @@ export class FoundryAgentConnector implements AgentConnector {
       throw new FoundryConnectorError(
         errorMessage(body) ?? `Foundry request failed with status ${response.status}.`,
       )
-    const continuation = response.headers.get('x-ms-continuation') ?? response.headers.get('x-ms-continuation-token') ?? undefined
+    const continuation =
+      response.headers.get('x-ms-continuation') ??
+      response.headers.get('x-ms-continuation-token') ??
+      undefined
     return continuation === undefined ? { body } : { body, continuation }
   }
 }

@@ -1,0 +1,29 @@
+FROM node:22-slim AS builder
+WORKDIR /workspace
+RUN corepack enable
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY packages/domain/package.json packages/domain/
+COPY packages/messaging/package.json packages/messaging/
+COPY apps/jobs/package.json apps/jobs/
+RUN pnpm install --frozen-lockfile
+COPY tsconfig.base.json ./
+COPY packages/domain/ packages/domain/
+COPY packages/messaging/ packages/messaging/
+COPY apps/jobs/ apps/jobs/
+RUN pnpm --filter @agent-sentinel/domain build
+RUN pnpm --filter @agent-sentinel/messaging build
+RUN pnpm --filter @agent-sentinel/jobs build
+
+FROM node:22-slim AS runtime
+WORKDIR /app
+RUN corepack enable
+COPY --from=builder /workspace/package.json /workspace/pnpm-workspace.yaml /workspace/pnpm-lock.yaml ./
+COPY --from=builder /workspace/apps/jobs/dist ./apps/jobs/dist/
+COPY --from=builder /workspace/apps/jobs/package.json ./apps/jobs/
+COPY --from=builder /workspace/packages/domain/dist ./packages/domain/dist/
+COPY --from=builder /workspace/packages/domain/package.json ./packages/domain/
+COPY --from=builder /workspace/packages/messaging/dist ./packages/messaging/dist/
+COPY --from=builder /workspace/packages/messaging/package.json ./packages/messaging/
+RUN pnpm install --frozen-lockfile --prod
+USER node
+CMD ["node", "apps/jobs/dist/worker.js"]

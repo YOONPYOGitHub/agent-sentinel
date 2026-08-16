@@ -84,7 +84,10 @@ export function EstatePage() {
       />
       {connectorStatus !== undefined && (
         <div className="estate-source-banner" role="note">
-          <strong>{connectorStatus.source === 'foundry' ? 'Live · Azure AI Foundry' : 'Synthetic · Mock'}</strong> &nbsp;|&nbsp;
+          <strong>
+            {connectorStatus.source === 'foundry' ? 'Live · Azure AI Foundry' : 'Synthetic · Mock'}
+          </strong>{' '}
+          &nbsp;|&nbsp;
           <strong>Mode:</strong> {connectorStatus.mode}
           {connectorStatus.projectEndpoint !== undefined && (
             <>

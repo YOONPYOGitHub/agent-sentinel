@@ -17,6 +17,8 @@ import {
 } from '@fluentui/react-icons'
 import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { useDemoState } from '../hooks/useDemoState'
+import { ReadOnlyBanner } from './ReadOnlyBanner'
 
 const navigation = [
   { label: 'Overview', icon: HomeRegular, to: '/overview', end: true },
@@ -32,6 +34,7 @@ const navigation = [
 
 export function AppLayout() {
   const [navExpanded, setNavExpanded] = useState(true)
+  const { connectorStatus } = useDemoState()
 
   return (
     <div className={`app-shell ${navExpanded ? '' : 'app-shell--collapsed'}`}>
@@ -123,6 +126,7 @@ export function AppLayout() {
         </div>
       </header>
       <main className="main-content">
+        <ReadOnlyBanner writeEnabled={connectorStatus?.writeEnabled} />
         <Outlet />
       </main>
     </div>

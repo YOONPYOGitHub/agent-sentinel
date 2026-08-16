@@ -46,6 +46,7 @@ it does not recreate their native administration.
 The `@agent-sentinel/foundry-connector` workspace discovers declared agent and function-tool configuration from the Foundry v1 API. This evidence is labeled **Declared configuration** and is not presented as observed runtime behavior. The `@agent-sentinel/scenarios` workspace defines the six synthetic validation agents; `@agent-sentinel/scripts` owns provisioning and live validation.
 
 Environment variables:
+
 - `AGENT_SENTINEL_CONNECTOR=mock|foundry` (defaults to `mock`)
 - `FOUNDRY_PROJECT_ENDPOINT`
 - `FOUNDRY_TENANT_ID`

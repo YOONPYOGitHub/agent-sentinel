@@ -14,10 +14,12 @@ beforeEach(() => {
 afterEach(async () => {
   await Promise.all(apps.splice(0).map(async (app) => app.close()))
   delete process.env['AGENT_SENTINEL_CONNECTOR']
+  delete process.env['AGENT_SENTINEL_WRITE_ENABLED']
 })
 
 describe('demo API', () => {
   it('reports the connector source and mode via the status endpoint', async () => {
+    process.env['AGENT_SENTINEL_WRITE_ENABLED'] = 'false'
     const app = await createApp()
     apps.push(app)
     const response = await app.inject({ method: 'GET', url: '/api/connector/status' })
@@ -26,6 +28,7 @@ describe('demo API', () => {
       source: 'mock',
       connectorId: 'mock-agent-estate',
       mode: 'mock',
+      writeEnabled: false,
     })
   })
 
