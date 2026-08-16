@@ -14,8 +14,8 @@ param searchEndpoint string
 param sbFqdn string
 param appInsightsConnectionString string
 
-@description('Immutable image tag (git SHA or digest). Defaults to latest for initial bootstrap only.')
-param imageTag string = 'latest'
+@description('Required immutable image tag (git SHA). Mutable tags such as latest are not permitted.')
+param imageTag string
 
 resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: envName
@@ -61,6 +61,7 @@ var env = [
   { name: 'PG_HOST',                               value: pgHost }
   { name: 'SEARCH_ENDPOINT',                       value: searchEndpoint }
   { name: 'SB_FQDN',                               value: sbFqdn }
+  { name: 'SERVICE_BUS_FQDN',                      value: sbFqdn }
   { name: 'AZURE_CLIENT_ID',                       value: uamiClientId }
   { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsightsConnectionString }
 ]

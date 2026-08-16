@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto'
-
 import cors from '@fastify/cors'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { z } from 'zod'
-
+import { buildAuthConfig, createAuthMiddleware, type AuthConfig } from './auth.js'
 import { createConfiguredConnector } from './connector-factory.js'
 import { DemoService, NotFoundError, StateConflictError } from './demo-service.js'
 
@@ -16,22 +15,32 @@ function configuredService(): DemoService {
   return new DemoService(configured.connector, configured.mode, configured.projectEndpoint)
 }
 
-export async function createApp(service = configuredService()): Promise<FastifyInstance> {
+function corsOrigins(value = process.env['CORS_ORIGIN']): string[] {
+  return (value ?? 'http://localhost:5173')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0)
+}
+
+export async function createApp(
+  service = configuredService(),
+  authConfig: AuthConfig = buildAuthConfig(),
+): Promise<FastifyInstance> {
   const app = Fastify({ logger: false })
 
   await app.register(cors, {
-    origin: ['http://localhost:5173'],
+    origin: corsOrigins(),
   })
 
   app.addHook('onRequest', (request, reply, done) => {
     const header = request.headers['x-correlation-id']
     const correlationId = typeof header === 'string' && header.length > 0 ? header : randomUUID()
     const url = request.url.split('?', 1)[0] ?? request.url
-
     void reply.header('x-correlation-id', correlationId)
     console.log(JSON.stringify({ level: 'info', method: request.method, url, correlationId }))
     done()
   })
+  app.addHook('onRequest', createAuthMiddleware(authConfig))
 
   app.get('/health', () => ({
     status: 'ok',

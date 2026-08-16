@@ -149,3 +149,36 @@ az deployment group create --mode Incremental \
   --template-file infra/platform.bicep \
   --parameters infra/environments/dev.parameters.bicepparam
 ```
+
+## RB-011: Security Gate WAF
+
+BlockApiMutationPreAuth is a temporary WAF safety gate. It blocks non-GET/HEAD/OPTIONS requests
+under /api/ until Microsoft Entra authentication and authorization have been validated in the
+runtime. Keep the rule at priority 1 and in Prevention mode during this phase. Remove or narrow it
+only after the JWT write-scope tests, App Gateway path tests, and an authorized remediation smoke
+test pass; confirm anonymous mutation remains denied before closing the change.
+
+## RB-012: Auth Architecture and Pending Steps
+
+The API supports disabled, mock, and jwt authentication modes. Production must use jwt
+with AUTH_TENANT_ID, AUTH_AUDIENCE, AUTH_READ_SCOPES, and AUTH_WRITE_SCOPES. JWT mode uses
+the tenant v2 JWKS endpoint, validates issuer/audience/RS256, and accepts delegated scopes (`scp`)
+or app roles (`roles`). Health and connector-status routes remain public.
+
+Pending production steps:
+
+1. Create the Entra API app registration and expose read/write scopes or app roles.
+2. Create the web app registration, configure redirect URIs, and grant API permissions.
+3. Configure the Container Apps environment variables and approved CORS origins.
+4. Add browser token acquisition and Bearer forwarding, then validate least-privilege roles.
+5. Complete the RB-011 gate-removal checks before enabling write operations at the edge.
+
+## RB-013: Custom Domain, TLS, and App Registration
+
+1. Add and verify the production DNS name.
+2. Import or issue its certificate in Key Vault and grant the Application Gateway identity access.
+3. Configure the HTTPS listener, SNI hostname, certificate reference, and HTTP-to-HTTPS redirect.
+4. Add the final HTTPS origin to CORS_ORIGIN.
+5. Add the exact HTTPS redirect URI and front-channel logout URL to the web Entra app registration.
+6. Update API identifier/audience settings if the custom URI is used, and obtain admin consent.
+7. Validate certificate renewal, TLS policy, login/logout, token audience, CORS, and WAF behavior.

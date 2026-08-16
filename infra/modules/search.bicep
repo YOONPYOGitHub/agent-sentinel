@@ -15,7 +15,7 @@ resource search 'Microsoft.Search/searchServices@2024-03-01-preview' = {
   properties: {
     replicaCount: 1
     partitionCount: 1
-    disableLocalAuth: false
+    disableLocalAuth: true
     publicNetworkAccess: 'disabled'
   }
 }

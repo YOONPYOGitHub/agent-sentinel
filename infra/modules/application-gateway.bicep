@@ -33,6 +33,38 @@ resource wafPolicy 'Microsoft.Network/ApplicationGatewayWebApplicationFirewallPo
       state: 'Enabled'
       mode: 'Prevention'
     }
+    // Temporary safety gate until Entra authentication is deployed; see RB-011.
+    customRules: [
+      {
+        name: 'BlockApiMutationPreAuth'
+        priority: 1
+        ruleType: 'MatchRule'
+        action: 'Block'
+        matchConditions: [
+          {
+            matchVariables: [
+              {
+                variableName: 'RequestUri'
+              }
+            ]
+            operator: 'BeginsWith'
+            transforms: ['Lowercase']
+            matchValues: ['/api/']
+          }
+          {
+            matchVariables: [
+              {
+                variableName: 'RequestMethod'
+              }
+            ]
+            operator: 'Equal'
+            transforms: []
+            negationConditon: true
+            matchValues: ['GET', 'HEAD', 'OPTIONS']
+          }
+        ]
+      }
+    ]
     managedRules: {
       managedRuleSets: [
         {

@@ -23,7 +23,7 @@ resource account 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {
       }
     ]
     disableKeyBasedMetadataWriteAccess: true
-    disableLocalAuth: false
+    disableLocalAuth: true
     publicNetworkAccess: 'Disabled'
   }
 }

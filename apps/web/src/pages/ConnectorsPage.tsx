@@ -7,6 +7,7 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 import { connectorApi, type ConnectorStatus } from '../api'
 import { PageHeading } from '../components/PageHeading'
+import { ReadOnlyBanner } from '../components/ReadOnlyBanner'
 
 export function ConnectorsPage() {
   const [status, setStatus] = useState<ConnectorStatus>()
@@ -39,6 +40,7 @@ export function ConnectorsPage() {
           </Button>
         }
       />
+      <ReadOnlyBanner writeEnabled={status?.writeEnabled} />
       {loading && status === undefined ? (
         <div className="connector-state" role="status">
           Loading connector status…

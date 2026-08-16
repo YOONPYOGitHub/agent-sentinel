@@ -5,6 +5,7 @@ param cosmosId string
 param kvId string
 param aiAccountId string
 param sbNamespaceId string
+param searchId string
 
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: 'id-agent-sentinel-260814'
@@ -32,6 +33,10 @@ resource serviceBus 'Microsoft.ServiceBus/namespaces@2022-10-01-preview' existin
   name: last(split(sbNamespaceId, '/'))
 }
 
+
+resource search 'Microsoft.Search/searchServices@2024-03-01-preview' existing = {
+  name: last(split(searchId, '/'))
+}
 var acrPullRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
 var keyVaultSecretsUserRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
 var azureAiDeveloperRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '64702f94-c441-49e6-a78b-ef80e0188fee')
@@ -39,6 +44,8 @@ var storageBlobDataReaderRole = subscriptionResourceId('Microsoft.Authorization/
 var serviceBusDataOwnerRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '090c5cfd-751d-490a-894a-3ce6f1109419')
 var openAiUserRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd')
 
+var searchIndexDataContributorRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '8ebe5a00-799e-43f5-93ac-243d3dce84a7')
+var searchServiceContributorRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7ca78c08-252a-4471-8644-bb5ff32d4ba0')
 resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(acr.id, identity.id, acrPullRole)
   scope: acr
@@ -109,6 +116,25 @@ resource storageReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+resource searchIndexDataContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(search.id, identity.id, searchIndexDataContributorRole)
+  scope: search
+  properties: {
+    principalId: identity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: searchIndexDataContributorRole
+  }
+}
+
+resource searchServiceContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(search.id, identity.id, searchServiceContributorRole)
+  scope: search
+  properties: {
+    principalId: identity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: searchServiceContributorRole
+  }
+}
 output id string = identity.id
 output clientId string = identity.properties.clientId
 output principalId string = identity.properties.principalId

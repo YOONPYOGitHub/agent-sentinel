@@ -8,8 +8,8 @@ param tags object = {
   'data-classification': 'synthetic'
 }
 
-@description('Immutable image tag for Container App images (git SHA recommended). Defaults to latest for initial bootstrap.')
-param imageTag string = 'latest'
+@description('Required immutable image tag for Container App images (git SHA). Mutable tags are not permitted.')
+param imageTag string
 
 @description('ACA environment default domain for private DNS zone creation (e.g. blackrock-0e55f941.koreacentral.azurecontainerapps.io). Empty string = skip DNS zone (use after first deployment). See deployment.md for post-deploy DNS step.')
 param acaEnvDomain string = ''
@@ -112,8 +112,9 @@ module identity './modules/identity.bicep' = {
     kvId: keyVault.outputs.id
     aiAccountId: foundry.outputs.aiAccountId
     sbNamespaceId: serviceBus.outputs.id
+    searchId: search.outputs.id
   }
-  dependsOn: [registry, cosmos, keyVault, foundry, serviceBus]
+  dependsOn: [registry, cosmos, keyVault, foundry, serviceBus, search]
 }
 
 module postgres './modules/postgres.bicep' = {
