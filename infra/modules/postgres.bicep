@@ -5,7 +5,7 @@ param delegatedSubnetResourceId string
 param privateDnsZoneArmResourceId string
 param adminObjectId string
 
-resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01' = {
+resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   name: serverName
   location: location
   tags: tags
@@ -41,7 +41,7 @@ resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01' = {
   }
 }
 
-resource administrator 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2023-12-01' = {
+resource administrator 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2024-08-01' = {
   parent: server
   name: adminObjectId
   properties: {
