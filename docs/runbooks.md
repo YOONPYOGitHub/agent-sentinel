@@ -184,3 +184,120 @@ Pending production steps:
 5. Add the exact HTTPS redirect URI and front-channel logout URL to the web Entra app registration.
 6. Update API identifier/audience settings if the custom URI is used, and obtain admin consent.
 7. Validate certificate renewal, TLS policy, login/logout, token audience, CORS, and WAF behavior.
+
+
+## RB-014: Private CI Build Runner
+
+### Architecture
+
+A self-hosted GitHub Actions runner (`vm-ci-runner-as`, Standard_D2s_v3) runs inside the
+`build` subnet (10.0.6.0/24) of `vnet-as-260814`. It has no public IP. Access is exclusively
+via Azure Run Command (management plane). Runner labels: `self-hosted,linux,x64,agent-sentinel-private`.
+
+| Component | Name | Notes |
+|---|---|---|
+| VM | `vm-ci-runner-as` | No public IP, Ubuntu 24.04 LTS |
+| UAMI | `id-ci-runner-260814` | AcrPush on acr260814 only |
+| NSG | `nsg-build-as` | All inbound denied; outbound restricted |
+| Subnet | `build` 10.0.6.0/24 | Inside vnet-as-260814 |
+
+### Required Outbound Domains (port 443 unless noted)
+
+| Domain | Purpose |
+|---|---|
+| `api.github.com` | Runner registration and job polling |
+| `*.actions.githubusercontent.com` | Job artifacts and caches |
+| `github.com` | git clone over HTTPS |
+| `objects.githubusercontent.com` | Large git objects/LFS |
+| `*.blob.core.windows.net` | Runner diagnostic uploads, Azure storage |
+| `mcr.microsoft.com` | Microsoft Container Registry base images |
+| `registry.npmjs.org` | pnpm package downloads |
+| `registry-1.docker.io` | Docker Hub base images |
+| `auth.docker.io` | Docker Hub auth |
+| `production.cloudflare.docker.com` | Docker CDN |
+| `management.azure.com` | ARM for Bicep what-if and deploy |
+| `login.microsoftonline.com` | Managed identity / Entra tokens |
+| `acr260814.azurecr.io` | Via VNet private endpoint (no internet) |
+| OS mirrors (port 80) | `archive.ubuntu.com`, CRL endpoints |
+
+### Initial Provisioning
+
+```bash
+# 1. Deploy build subnet (if not already present via platform.bicep deploy):
+az network vnet subnet create \
+  -g rg-agent-sentinel --vnet-name vnet-as-260814 \
+  --name build --address-prefixes 10.0.6.0/24
+
+# 2. Deploy CI foundation (UAMI + NSG + VM):
+az deployment group create \
+  -g rg-agent-sentinel \
+  -f infra/ci-foundation.bicep \
+  -p location=koreacentral
+
+# 3. Obtain short-lived runner token (1-hour TTL, never stored):
+TOKEN=$(~/.local/bin/gh api -X POST \
+  /repos/YOONPYOGitHub/agent-sentinel/actions/runners/registration-token \
+  --jq .token)
+
+# 4. Bootstrap runner on VM via Run Command (token passed over TLS, not persisted):
+az vm run-command invoke \
+  -g rg-agent-sentinel \
+  --name vm-ci-runner-as \
+  --command-id RunShellScript \
+  --scripts @scripts/bootstrap-runner.sh \
+  --parameters "GH_RUNNER_TOKEN=${TOKEN}" "RUNNER_VERSION=2.319.1"
+```
+
+### Azure Login in Workflows
+
+Workflows use `az login --identity --client-id <RUNNER_UAMI_CLIENT_ID>`. No OIDC federation
+or stored secrets are required. The runner is inside Azure; IMDS provides tokens directly.
+
+```yaml
+- name: Login to Azure (managed identity)
+  run: az login --identity --client-id "${{ env.RUNNER_UAMI_CLIENT_ID }}"
+- name: Login to ACR (identity - no password)
+  run: az acr login --name acr260814
+```
+
+### Runner Rotation / Re-registration
+
+```bash
+# Get remove-token (different endpoint from registration-token):
+REMOVE_TOKEN=$(~/.local/bin/gh api -X POST \
+  /repos/YOONPYOGitHub/agent-sentinel/actions/runners/remove-token \
+  --jq .token)
+
+az vm run-command invoke \
+  -g rg-agent-sentinel \
+  --name vm-ci-runner-as \
+  --command-id RunShellScript \
+  --scripts @scripts/remove-runner.sh \
+  --parameters "GH_RUNNER_TOKEN=${REMOVE_TOKEN}"
+
+# Re-register with a fresh token:
+NEW_TOKEN=$(~/.local/bin/gh api -X POST \
+  /repos/YOONPYOGitHub/agent-sentinel/actions/runners/registration-token \
+  --jq .token)
+
+az vm run-command invoke \
+  -g rg-agent-sentinel \
+  --name vm-ci-runner-as \
+  --command-id RunShellScript \
+  --scripts @scripts/bootstrap-runner.sh \
+  --parameters "GH_RUNNER_TOKEN=${NEW_TOKEN}" "RUNNER_VERSION=2.319.1"
+```
+
+### GitHub Environment Protection (production)
+
+The `deploy` job in `.github/workflows/ci-build-deploy.yml` targets the `production` environment.
+Configure a required reviewer in Settings > Environments > production to enforce manual approval.
+
+### VM Decommission
+
+To permanently remove the runner:
+1. Remove from GitHub via the remove-runner.sh script (see above).
+2. `az vm delete -g rg-agent-sentinel --name vm-ci-runner-as --yes`
+3. `az network nic delete -g rg-agent-sentinel --name nic-ci-runner-as`
+4. `az identity delete -g rg-agent-sentinel --name id-ci-runner-260814`
+5. `az network nsg delete -g rg-agent-sentinel --name nsg-build-as`

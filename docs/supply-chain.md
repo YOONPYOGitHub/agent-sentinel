@@ -21,3 +21,29 @@ immutable SHA-tagged images for the organization's rollback and audit window. Pu
 remove images used by active Container App revisions or approved rollback releases. Periodically
 verify that running revisions still reference retained manifests and that the retention window
 meets operational and compliance requirements.
+
+## Private Build Path
+
+Images must be built inside the Agent Sentinel VNet using the self-hosted GitHub Actions runner
+(`vm-ci-runner-as`). Microsoft-hosted runners cannot reach `acr260814` because `publicNetworkAccess`
+is `Disabled`. The private endpoint for ACR is registered in `privatelink.azurecr.io` private DNS
+zone, which is linked to `vnet-as-260814`.
+
+### Build workflow
+
+The workflow `.github/workflows/ci-build-deploy.yml` runs on
+`[self-hosted, linux, x64, agent-sentinel-private]`. It:
+
+1. Checks out the repo using the built-in `GITHUB_TOKEN` (no PAT required).
+2. Logs into Azure with `az login --identity --client-id` using the runner UAMI (`id-ci-runner-260814`).
+3. Logs into ACR with `az acr login --name acr260814` (identity, no password).
+4. Builds all three images with `docker build` using immutable `<7-char-SHA>` tags.
+5. Pushes to `acr260814.azurecr.io` via private endpoint.
+6. Verifies tags exist via `az acr repository show-tags`.
+7. Optionally runs `az deployment group what-if` and deploys `platform.bicep` with `imageTag=<SHA>`.
+
+### No long-lived secrets
+
+The runner UAMI (`id-ci-runner-260814`) holds `AcrPush` only. The runner registration token is
+obtained fresh via `gh api` (1-hour TTL) and passed to the VM over the Azure management plane
+(TLS). It is never written to disk or stored in Key Vault or source control.

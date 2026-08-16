@@ -1,0 +1,207 @@
+# ci-build-deploy.yml
+# Private CI/CD pipeline using self-hosted runner inside the Agent Sentinel VNet.
+#
+# Runner: self-hosted,linux,x64,agent-sentinel-private
+# Azure auth: az login --identity using runner UAMI (no OIDC, no secrets stored)
+# ACR push: az acr login (identity) then docker push to private ACR via private endpoint
+# Deploy: environment protection on "production" environment requires manual approval
+#
+# Triggers:
+#   - push to feature/platform-foundation (build + validate only)
+#   - workflow_dispatch (full build + deploy, with imageTag override)
+
+name: CI Build & Deploy (Private Runner)
+
+on:
+  push:
+    branches:
+      - feature/platform-foundation
+  workflow_dispatch:
+    inputs:
+      imageTag:
+        description: 'Git SHA to tag images with (defaults to HEAD SHA)'
+        required: false
+        default: ''
+      deployPlatform:
+        description: 'Deploy platform Bicep after building images?'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+env:
+  ACR_NAME: acr260814
+  ACR_LOGIN_SERVER: acr260814.azurecr.io
+  RG: rg-agent-sentinel
+  RUNNER_UAMI_CLIENT_ID: feb1bf96-738d-4b5c-8b75-4b617bbe9f93
+  IMAGE_TAG: ${{ github.event.inputs.imageTag || github.sha }}
+
+jobs:
+  # ?? Job 1: Validate ?????????????????????????????????????????????????????????
+  validate:
+    name: Validate (lint / typecheck / test / bicep-build)
+    runs-on: [self-hosted, linux, x64, agent-sentinel-private]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        # GITHUB_TOKEN automatically authenticates for private repos on self-hosted runners
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable pnpm via corepack
+        run: corepack enable && corepack prepare pnpm@latest --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Type-check
+        run: pnpm run typecheck
+
+      - name: Unit tests
+        run: pnpm run test
+
+      - name: Build all packages/apps
+        run: pnpm run build
+
+      - name: Bicep build (linter)
+        run: |
+          az bicep build -f infra/platform.bicep
+          az bicep build -f infra/ci-foundation.bicep
+
+  # ?? Job 2: Build & Push Images ??????????????????????????????????????????????
+  build-push:
+    name: Build & Push Container Images
+    needs: validate
+    runs-on: [self-hosted, linux, x64, agent-sentinel-private]
+    outputs:
+      imageTag: ${{ steps.set-tag.outputs.imageTag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Checkout the explicit SHA when imageTag is provided via workflow_dispatch
+          ref: ${{ github.event.inputs.imageTag || github.sha }}
+
+      - name: Determine image tag
+        id: set-tag
+        run: |
+          TAG="${{ env.IMAGE_TAG }}"
+          # Use short SHA (7 chars) matching git log --oneline convention
+          SHORT_TAG="${TAG:0:7}"
+          echo "imageTag=${SHORT_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Building images with tag: ${SHORT_TAG}"
+
+      - name: Login to Azure (managed identity)
+        run: |
+          az login --identity --client-id "${{ env.RUNNER_UAMI_CLIENT_ID }}" --allow-no-subscriptions
+          az account set --subscription "$(az account list --query '[0].id' -o tsv)"
+
+      - name: Login to ACR (identity ? no password)
+        run: az acr login --name "${{ env.ACR_NAME }}"
+
+      - name: Build and push web image
+        run: |
+          docker build \
+            -f apps/web/Containerfile \
+            -t "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-web:${{ steps.set-tag.outputs.imageTag }}" \
+            .
+          docker push "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-web:${{ steps.set-tag.outputs.imageTag }}"
+
+      - name: Build and push api image
+        run: |
+          docker build \
+            -f apps/api/Containerfile \
+            -t "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-api:${{ steps.set-tag.outputs.imageTag }}" \
+            .
+          docker push "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-api:${{ steps.set-tag.outputs.imageTag }}"
+
+      - name: Build and push jobs image
+        run: |
+          docker build \
+            -f apps/jobs/Containerfile \
+            -t "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-jobs:${{ steps.set-tag.outputs.imageTag }}" \
+            .
+          docker push "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-jobs:${{ steps.set-tag.outputs.imageTag }}"
+
+      - name: Verify images in ACR
+        run: |
+          TAG="${{ steps.set-tag.outputs.imageTag }}"
+          for img in agent-sentinel-web agent-sentinel-api agent-sentinel-jobs; do
+            DIGEST=$(az acr repository show-tags \
+              --name "${{ env.ACR_NAME }}" \
+              --repository "${img}" \
+              --query "[?@=='${TAG}']" -o tsv)
+            if [ -z "$DIGEST" ]; then
+              echo "ERROR: ${img}:${TAG} not found in ACR"
+              exit 1
+            fi
+            echo "OK: ${img}:${TAG}"
+          done
+
+  # ?? Job 3: Bicep What-If ????????????????????????????????????????????????????
+  what-if:
+    name: Bicep What-If
+    needs: build-push
+    if: github.event.inputs.deployPlatform == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, linux, x64, agent-sentinel-private]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        run: az login --identity --client-id "${{ env.RUNNER_UAMI_CLIENT_ID }}" --allow-no-subscriptions
+
+      - name: Bicep what-if
+        run: |
+          az deployment group what-if \
+            -g "${{ env.RG }}" \
+            -f infra/platform.bicep \
+            -p infra/environments/dev.parameters.bicepparam \
+            -p imageTag="${{ needs.build-push.outputs.imageTag }}" \
+            --result-format FullResourcePayloads
+
+  # ?? Job 4: Deploy ????????????????????????????????????????????????????????????
+  deploy:
+    name: Deploy Platform
+    needs: [build-push, what-if]
+    if: github.event.inputs.deployPlatform == 'true'
+    runs-on: [self-hosted, linux, x64, agent-sentinel-private]
+    environment: production  # Requires manual approval via GitHub environment protection
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build-push.outputs.imageTag }}
+
+      - name: Login to Azure
+        run: az login --identity --client-id "${{ env.RUNNER_UAMI_CLIENT_ID }}" --allow-no-subscriptions
+
+      - name: Deploy platform.bicep
+        run: |
+          az deployment group create \
+            -g "${{ env.RG }}" \
+            -f infra/platform.bicep \
+            -p infra/environments/dev.parameters.bicepparam \
+            -p imageTag="${{ needs.build-push.outputs.imageTag }}" \
+            --mode Incremental \
+            --rollback-on-error
+
+      - name: Smoke test - App Gateway GET /
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://4.230.67.93/)
+          echo "App Gateway GET /: ${STATUS}"
+          [ "$STATUS" = "200" ] || exit 1
+
+      - name: Smoke test - WAF blocks POST /api/demo/reset
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://4.230.67.93/api/demo/reset)
+          echo "WAF POST /api/demo/reset: ${STATUS}"
+          [ "$STATUS" = "403" ] || { echo "Expected 403, got ${STATUS}"; exit 1; }

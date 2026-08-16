@@ -115,6 +115,15 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-01-01' = {
           }
         }
       }
+      // Dedicated /24 for the self-hosted GitHub Actions CI runner VM.
+      // NSG (nsg-build-as) is applied by build-runner.bicep after ci-foundation deployment.
+      // No delegation required; VM NIC attaches directly.
+      {
+        name: 'build'
+        properties: {
+          addressPrefix: '10.0.6.0/24'
+        }
+      }
     ]
   }
 }
@@ -153,4 +162,5 @@ output privateEndpointSubnetId string = vnet.properties.subnets[1].id
 output delegatedSubnetResourceId string = vnet.properties.subnets[2].id
 output integrationSubnetId string = vnet.properties.subnets[3].id
 output appgwSubnetId string = vnet.properties.subnets[4].id
+output buildSubnetId string = vnet.properties.subnets[5].id
 output postgresPrivateDnsZoneId string = dnsZones[1].id
