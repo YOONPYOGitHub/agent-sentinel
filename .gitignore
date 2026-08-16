@@ -14,3 +14,6 @@ storybook-static
 scripts/live-validation-report.json
 infra/main.json
 infra/platform.json
+
+infra/ci-foundation.json
+infra/modules/build-runner.json
