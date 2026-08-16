@@ -1,5 +1,4 @@
-targetScope = 'resourceGroup'
-
+﻿targetScope = 'resourceGroup'
 param location string = resourceGroup().location
 param suffix string = '260814'
 param tags object = {
@@ -145,6 +144,20 @@ module containerApps './modules/container-apps.bicep' = {
   dependsOn: [network, observability, identity, registry, cosmos, postgres, search, serviceBus]
 }
 
+module frontdoor './modules/frontdoor.bicep' = {
+  name: 'frontdoor'
+  params: {
+    profileName: format('fd-as-{0}', suffix)
+    tags: tags
+    apiOriginHostName: containerApps.outputs.apiFqdn
+    webOriginHostName: containerApps.outputs.webFqdn
+    acaEnvId: containerApps.outputs.acaEnvId
+    acaPrivateLinkLocation: location
+  }
+  dependsOn: [containerApps]
+}
+
+// ── Outputs ──────────────────────────────────────────────────────────────────
 output identityId string = identity.outputs.id
 output identityClientId string = identity.outputs.clientId
 output registryLoginServer string = registry.outputs.loginServer
@@ -156,3 +169,6 @@ output keyVaultUri string = keyVault.outputs.uri
 output appInsightsConnectionString string = observability.outputs.appInsightsConnectionString
 output containerAppsEnvironmentId string = containerApps.outputs.environmentId
 output foundryProjectId string = foundry.outputs.projectId
+output apiFqdn string = containerApps.outputs.apiFqdn
+output webFqdn string = containerApps.outputs.webFqdn
+output frontDoorEndpointHostName string = frontdoor.outputs.endpointHostName
