@@ -96,9 +96,7 @@ describe('FoundryHttpClient', () => {
 describe('sanitizeFoundryEndpoint', () => {
   it('normalizes a valid endpoint', () => {
     expect(
-      sanitizeFoundryEndpoint(
-        ' https://contoso.services.ai.azure.com/api/projects/sentinel/ ',
-      ),
+      sanitizeFoundryEndpoint(' https://contoso.services.ai.azure.com/api/projects/sentinel/ '),
     ).toBe('https://contoso.services.ai.azure.com/api/projects/sentinel')
   })
 

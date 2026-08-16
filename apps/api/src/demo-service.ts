@@ -58,7 +58,7 @@ export class DemoService {
       source: this.connectorMode,
       connectorId: this.connector.descriptor.id,
       mode: this.connectorMode,
-      writeEnabled: process.env['AUTH_MODE'] !== 'jwt',
+      writeEnabled: process.env['AGENT_SENTINEL_WRITE_ENABLED']?.trim().toLowerCase() !== 'false',
     }
     if (this.projectEndpoint !== undefined) {
       result.projectEndpoint = this.projectEndpoint

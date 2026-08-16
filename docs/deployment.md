@@ -30,6 +30,7 @@ Add text-embedding-3-large deployment (only this module touches AIServices).
 ### Phase D ? Container Apps + Application Gateway
 
 After ACR is provisioned and images are pushed. The platform.bicep deploys:
+
 - Container Apps (API with internal ingress, web with VNet-accessible ingress, jobs with no ingress)
 - Application Gateway WAF v2 (`appgw-as-260814`) as the public edge
 
@@ -78,6 +79,7 @@ az deployment group what-if \
 ```
 
 **Stop if what-if shows:**
+
 - `Delete` on Foundry resources
 - `Delete` on any existing subnet (only adds are expected)
 - `Delete` on `fd-as-260814` (primary Front Door profile)

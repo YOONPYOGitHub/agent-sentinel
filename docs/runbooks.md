@@ -34,6 +34,7 @@ az servicebus queue show --name findings-validation \
 ## RB-003: Rotate Secrets
 
 All secrets are stored in Key Vault `kv-as-260814`.
+
 1. Generate new secret version in KV
 2. ACA apps will pick up new version within 10 minutes (Key Vault reference refresh)
 3. Verify app health after rotation
@@ -60,6 +61,7 @@ az containerapp ingress traffic set --name web-as-260814 --resource-group rg-age
 ## RB-006: Re-index AI Search
 
 If the search index is corrupted or needs rebuilding:
+
 1. Delete the index: `az search index delete --name findings-index --service-name search-as-260814 ...`
 2. Trigger full re-ingestion via the jobs worker with snapshot-ingestion queue
 3. Monitor ingestion via Application Insights

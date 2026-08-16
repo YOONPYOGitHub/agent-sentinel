@@ -13,7 +13,10 @@ export function DemoStateProvider({ children }: { children: ReactNode }) {
     try {
       setError(undefined)
       setOperation('loading')
-      const [nextState, status] = await Promise.all([demoApi.getState(), connectorApi.getConnectorStatus()])
+      const [nextState, status] = await Promise.all([
+        demoApi.getState(),
+        connectorApi.getConnectorStatus(),
+      ])
       setState(nextState)
       setConnectorStatus(status)
     } catch (caught) {
@@ -43,7 +46,15 @@ export function DemoStateProvider({ children }: { children: ReactNode }) {
     [],
   )
   const value = useMemo<DemoStateValue>(
-    () => ({ state, connectorStatus, operation, error, clearError: () => setError(undefined), load, run }),
+    () => ({
+      state,
+      connectorStatus,
+      operation,
+      error,
+      clearError: () => setError(undefined),
+      load,
+      run,
+    }),
     [connectorStatus, error, load, operation, run, state],
   )
   return <DemoStateContext.Provider value={value}>{children}</DemoStateContext.Provider>

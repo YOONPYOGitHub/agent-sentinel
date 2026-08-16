@@ -62,6 +62,7 @@ var env = [
   { name: 'SEARCH_ENDPOINT',                       value: searchEndpoint }
   { name: 'SB_FQDN',                               value: sbFqdn }
   { name: 'SERVICE_BUS_FQDN',                      value: sbFqdn }
+  { name: 'AGENT_SENTINEL_WRITE_ENABLED',          value: 'false' }
   { name: 'AZURE_CLIENT_ID',                       value: uamiClientId }
   { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsightsConnectionString }
 ]

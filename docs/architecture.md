@@ -63,27 +63,27 @@ Internet (HTTP/80)
 
 ## Network Boundary Enforcement
 
-| Resource        | Ingress Type | Accessible From         | Notes                                |
-|-----------------|-------------|-------------------------|--------------------------------------|
-| web-as-260814   | external:true | VNet (App Gateway)    | Port 80; App Gateway terminates HTTP |
-| api-as-260814   | external:false | ACA env only          | Only reachable via nginx proxy       |
-| jobs-as-260814  | none         | Not reachable           | SB-triggered jobs only               |
-| Cosmos DB       | Private EP   | VNet private-endpoints subnet | No public access                |
-| PostgreSQL      | Delegated subnet | VNet database subnet  | No public access                     |
-| AI Search       | Private EP   | VNet private-endpoints subnet | No public access                |
-| Service Bus     | Private EP   | VNet private-endpoints subnet | No public access                |
-| Key Vault       | Private EP   | VNet private-endpoints subnet | No public access                |
-| ACR             | Private EP   | VNet private-endpoints subnet | publicNetworkAccess: Disabled    |
+| Resource       | Ingress Type     | Accessible From               | Notes                                |
+| -------------- | ---------------- | ----------------------------- | ------------------------------------ |
+| web-as-260814  | external:true    | VNet (App Gateway)            | Port 80; App Gateway terminates HTTP |
+| api-as-260814  | external:false   | ACA env only                  | Only reachable via nginx proxy       |
+| jobs-as-260814 | none             | Not reachable                 | SB-triggered jobs only               |
+| Cosmos DB      | Private EP       | VNet private-endpoints subnet | No public access                     |
+| PostgreSQL     | Delegated subnet | VNet database subnet          | No public access                     |
+| AI Search      | Private EP       | VNet private-endpoints subnet | No public access                     |
+| Service Bus    | Private EP       | VNet private-endpoints subnet | No public access                     |
+| Key Vault      | Private EP       | VNet private-endpoints subnet | No public access                     |
+| ACR            | Private EP       | VNet private-endpoints subnet | publicNetworkAccess: Disabled        |
 
 ## VNet Subnets (10.0.0.0/16)
 
-| Subnet           | CIDR          | Purpose                          |
-|------------------|---------------|----------------------------------|
-| apps             | 10.0.0.0/23   | ACA environment (delegated)      |
-| private-endpoints | 10.0.2.0/24  | Private endpoints for PaaS       |
-| database         | 10.0.3.0/24   | PostgreSQL Flexible Server       |
-| integration      | 10.0.4.0/24   | Reserved for future integrations |
-| appgw            | 10.0.5.0/24   | Application Gateway WAF v2       |
+| Subnet            | CIDR        | Purpose                          |
+| ----------------- | ----------- | -------------------------------- |
+| apps              | 10.0.0.0/23 | ACA environment (delegated)      |
+| private-endpoints | 10.0.2.0/24 | Private endpoints for PaaS       |
+| database          | 10.0.3.0/24 | PostgreSQL Flexible Server       |
+| integration       | 10.0.4.0/24 | Reserved for future integrations |
+| appgw             | 10.0.5.0/24 | Application Gateway WAF v2       |
 
 ## Azure Front Door Status
 
@@ -92,6 +92,7 @@ Internet (HTTP/80)
 Known issue: Azure Front Door Premium private-link origins consistently show `deploymentStatus: NotStarted` for ACA environments in `koreacentral`. The origins never reach `Approved` state, making the premium Private Link routing path non-functional.
 
 Evidence:
+
 - Profile: `fd-as-260814` (Premium_AzureFrontDoor)
 - Both `og-api` and `og-web` origin groups fail to activate private links
 - This is a platform-level issue; no code or policy change resolves it
@@ -103,6 +104,7 @@ Temporary diagnostic profile `fd-as-260814-v2` was deleted after App Gateway val
 ## Nginx Reverse Proxy (web-as-260814)
 
 The web container runs nginx which:
+
 1. Serves the React SPA for all non-`/api/` and non-`/health` paths
 2. Reverse-proxies `/api/*` to `http://api-as-260814` (ACA same-environment service discovery)
 3. Exposes `/health` ? HTTP 200 (used by App Gateway health probe)

@@ -59,19 +59,21 @@ describe('agent provisioning', () => {
 
   it('does not trust a same-name agent without the ownership marker', async () => {
     const foundry = client()
-    foundry.listAgents.mockResolvedValueOnce([
-      {
-        id: 'unowned',
-        name: agent.name,
-        description: `[hash:${agent.manifestHash}]`,
-      },
-    ]).mockResolvedValueOnce([
-      {
-        id: 'owned',
-        name: agent.name,
-        description: `${AGENT_SENTINEL_MANAGED_MARKER} [hash:${agent.manifestHash}]`,
-      },
-    ])
+    foundry.listAgents
+      .mockResolvedValueOnce([
+        {
+          id: 'unowned',
+          name: agent.name,
+          description: `[hash:${agent.manifestHash}]`,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 'owned',
+          name: agent.name,
+          description: `${AGENT_SENTINEL_MANAGED_MARKER} [hash:${agent.manifestHash}]`,
+        },
+      ])
 
     await provisionAgents(foundry, [agent], vi.fn())
     expect(foundry.getAgent).not.toHaveBeenCalled()
