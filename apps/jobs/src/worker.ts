@@ -3,6 +3,10 @@ import { ServiceBusClient } from '@azure/service-bus'
 
 import { InMemoryDeduplicator, domainEventSchema, withIdempotency } from '@agent-sentinel/messaging'
 
+import { initTelemetry } from './telemetry.js'
+
+initTelemetry()
+
 const SB_FQDN = process.env['SERVICE_BUS_FQDN'] ?? ''
 const CORRELATION_ID_HEADER = 'x-correlation-id'
 

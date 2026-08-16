@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 import cors from '@fastify/cors'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -19,6 +21,16 @@ export async function createApp(service = configuredService()): Promise<FastifyI
 
   await app.register(cors, {
     origin: ['http://localhost:5173'],
+  })
+
+  app.addHook('onRequest', (request, reply, done) => {
+    const header = request.headers['x-correlation-id']
+    const correlationId = typeof header === 'string' && header.length > 0 ? header : randomUUID()
+    const url = request.url.split('?', 1)[0] ?? request.url
+
+    void reply.header('x-correlation-id', correlationId)
+    console.log(JSON.stringify({ level: 'info', method: request.method, url, correlationId }))
+    done()
   })
 
   app.get('/health', () => ({
