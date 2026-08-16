@@ -1,4 +1,4 @@
-﻿param location string
+param location string
 param envName string
 param tags object
 param subnetId string
@@ -13,6 +13,9 @@ param pgHost string
 param searchEndpoint string
 param sbFqdn string
 param appInsightsConnectionString string
+
+@description('Immutable image tag (git SHA or digest). Defaults to latest for initial bootstrap only.')
+param imageTag string = 'latest'
 
 resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: envName
@@ -41,11 +44,16 @@ resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
 
 var suffix = last(split(envName, '-'))
 
-// port: container-internal listening port; minReplicas: 1 for ingress apps so AFD health probes always succeed
+// Network boundary enforcement:
+//   web  ? external: true, allowInsecure: true ? HTTP/80 reachable from VNet (App Gateway backend).
+//          allowInsecure permits App Gateway ? ACA HTTP traffic within the private VNet only.
+//          The public internet cannot reach ACA directly; App Gateway is the sole ingress path.
+//   api  ? external: false ? reachable only within the ACA environment (nginx proxy from web).
+//   jobs ? ingressEnabled: false ? no ingress; Service Bus-triggered only.
 var appDefinitions = [
-  { slug: 'api',  containerName: 'agent-sentinel-api',  ingressEnabled: true,  port: 3001, minReplicas: 1 }
-  { slug: 'web',  containerName: 'agent-sentinel-web',  ingressEnabled: true,  port: 80,   minReplicas: 1 }
-  { slug: 'jobs', containerName: 'agent-sentinel-jobs', ingressEnabled: false, port: 0,    minReplicas: 0 }
+  { slug: 'api',  containerName: 'agent-sentinel-api',  ingressEnabled: true,  externalIngress: false, allowInsecure: false, port: 3001, minReplicas: 1 }
+  { slug: 'web',  containerName: 'agent-sentinel-web',  ingressEnabled: true,  externalIngress: true,  allowInsecure: true,  port: 80,   minReplicas: 1 }
+  { slug: 'jobs', containerName: 'agent-sentinel-jobs', ingressEnabled: false, externalIngress: false, allowInsecure: false, port: 0,    minReplicas: 0 }
 ]
 
 var env = [
@@ -79,16 +87,17 @@ resource apps 'Microsoft.App/containerApps@2024-03-01' = [for app in appDefiniti
         }
       ]
       ingress: app.ingressEnabled ? {
-        external: true
+        external: app.externalIngress
         targetPort: app.port
         transport: 'auto'
+        allowInsecure: app.allowInsecure
       } : null
     }
     template: {
       containers: [
         {
           name: app.containerName
-          image: format('{0}/{1}:latest', acrLoginServer, app.containerName)
+          image: format('{0}/{1}:{2}', acrLoginServer, app.containerName, imageTag)
           env: env
           resources: {
             cpu: json('0.5')
@@ -106,5 +115,9 @@ resource apps 'Microsoft.App/containerApps@2024-03-01' = [for app in appDefiniti
 
 output environmentId string = environment.id
 output acaEnvId string = environment.id
+// apps[0] = api (internal ingress; FQDN is only resolvable within ACA environment)
+// apps[1] = web (external within VNet; App Gateway backend target)
 output apiFqdn string = apps[0].properties.configuration.ingress.fqdn
 output webFqdn string = apps[1].properties.configuration.ingress.fqdn
+output envDefaultDomain string = environment.properties.defaultDomain
+output envStaticIp string = environment.properties.staticIp

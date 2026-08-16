@@ -1,4 +1,4 @@
-﻿targetScope = 'resourceGroup'
+targetScope = 'resourceGroup'
 param location string = resourceGroup().location
 param suffix string = '260814'
 param tags object = {
@@ -7,6 +7,12 @@ param tags object = {
   'managed-by': 'bicep'
   'data-classification': 'synthetic'
 }
+
+@description('Immutable image tag for Container App images (git SHA recommended). Defaults to latest for initial bootstrap.')
+param imageTag string = 'latest'
+
+@description('ACA environment default domain for private DNS zone creation (e.g. blackrock-0e55f941.koreacentral.azurecontainerapps.io). Empty string = skip DNS zone (use after first deployment). See deployment.md for post-deploy DNS step.')
+param acaEnvDomain string = ''
 
 module network './modules/network.bicep' = {
   name: 'network'
@@ -140,10 +146,71 @@ module containerApps './modules/container-apps.bicep' = {
     searchEndpoint: search.outputs.endpoint
     sbFqdn: serviceBus.outputs.fqdn
     appInsightsConnectionString: observability.outputs.appInsightsConnectionString
+    imageTag: imageTag
   }
   dependsOn: [network, observability, identity, registry, cosmos, postgres, search, serviceBus]
 }
 
+// ?? ACA Environment Private DNS Zone ?????????????????????????????????????????
+// ACA internal environments require a private DNS zone so the App Gateway
+// can resolve *.{envDomain} to the ACA static IP within the VNet.
+// acaEnvDomain is left empty on the first deploy (domain is not yet known).
+// After first deploy, read `az containerapp env show ... --query defaultDomain`
+// and set acaEnvDomain in dev.parameters.bicepparam for subsequent deploys.
+// See deployment.md "Phase D" for the manual first-time DNS step.
+resource acaPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = if (!empty(acaEnvDomain)) {
+  name: empty(acaEnvDomain) ? 'placeholder.local' : acaEnvDomain
+  location: 'global'
+  tags: tags
+}
+
+resource acaPrivateDnsZoneLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = if (!empty(acaEnvDomain)) {
+  parent: acaPrivateDnsZone
+  name: 'link-aca-vnet'
+  location: 'global'
+  tags: tags
+  properties: {
+    registrationEnabled: false
+    virtualNetwork: {
+      id: network.outputs.vnetId
+    }
+  }
+}
+
+resource acaWildcardRecord 'Microsoft.Network/privateDnsZones/A@2020-06-01' = if (!empty(acaEnvDomain)) {
+  parent: acaPrivateDnsZone
+  name: '*'
+  properties: {
+    ttl: 300
+    aRecords: [
+      {
+        ipv4Address: containerApps.outputs.envStaticIp
+      }
+    ]
+  }
+}
+
+// ?? Application Gateway WAF v2 (active public edge) ??????????????????????????
+// Front Door Premium profile (fd-as-260814) is preserved for future investigation
+// of the deploymentStatus NotStarted issue but does NOT carry production traffic.
+// App Gateway is the working regional public entry point.
+module appGateway './modules/application-gateway.bicep' = {
+  name: 'application-gateway'
+  params: {
+    location: location
+    tags: tags
+    appgwName: format('appgw-as-{0}', suffix)
+    publicIpName: format('pip-appgw-as-{0}', suffix)
+    wafPolicyName: format('waf-appgw-as-{0}', suffix)
+    subnetId: network.outputs.appgwSubnetId
+    webFqdn: containerApps.outputs.webFqdn
+  }
+  dependsOn: [network, containerApps]
+}
+
+// ?? Front Door Premium (preserved, not routing production traffic) ????????????
+// Status: deploymentStatus = NotStarted for private-link origins in koreacentral.
+// Kept for future support investigation. Do not delete fd-as-260814.
 module frontdoor './modules/frontdoor.bicep' = {
   name: 'frontdoor'
   params: {
@@ -157,7 +224,7 @@ module frontdoor './modules/frontdoor.bicep' = {
   dependsOn: [containerApps]
 }
 
-// ── Outputs ──────────────────────────────────────────────────────────────────
+// ?? Outputs ??????????????????????????????????????????????????????????????????
 output identityId string = identity.outputs.id
 output identityClientId string = identity.outputs.clientId
 output registryLoginServer string = registry.outputs.loginServer
@@ -169,6 +236,15 @@ output keyVaultUri string = keyVault.outputs.uri
 output appInsightsConnectionString string = observability.outputs.appInsightsConnectionString
 output containerAppsEnvironmentId string = containerApps.outputs.environmentId
 output foundryProjectId string = foundry.outputs.projectId
+
+// Container App FQDNs
 output apiFqdn string = containerApps.outputs.apiFqdn
 output webFqdn string = containerApps.outputs.webFqdn
+
+// Active public edge: Application Gateway
+output appGatewayPublicIp string = appGateway.outputs.publicIpAddress
+output appGatewayHttpEndpoint string = appGateway.outputs.httpEndpoint
+output appGatewayPublicFqdn string = appGateway.outputs.publicIpFqdn
+
+// Front Door endpoint retained (inactive / not routing production traffic)
 output frontDoorEndpointHostName string = frontdoor.outputs.endpointHostName

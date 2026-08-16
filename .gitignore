@@ -13,3 +13,4 @@ storybook-static
 *.tsbuildinfo
 scripts/live-validation-report.json
 infra/main.json
+infra/platform.json
