@@ -14,7 +14,14 @@ COPY tsconfig.base.json ./
 COPY packages/ packages/
 COPY connectors/ connectors/
 COPY apps/api/ apps/api/
-RUN pnpm run build --filter=@agent-sentinel/domain --filter=@agent-sentinel/connector-sdk --filter=@agent-sentinel/graph-engine --filter=@agent-sentinel/policy-engine --filter=@agent-sentinel/foundry-connector --filter=@agent-sentinel/mock-connector --filter=@agent-sentinel/api
+# Build each workspace package in dependency order (avoids requiring turbo.json in context)
+RUN pnpm --filter @agent-sentinel/domain build
+RUN pnpm --filter @agent-sentinel/connector-sdk build
+RUN pnpm --filter @agent-sentinel/graph-engine build
+RUN pnpm --filter @agent-sentinel/policy-engine build
+RUN pnpm --filter @agent-sentinel/foundry-connector build
+RUN pnpm --filter @agent-sentinel/mock-connector build
+RUN pnpm --filter @agent-sentinel/api build
 
 FROM node:22-slim AS runtime
 WORKDIR /app
