@@ -183,3 +183,5 @@ export type AgentSentinelState = z.infer<typeof agentSentinelStateSchema>
 export function assertEstateSnapshot(value: unknown): EstateSnapshot {
   return estateSnapshotSchema.parse(value)
 }
+
+export type { SnapshotRepository, FindingRepository, EvidenceRepository, ValidationRunRepository } from './repositories.js'
