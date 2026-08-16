@@ -1,0 +1,23 @@
+{
+  "name": "@agent-sentinel/jobs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup src/worker.ts --format esm --sourcemap --clean",
+    "dev": "tsx watch src/worker.ts",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-sentinel/domain": "workspace:*",
+    "@agent-sentinel/messaging": "workspace:*",
+    "@azure/identity": "^4.11.1",
+    "@azure/service-bus": "^7.9.5",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5"
+  }
+}
