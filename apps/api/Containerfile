@@ -6,6 +6,8 @@ COPY packages/domain/package.json packages/domain/
 COPY packages/connector-sdk/package.json packages/connector-sdk/
 COPY packages/graph-engine/package.json packages/graph-engine/
 COPY packages/policy-engine/package.json packages/policy-engine/
+COPY packages/persistence/package.json packages/persistence/
+COPY packages/scenarios/package.json packages/scenarios/
 COPY connectors/foundry/package.json connectors/foundry/
 COPY connectors/mock/package.json connectors/mock/
 COPY apps/api/package.json apps/api/
@@ -19,6 +21,8 @@ RUN pnpm --filter @agent-sentinel/domain build
 RUN pnpm --filter @agent-sentinel/connector-sdk build
 RUN pnpm --filter @agent-sentinel/graph-engine build
 RUN pnpm --filter @agent-sentinel/policy-engine build
+RUN pnpm --filter @agent-sentinel/persistence build
+RUN pnpm --filter @agent-sentinel/scenarios build
 RUN pnpm --filter @agent-sentinel/foundry-connector build
 RUN pnpm --filter @agent-sentinel/mock-connector build
 RUN pnpm --filter @agent-sentinel/api build
@@ -38,6 +42,10 @@ COPY --from=builder /workspace/packages/graph-engine/dist ./packages/graph-engin
 COPY --from=builder /workspace/packages/graph-engine/package.json ./packages/graph-engine/
 COPY --from=builder /workspace/packages/policy-engine/dist ./packages/policy-engine/dist/
 COPY --from=builder /workspace/packages/policy-engine/package.json ./packages/policy-engine/
+COPY --from=builder /workspace/packages/persistence/dist ./packages/persistence/dist/
+COPY --from=builder /workspace/packages/persistence/package.json ./packages/persistence/
+COPY --from=builder /workspace/packages/scenarios/dist ./packages/scenarios/dist/
+COPY --from=builder /workspace/packages/scenarios/package.json ./packages/scenarios/
 COPY --from=builder /workspace/connectors/foundry/dist ./connectors/foundry/dist/
 COPY --from=builder /workspace/connectors/foundry/package.json ./connectors/foundry/
 COPY --from=builder /workspace/connectors/mock/dist ./connectors/mock/dist/
