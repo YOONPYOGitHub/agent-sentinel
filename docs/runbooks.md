@@ -185,40 +185,42 @@ Pending production steps:
 6. Update API identifier/audience settings if the custom URI is used, and obtain admin consent.
 7. Validate certificate renewal, TLS policy, login/logout, token audience, CORS, and WAF behavior.
 
-
 ## RB-014: Private CI Build Runner
 
 ### Architecture
 
 A self-hosted GitHub Actions runner (`vm-ci-runner-as`, Standard_D2s_v3) runs inside the
 `build` subnet (10.0.6.0/24) of `vnet-as-260814`. It has no public IP. Access is exclusively
-via Azure Run Command (management plane). Runner labels: `self-hosted,linux,x64,agent-sentinel-private`.
+via Azure Run Command (management plane). The dedicated `nat-build-as` NAT Gateway provides
+stable outbound connectivity without exposing the VM to inbound Internet traffic. Runner
+labels: `self-hosted,linux,x64,agent-sentinel-private`.
 
-| Component | Name | Notes |
-|---|---|---|
-| VM | `vm-ci-runner-as` | No public IP, Ubuntu 24.04 LTS |
-| UAMI | `id-ci-runner-260814` | AcrPush on acr260814 only |
-| NSG | `nsg-build-as` | All inbound denied; outbound restricted |
-| Subnet | `build` 10.0.6.0/24 | Inside vnet-as-260814 |
+| Component   | Name                  | Notes                                                        |
+| ----------- | --------------------- | ------------------------------------------------------------ |
+| VM          | `vm-ci-runner-as`     | No public IP, Ubuntu 24.04 LTS                               |
+| UAMI        | `id-ci-runner-260814` | AcrPush on acr260814 only                                    |
+| NSG         | `nsg-build-as`        | All inbound denied; outbound restricted                      |
+| Subnet      | `build` 10.0.6.0/24   | Inside vnet-as-260814                                        |
+| NAT Gateway | `nat-build-as`        | Outbound-only connectivity for GitHub and package registries |
 
 ### Required Outbound Domains (port 443 unless noted)
 
-| Domain | Purpose |
-|---|---|
-| `api.github.com` | Runner registration and job polling |
-| `*.actions.githubusercontent.com` | Job artifacts and caches |
-| `github.com` | git clone over HTTPS |
-| `objects.githubusercontent.com` | Large git objects/LFS |
-| `*.blob.core.windows.net` | Runner diagnostic uploads, Azure storage |
-| `mcr.microsoft.com` | Microsoft Container Registry base images |
-| `registry.npmjs.org` | pnpm package downloads |
-| `registry-1.docker.io` | Docker Hub base images |
-| `auth.docker.io` | Docker Hub auth |
-| `production.cloudflare.docker.com` | Docker CDN |
-| `management.azure.com` | ARM for Bicep what-if and deploy |
-| `login.microsoftonline.com` | Managed identity / Entra tokens |
-| `acr260814.azurecr.io` | Via VNet private endpoint (no internet) |
-| OS mirrors (port 80) | `archive.ubuntu.com`, CRL endpoints |
+| Domain                             | Purpose                                  |
+| ---------------------------------- | ---------------------------------------- |
+| `api.github.com`                   | Runner registration and job polling      |
+| `*.actions.githubusercontent.com`  | Job artifacts and caches                 |
+| `github.com`                       | git clone over HTTPS                     |
+| `objects.githubusercontent.com`    | Large git objects/LFS                    |
+| `*.blob.core.windows.net`          | Runner diagnostic uploads, Azure storage |
+| `mcr.microsoft.com`                | Microsoft Container Registry base images |
+| `registry.npmjs.org`               | pnpm package downloads                   |
+| `registry-1.docker.io`             | Docker Hub base images                   |
+| `auth.docker.io`                   | Docker Hub auth                          |
+| `production.cloudflare.docker.com` | Docker CDN                               |
+| `management.azure.com`             | ARM for Bicep what-if and deploy         |
+| `login.microsoftonline.com`        | Managed identity / Entra tokens          |
+| `acr260814.azurecr.io`             | Via VNet private endpoint (no internet)  |
+| OS mirrors (port 80)               | `archive.ubuntu.com`, CRL endpoints      |
 
 ### Initial Provisioning
 
@@ -296,6 +298,7 @@ Configure a required reviewer in Settings > Environments > production to enforce
 ### VM Decommission
 
 To permanently remove the runner:
+
 1. Remove from GitHub via the remove-runner.sh script (see above).
 2. `az vm delete -g rg-agent-sentinel --name vm-ci-runner-as --yes`
 3. `az network nic delete -g rg-agent-sentinel --name nic-ci-runner-as`

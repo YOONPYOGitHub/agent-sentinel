@@ -2,6 +2,41 @@ param location string
 param vnetName string
 param tags object
 
+resource buildNatPublicIp 'Microsoft.Network/publicIPAddresses@2024-01-01' = {
+  name: 'pip-nat-build-as'
+  location: location
+  tags: tags
+  sku: {
+    name: 'Standard'
+    tier: 'Regional'
+  }
+  zones: [
+    '1'
+    '2'
+    '3'
+  ]
+  properties: {
+    publicIPAllocationMethod: 'Static'
+  }
+}
+
+resource buildNatGateway 'Microsoft.Network/natGateways@2024-01-01' = {
+  name: 'nat-build-as'
+  location: location
+  tags: tags
+  sku: {
+    name: 'Standard'
+  }
+  properties: {
+    idleTimeoutInMinutes: 10
+    publicIpAddresses: [
+      {
+        id: buildNatPublicIp.id
+      }
+    ]
+  }
+}
+
 // NSG for Application Gateway WAF v2 subnet ? rules required by Azure platform.
 resource nsgAppGw 'Microsoft.Network/networkSecurityGroups@2024-01-01' = {
   name: 'nsg-appgw-as'
@@ -122,6 +157,10 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-01-01' = {
         name: 'build'
         properties: {
           addressPrefix: '10.0.6.0/24'
+          defaultOutboundAccess: false
+          natGateway: {
+            id: buildNatGateway.id
+          }
         }
       }
     ]

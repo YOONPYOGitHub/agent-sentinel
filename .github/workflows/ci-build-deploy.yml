@@ -15,7 +15,7 @@ name: CI Build & Deploy (Private Runner)
 on:
   push:
     branches:
-      - feature/platform-foundation
+      - 'feature/**'
   workflow_dispatch:
     inputs:
       imageTag:
@@ -174,7 +174,7 @@ jobs:
     needs: [build-push, what-if]
     if: github.event.inputs.deployPlatform == 'true'
     runs-on: [self-hosted, linux, x64, agent-sentinel-private]
-    environment: production  # Requires manual approval via GitHub environment protection
+    environment: production # Requires manual approval via GitHub environment protection
     steps:
       - name: Checkout
         uses: actions/checkout@v4
