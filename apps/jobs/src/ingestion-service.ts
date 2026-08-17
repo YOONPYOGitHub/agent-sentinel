@@ -77,7 +77,7 @@ export class IngestionService {
 
     const newFindings: ExposureFinding[] = []
     for (const finding of findings) {
-      const existing = await this.exposures.findById(finding.id)
+      const existing = await this.exposures.findById(finding.id, this.options.tenantId)
       const upserted = await this.exposures.upsert(finding)
       if (existing === null) newFindings.push(upserted)
     }

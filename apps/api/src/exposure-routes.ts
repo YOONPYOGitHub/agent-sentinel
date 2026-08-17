@@ -32,9 +32,9 @@ export interface ExposureRoutesOptions {
   repository?: ExposureFindingRepository
 }
 
-function agentDefinitionToFoundryAgent(agent: AgentDefinition): Parameters<
-  typeof mapAgentToSnapshot
->[0][number] {
+function agentDefinitionToFoundryAgent(
+  agent: AgentDefinition,
+): Parameters<typeof mapAgentToSnapshot>[0][number] {
   return {
     id: agent.name,
     name: agent.displayName,
@@ -60,7 +60,10 @@ function agentDefinitionToFoundryAgent(agent: AgentDefinition): Parameters<
   }
 }
 
-export function buildMockExposurePage(tenantId: string, filters: ExposureFindingListFilters): {
+export function buildMockExposurePage(
+  tenantId: string,
+  filters: ExposureFindingListFilters,
+): {
   page: ExposurePage
   findings: ExposureFinding[]
   freshness: ExposureFreshness
@@ -157,10 +160,7 @@ function parseQuery(request: FastifyRequest): {
   return { filters, tenantId: parsed.tenantId }
 }
 
-export function registerExposureRoutes(
-  app: FastifyInstance,
-  options: ExposureRoutesOptions,
-): void {
+export function registerExposureRoutes(app: FastifyInstance, options: ExposureRoutesOptions): void {
   app.get('/api/exposures/status', () => ({
     mode: options.mode,
     tenantId: options.defaultTenantId,
@@ -179,37 +179,35 @@ export function registerExposureRoutes(
       }
     } else {
       if (!options.repository) throw new Error('Live exposure requires a repository binding.')
-      const [filtered, unfiltered] = await Promise.all([
+      const [filtered, facets] = await Promise.all([
         options.repository.listByTenant(tenantId, filters),
-        options.repository.listByTenant(tenantId, {}),
+        options.repository.getFacets(tenantId),
       ])
-      const facets = buildFacets(unfiltered.items)
       page = { findings: filtered.items, total: filtered.total, facets }
     }
     return exposurePageSchema.parse(page)
   })
 
-  app.get<{ Params: { findingId: string } }>('/api/exposures/:findingId', async (request, reply) => {
-    const { findingId } = request.params
-    if (options.mode === 'mock') {
-      const { findings } = buildMockExposurePage(options.defaultTenantId, {})
-      const found = findings.find((finding) => finding.id === findingId)
-      if (!found) {
+  app.get<{ Params: { findingId: string } }>(
+    '/api/exposures/:findingId',
+    async (request, reply) => {
+      const { findingId } = request.params
+      if (options.mode === 'mock') {
+        const { findings } = buildMockExposurePage(options.defaultTenantId, {})
+        const found = findings.find((finding) => finding.id === findingId)
+        if (!found) {
+          void reply.status(404)
+          return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
+        }
+        return exposureFindingSchema.parse(found)
+      }
+      if (!options.repository) throw new Error('Live exposure requires a repository binding.')
+      const finding = await options.repository.findById(findingId, options.defaultTenantId)
+      if (!finding) {
         void reply.status(404)
         return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
       }
-      return exposureFindingSchema.parse(found)
-    }
-    if (!options.repository) throw new Error('Live exposure requires a repository binding.')
-    const finding = await options.repository.findById(findingId)
-    if (!finding) {
-      void reply.status(404)
-      return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
-    }
-    if (finding.tenantId !== options.defaultTenantId) {
-      void reply.status(404)
-      return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
-    }
-    return exposureFindingSchema.parse(finding)
-  })
+      return exposureFindingSchema.parse(finding)
+    },
+  )
 }

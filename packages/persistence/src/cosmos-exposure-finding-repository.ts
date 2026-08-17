@@ -2,6 +2,7 @@ import type { Container, CosmosClient } from '@azure/cosmos'
 
 import type {
   ExposureFinding,
+  ExposureFindingFacets,
   ExposureFindingListFilters,
   ExposureFindingRepository,
 } from '@agent-sentinel/domain'
@@ -15,11 +16,7 @@ function isNotFound(error: unknown): boolean {
 export class CosmosExposureFindingRepository implements ExposureFindingRepository {
   private readonly container: Container
 
-  constructor(
-    client: CosmosClient,
-    databaseId = 'agent-sentinel-db',
-    containerId = 'findings',
-  ) {
+  constructor(client: CosmosClient, databaseId = 'agent-sentinel-db', containerId = 'findings') {
     this.container = client.database(databaseId).container(containerId)
   }
 
@@ -38,14 +35,14 @@ export class CosmosExposureFindingRepository implements ExposureFindingRepositor
     return merged
   }
 
-  async findById(id: string): Promise<ExposureFinding | null> {
-    const { resources } = await this.container.items
-      .query<ExposureFinding>({
-        query: 'SELECT * FROM c WHERE c.id = @id',
-        parameters: [{ name: '@id', value: id }],
-      })
-      .fetchAll()
-    return resources[0] ?? null
+  async findById(id: string, tenantId: string): Promise<ExposureFinding | null> {
+    try {
+      const { resource } = await this.container.item(id, tenantId).read<ExposureFinding>()
+      return resource ?? null
+    } catch (error: unknown) {
+      if (isNotFound(error)) return null
+      throw error
+    }
   }
 
   async listByTenant(
@@ -95,10 +92,31 @@ export class CosmosExposureFindingRepository implements ExposureFindingRepositor
     return { items: searched.slice(start, start + pageSize), total }
   }
 
-  async resolveAbsent(
-    tenantId: string,
-    presentIds: readonly string[],
-  ): Promise<ExposureFinding[]> {
+  async getFacets(tenantId: string): Promise<ExposureFindingFacets> {
+    const facets: ExposureFindingFacets = { severity: {}, status: {}, policyId: {} }
+    const dimensions = [
+      ['severity', facets.severity],
+      ['status', facets.status],
+      ['policyId', facets.policyId],
+    ] as const
+    await Promise.all(
+      dimensions.map(async ([field, target]) => {
+        const { resources } = await this.container.items
+          .query<{ value: string; count: number }>(
+            {
+              query: `SELECT c.${field} AS value, COUNT(1) AS count FROM c WHERE c.tenantId = @tenantId GROUP BY c.${field}`,
+              parameters: [{ name: '@tenantId', value: tenantId }],
+            },
+            { partitionKey: tenantId },
+          )
+          .fetchAll()
+        for (const row of resources) target[row.value] = row.count
+      }),
+    )
+    return facets
+  }
+
+  async resolveAbsent(tenantId: string, presentIds: readonly string[]): Promise<ExposureFinding[]> {
     const { resources } = await this.container.items
       .query<ExposureFinding>(
         {

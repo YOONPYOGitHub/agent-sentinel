@@ -76,7 +76,7 @@ describe('IngestionService', () => {
 
     const second = await service.run()
     expect(second.newFindings.length).toBe(0)
-    const persisted = await exposures.findById(first.findings[0]!.id)
+    const persisted = await exposures.findById(first.findings[0]!.id, 'tenant-demo')
     expect(persisted?.firstSeen).toBe(firstSeenA)
 
     // Now simulate a snapshot with no findings (only safe agents).

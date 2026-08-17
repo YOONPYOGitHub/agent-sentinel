@@ -40,12 +40,19 @@ export interface ExposureFindingListFilters {
   pageSize?: number
 }
 
+export interface ExposureFindingFacets {
+  severity: Record<string, number>
+  status: Record<string, number>
+  policyId: Record<string, number>
+}
+
 export interface ExposureFindingRepository {
   upsert(finding: ExposureFinding): Promise<ExposureFinding>
-  findById(id: string): Promise<ExposureFinding | null>
+  findById(id: string, tenantId: string): Promise<ExposureFinding | null>
   listByTenant(
     tenantId: string,
     filters?: ExposureFindingListFilters,
   ): Promise<{ items: ExposureFinding[]; total: number }>
+  getFacets(tenantId: string): Promise<ExposureFindingFacets>
   resolveAbsent(tenantId: string, presentIds: readonly string[]): Promise<ExposureFinding[]>
 }

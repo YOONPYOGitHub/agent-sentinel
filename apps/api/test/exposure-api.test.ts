@@ -56,7 +56,11 @@ describe('exposure API (mock mode)', () => {
     try {
       const response = await app.inject({ method: 'GET', url: '/api/exposures' })
       expect(response.statusCode).toBe(200)
-      const body: { findings: ExposureFinding[]; total: number; facets: { severity: Record<string, number> } } = response.json()
+      const body: {
+        findings: ExposureFinding[]
+        total: number
+        facets: { severity: Record<string, number> }
+      } = response.json()
       expect(body.total).toBeGreaterThan(0)
       const critical = body.findings.filter((f) => f.severity === 'critical')
       expect(critical.length).toBeGreaterThanOrEqual(2)
@@ -150,16 +154,23 @@ describe('exposure API (mock mode)', () => {
 
 describe('exposure API (live mode)', () => {
   it('returns 404 when a detail finding belongs to another tenant', async () => {
+    const findById = vi.fn<ExposureFindingRepository['findById']>()
+    findById.mockResolvedValue(null)
     const repository: ExposureFindingRepository = {
       upsert: (finding) => Promise.resolve(finding),
-      findById: () => Promise.resolve(makeFinding({ tenantId: 'tenant-other' })),
+      findById,
       listByTenant: () => Promise.resolve({ items: [], total: 0 }),
+      getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),
       resolveAbsent: () => Promise.resolve([]),
     }
     const app = await makeApp('live', repository)
     try {
-      const response = await app.inject({ method: 'GET', url: '/api/exposures/exposure-as-pol-001-agent-1' })
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/exposures/exposure-as-pol-001-agent-1',
+      })
       expect(response.statusCode).toBe(404)
+      expect(findById).toHaveBeenCalledWith('exposure-as-pol-001-agent-1', 'tenant-demo')
     } finally {
       await app.close()
     }
@@ -167,17 +178,19 @@ describe('exposure API (live mode)', () => {
 
   it('builds facets from the unpaginated list', async () => {
     const filteredFinding = makeFinding({ id: 'filtered' })
-    const additionalFinding = makeFinding({ id: 'additional', policyId: 'AS-POL-002', severity: 'high' })
     const listByTenant = vi.fn<ExposureFindingRepository['listByTenant']>()
-    listByTenant.mockImplementation((_tenantId, filters) => Promise.resolve(
-      Object.keys(filters ?? {}).length === 0
-        ? { items: [filteredFinding, additionalFinding], total: 2 }
-        : { items: [filteredFinding], total: 1 },
-    ))
+    listByTenant.mockResolvedValue({ items: [filteredFinding], total: 1 })
+    const getFacets = vi.fn<ExposureFindingRepository['getFacets']>()
+    getFacets.mockResolvedValue({
+      severity: { critical: 1, high: 1 },
+      status: { open: 2 },
+      policyId: { 'AS-POL-001': 1, 'AS-POL-002': 1 },
+    })
     const repository: ExposureFindingRepository = {
       upsert: (finding) => Promise.resolve(finding),
       findById: () => Promise.resolve(null),
       listByTenant,
+      getFacets,
       resolveAbsent: () => Promise.resolve([]),
     }
     const app = await makeApp('live', repository)
@@ -195,7 +208,7 @@ describe('exposure API (live mode)', () => {
         page: 1,
         pageSize: 1,
       })
-      expect(listByTenant).toHaveBeenCalledWith('tenant-demo', {})
+      expect(getFacets).toHaveBeenCalledWith('tenant-demo')
     } finally {
       await app.close()
     }
@@ -205,8 +218,8 @@ describe('exposure API (live mode)', () => {
     const repository: ExposureFindingRepository = {
       upsert: (f) => Promise.resolve(f),
       findById: () => Promise.resolve(null),
-      listByTenant: () =>
-        Promise.resolve({ items: [], total: 0 }),
+      listByTenant: () => Promise.resolve({ items: [], total: 0 }),
+      getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),
       resolveAbsent: () => Promise.resolve([]),
     }
     const app = await makeApp('live', repository)

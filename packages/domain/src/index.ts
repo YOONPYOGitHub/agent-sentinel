@@ -252,4 +252,8 @@ export const exposurePageSchema = z.object({
 })
 export type ExposurePage = z.infer<typeof exposurePageSchema>
 
-export type { ExposureFindingRepository, ExposureFindingListFilters } from './repositories.js'
+export type {
+  ExposureFindingFacets,
+  ExposureFindingRepository,
+  ExposureFindingListFilters,
+} from './repositories.js'

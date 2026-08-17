@@ -1,5 +1,6 @@
 import type {
   ExposureFinding,
+  ExposureFindingFacets,
   ExposureFindingListFilters,
   ExposureFindingRepository,
 } from '@agent-sentinel/domain'
@@ -7,18 +8,23 @@ import type {
 export class InMemoryExposureFindingRepository implements ExposureFindingRepository {
   private readonly findings = new Map<string, ExposureFinding>()
 
+  private key(id: string, tenantId: string): string {
+    return `${tenantId}\u0000${id}`
+  }
+
   upsert(finding: ExposureFinding): Promise<ExposureFinding> {
-    const existing = this.findings.get(finding.id)
+    const key = this.key(finding.id, finding.tenantId)
+    const existing = this.findings.get(key)
     const merged: ExposureFinding = {
       ...structuredClone(finding),
       firstSeen: existing?.firstSeen ?? finding.firstSeen,
     }
-    this.findings.set(finding.id, merged)
+    this.findings.set(key, merged)
     return Promise.resolve(structuredClone(merged))
   }
 
-  findById(id: string): Promise<ExposureFinding | null> {
-    const finding = this.findings.get(id)
+  findById(id: string, tenantId: string): Promise<ExposureFinding | null> {
+    const finding = this.findings.get(this.key(id, tenantId))
     return Promise.resolve(finding ? structuredClone(finding) : null)
   }
 
@@ -61,6 +67,17 @@ export class InMemoryExposureFindingRepository implements ExposureFindingReposit
     return Promise.resolve({ items, total })
   }
 
+  getFacets(tenantId: string): Promise<ExposureFindingFacets> {
+    const facets: ExposureFindingFacets = { severity: {}, status: {}, policyId: {} }
+    for (const finding of this.findings.values()) {
+      if (finding.tenantId !== tenantId) continue
+      facets.severity[finding.severity] = (facets.severity[finding.severity] ?? 0) + 1
+      facets.status[finding.status] = (facets.status[finding.status] ?? 0) + 1
+      facets.policyId[finding.policyId] = (facets.policyId[finding.policyId] ?? 0) + 1
+    }
+    return Promise.resolve(facets)
+  }
+
   resolveAbsent(tenantId: string, presentIds: readonly string[]): Promise<ExposureFinding[]> {
     const presentSet = new Set(presentIds)
     const resolved: ExposureFinding[] = []
@@ -74,7 +91,7 @@ export class InMemoryExposureFindingRepository implements ExposureFindingReposit
         status: 'resolved',
         lastSeen: now,
       }
-      this.findings.set(finding.id, updated)
+      this.findings.set(this.key(finding.id, tenantId), updated)
       resolved.push(structuredClone(updated))
     }
     return Promise.resolve(resolved)

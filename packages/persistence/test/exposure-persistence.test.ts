@@ -65,7 +65,36 @@ describe('InMemoryExposureFindingRepository', () => {
     await repo.upsert(makeFinding({ id: 'gone' }))
     const resolved = await repo.resolveAbsent('tenant-demo', ['keep'])
     expect(resolved.map((r) => r.id)).toEqual(['gone'])
-    const remaining = await repo.findById('gone')
+    const remaining = await repo.findById('gone', 'tenant-demo')
     expect(remaining?.status).toBe('resolved')
+  })
+
+  it('isolates identical finding ids by tenant and aggregates all facets', async () => {
+    const repo = new InMemoryExposureFindingRepository()
+    await repo.upsert(makeFinding({ id: 'shared', tenantId: 'tenant-a' }))
+    await repo.upsert(
+      makeFinding({
+        id: 'shared',
+        tenantId: 'tenant-b',
+        severity: 'high',
+        policyId: 'AS-POL-002',
+      }),
+    )
+    for (let index = 0; index < 60; index += 1) {
+      await repo.upsert(makeFinding({ id: `tenant-a-${index}`, tenantId: 'tenant-a' }))
+    }
+
+    await expect(repo.findById('shared', 'tenant-a')).resolves.toMatchObject({
+      tenantId: 'tenant-a',
+      severity: 'critical',
+    })
+    await expect(repo.findById('shared', 'tenant-b')).resolves.toMatchObject({
+      tenantId: 'tenant-b',
+      severity: 'high',
+    })
+    await expect(repo.getFacets('tenant-a')).resolves.toMatchObject({
+      severity: { critical: 61 },
+      policyId: { 'AS-POL-001': 61 },
+    })
   })
 })
