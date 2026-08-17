@@ -86,6 +86,7 @@ var env = [
   { name: 'AGENT_SENTINEL_DATA_MODE',             value: agentSentinelDataMode }
   { name: 'FOUNDRY_PROJECT_ENDPOINT',             value: foundryProjectEndpoint }
   { name: 'FOUNDRY_TENANT_ID',                    value: foundryTenantId }
+  { name: 'AZURE_TENANT_ID',                      value: foundryTenantId }
   { name: 'FOUNDRY_ENVIRONMENT',                  value: foundryEnvironment }
   { name: 'AGENT_SENTINEL_TENANT_ID',             value: foundryTenantId }
   { name: 'COSMOS_DATABASE',                      value: cosmosDatabase }

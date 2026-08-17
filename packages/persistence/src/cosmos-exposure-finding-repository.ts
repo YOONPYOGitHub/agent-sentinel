@@ -18,7 +18,7 @@ export class CosmosExposureFindingRepository implements ExposureFindingRepositor
   constructor(
     client: CosmosClient,
     databaseId = 'agent-sentinel-db',
-    containerId = 'exposure-findings',
+    containerId = 'findings',
   ) {
     this.container = client.database(databaseId).container(containerId)
   }
