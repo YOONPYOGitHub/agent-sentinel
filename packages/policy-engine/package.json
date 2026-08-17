@@ -21,5 +21,9 @@
   "dependencies": {
     "@agent-sentinel/domain": "workspace:*",
     "@agent-sentinel/graph-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@agent-sentinel/foundry-connector": "workspace:*",
+    "@agent-sentinel/scenarios": "workspace:*"
   }
 }

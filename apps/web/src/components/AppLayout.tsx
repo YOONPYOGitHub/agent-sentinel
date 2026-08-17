@@ -23,7 +23,7 @@ import { ReadOnlyBanner } from './ReadOnlyBanner'
 const navigation = [
   { label: 'Overview', icon: HomeRegular, to: '/overview', end: true },
   { label: 'Agent estate', icon: BotRegular, to: '/agent-estate', end: false },
-  { label: 'Exposure', icon: ShieldCheckmarkRegular, to: '/exposure', count: '1', end: false },
+  { label: 'Exposure', icon: ShieldCheckmarkRegular, to: '/exposure', end: false },
   { label: 'Governance', icon: LockClosedRegular, to: '/governance', end: false },
   { label: 'Observability', icon: PulseRegular, to: '/observability', end: false },
   { label: 'Optimization', icon: ArrowTrendingRegular, to: '/optimization', end: false },
@@ -63,9 +63,6 @@ export function AppLayout() {
               >
                 <Icon aria-hidden="true" />
                 {navExpanded ? <span>{item.label}</span> : null}
-                {navExpanded && item.count !== undefined ? (
-                  <span className="nav-count">{item.count}</span>
-                ) : null}
               </NavLink>
             )
           })}

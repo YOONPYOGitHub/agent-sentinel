@@ -28,3 +28,24 @@ export interface ValidationRunRepository {
   findByFindingId(findingId: string): Promise<ValidationRun[]>
   update(id: string, patch: Partial<ValidationRun>): Promise<ValidationRun>
 }
+
+import type { ExposureFinding, ExposureFindingSeverity, ExposureFindingStatus } from './index.js'
+
+export interface ExposureFindingListFilters {
+  severity?: ExposureFindingSeverity
+  status?: ExposureFindingStatus
+  policyId?: string
+  search?: string
+  page?: number
+  pageSize?: number
+}
+
+export interface ExposureFindingRepository {
+  upsert(finding: ExposureFinding): Promise<ExposureFinding>
+  findById(id: string): Promise<ExposureFinding | null>
+  listByTenant(
+    tenantId: string,
+    filters?: ExposureFindingListFilters,
+  ): Promise<{ items: ExposureFinding[]; total: number }>
+  resolveAbsent(tenantId: string, presentIds: readonly string[]): Promise<ExposureFinding[]>
+}

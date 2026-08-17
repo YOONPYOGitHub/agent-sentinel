@@ -9,6 +9,8 @@ import { AgentDetailPage } from './pages/AgentDetailPage'
 import { ComingSoonPage } from './pages/ComingSoonPage'
 import { ConnectorsPage } from './pages/ConnectorsPage'
 import { EstatePage } from './pages/EstatePage'
+import { ExposureDetailPage } from './pages/ExposureDetailPage'
+import { ExposurePage } from './pages/ExposurePage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { OverviewPage } from './pages/OverviewPage'
 
@@ -48,7 +50,8 @@ function RoutedApplication() {
         <Route path="overview" element={<OverviewPage />} />
         <Route path="agent-estate" element={<EstatePage />} />
         <Route path="agent-estate/:agentId" element={<AgentDetailPage />} />
-        <Route path="exposure" element={<ComingSoonPage title="Exposure management" />} />
+        <Route path="exposure" element={<ExposurePage />} />
+        <Route path="exposure/:findingId" element={<ExposureDetailPage />} />
         <Route path="governance" element={<ComingSoonPage title="Governance" />} />
         <Route path="observability" element={<ComingSoonPage title="Observability" />} />
         <Route path="optimization" element={<ComingSoonPage title="Optimization" />} />

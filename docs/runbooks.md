@@ -301,3 +301,18 @@ To permanently remove the runner:
 3. `az network nic delete -g rg-agent-sentinel --name nic-ci-runner-as`
 4. `az identity delete -g rg-agent-sentinel --name id-ci-runner-260814`
 5. `az network nsg delete -g rg-agent-sentinel --name nsg-build-as`
+
+## RB-020: Exposure Ingestion
+
+The jobs worker (`apps/jobs`) runs the exposure ingestion loop:
+
+1. Startup: run immediately, then every `DISCOVERY_INTERVAL_MS` ms (default 300000).
+2. Steps per tick:
+   - Connector discovery (`AGENT_SENTINEL_CONNECTOR=mock|foundry`).
+   - Snapshot save (Cosmos in live mode, in-memory in mock mode).
+   - `evaluateAllExposurePolicies` runs AS-POL-001/002/003.
+   - Upsert findings (Cosmos preserves `firstSeen`).
+   - Resolve findings absent from the current snapshot to `resolved`.
+3. Optional Service Bus subscriber (`snapshot-ingestion`) can trigger an ad-hoc run with `withIdempotency`.
+4. Environment variables: `AGENT_SENTINEL_CONNECTOR`, `AGENT_SENTINEL_TENANT_ID`, `DISCOVERY_INTERVAL_MS`, `COSMOS_ENDPOINT`, `COSMOS_DATABASE_ID`, `FOUNDRY_PROJECT_ENDPOINT`, `FOUNDRY_TENANT_ID`, `FOUNDRY_ENVIRONMENT`, `SERVICE_BUS_FQDN`.
+5. All Azure access uses `DefaultAzureCredential` (AAD only; no keys).

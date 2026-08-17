@@ -9,3 +9,9 @@ param tags = {
   'managed-by': 'bicep'
   'data-classification': 'synthetic'
 }
+param agentSentinelDataMode = 'mock'
+param foundryProjectEndpoint = ''
+param foundryTenantId = ''
+param foundryEnvironment = 'validation'
+param cosmosDatabase = 'agent-sentinel-db'
+param discoveryIntervalMs = '300000'

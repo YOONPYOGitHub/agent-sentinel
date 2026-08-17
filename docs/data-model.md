@@ -67,3 +67,19 @@ Represents a point-in-time view of an agent estate.
 | remediation-execution | Remediation job requests     |
 | snapshot-ingestion    | Snapshot processing requests |
 | domain-events (topic) | Fan-out domain events        |
+
+### ExposureFinding
+
+Represents a single declared-configuration policy violation surfaced by the Exposure surface.
+
+- `id`, `policyId`, `policyName`, `severity` (low|medium|high|critical), `status` (open|validated|mitigated|resolved)
+- `riskScore` (0..100), `title`, `summary`, `recommendation`
+- `affectedAgentId`, `affectedAgentName`
+- `declaredTools`, `affectedNodeIds`, `affectedEdgeIds`, `evidenceIds`, `evidenceTypes`
+- `blastRadiusCount`, `blastRadiusNodeIds`
+- `firstSeen`, `lastSeen` (ISO 8601 datetimes; `firstSeen` preserved on upsert)
+- `sourceMode` (mock|foundry) — provenance of the underlying snapshot
+- `validationStatus` (theoretical|validated|mitigated)
+- `tenantId`, `snapshotId`
+
+Cosmos DB container: `exposure-findings` (partition key `/tenantId`, upsert preserves `firstSeen`).

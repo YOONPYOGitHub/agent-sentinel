@@ -74,9 +74,18 @@ importers:
       '@agent-sentinel/mock-connector':
         specifier: workspace:*
         version: link:../../connectors/mock
+      '@agent-sentinel/persistence':
+        specifier: workspace:*
+        version: link:../../packages/persistence
       '@agent-sentinel/policy-engine':
         specifier: workspace:*
         version: link:../../packages/policy-engine
+      '@agent-sentinel/scenarios':
+        specifier: workspace:*
+        version: link:../../packages/scenarios
+      '@azure/cosmos':
+        specifier: ^4.4.0
+        version: 4.10.0
       '@azure/identity':
         specifier: ^4.11.1
         version: 4.13.1
@@ -111,12 +120,30 @@ importers:
 
   apps/jobs:
     dependencies:
+      '@agent-sentinel/connector-sdk':
+        specifier: workspace:*
+        version: link:../../packages/connector-sdk
       '@agent-sentinel/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@agent-sentinel/foundry-connector':
+        specifier: workspace:*
+        version: link:../../connectors/foundry
       '@agent-sentinel/messaging':
         specifier: workspace:*
         version: link:../../packages/messaging
+      '@agent-sentinel/mock-connector':
+        specifier: workspace:*
+        version: link:../../connectors/mock
+      '@agent-sentinel/persistence':
+        specifier: workspace:*
+        version: link:../../packages/persistence
+      '@agent-sentinel/policy-engine':
+        specifier: workspace:*
+        version: link:../../packages/policy-engine
+      '@azure/cosmos':
+        specifier: ^4.4.0
+        version: 4.10.0
       '@azure/identity':
         specifier: ^4.11.1
         version: 4.13.1
@@ -133,6 +160,9 @@ importers:
         specifier: ^4.1.5
         version: 4.4.3
     devDependencies:
+      '@agent-sentinel/scenarios':
+        specifier: workspace:*
+        version: link:../../packages/scenarios
       tsx:
         specifier: ^4.20.5
         version: 4.23.12
@@ -283,6 +313,13 @@ importers:
       '@agent-sentinel/graph-engine':
         specifier: workspace:*
         version: link:../graph-engine
+    devDependencies:
+      '@agent-sentinel/foundry-connector':
+        specifier: workspace:*
+        version: link:../../connectors/foundry
+      '@agent-sentinel/scenarios':
+        specifier: workspace:*
+        version: link:../scenarios
 
   packages/scenarios:
     dependencies:

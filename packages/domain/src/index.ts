@@ -190,3 +190,66 @@ export type {
   EvidenceRepository,
   ValidationRunRepository,
 } from './repositories.js'
+
+export const evidenceTypeSchema = z.enum([
+  'declared_configuration',
+  'observed_runtime',
+  'synthetic_validation',
+])
+export type EvidenceType = z.infer<typeof evidenceTypeSchema>
+
+export const exposureFindingStatusSchema = z.enum(['open', 'validated', 'mitigated', 'resolved'])
+export type ExposureFindingStatus = z.infer<typeof exposureFindingStatusSchema>
+
+export const exposureFindingSeveritySchema = z.enum(['low', 'medium', 'high', 'critical'])
+export type ExposureFindingSeverity = z.infer<typeof exposureFindingSeveritySchema>
+
+export const exposureFindingSchema = z.object({
+  id: z.string().min(1),
+  policyId: z.string().min(1),
+  policyName: z.string().min(1),
+  severity: exposureFindingSeveritySchema,
+  status: exposureFindingStatusSchema,
+  riskScore: z.number().min(0).max(100),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  recommendation: z.string().min(1),
+  affectedAgentId: z.string().min(1),
+  affectedAgentName: z.string().min(1),
+  declaredTools: z.array(z.string().min(1)),
+  affectedNodeIds: z.array(z.string().min(1)),
+  affectedEdgeIds: z.array(z.string().min(1)),
+  evidenceIds: z.array(z.string().min(1)),
+  evidenceTypes: z.array(evidenceTypeSchema),
+  blastRadiusCount: z.number().int().min(0),
+  blastRadiusNodeIds: z.array(z.string().min(1)),
+  firstSeen: z.iso.datetime(),
+  lastSeen: z.iso.datetime(),
+  sourceMode: z.enum(['mock', 'foundry']),
+  validationStatus: z.enum(['theoretical', 'validated', 'mitigated']),
+  tenantId: z.string().min(1),
+  snapshotId: z.string().min(1),
+})
+export type ExposureFinding = z.infer<typeof exposureFindingSchema>
+
+export const exposureFreshnessSchema = z.object({
+  snapshotId: z.string().min(1),
+  generatedAt: z.iso.datetime(),
+  sourceMode: z.enum(['mock', 'foundry']),
+  agentCount: z.number().int().min(0),
+})
+export type ExposureFreshness = z.infer<typeof exposureFreshnessSchema>
+
+export const exposurePageSchema = z.object({
+  findings: z.array(exposureFindingSchema),
+  total: z.number().int().min(0),
+  facets: z.object({
+    severity: z.record(z.string(), z.number().int().min(0)),
+    status: z.record(z.string(), z.number().int().min(0)),
+    policyId: z.record(z.string(), z.number().int().min(0)),
+  }),
+  freshness: exposureFreshnessSchema.optional(),
+})
+export type ExposurePage = z.infer<typeof exposurePageSchema>
+
+export type { ExposureFindingRepository, ExposureFindingListFilters } from './repositories.js'

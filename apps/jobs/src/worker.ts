@@ -1,14 +1,29 @@
 import { DefaultAzureCredential } from '@azure/identity'
 import { ServiceBusClient } from '@azure/service-bus'
+import { CosmosClient } from '@azure/cosmos'
 
+import type { AgentConnector } from '@agent-sentinel/connector-sdk'
+import type {
+  ExposureFindingRepository,
+  SnapshotRepository,
+} from '@agent-sentinel/domain'
+import { FoundryAgentConnector, foundryConnectorConfigSchema } from '@agent-sentinel/foundry-connector'
+import { MockAgentConnector } from '@agent-sentinel/mock-connector'
 import { InMemoryDeduplicator, domainEventSchema, withIdempotency } from '@agent-sentinel/messaging'
+import {
+  CosmosExposureFindingRepository,
+  CosmosSnapshotRepository,
+  InMemoryExposureFindingRepository,
+  InMemorySnapshotRepository,
+} from '@agent-sentinel/persistence'
 
+import { IngestionService, defaultLogger } from './ingestion-service.js'
 import { initTelemetry } from './telemetry.js'
 
 initTelemetry()
 
-const SB_FQDN = process.env['SERVICE_BUS_FQDN'] ?? ''
 const CORRELATION_ID_HEADER = 'x-correlation-id'
+const DEFAULT_INTERVAL_MS = 300_000
 
 interface IncomingMessage {
   body: unknown
@@ -28,62 +43,139 @@ function correlationIdFrom(value: unknown): string {
   return 'unknown'
 }
 
-function processMessage(message: IncomingMessage): Promise<void> {
+function required(name: string): string {
+  const value = process.env[name]?.trim()
+  if (!value) throw new Error(`${name} is required`)
+  return value
+}
+
+function buildConnector(mode: 'mock' | 'foundry'): AgentConnector {
+  if (mode === 'mock') return new MockAgentConnector()
+  const config = foundryConnectorConfigSchema.parse({
+    projectEndpoint: required('FOUNDRY_PROJECT_ENDPOINT'),
+    tenantId: required('FOUNDRY_TENANT_ID'),
+    environment: required('FOUNDRY_ENVIRONMENT'),
+  })
+  return new FoundryAgentConnector(config, new DefaultAzureCredential())
+}
+
+function buildRepositories(mode: 'mock' | 'foundry'): {
+  snapshots: SnapshotRepository
+  exposures: ExposureFindingRepository
+} {
+  if (mode === 'mock') {
+    return {
+      snapshots: new InMemorySnapshotRepository(),
+      exposures: new InMemoryExposureFindingRepository(),
+    }
+  }
+  const endpoint = required('COSMOS_ENDPOINT')
+  const databaseId = process.env['COSMOS_DATABASE']?.trim() || process.env['COSMOS_DATABASE_ID']?.trim() || 'agent-sentinel-db'
+  const client = new CosmosClient({ endpoint, aadCredentials: new DefaultAzureCredential() })
+  return {
+    snapshots: new CosmosSnapshotRepository(client, databaseId),
+    exposures: new CosmosExposureFindingRepository(client, databaseId),
+  }
+}
+
+async function processMessage(message: IncomingMessage, run: () => Promise<void>): Promise<void> {
   const correlationId = correlationIdFrom(
     message.applicationProperties?.[CORRELATION_ID_HEADER] ?? message.messageId,
   )
   const event = domainEventSchema.parse(message.body)
-  console.log(
-    JSON.stringify({
-      level: 'info',
-      correlationId,
-      eventType: event.type,
-      msg: 'processing message',
-    }),
-  )
-  return Promise.resolve()
+  defaultLogger.info('worker.event.received', { correlationId, eventType: event.type })
+  if (event.type === 'snapshot.ingested') {
+    await run()
+  }
 }
 
-function main(): Promise<void> {
-  if (!SB_FQDN) {
-    throw new Error('SERVICE_BUS_FQDN is required')
+async function main(): Promise<void> {
+  const connectorRaw = process.env['AGENT_SENTINEL_CONNECTOR']?.trim() || 'mock'
+  if (connectorRaw !== 'mock' && connectorRaw !== 'foundry') {
+    throw new Error(`AGENT_SENTINEL_CONNECTOR must be mock or foundry; received ${connectorRaw}.`)
   }
-  const credential = new DefaultAzureCredential()
-  const sbClient = new ServiceBusClient(SB_FQDN, credential)
-  const deduplicator = new InMemoryDeduplicator()
-  const receiver = sbClient.createReceiver('findings-validation')
-
-  receiver.subscribe({
-    async processMessage(message) {
-      const messageId = String(message.messageId ?? '')
-      await withIdempotency(deduplicator, messageId, () => processMessage(message))
-    },
-    processError(args) {
-      console.error(
-        JSON.stringify({ level: 'error', source: args.errorSource, msg: args.error.message }),
-      )
-      return Promise.resolve()
-    },
+  const connectorMode: 'mock' | 'foundry' = connectorRaw
+  const tenantId = process.env['AGENT_SENTINEL_TENANT_ID']?.trim() || 'tenant-demo'
+  const intervalMs = Number.parseInt(
+    process.env['DISCOVERY_INTERVAL_MS']?.trim() || String(DEFAULT_INTERVAL_MS),
+    10,
+  )
+  const connector = buildConnector(connectorMode)
+  const { snapshots, exposures } = buildRepositories(connectorMode)
+  const service = new IngestionService(connector, snapshots, exposures, {
+    tenantId,
+    sourceMode: connectorMode,
+    logger: defaultLogger,
   })
 
-  async function shutdown(): Promise<void> {
-    await receiver.close()
-    await sbClient.close()
+  let running = false
+  let healthy = true
+  const runOnce = async (): Promise<void> => {
+    if (running) {
+      defaultLogger.warn('worker.tick.skipped', { reason: 'already-running' })
+      return
+    }
+    running = true
+    try {
+      await service.run()
+      healthy = true
+    } catch (error) {
+      healthy = false
+      defaultLogger.error('worker.tick.failed', {
+        message: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      running = false
+    }
+  }
+
+  await runOnce()
+  const timer = setInterval(() => {
+    void runOnce()
+  }, intervalMs)
+
+  const sbFqdn = process.env['SERVICE_BUS_FQDN']?.trim()
+  let sbClient: ServiceBusClient | undefined
+  let receiver: ReturnType<ServiceBusClient['createReceiver']> | undefined
+  if (sbFqdn) {
+    sbClient = new ServiceBusClient(sbFqdn, new DefaultAzureCredential())
+    const deduplicator = new InMemoryDeduplicator()
+    receiver = sbClient.createReceiver('snapshot-ingestion')
+    receiver.subscribe({
+      async processMessage(message) {
+        const messageId = String(message.messageId ?? '')
+        await withIdempotency(deduplicator, messageId, () => processMessage(message, runOnce))
+      },
+      processError(args) {
+        defaultLogger.error('worker.sb.error', {
+          source: args.errorSource,
+          message: args.error.message,
+        })
+        return Promise.resolve()
+      },
+    })
+  }
+
+  const shutdown = async (): Promise<void> => {
+    clearInterval(timer)
+    if (receiver) await receiver.close()
+    if (sbClient) await sbClient.close()
     process.exit(0)
   }
 
   process.on('SIGTERM', () => {
     void shutdown()
   })
-  return Promise.resolve()
+
+  // Expose health flag for external probes if desired.
+  Object.assign(globalThis as unknown as { agentSentinelHealthy?: () => boolean }, {
+    agentSentinelHealthy: () => healthy,
+  })
 }
 
 main().catch((error: unknown) => {
-  console.error(
-    JSON.stringify({
-      level: 'fatal',
-      msg: error instanceof Error ? error.message : String(error),
-    }),
-  )
+  defaultLogger.error('worker.fatal', {
+    message: error instanceof Error ? error.message : String(error),
+  })
   process.exit(1)
 })

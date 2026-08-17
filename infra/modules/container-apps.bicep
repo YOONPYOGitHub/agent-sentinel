@@ -14,6 +14,26 @@ param searchEndpoint string
 param sbFqdn string
 param appInsightsConnectionString string
 
+
+@description('Data mode for the API and web layers (mock reads deterministic fixture; live reads from Cosmos).')
+@allowed(['mock','live'])
+param agentSentinelDataMode string = 'mock'
+
+@description('Azure AI Foundry project endpoint (empty when data mode is mock).')
+param foundryProjectEndpoint string = ''
+
+@description('Foundry AAD tenant id (empty when data mode is mock).')
+param foundryTenantId string = ''
+
+@description('Foundry environment label (empty when data mode is mock).')
+param foundryEnvironment string = 'validation'
+
+@description('Cosmos database id backing exposure findings and snapshots.')
+param cosmosDatabase string = 'agent-sentinel-db'
+
+@description('Ingestion worker discovery interval in milliseconds.')
+param discoveryIntervalMs string = '300000'
+
 @description('Required immutable image tag (git SHA). Mutable tags such as latest are not permitted.')
 param imageTag string
 
@@ -63,6 +83,14 @@ var env = [
   { name: 'SB_FQDN',                               value: sbFqdn }
   { name: 'SERVICE_BUS_FQDN',                      value: sbFqdn }
   { name: 'AGENT_SENTINEL_WRITE_ENABLED',          value: 'false' }
+  { name: 'AGENT_SENTINEL_DATA_MODE',             value: agentSentinelDataMode }
+  { name: 'FOUNDRY_PROJECT_ENDPOINT',             value: foundryProjectEndpoint }
+  { name: 'FOUNDRY_TENANT_ID',                    value: foundryTenantId }
+  { name: 'FOUNDRY_ENVIRONMENT',                  value: foundryEnvironment }
+  { name: 'AGENT_SENTINEL_TENANT_ID',             value: foundryTenantId }
+  { name: 'COSMOS_DATABASE',                      value: cosmosDatabase }
+  { name: 'DISCOVERY_INTERVAL_MS',                value: discoveryIntervalMs }
+  { name: 'AGENT_SENTINEL_CONNECTOR',             value: agentSentinelDataMode == 'live' ? 'foundry' : 'mock' }
   { name: 'AZURE_CLIENT_ID',                       value: uamiClientId }
   { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsightsConnectionString }
 ]

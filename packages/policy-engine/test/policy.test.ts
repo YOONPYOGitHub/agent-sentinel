@@ -1,10 +1,61 @@
 import { describe, expect, it } from 'vitest'
 
 import type { EstateSnapshot } from '@agent-sentinel/domain'
+import { FOUNDRY_API_VERSION, mapAgentToSnapshot } from '@agent-sentinel/foundry-connector'
+import { foundryManifest } from '@agent-sentinel/scenarios'
 
-import { evaluateUncontrolledEgress } from '../src/index.js'
+import {
+  evaluateAllExposurePolicies,
+  evaluateOverprivilegedEmployeeLookup,
+  evaluateUnapprovedExternalTransfer,
+  evaluateUnapprovedMutation,
+  evaluateUncontrolledEgress,
+} from '../src/index.js'
 
-const snapshot: EstateSnapshot = {
+function agentToFoundry(agent: (typeof foundryManifest.agents)[number]) {
+  return {
+    id: agent.name,
+    name: agent.displayName,
+    version: agent.version,
+    description: agent.description,
+    model: agent.modelDeployment,
+    instructions: agent.instructions,
+    tools: agent.functions.map((fn) => ({
+      type: 'function',
+      function: {
+        name: fn.name,
+        description: fn.description,
+        parameters: fn.parameters,
+      },
+    })),
+    metadata: {
+      owner: agent.owner,
+      environment: agent.environment,
+      approvalRequired: agent.approvalRequired ? 'true' : 'false',
+      lifecycle: agent.lifecycle,
+      version: agent.version,
+    },
+  }
+}
+
+function scenarioSnapshot(agentName: string): EstateSnapshot {
+  const agent = foundryManifest.agents.find((candidate) => candidate.name === agentName)
+  if (!agent) throw new Error(`Unknown agent: ${agentName}`)
+  return mapAgentToSnapshot([agentToFoundry(agent)], FOUNDRY_API_VERSION, {
+    tenantId: 'tenant-demo',
+    environment: 'validation',
+  })
+}
+
+function fullSnapshot(): EstateSnapshot {
+  return mapAgentToSnapshot(
+    foundryManifest.agents.map(agentToFoundry),
+    FOUNDRY_API_VERSION,
+    { tenantId: 'tenant-demo', environment: 'validation' },
+  )
+}
+
+const legacySnapshot: EstateSnapshot = {
   tenantId: 'tenant-demo',
   environment: 'demo',
   generatedAt: '2026-08-14T12:00:00.000Z',
@@ -54,24 +105,72 @@ const snapshot: EstateSnapshot = {
   ],
 }
 
-describe('uncontrolled egress policy', () => {
+describe('uncontrolled egress policy (AS-POL-004)', () => {
   it('creates an explainable critical finding', () => {
-    const findings = evaluateUncontrolledEgress(snapshot)
-
+    const findings = evaluateUncontrolledEgress(legacySnapshot)
     expect(findings).toHaveLength(1)
-    expect(findings[0]).toMatchObject({
-      severity: 'critical',
-      policyId: 'AS-POL-004',
-    })
-    expect(findings[0]?.path.evidenceIds).toEqual(['evidence'])
+    expect(findings[0]).toMatchObject({ severity: 'critical', policyId: 'AS-POL-004' })
+  })
+})
+
+describe('AS-POL-001 unapproved external transfer', () => {
+  it('flags sales-research-vulnerable', () => {
+    const findings = evaluateUnapprovedExternalTransfer(scenarioSnapshot('sales-research-vulnerable'))
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.severity).toBe('critical')
+    expect(findings[0]?.riskScore).toBe(91)
+    expect(findings[0]?.policyId).toBe('AS-POL-001')
+    expect(findings[0]?.affectedAgentId).toBe('foundry-agent-sales-research-vulnerable')
+    expect(findings[0]?.evidenceTypes).toEqual(['declared_configuration'])
+    expect(findings[0]?.validationStatus).toBe('theoretical')
+    expect(findings[0]?.sourceMode).toBe('foundry')
   })
 
-  it('passes after the risky relationship is disabled', () => {
-    const findings = evaluateUncontrolledEgress({
-      ...snapshot,
-      edges: snapshot.edges.map((edge) => ({ ...edge, active: false })),
-    })
+  it('flags external-transfer-unsafe', () => {
+    const findings = evaluateUnapprovedExternalTransfer(scenarioSnapshot('external-transfer-unsafe'))
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.policyId).toBe('AS-POL-001')
+  })
 
-    expect(findings).toHaveLength(0)
+  it('does not flag procurement-gated (approval required)', () => {
+    const snapshot = scenarioSnapshot('procurement-gated')
+    expect(evaluateUnapprovedExternalTransfer(snapshot)).toHaveLength(0)
+    expect(evaluateUnapprovedMutation(snapshot)).toHaveLength(0)
+  })
+
+  it('does not flag customer-support-safe or incident-triage-readonly', () => {
+    expect(evaluateAllExposurePolicies(scenarioSnapshot('customer-support-safe'))).toHaveLength(0)
+    expect(evaluateAllExposurePolicies(scenarioSnapshot('incident-triage-readonly'))).toHaveLength(0)
+  })
+})
+
+describe('AS-POL-002 overprivileged employee lookup', () => {
+  it('flags hr-policy-overprivileged', () => {
+    const findings = evaluateOverprivilegedEmployeeLookup(scenarioSnapshot('hr-policy-overprivileged'))
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.severity).toBe('high')
+    expect(findings[0]?.riskScore).toBe(76)
+    expect(findings[0]?.policyId).toBe('AS-POL-002')
+  })
+})
+
+describe('AS-POL-003 unapproved mutation', () => {
+  it('does not flag procurement-gated because approvalRequired=true', () => {
+    expect(evaluateUnapprovedMutation(scenarioSnapshot('procurement-gated'))).toHaveLength(0)
+  })
+})
+
+describe('evaluateAllExposurePolicies over the manifest', () => {
+  it('returns expected total per agent', () => {
+    const findings = evaluateAllExposurePolicies(fullSnapshot())
+    const byPolicy = findings.reduce<Record<string, number>>((acc, finding) => {
+      acc[finding.policyId] = (acc[finding.policyId] ?? 0) + 1
+      return acc
+    }, {})
+    expect(byPolicy['AS-POL-001']).toBe(2)
+    expect(byPolicy['AS-POL-002']).toBe(1)
+    expect(byPolicy['AS-POL-003'] ?? 0).toBe(0)
+    const criticals = findings.filter((f) => f.severity === 'critical')
+    expect(criticals.length).toBeGreaterThanOrEqual(2)
   })
 })

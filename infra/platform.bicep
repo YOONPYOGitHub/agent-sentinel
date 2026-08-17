@@ -11,6 +11,25 @@ param tags object = {
 @description('Required immutable image tag for Container App images (git SHA). Mutable tags are not permitted.')
 param imageTag string
 
+@description('Data mode for the API tier (mock or live).')
+@allowed(['mock','live'])
+param agentSentinelDataMode string = 'mock'
+
+@description('Foundry project endpoint URL for live mode.')
+param foundryProjectEndpoint string = ''
+
+@description('Foundry AAD tenant id for live mode.')
+param foundryTenantId string = ''
+
+@description('Foundry environment label for live mode.')
+param foundryEnvironment string = 'validation'
+
+@description('Cosmos database id backing exposure findings.')
+param cosmosDatabase string = 'agent-sentinel-db'
+
+@description('Ingestion worker discovery interval in milliseconds.')
+param discoveryIntervalMs string = '300000'
+
 @description('ACA environment default domain for private DNS zone creation (e.g. blackrock-0e55f941.koreacentral.azurecontainerapps.io). Empty string = skip DNS zone (use after first deployment). See deployment.md for post-deploy DNS step.')
 param acaEnvDomain string = ''
 
@@ -148,6 +167,12 @@ module containerApps './modules/container-apps.bicep' = {
     sbFqdn: serviceBus.outputs.fqdn
     appInsightsConnectionString: observability.outputs.appInsightsConnectionString
     imageTag: imageTag
+    agentSentinelDataMode: agentSentinelDataMode
+    foundryProjectEndpoint: foundryProjectEndpoint
+    foundryTenantId: foundryTenantId
+    foundryEnvironment: foundryEnvironment
+    cosmosDatabase: cosmosDatabase
+    discoveryIntervalMs: discoveryIntervalMs
   }
   dependsOn: [network, observability, identity, registry, cosmos, postgres, search, serviceBus]
 }
