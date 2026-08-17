@@ -4,6 +4,7 @@ RUN corepack enable
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/domain/package.json packages/domain/
 COPY packages/connector-sdk/package.json packages/connector-sdk/
+COPY packages/graph-engine/package.json packages/graph-engine/
 COPY packages/messaging/package.json packages/messaging/
 COPY packages/persistence/package.json packages/persistence/
 COPY packages/policy-engine/package.json packages/policy-engine/
@@ -17,6 +18,7 @@ COPY connectors/ connectors/
 COPY apps/jobs/ apps/jobs/
 RUN pnpm --filter @agent-sentinel/domain build
 RUN pnpm --filter @agent-sentinel/connector-sdk build
+RUN pnpm --filter @agent-sentinel/graph-engine build
 RUN pnpm --filter @agent-sentinel/messaging build
 RUN pnpm --filter @agent-sentinel/persistence build
 RUN pnpm --filter @agent-sentinel/policy-engine build
@@ -34,6 +36,8 @@ COPY --from=builder /workspace/packages/domain/dist ./packages/domain/dist/
 COPY --from=builder /workspace/packages/domain/package.json ./packages/domain/
 COPY --from=builder /workspace/packages/connector-sdk/dist ./packages/connector-sdk/dist/
 COPY --from=builder /workspace/packages/connector-sdk/package.json ./packages/connector-sdk/
+COPY --from=builder /workspace/packages/graph-engine/dist ./packages/graph-engine/dist/
+COPY --from=builder /workspace/packages/graph-engine/package.json ./packages/graph-engine/
 COPY --from=builder /workspace/packages/messaging/dist ./packages/messaging/dist/
 COPY --from=builder /workspace/packages/messaging/package.json ./packages/messaging/
 COPY --from=builder /workspace/packages/persistence/dist ./packages/persistence/dist/
