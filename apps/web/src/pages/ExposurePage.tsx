@@ -141,6 +141,7 @@ export function ExposurePage() {
           label="Last snapshot"
           value={data?.freshness?.generatedAt ? formatDateTime(data.freshness.generatedAt) : '—'}
           tone={stale ? 'warning' : 'neutral'}
+          compact
         />
       </div>
 
@@ -309,13 +310,15 @@ function KpiCard({
   label,
   value,
   tone,
+  compact = false,
 }: {
   label: string
   value: number | string
   tone: 'critical' | 'high' | 'warning' | 'neutral'
+  compact?: boolean
 }) {
   return (
-    <div className={`exposure-kpi exposure-kpi--${tone}`}>
+    <div className={`exposure-kpi exposure-kpi--${tone}${compact ? ' exposure-kpi--compact' : ''}`}>
       <span className="exposure-kpi-label">{label}</span>
       <strong className="exposure-kpi-value">{value}</strong>
     </div>
