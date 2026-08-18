@@ -2,15 +2,18 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 
 import {
-  exposureFindingSchema,
-  exposureFindingStatusSchema,
-  exposureFindingSeveritySchema,
-  exposurePageSchema,
-  type ExposureFinding,
-  type ExposureFindingListFilters,
-  type ExposureFindingRepository,
-  type ExposureFreshness,
-  type ExposurePage,
+    exposureFindingSchema,
+    exposureFindingStatusSchema,
+    exposureFindingSeveritySchema,
+    exposurePageSchema,
+    estateSnapshotSchema,
+    type EstateSnapshot,
+    type ExposureFinding,
+    type ExposureFindingListFilters,
+    type ExposureFindingRepository,
+    type ExposureFreshness,
+    type ExposurePage,
+    type SnapshotRepository,
 } from '@agent-sentinel/domain'
 import { evaluateAllExposurePolicies } from '@agent-sentinel/policy-engine'
 import { foundryManifest, type AgentDefinition } from '@agent-sentinel/scenarios'
@@ -30,6 +33,7 @@ export interface ExposureRoutesOptions {
   mode: 'mock' | 'foundry'
   defaultTenantId: string
   repository?: ExposureFindingRepository
+  snapshotRepository?: SnapshotRepository
 }
 
 function agentDefinitionToFoundryAgent(
@@ -67,6 +71,7 @@ export function buildMockExposurePage(
   page: ExposurePage
   findings: ExposureFinding[]
   freshness: ExposureFreshness
+  snapshot: EstateSnapshot
 } {
   const snapshot = mapAgentToSnapshot(
     foundryManifest.agents.map(agentDefinitionToFoundryAgent),
@@ -105,7 +110,36 @@ export function buildMockExposurePage(
       sourceMode: 'mock',
       agentCount: snapshot.nodes.filter((node) => node.kind === 'agent').length,
     },
+    snapshot,
   }
+}
+
+export function buildExposureGraphSnapshot(
+  snapshot: EstateSnapshot,
+  finding: ExposureFinding,
+): EstateSnapshot {
+  const nodeIds = new Set([
+    finding.affectedAgentId,
+    ...finding.affectedNodeIds,
+  ])
+  const affectedEdgeIds = new Set(finding.affectedEdgeIds)
+  const edges = snapshot.edges.filter((edge) => affectedEdgeIds.has(edge.id))
+  for (const edge of edges) {
+    nodeIds.add(edge.from)
+    nodeIds.add(edge.to)
+  }
+  const nodes = snapshot.nodes.filter((node) => nodeIds.has(node.id))
+  const evidenceIds = new Set([
+    ...finding.evidenceIds,
+    ...nodes.flatMap((node) => node.evidenceIds),
+    ...edges.flatMap((edge) => edge.evidenceIds),
+  ])
+  return estateSnapshotSchema.parse({
+    ...snapshot,
+    nodes,
+    edges,
+    evidence: snapshot.evidence.filter((evidence) => evidenceIds.has(evidence.id)),
+  })
 }
 
 function applyFilters(
@@ -187,6 +221,43 @@ export function registerExposureRoutes(app: FastifyInstance, options: ExposureRo
     }
     return exposurePageSchema.parse(page)
   })
+
+  app.get<{ Params: { findingId: string } }>(
+    '/api/exposures/:findingId/graph',
+    async (request, reply) => {
+      const { findingId } = request.params
+      if (options.mode === 'mock') {
+        const { findings, snapshot } = buildMockExposurePage(options.defaultTenantId, {})
+        const finding = findings.find((candidate) => candidate.id === findingId)
+        if (!finding) {
+          void reply.status(404)
+          return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
+        }
+        return buildExposureGraphSnapshot(snapshot, finding)
+      }
+
+      if (!options.repository || !options.snapshotRepository) {
+        throw new Error('Live exposure graph requires finding and snapshot repository bindings.')
+      }
+      const finding = await options.repository.findById(findingId, options.defaultTenantId)
+      if (!finding) {
+        void reply.status(404)
+        return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
+      }
+      const snapshot = await options.snapshotRepository.findById(
+        finding.snapshotId,
+        options.defaultTenantId,
+      )
+      if (!snapshot) {
+        void reply.status(404)
+        return {
+          error: 'not_found',
+          message: `Exposure snapshot not found: ${finding.snapshotId}`,
+        }
+      }
+      return buildExposureGraphSnapshot(snapshot, finding)
+    },
+  )
 
   app.get<{ Params: { findingId: string } }>(
     '/api/exposures/:findingId',

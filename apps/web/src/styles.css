@@ -658,6 +658,63 @@ button {
   background:
     radial-gradient(circle at 50% 40%, rgba(79, 107, 237, 0.08), transparent 42%), #0b111c;
 }
+.graph-path-list {
+  padding: 14px 18px 18px;
+  border-top: 1px solid #273247;
+  background: #0d141f;
+}
+.graph-path-list__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.graph-path-list__header span {
+  color: #8d9bb0;
+  font-size: 0.78rem;
+}
+.graph-path-list ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.graph-path-list button {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) auto minmax(130px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  color: #d6dce7;
+  text-align: left;
+  background: #111925;
+  border: 1px solid #273247;
+  border-radius: 7px;
+}
+.graph-path-list button:not(:disabled) {
+  cursor: pointer;
+}
+.graph-path-list button:not(:disabled):hover {
+  border-color: #4f6bed;
+}
+.graph-path-list button:focus-visible {
+  outline: 2px solid #8da2fb;
+  outline-offset: 2px;
+}
+.graph-path-list b {
+  color: #ff9da1;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.graph-path-list em {
+  color: #ff9da1;
+  font-size: 0.75rem;
+  font-style: normal;
+}
 
 .react-flow__controls {
   overflow: hidden;
@@ -1777,6 +1834,50 @@ button {
   padding: 16px;
   border-radius: 8px;
   border: 1px solid #202b3e;
+}
+.exposure-path-section {
+  margin: 20px 0;
+}
+.exposure-path-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.exposure-path-heading h2 {
+  margin: 4px 0 0;
+  font-size: 1.15rem;
+}
+.exposure-path-heading > span {
+  color: #98a5b8;
+  font-size: 0.85rem;
+}
+.exposure-path-section .graph-shell {
+  min-height: 430px;
+}
+.exposure-graph-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  background: #0d141f;
+  border: 1px solid #202b3e;
+  border-radius: 8px;
+}
+.exposure-graph-unavailable {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 150px;
+  padding: 24px;
+  color: #ffd8dc;
+  background: #35171c;
+  border: 1px dashed #71313b;
+  border-radius: 8px;
+}
+.exposure-graph-unavailable p {
+  margin: 4px 0 0;
 }
 .exposure-disclaimer {
   padding: 12px 16px;

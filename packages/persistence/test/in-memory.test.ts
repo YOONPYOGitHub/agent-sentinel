@@ -65,10 +65,16 @@ describe('in-memory repositories', () => {
   it('saves, finds the latest, and lists snapshots', async () => {
     const repository = new InMemorySnapshotRepository()
     await repository.save(snapshotOne)
-    await repository.save(snapshotTwo)
+      await repository.save(snapshotTwo)
 
-    await expect(repository.findLatest('tenant-one', 'production')).resolves.toEqual(snapshotTwo)
-    await expect(repository.list('tenant-one', 1)).resolves.toEqual([snapshotTwo])
+      await expect(repository.findLatest('tenant-one', 'production')).resolves.toEqual(snapshotTwo)
+      await expect(
+        repository.findById('tenant-one-production-2024-01-02T00:00:00.000Z', 'tenant-one'),
+      ).resolves.toEqual(snapshotTwo)
+      await expect(
+        repository.findById('tenant-one-production-2024-01-02T00:00:00.000Z', 'tenant-two'),
+      ).resolves.toBeNull()
+      await expect(repository.list('tenant-one', 1)).resolves.toEqual([snapshotTwo])
   })
 
   it('saves, finds, and filters findings', async () => {

@@ -3,7 +3,7 @@ import type { EstateSnapshot, Finding, Evidence, ValidationRun } from './index.j
 export interface SnapshotRepository {
   save(snapshot: EstateSnapshot): Promise<void>
   findLatest(tenantId: string, environment: string): Promise<EstateSnapshot | null>
-  findById(id: string): Promise<EstateSnapshot | null>
+  findById(id: string, tenantId: string): Promise<EstateSnapshot | null>
   list(tenantId: string, limit?: number): Promise<EstateSnapshot[]>
 }
 

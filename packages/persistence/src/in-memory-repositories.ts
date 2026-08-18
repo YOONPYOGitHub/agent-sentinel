@@ -29,9 +29,11 @@ export class InMemorySnapshotRepository implements SnapshotRepository {
     return Promise.resolve(snapshot ? structuredClone(snapshot) : null)
   }
 
-  findById(id: string): Promise<EstateSnapshot | null> {
+  findById(id: string, tenantId: string): Promise<EstateSnapshot | null> {
     const snapshot = this.snapshots.get(id)
-    return Promise.resolve(snapshot ? structuredClone(snapshot) : null)
+    return Promise.resolve(
+      snapshot?.tenantId === tenantId ? structuredClone(snapshot) : null,
+    )
   }
 
   list(tenantId: string, limit = 100): Promise<EstateSnapshot[]> {

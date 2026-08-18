@@ -9,30 +9,42 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import type { ExposureFinding } from '@agent-sentinel/domain'
+import type { EstateSnapshot } from '@agent-sentinel/domain'
 
 import { exposureApi } from '../api/exposure-api'
+import { EvidenceDrawer } from '../components/EvidenceDrawer'
+import { ExposureGraph } from '../components/ExposureGraph'
 import { PageHeading } from '../components/PageHeading'
+import { useEvidenceDrawer } from '../hooks/useEvidenceDrawer'
 
 export function ExposureDetailPage() {
   const { findingId } = useParams<{ findingId: string }>()
   const navigate = useNavigate()
   const [finding, setFinding] = useState<ExposureFinding | undefined>(undefined)
+  const [graph, setGraph] = useState<EstateSnapshot | undefined>(undefined)
+  const [graphLoading, setGraphLoading] = useState(true)
+  const [graphError, setGraphError] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
+  const { selectedEvidence, setSelectedEvidence, drawerRef, trapFocus } = useEvidenceDrawer()
 
   useEffect(() => {
     if (!findingId) return
     let cancelled = false
     setLoading(true)
-    setNotFound(false)
-    setError(undefined)
-    exposureApi
-      .get(findingId)
-      .then((value) => {
-        if (!cancelled) setFinding(value)
-      })
-      .catch((fetchError: unknown) => {
+      setNotFound(false)
+      setError(undefined)
+      setFinding(undefined)
+      setGraph(undefined)
+      setGraphLoading(true)
+      setGraphError(undefined)
+      exposureApi
+        .get(findingId)
+        .then((value) => {
+          if (!cancelled) setFinding(value)
+        })
+        .catch((fetchError: unknown) => {
         if (cancelled) return
         const message = fetchError instanceof Error ? fetchError.message : String(fetchError)
         if (message.toLowerCase().includes('not found') || message.includes('404')) {
@@ -41,9 +53,21 @@ export function ExposureDetailPage() {
           setError(message)
         }
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+      exposureApi
+        .getGraph(findingId)
+        .then((value) => {
+          if (!cancelled) setGraph(value)
+        })
+        .catch((fetchError: unknown) => {
+          if (cancelled) return
+          setGraphError(fetchError instanceof Error ? fetchError.message : String(fetchError))
+        })
+        .finally(() => {
+          if (!cancelled) setGraphLoading(false)
+        })
     return () => {
       cancelled = true
     }
@@ -117,7 +141,7 @@ export function ExposureDetailPage() {
         <p>{finding.recommendation}</p>
       </section>
 
-      <section className="exposure-detail-grid">
+        <section className="exposure-detail-grid">
         <div>
           <h4>Declared tools</h4>
           <ul>
@@ -139,15 +163,51 @@ export function ExposureDetailPage() {
             ))}
           </ul>
         </div>
-      </section>
+        </section>
 
-      <section className="exposure-disclaimer">
+        <section className="exposure-path-section" aria-labelledby="exposure-path-title">
+          <div className="exposure-path-heading">
+            <div>
+              <span className="eyebrow">EVIDENCE GRAPH</span>
+              <h2 id="exposure-path-title">Affected attack path</h2>
+            </div>
+            <span>{finding.blastRadiusCount} downstream nodes reachable</span>
+          </div>
+          {graphLoading ? (
+            <div className="exposure-graph-loading" role="status">
+              <Spinner size="medium" label="Loading attack path…" />
+            </div>
+          ) : graph === undefined ? (
+            <div className="exposure-graph-unavailable" role={graphError ? 'alert' : 'status'}>
+              <AlertRegular aria-hidden="true" />
+              <div>
+                <strong>Graph evidence unavailable</strong>
+                <p>{graphError ?? 'The snapshot graph could not be loaded.'}</p>
+              </div>
+            </div>
+          ) : (
+            <ExposureGraph
+              snapshot={graph}
+              pathStatus={finding.validationStatus}
+              title={finding.title}
+              onEvidenceSelect={setSelectedEvidence}
+            />
+          )}
+        </section>
+
+        <section className="exposure-disclaimer">
         <p>
           <strong>Declared configuration only.</strong> This finding is derived from the agent's
           declared platform configuration. It does not confirm observed runtime behavior; validate
           with a synthetic run before remediation.
-        </p>
-      </section>
-    </>
+          </p>
+        </section>
+        <EvidenceDrawer
+          evidence={selectedEvidence}
+          drawerRef={drawerRef}
+          onClose={() => setSelectedEvidence(undefined)}
+          onKeyDown={trapFocus}
+        />
+      </>
   )
 }

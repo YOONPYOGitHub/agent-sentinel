@@ -45,12 +45,7 @@ export class CosmosSnapshotRepository implements SnapshotRepository {
     return resources[0] ?? null
   }
 
-  async findById(id: string): Promise<EstateSnapshot | null> {
-    const tenantId = id.split('-', 1)[0]
-    if (!tenantId) {
-      return null
-    }
-
+  async findById(id: string, tenantId: string): Promise<EstateSnapshot | null> {
     try {
       const { resource } = await this.container.item(id, tenantId).read<SnapshotDocument>()
       return resource ?? null

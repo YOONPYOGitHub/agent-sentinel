@@ -12,6 +12,9 @@ import { ExposureDetailPage } from './ExposureDetailPage'
 import { exposureApi } from '../api/exposure-api'
 
 vi.mock('../api/exposure-api')
+vi.mock('../components/ExposureGraph', () => ({
+  ExposureGraph: ({ title }: { title: string }) => <div data-testid="exposure-graph">{title}</div>,
+}))
 
 const sampleFinding: ExposureFinding = {
   id: 'exposure-as-pol-001-agent-1',
@@ -52,11 +55,41 @@ const samplePage: ExposurePageDto = {
   },
 }
 
+const sampleGraph = {
+  tenantId: 'tenant-demo',
+  environment: 'validation',
+  generatedAt: new Date().toISOString(),
+  nodes: [
+    {
+      id: sampleFinding.affectedAgentId,
+      kind: 'agent' as const,
+      name: sampleFinding.affectedAgentName,
+      description: 'Synthetic agent',
+      environment: 'validation',
+      evidenceIds: ['ev-1'],
+      metadata: {},
+    },
+  ],
+  edges: [],
+  evidence: [
+    {
+      id: 'ev-1',
+      source: 'Synthetic connector',
+      sourceObjectId: sampleFinding.affectedAgentId,
+      observedAt: new Date().toISOString(),
+      freshness: 'live' as const,
+      confidence: 1,
+      summary: 'Synthetic evidence',
+    },
+  ],
+}
+
 afterEach(cleanup)
 
 beforeEach(() => {
   vi.mocked(exposureApi.list).mockResolvedValue(samplePage)
   vi.mocked(exposureApi.get).mockResolvedValue(sampleFinding)
+  vi.mocked(exposureApi.getGraph).mockResolvedValue(sampleGraph)
 })
 
 describe('ExposurePage', () => {
@@ -135,9 +168,32 @@ describe('ExposureDetailPage', () => {
       </MemoryRouter>,
     )
     await waitFor(() =>
-      expect(screen.getByText('Agent one can transfer data externally')).toBeInTheDocument(),
+      expect(
+        screen.getByRole('heading', { name: 'Agent one can transfer data externally' }),
+      ).toBeInTheDocument(),
     )
     expect(screen.getByText('Recommendation')).toBeInTheDocument()
+    expect(screen.getByTestId('exposure-graph')).toHaveTextContent(sampleFinding.title)
+    expect(exposureApi.getGraph).toHaveBeenCalledWith(sampleFinding.id)
+  })
+
+  it('renders finding details while the attack path is still loading', async () => {
+    vi.mocked(exposureApi.getGraph).mockImplementation(() => new Promise(() => undefined))
+    render(
+      <MemoryRouter initialEntries={[`/exposure/${sampleFinding.id}`]}>
+        <Routes>
+          <Route path="/exposure/:findingId" element={<ExposureDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Agent one can transfer data externally' }),
+      ).toBeInTheDocument(),
+    )
+    expect(screen.getByText('Recommendation')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Loading attack path')
   })
 
   it('renders a 404 state', async () => {
