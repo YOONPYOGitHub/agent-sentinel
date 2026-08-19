@@ -12,6 +12,7 @@ import { EstatePage } from './pages/EstatePage'
 import { ExposureDetailPage } from './pages/ExposureDetailPage'
 import { ExposurePage } from './pages/ExposurePage'
 import { GovernancePage } from './pages/GovernancePage'
+import { LifecyclePage } from './pages/LifecyclePage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { ObservabilityPage } from './pages/ObservabilityPage'
 import { OverviewPage } from './pages/OverviewPage'
@@ -59,7 +60,7 @@ function RoutedApplication() {
         <Route path="governance" element={<GovernancePage />} />
         <Route path="observability" element={<ObservabilityPage />} />
         <Route path="optimization" element={<ComingSoonPage title="Optimization" />} />
-        <Route path="lifecycle" element={<ComingSoonPage title="Lifecycle" />} />
+        <Route path="lifecycle" element={<LifecyclePage />} />
         <Route path="trust-catalog" element={<TrustCatalogPage />} />
         <Route path="connectors" element={<ConnectorsPage />} />
         <Route path="settings" element={<SettingsPage />} />

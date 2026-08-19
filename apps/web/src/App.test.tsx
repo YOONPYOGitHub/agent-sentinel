@@ -80,6 +80,14 @@ describe('application routing', () => {
     ).toBeVisible()
   })
 
+  it('renders lifecycle evidence without fabricated lineage', async () => {
+    await renderRoute('/lifecycle')
+    expect(await screen.findByRole('heading', { name: 'Lifecycle evidence' })).toBeVisible()
+    expect(
+      screen.getByText('Current-version evidence, not full release orchestration'),
+    ).toBeVisible()
+  })
+
   it('renders connector status and metadata', async () => {
     await renderRoute('/connectors')
     expect(await screen.findByRole('heading', { name: 'Connector health' })).toBeVisible()
