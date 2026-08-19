@@ -15,10 +15,12 @@ import {
   SettingsRegular,
   ShieldCheckmarkRegular,
 } from '@fluentui/react-icons'
-import { useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useDemoState } from '../hooks/useDemoState'
+import { GlobalSearchDialog } from './GlobalSearchDialog'
 import { ReadOnlyBanner } from './ReadOnlyBanner'
+import { ShellMenu } from './ShellMenu'
 
 const navigation = [
   { label: 'Overview', icon: HomeRegular, to: '/overview', end: true },
@@ -34,7 +36,24 @@ const navigation = [
 
 export function AppLayout() {
   const [navExpanded, setNavExpanded] = useState(true)
-  const { connectorStatus } = useDemoState()
+  const [searchOpen, setSearchOpen] = useState(false)
+  const { connectorStatus, state } = useDemoState()
+  const searchTriggerRef = useRef<HTMLDivElement>(null)
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false)
+    window.setTimeout(() => searchTriggerRef.current?.querySelector('input')?.focus(), 0)
+  }, [])
+
+  useEffect(() => {
+    const openSearch = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === 'k') {
+        event.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', openSearch)
+    return () => window.removeEventListener('keydown', openSearch)
+  }, [])
 
   return (
     <div className={`app-shell ${navExpanded ? '' : 'app-shell--collapsed'}`}>
@@ -91,41 +110,99 @@ export function AppLayout() {
               onClick={() => setNavExpanded((value) => !value)}
             />
           </Tooltip>
-          <div className="global-search">
+          <div ref={searchTriggerRef} className="global-search">
             <SearchRegular aria-hidden="true" />
             <Input
               appearance="underline"
               aria-label="Search agents, identities, tools, and evidence"
               placeholder="Search agents, identities, tools, evidence"
+              readOnly
+              onClick={() => setSearchOpen(true)}
             />
-            <kbd>⌘ K</kbd>
+            <kbd>Ctrl K</kbd>
           </div>
         </div>
         <div className="top-bar__right">
-          <button className="scope-selector" type="button">
-            <span className="status-dot status-dot--healthy" />
-            Contoso AI Lab
-            <ChevronRightRegular />
-          </button>
-          <button className="environment-pill" type="button">
-            Demo · Korea Central
-          </button>
-          <Tooltip content="More actions" relationship="label">
-            <Button
-              appearance="subtle"
-              icon={<MoreHorizontalRegular />}
-              aria-label="More actions"
-            />
-          </Tooltip>
-          <div className="avatar" aria-label="Signed in as Avery Morgan">
-            AM
-          </div>
+          <ShellMenu
+            label="Scope information"
+            trigger={
+              <span className="scope-selector">
+                <span className="status-dot status-dot--healthy" />
+                Demo scope
+                <ChevronRightRegular />
+              </span>
+            }
+          >
+            <div className="shell-menu__status">
+              <strong>Contoso AI Lab</strong>
+              <span>Synthetic demo scope · active</span>
+            </div>
+            <div className="shell-menu__meta">
+              <span>Tenant</span>
+              <b>{state?.snapshot.tenantId ?? 'Unavailable'}</b>
+              <span>Environment</span>
+              <b>{state?.snapshot.environment ?? 'Unavailable'}</b>
+            </div>
+            <Link to="/settings">View scope settings</Link>
+          </ShellMenu>
+          <ShellMenu
+            label="Environment information"
+            trigger={
+              <span className="environment-pill">
+                {connectorStatus?.mode === 'foundry' ? 'Foundry' : 'Demo'} · Configured region
+              </span>
+            }
+          >
+            <div className="shell-menu__status">
+              <strong>
+                {connectorStatus?.mode === 'foundry' ? 'Microsoft Foundry' : 'Synthetic demo'}
+              </strong>
+              <span>
+                Korea Central deployment · {connectorStatus?.source ?? 'status unavailable'}
+              </span>
+            </div>
+            <p className="shell-menu__note">
+              Environment changes are deployment-controlled and audited.
+            </p>
+            <Link to="/connectors">Open connector health</Link>
+          </ShellMenu>
+          <ShellMenu
+            label="More actions"
+            trigger={
+              <Tooltip content="More actions" relationship="label">
+                <span className="shell-icon-trigger" aria-hidden="true">
+                  <MoreHorizontalRegular />
+                </span>
+              </Tooltip>
+            }
+          >
+            <Link to="/connectors">Connector diagnostics</Link>
+            <Link to="/settings">Application settings</Link>
+            <div className="shell-menu__status shell-menu__status--bordered">
+              <strong>Agent Sentinel</strong>
+              <span>Operations & Security · Hackathon build</span>
+            </div>
+          </ShellMenu>
+          <ShellMenu label="User menu" trigger={<span className="avatar">AM</span>}>
+            <div className="shell-menu__profile">
+              <span className="avatar avatar--large">AM</span>
+              <div>
+                <strong>Avery Morgan · demo persona</strong>
+                <span>Simulated Agent Security Analyst</span>
+              </div>
+            </div>
+            <Link to="/settings">Profile and preferences</Link>
+            <p className="shell-menu__note">
+              Authentication status is separate from this synthetic demo identity.
+            </p>
+          </ShellMenu>
         </div>
       </header>
       <main className="main-content">
         <ReadOnlyBanner writeEnabled={connectorStatus?.writeEnabled} />
         <Outlet />
       </main>
+      {state ? <GlobalSearchDialog open={searchOpen} state={state} onClose={closeSearch} /> : null}
     </div>
   )
 }

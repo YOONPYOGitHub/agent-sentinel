@@ -13,6 +13,7 @@ import { ExposureDetailPage } from './pages/ExposureDetailPage'
 import { ExposurePage } from './pages/ExposurePage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { OverviewPage } from './pages/OverviewPage'
+import { SettingsPage } from './pages/SettingsPage'
 
 function RoutedApplication() {
   const { error, load, operation, state } = useDemoState()
@@ -58,7 +59,7 @@ function RoutedApplication() {
         <Route path="lifecycle" element={<ComingSoonPage title="Lifecycle" />} />
         <Route path="trust-catalog" element={<ComingSoonPage title="Trust catalog" />} />
         <Route path="connectors" element={<ConnectorsPage />} />
-        <Route path="settings" element={<ComingSoonPage title="Settings" />} />
+        <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

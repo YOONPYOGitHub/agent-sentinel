@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
@@ -67,6 +67,60 @@ describe('application routing', () => {
       await screen.findByRole('heading', { name: 'azure-ai-foundry-agent-service' }),
     ).toBeVisible()
     expect(await screen.findByText('Project endpoint')).toBeVisible()
+  })
+
+  it('opens global search with Ctrl+K and navigates to an agent result', async () => {
+    await renderRoute('/overview')
+    await screen.findByRole('heading', { name: 'Agent operations overview' })
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    expect(await screen.findByRole('dialog', { name: /Find an agent/i })).toBeVisible()
+    const shellSearch = screen.getByRole('textbox', {
+      name: 'Search agents, identities, tools, and evidence',
+    })
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(shellSearch).toHaveFocus())
+    expect(screen.queryByRole('dialog', { name: /Find an agent/i })).not.toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search Agent Sentinel' }), {
+      target: { value: 'Sales Research Agent' },
+    })
+    fireEvent.click(screen.getByRole('link', { name: /^Sales Research Agent agent/i }))
+
+    expect(await screen.findByRole('heading', { name: 'Sales Research Agent' })).toBeVisible()
+    expect(screen.queryByRole('dialog', { name: /Find an agent/i })).not.toBeInTheDocument()
+  })
+
+  it('makes scope, environment, overflow, and user shell controls informative', async () => {
+    await renderRoute('/overview')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Scope information' }))
+    expect(screen.getByText(/Synthetic demo scope/i)).toBeVisible()
+    expect(screen.getAllByText('test').length).toBeGreaterThanOrEqual(2)
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Environment information' }))
+    expect(screen.getByText(/Environment changes are deployment-controlled/i)).toBeVisible()
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    expect(screen.getByRole('link', { name: 'Connector diagnostics' })).toBeVisible()
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'User menu' }))
+    expect(screen.getByText('Simulated Agent Security Analyst')).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Profile and preferences' })).toBeVisible()
+  })
+
+  it('renders real settings and links to connector management', async () => {
+    await renderRoute('/settings')
+
+    expect(await screen.findByRole('heading', { name: 'Application settings' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Contoso AI Lab · synthetic demo' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Microsoft Foundry' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Manage connectors' }))
+    expect(await screen.findByRole('heading', { name: 'Connector health' })).toBeVisible()
   })
 
   it('shows read-only mode and disables mutations when writes are blocked', async () => {
