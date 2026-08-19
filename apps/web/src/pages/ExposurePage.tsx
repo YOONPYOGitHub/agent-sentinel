@@ -1,10 +1,4 @@
-import {
-  Badge,
-  Button,
-  Input,
-  Select,
-  Spinner,
-} from '@fluentui/react-components'
+import { Badge, Button, Input, Select, Spinner } from '@fluentui/react-components'
 import {
   AlertRegular,
   ArrowClockwiseRegular,
@@ -13,7 +7,7 @@ import {
   ShieldCheckmarkRegular,
 } from '@fluentui/react-icons'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 
 import type {
   ExposureFindingSeverity,
@@ -46,12 +40,13 @@ function isStale(generatedAt: string | undefined): boolean {
 }
 
 export function ExposurePage() {
+  const [searchParams] = useSearchParams()
   const [data, setData] = useState<ExposurePageDto | undefined>(undefined)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>(undefined)
   const [severity, setSeverity] = useState<ExposureFindingSeverity | ''>('')
   const [status, setStatus] = useState<ExposureFindingStatus | ''>('')
-  const [policyId, setPolicyId] = useState('')
+  const [policyId, setPolicyId] = useState(() => searchParams.get('policyId') ?? '')
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('riskScore')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -105,10 +100,11 @@ export function ExposurePage() {
     const openCount = list.filter((finding) => finding.status === 'open').length
     const affectedAgents = new Set(list.map((finding) => finding.affectedAgentId)).size
     return { criticalCount, highCount, openCount, affectedAgents }
-  }, [data?.findings])
+  }, [data?.findings, policyId])
 
   const policyOptions = useMemo(() => {
     const set = new Set<string>()
+    if (policyId) set.add(policyId)
     for (const finding of data?.findings ?? []) set.add(finding.policyId)
     return [...set].sort()
   }, [data?.findings])
@@ -169,9 +165,7 @@ export function ExposurePage() {
           <span>Severity</span>
           <Select
             value={severity}
-            onChange={(_event, data) =>
-              setSeverity((data.value as ExposureFindingSeverity) || '')
-            }
+            onChange={(_event, data) => setSeverity((data.value as ExposureFindingSeverity) || '')}
           >
             <option value="">All</option>
             <option value="critical">Critical</option>
@@ -184,9 +178,7 @@ export function ExposurePage() {
           <span>Status</span>
           <Select
             value={status}
-            onChange={(_event, data) =>
-              setStatus((data.value as ExposureFindingStatus) || '')
-            }
+            onChange={(_event, data) => setStatus((data.value as ExposureFindingStatus) || '')}
           >
             <option value="">All</option>
             <option value="open">Open</option>

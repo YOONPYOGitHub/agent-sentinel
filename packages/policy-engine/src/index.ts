@@ -170,6 +170,8 @@ function buildExposureFinding(input: ExposureBuildInput): ExposureFinding {
 export const unapprovedExternalTransferPolicy = {
   id: 'AS-POL-001',
   name: 'Unapproved external transfer or send',
+  description: 'External send and transfer capabilities require an explicit human approval gate.',
+  category: 'Data egress',
   severity: 'critical' as const,
   riskScore: 91,
 }
@@ -206,6 +208,8 @@ export function evaluateUnapprovedExternalTransfer(snapshot: EstateSnapshot): Ex
 export const overprivilegedEmployeeLookupPolicy = {
   id: 'AS-POL-002',
   name: 'Overprivileged employee lookup without approval',
+  description: 'Sensitive employee fields require least privilege and approval before disclosure.',
+  category: 'Sensitive data',
   severity: 'high' as const,
   riskScore: 76,
 }
@@ -251,9 +255,17 @@ export function evaluateOverprivilegedEmployeeLookup(snapshot: EstateSnapshot): 
 export const unapprovedMutationPolicy = {
   id: 'AS-POL-003',
   name: 'Mutation tool without approval',
+  description: 'Create, update, delete, submit, and send operations require human approval.',
+  category: 'Tool autonomy',
   severity: 'high' as const,
   riskScore: 72,
 }
+
+export const exposurePolicyCatalog = [
+  unapprovedExternalTransferPolicy,
+  overprivilegedEmployeeLookupPolicy,
+  unapprovedMutationPolicy,
+] as const
 
 export function evaluateUnapprovedMutation(snapshot: EstateSnapshot): ExposureFinding[] {
   const findings: ExposureFinding[] = []

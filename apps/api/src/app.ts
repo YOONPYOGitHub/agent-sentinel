@@ -15,6 +15,7 @@ import { buildAuthConfig, createAuthMiddleware, type AuthConfig } from './auth.j
 import { createConfiguredConnector } from './connector-factory.js'
 import { DemoService, NotFoundError, StateConflictError } from './demo-service.js'
 import { registerExposureRoutes } from './exposure-routes.js'
+import { registerGovernanceRoutes } from './governance-routes.js'
 
 const approvalSchema = z.object({
   approvedBy: z.string().trim().min(2).max(100),
@@ -50,7 +51,10 @@ function buildLiveRepositories(): {
 } {
   const endpoint = process.env['COSMOS_ENDPOINT']?.trim()
   if (!endpoint) throw new Error('COSMOS_ENDPOINT is required when AGENT_SENTINEL_DATA_MODE=live.')
-  const databaseId = process.env['COSMOS_DATABASE']?.trim() || process.env['COSMOS_DATABASE_ID']?.trim() || 'agent-sentinel-db'
+  const databaseId =
+    process.env['COSMOS_DATABASE']?.trim() ||
+    process.env['COSMOS_DATABASE_ID']?.trim() ||
+    'agent-sentinel-db'
   const client = new CosmosClient({ endpoint, aadCredentials: new DefaultAzureCredential() })
   return {
     exposureRepository: new CosmosExposureFindingRepository(client, databaseId),
@@ -137,20 +141,25 @@ export async function createApp(
   )
 
   const exposureMode: 'mock' | 'foundry' = resolvedDataMode === 'live' ? 'foundry' : 'mock'
-    const liveRepositories =
-      resolvedDataMode === 'live' &&
-      options.exposureRepository === undefined &&
-      options.snapshotRepository === undefined
-        ? buildLiveRepositories()
-        : undefined
-    const exposureRepository = options.exposureRepository ?? liveRepositories?.exposureRepository
-    const snapshotRepository = options.snapshotRepository ?? liveRepositories?.snapshotRepository
-    registerExposureRoutes(app, {
-      mode: exposureMode,
-      defaultTenantId: defaultTenantId(),
-      ...(exposureRepository ? { repository: exposureRepository } : {}),
-      ...(snapshotRepository ? { snapshotRepository } : {}),
-    })
+  const liveRepositories =
+    resolvedDataMode === 'live' &&
+    options.exposureRepository === undefined &&
+    options.snapshotRepository === undefined
+      ? buildLiveRepositories()
+      : undefined
+  const exposureRepository = options.exposureRepository ?? liveRepositories?.exposureRepository
+  const snapshotRepository = options.snapshotRepository ?? liveRepositories?.snapshotRepository
+  registerExposureRoutes(app, {
+    mode: exposureMode,
+    defaultTenantId: defaultTenantId(),
+    ...(exposureRepository ? { repository: exposureRepository } : {}),
+    ...(snapshotRepository ? { snapshotRepository } : {}),
+  })
+  registerGovernanceRoutes(app, {
+    mode: exposureMode,
+    defaultTenantId: defaultTenantId(),
+    ...(exposureRepository ? { repository: exposureRepository } : {}),
+  })
 
   app.setErrorHandler((error, _request, reply) => {
     const statusCode =

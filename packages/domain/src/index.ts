@@ -280,6 +280,36 @@ export const exposurePageSchema = z.object({
 })
 export type ExposurePage = z.infer<typeof exposurePageSchema>
 
+export const governancePolicyPostureSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().min(1),
+  category: z.string().min(1),
+  severity: exposureFindingSeveritySchema,
+  riskScore: z.number().min(0).max(100),
+  status: z.enum(['compliant', 'needs-attention', 'not-evaluated']),
+  openFindings: z.number().int().min(0),
+  affectedAgents: z.number().int().min(0),
+  evidenceBasis: z.enum(['declared_configuration', 'observed_runtime', 'synthetic_validation']),
+})
+export type GovernancePolicyPosture = z.infer<typeof governancePolicyPostureSchema>
+
+export const governancePostureSchema = z.object({
+  policies: z.array(governancePolicyPostureSchema),
+  summary: z.object({
+    totalPolicies: z.number().int().min(0),
+    compliantPolicies: z.number().int().min(0),
+    policiesNeedingAttention: z.number().int().min(0),
+    openFindings: z.number().int().min(0),
+    affectedAgents: z.number().int().min(0),
+  }),
+  latestEvidenceAt: z.iso.datetime().optional(),
+  sourceMode: z.enum(['mock', 'foundry']),
+  evidenceBasis: z.literal('declared_configuration'),
+  evaluationCoverage: z.enum(['complete', 'findings-only']),
+})
+export type GovernancePosture = z.infer<typeof governancePostureSchema>
+
 export type {
   ExposureFindingFacets,
   ExposureFindingRepository,

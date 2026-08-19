@@ -180,6 +180,21 @@ describe('ExposurePage', () => {
       ),
     )
   })
+
+  it('applies a policy filter from the deep-link query string', async () => {
+    render(
+      <MemoryRouter initialEntries={['/exposure?policyId=AS-POL-001']}>
+        <ExposurePage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() =>
+      expect(vi.mocked(exposureApi.list)).toHaveBeenCalledWith(
+        expect.objectContaining({ policyId: 'AS-POL-001' }),
+      ),
+    )
+    expect(screen.getByRole('combobox', { name: 'Policy' })).toHaveValue('AS-POL-001')
+  })
 })
 
 describe('ExposureDetailPage', () => {

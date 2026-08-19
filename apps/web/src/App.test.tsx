@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/unbound-method */
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -6,9 +7,11 @@ import { MemoryRouter } from 'react-router-dom'
 
 import App from './App'
 import { connectorApi, demoApi } from './api'
-import { testState } from './test-fixture'
+import { governanceApi } from './api/governance-api'
+import { governancePostureFixture, testState } from './test-fixture'
 
 vi.mock('./api')
+vi.mock('./api/governance-api')
 vi.mock('./components/ExposureGraph', () => ({ ExposureGraph: () => <div /> }))
 
 afterEach(cleanup)
@@ -22,6 +25,7 @@ beforeEach(() => {
     projectEndpoint: 'https://contoso.services.ai.azure.com/api/projects/sentinel',
     writeEnabled: true,
   })
+  vi.mocked(governanceApi.getPosture).mockResolvedValue(governancePostureFixture)
 })
 
 async function renderRoute(route: string) {
@@ -52,9 +56,9 @@ describe('application routing', () => {
     expect(await screen.findByRole('heading', { name: 'HR Policy Assistant' })).toBeVisible()
   })
 
-  it('renders coming-next routes and wildcard 404 without an evidence route', async () => {
+  it('renders governance and wildcard 404 without an evidence route', async () => {
     await renderRoute('/governance')
-    expect(await screen.findByRole('heading', { name: 'Governance' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: 'Policy governance' })).toBeVisible()
     cleanup()
     await renderRoute('/agent-estate/hr-policy-agent/evidence/evidence-hr-agent-manifest')
     expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeVisible()

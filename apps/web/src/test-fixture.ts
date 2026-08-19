@@ -1,4 +1,9 @@
-import type { AgentSentinelState, Evidence, GraphNode } from '@agent-sentinel/domain'
+import type {
+  AgentSentinelState,
+  Evidence,
+  GovernancePosture,
+  GraphNode,
+} from '@agent-sentinel/domain'
 
 const observedAt = '2026-08-14T12:00:00.000Z'
 
@@ -244,4 +249,44 @@ export const testState: AgentSentinelState = {
   ],
   validations: [],
   remediations: [],
+}
+
+export const governancePostureFixture: GovernancePosture = {
+  policies: [
+    {
+      id: 'AS-POL-001',
+      name: 'Unapproved external transfer or send',
+      description: 'External transfers require approval.',
+      category: 'Data egress',
+      severity: 'critical',
+      riskScore: 91,
+      status: 'needs-attention',
+      openFindings: 2,
+      affectedAgents: 2,
+      evidenceBasis: 'declared_configuration',
+    },
+    {
+      id: 'AS-POL-002',
+      name: 'Overprivileged employee lookup without approval',
+      description: 'Sensitive employee fields require approval.',
+      category: 'Sensitive data',
+      severity: 'high',
+      riskScore: 76,
+      status: 'compliant',
+      openFindings: 0,
+      affectedAgents: 0,
+      evidenceBasis: 'declared_configuration',
+    },
+  ],
+  summary: {
+    totalPolicies: 2,
+    compliantPolicies: 1,
+    policiesNeedingAttention: 1,
+    openFindings: 2,
+    affectedAgents: 2,
+  },
+  latestEvidenceAt: '2026-08-19T09:00:00.000Z',
+  sourceMode: 'mock',
+  evidenceBasis: 'declared_configuration',
+  evaluationCoverage: 'complete',
 }
