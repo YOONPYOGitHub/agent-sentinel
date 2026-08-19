@@ -2,19 +2,22 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 
 import {
-    exposureFindingSchema,
-    exposureFindingStatusSchema,
-    exposureFindingSeveritySchema,
-    exposurePageSchema,
-    estateSnapshotSchema,
-    type EstateSnapshot,
-    type ExposureFinding,
-    type ExposureFindingListFilters,
-    type ExposureFindingRepository,
-    type ExposureFreshness,
-    type ExposurePage,
-    type SnapshotRepository,
+  exposureFindingSchema,
+  exposureFindingStatusSchema,
+  exposureFindingSeveritySchema,
+  exposurePageSchema,
+  estateSnapshotSchema,
+  remediationPreviewSchema,
+  type EstateSnapshot,
+  type ExposureFinding,
+  type ExposureFindingListFilters,
+  type ExposureFindingRepository,
+  type ExposureFreshness,
+  type ExposurePage,
+  type RemediationPreview,
+  type SnapshotRepository,
 } from '@agent-sentinel/domain'
+import { calculateBlastRadius, simulateEdgeRemoval } from '@agent-sentinel/graph-engine'
 import { evaluateAllExposurePolicies } from '@agent-sentinel/policy-engine'
 import { foundryManifest, type AgentDefinition } from '@agent-sentinel/scenarios'
 import { mapAgentToSnapshot, FOUNDRY_API_VERSION } from '@agent-sentinel/foundry-connector'
@@ -118,10 +121,7 @@ export function buildExposureGraphSnapshot(
   snapshot: EstateSnapshot,
   finding: ExposureFinding,
 ): EstateSnapshot {
-  const nodeIds = new Set([
-    finding.affectedAgentId,
-    ...finding.affectedNodeIds,
-  ])
+  const nodeIds = new Set([finding.affectedAgentId, ...finding.affectedNodeIds])
   const affectedEdgeIds = new Set(finding.affectedEdgeIds)
   const edges = snapshot.edges.filter((edge) => affectedEdgeIds.has(edge.id))
   for (const edge of edges) {
@@ -140,6 +140,106 @@ export function buildExposureGraphSnapshot(
     edges,
     evidence: snapshot.evidence.filter((evidence) => evidenceIds.has(evidence.id)),
   })
+}
+
+function buildComparisonGraph(
+  snapshot: EstateSnapshot,
+  includedNodeIds: ReadonlySet<string>,
+): EstateSnapshot {
+  const nodes = snapshot.nodes.filter((node) => includedNodeIds.has(node.id))
+  const edges = snapshot.edges.filter(
+    (edge) => includedNodeIds.has(edge.from) && includedNodeIds.has(edge.to),
+  )
+  const evidenceIds = new Set([
+    ...nodes.flatMap((node) => node.evidenceIds),
+    ...edges.flatMap((edge) => edge.evidenceIds),
+  ])
+  return estateSnapshotSchema.parse({
+    ...snapshot,
+    nodes,
+    edges,
+    evidence: snapshot.evidence.filter((evidence) => evidenceIds.has(evidence.id)),
+  })
+}
+
+export function buildRemediationPreview(
+  snapshot: EstateSnapshot,
+  finding: ExposureFinding,
+): RemediationPreview {
+  const targetEdgeIds = finding.affectedEdgeIds.filter((edgeId) =>
+    snapshot.edges.some((edge) => edge.id === edgeId && edge.active),
+  )
+  if (targetEdgeIds.length === 0) {
+    throw new Error(`Exposure finding has no active edge to preview: ${finding.id}`)
+  }
+
+  const previewSnapshot = targetEdgeIds.reduce(
+    (current, edgeId) => simulateEdgeRemoval(current, edgeId),
+    snapshot,
+  )
+  const beforeBlastRadius = calculateBlastRadius(snapshot, finding.affectedAgentId)
+  const afterBlastRadius = calculateBlastRadius(previewSnapshot, finding.affectedAgentId)
+  const comparisonNodeIds = new Set([
+    finding.affectedAgentId,
+    ...beforeBlastRadius.map((node) => node.id),
+  ])
+  const targetNodeNames = targetEdgeIds
+    .map((edgeId) => snapshot.edges.find((edge) => edge.id === edgeId))
+    .map((edge) => snapshot.nodes.find((node) => node.id === edge?.to)?.name)
+    .filter((name): name is string => name !== undefined)
+  const blastRadiusReduction = Math.max(0, beforeBlastRadius.length - afterBlastRadius.length)
+
+  return remediationPreviewSchema.parse({
+    findingId: finding.id,
+    actionId: `preview-block-route-${finding.id}`,
+    actionType: 'block-route',
+    title:
+      targetNodeNames.length === 1
+        ? `Block route to ${targetNodeNames[0]}`
+        : `Block ${targetEdgeIds.length} risky routes`,
+    description:
+      'Simulate a Sentinel policy-layer route block. No connector or target platform is modified.',
+    targetEdgeIds,
+    simulationOnly: true,
+    before: {
+      riskScore: finding.riskScore,
+      blastRadiusCount: beforeBlastRadius.length,
+    },
+    after: {
+      riskScore: 0,
+      blastRadiusCount: afterBlastRadius.length,
+    },
+    impact: {
+      riskReduction: finding.riskScore,
+      blastRadiusReduction,
+      businessDisruption: 'unknown',
+      workflowImpact: 'unknown',
+      rollbackAvailable: true,
+    },
+    beforeGraph: buildComparisonGraph(snapshot, comparisonNodeIds),
+    afterGraph: buildComparisonGraph(previewSnapshot, comparisonNodeIds),
+  })
+}
+
+async function loadExposureContext(
+  options: ExposureRoutesOptions,
+  findingId: string,
+): Promise<{ finding: ExposureFinding; snapshot: EstateSnapshot } | null> {
+  if (options.mode === 'mock') {
+    const { findings, snapshot } = buildMockExposurePage(options.defaultTenantId, {})
+    const finding = findings.find((candidate) => candidate.id === findingId)
+    return finding ? { finding, snapshot } : null
+  }
+  if (!options.repository || !options.snapshotRepository) {
+    throw new Error('Live exposure graph requires finding and snapshot repository bindings.')
+  }
+  const finding = await options.repository.findById(findingId, options.defaultTenantId)
+  if (!finding) return null
+  const snapshot = await options.snapshotRepository.findById(
+    finding.snapshotId,
+    options.defaultTenantId,
+  )
+  return snapshot ? { finding, snapshot } : null
 }
 
 function applyFilters(
@@ -226,36 +326,42 @@ export function registerExposureRoutes(app: FastifyInstance, options: ExposureRo
     '/api/exposures/:findingId/graph',
     async (request, reply) => {
       const { findingId } = request.params
-      if (options.mode === 'mock') {
-        const { findings, snapshot } = buildMockExposurePage(options.defaultTenantId, {})
-        const finding = findings.find((candidate) => candidate.id === findingId)
-        if (!finding) {
-          void reply.status(404)
-          return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
-        }
-        return buildExposureGraphSnapshot(snapshot, finding)
-      }
-
-      if (!options.repository || !options.snapshotRepository) {
-        throw new Error('Live exposure graph requires finding and snapshot repository bindings.')
-      }
-      const finding = await options.repository.findById(findingId, options.defaultTenantId)
-      if (!finding) {
+      const context = await loadExposureContext(options, findingId)
+      if (!context) {
         void reply.status(404)
         return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
       }
-      const snapshot = await options.snapshotRepository.findById(
-        finding.snapshotId,
-        options.defaultTenantId,
-      )
-      if (!snapshot) {
+      return buildExposureGraphSnapshot(context.snapshot, context.finding)
+    },
+  )
+
+  app.get<{ Params: { findingId: string } }>(
+    '/api/exposures/:findingId/remediation-preview',
+    async (request, reply) => {
+      const { findingId } = request.params
+      const context = await loadExposureContext(options, findingId)
+      if (!context) {
         void reply.status(404)
+        return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
+      }
+      if (context.finding.affectedEdgeIds.length === 0) {
+        void reply.status(409)
         return {
-          error: 'not_found',
-          message: `Exposure snapshot not found: ${finding.snapshotId}`,
+          error: 'preview_unavailable',
+          message: 'This finding has no active route that can be previewed.',
         }
       }
-      return buildExposureGraphSnapshot(snapshot, finding)
+      const hasActiveTargetEdge = context.finding.affectedEdgeIds.some((edgeId) =>
+        context.snapshot.edges.some((edge) => edge.id === edgeId && edge.active),
+      )
+      if (!hasActiveTargetEdge) {
+        void reply.status(409)
+        return {
+          error: 'preview_unavailable',
+          message: 'The affected route is no longer active.',
+        }
+      }
+      return buildRemediationPreview(context.snapshot, context.finding)
     },
   )
 

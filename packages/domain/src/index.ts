@@ -232,6 +232,34 @@ export const exposureFindingSchema = z.object({
 })
 export type ExposureFinding = z.infer<typeof exposureFindingSchema>
 
+export const remediationPreviewSchema = z.object({
+  findingId: z.string().min(1),
+  actionId: z.string().min(1),
+  actionType: z.literal('block-route'),
+  title: z.string().min(1),
+  description: z.string().min(1),
+  targetEdgeIds: z.array(z.string().min(1)).min(1),
+  simulationOnly: z.literal(true),
+  before: z.object({
+    riskScore: z.number().min(0).max(100),
+    blastRadiusCount: z.number().int().min(0),
+  }),
+  after: z.object({
+    riskScore: z.number().min(0).max(100),
+    blastRadiusCount: z.number().int().min(0),
+  }),
+  impact: z.object({
+    riskReduction: z.number().min(0).max(100),
+    blastRadiusReduction: z.number().int().min(0),
+    businessDisruption: z.enum(['none', 'low', 'medium', 'high', 'unknown']),
+    workflowImpact: z.enum(['preserved', 'review-required', 'unknown']),
+    rollbackAvailable: z.boolean(),
+  }),
+  beforeGraph: estateSnapshotSchema,
+  afterGraph: estateSnapshotSchema,
+})
+export type RemediationPreview = z.infer<typeof remediationPreviewSchema>
+
 export const exposureFreshnessSchema = z.object({
   snapshotId: z.string().min(1),
   generatedAt: z.iso.datetime(),

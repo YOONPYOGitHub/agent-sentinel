@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { createMemoryRouter, MemoryRouter, Route, RouterProvider, Routes } from 'react-router-dom'
 
 import type { ExposureFinding, ExposurePage as ExposurePageDto } from '@agent-sentinel/domain'
 
@@ -13,7 +13,9 @@ import { exposureApi } from '../api/exposure-api'
 
 vi.mock('../api/exposure-api')
 vi.mock('../components/ExposureGraph', () => ({
-  ExposureGraph: ({ title }: { title: string }) => <div data-testid="exposure-graph">{title}</div>,
+  ExposureGraph: ({ title, pathStatus }: { title: string; pathStatus: string }) => (
+    <div data-testid="exposure-graph">{`${title}:${pathStatus}`}</div>
+  ),
 }))
 
 const sampleFinding: ExposureFinding = {
@@ -84,12 +86,34 @@ const sampleGraph = {
   ],
 }
 
+const samplePreview = {
+  findingId: sampleFinding.id,
+  actionId: `preview-block-route-${sampleFinding.id}`,
+  actionType: 'block-route' as const,
+  title: 'Block route to External send',
+  description: 'Simulate a Sentinel policy-layer route block.',
+  targetEdgeIds: ['edge'],
+  simulationOnly: true as const,
+  before: { riskScore: 91, blastRadiusCount: 3 },
+  after: { riskScore: 0, blastRadiusCount: 2 },
+  impact: {
+    riskReduction: 91,
+    blastRadiusReduction: 1,
+    businessDisruption: 'unknown' as const,
+    workflowImpact: 'unknown' as const,
+    rollbackAvailable: true,
+  },
+  beforeGraph: sampleGraph,
+  afterGraph: sampleGraph,
+}
+
 afterEach(cleanup)
 
 beforeEach(() => {
   vi.mocked(exposureApi.list).mockResolvedValue(samplePage)
   vi.mocked(exposureApi.get).mockResolvedValue(sampleFinding)
   vi.mocked(exposureApi.getGraph).mockResolvedValue(sampleGraph)
+  vi.mocked(exposureApi.getRemediationPreview).mockResolvedValue(samplePreview)
 })
 
 describe('ExposurePage', () => {
@@ -173,8 +197,35 @@ describe('ExposureDetailPage', () => {
       ).toBeInTheDocument(),
     )
     expect(screen.getByText('Recommendation')).toBeInTheDocument()
-    expect(screen.getByTestId('exposure-graph')).toHaveTextContent(sampleFinding.title)
+    expect(screen.getByTestId('exposure-graph')).toHaveTextContent(
+      `${sampleFinding.title}:theoretical`,
+    )
     expect(exposureApi.getGraph).toHaveBeenCalledWith(sampleFinding.id)
+  })
+
+  it('previews remediation impact and compares the after graph', async () => {
+    render(
+      <MemoryRouter initialEntries={[`/exposure/${sampleFinding.id}`]}>
+        <Routes>
+          <Route path="/exposure/:findingId" element={<ExposureDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(screen.getByText('Preview response')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Preview response' }))
+
+    await waitFor(() => expect(screen.getByText('Simulation only')).toBeInTheDocument())
+    expect(screen.getByText('91 → 0')).toBeInTheDocument()
+    expect(screen.getByText('Workflow preservation unverified')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'After remediation' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.getByTestId('exposure-graph')).toHaveTextContent(
+      `${sampleFinding.title}:mitigated`,
+    )
+    expect(exposureApi.getRemediationPreview).toHaveBeenCalledWith(sampleFinding.id)
   })
 
   it('renders finding details while the attack path is still loading', async () => {
@@ -194,6 +245,41 @@ describe('ExposureDetailPage', () => {
     )
     expect(screen.getByText('Recommendation')).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Loading attack path')
+  })
+
+  it('ignores a stale remediation preview after navigating to another finding', async () => {
+    let resolvePreview: ((value: typeof samplePreview) => void) | undefined
+    vi.mocked(exposureApi.getRemediationPreview).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePreview = resolve
+        }),
+    )
+    vi.mocked(exposureApi.get).mockImplementation((findingId) =>
+      Promise.resolve(
+        findingId === sampleFinding.id
+          ? sampleFinding
+          : { ...sampleFinding, id: 'finding-2', title: 'Second exposure finding' },
+      ),
+    )
+    const router = createMemoryRouter(
+      [{ path: '/exposure/:findingId', element: <ExposureDetailPage /> }],
+      { initialEntries: [`/exposure/${sampleFinding.id}`] },
+    )
+    render(<RouterProvider router={router} />)
+
+    await waitFor(() => expect(screen.getByText('Preview response')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Preview response' }))
+    await act(async () => router.navigate('/exposure/finding-2'))
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Second exposure finding' })).toBeInTheDocument(),
+    )
+    await act(async () => {
+      resolvePreview?.(samplePreview)
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByText('Simulation only')).not.toBeInTheDocument()
   })
 
   it('renders a 404 state', async () => {

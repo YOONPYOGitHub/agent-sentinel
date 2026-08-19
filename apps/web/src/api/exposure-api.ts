@@ -2,9 +2,11 @@ import {
   exposureFindingSchema,
   exposurePageSchema,
   estateSnapshotSchema,
+  remediationPreviewSchema,
   type EstateSnapshot,
   type ExposureFinding,
   type ExposurePage,
+  type RemediationPreview,
 } from '@agent-sentinel/domain'
 
 function responseMessage(value: unknown): string | undefined {
@@ -48,20 +50,30 @@ export const exposureApi = {
     }
     return exposurePageSchema.parse(body)
   },
-    async get(findingId: string): Promise<ExposureFinding> {
+  async get(findingId: string): Promise<ExposureFinding> {
     const response = await fetch(`/api/exposures/${encodeURIComponent(findingId)}`)
     const body: unknown = await response.json().catch(() => undefined)
     if (!response.ok) {
       throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)
     }
-      return exposureFindingSchema.parse(body)
-    },
-    async getGraph(findingId: string): Promise<EstateSnapshot> {
-      const response = await fetch(`/api/exposures/${encodeURIComponent(findingId)}/graph`)
-      const body: unknown = await response.json().catch(() => undefined)
-      if (!response.ok) {
-        throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)
-      }
-      return estateSnapshotSchema.parse(body)
-    },
-  }
+    return exposureFindingSchema.parse(body)
+  },
+  async getGraph(findingId: string): Promise<EstateSnapshot> {
+    const response = await fetch(`/api/exposures/${encodeURIComponent(findingId)}/graph`)
+    const body: unknown = await response.json().catch(() => undefined)
+    if (!response.ok) {
+      throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)
+    }
+    return estateSnapshotSchema.parse(body)
+  },
+  async getRemediationPreview(findingId: string): Promise<RemediationPreview> {
+    const response = await fetch(
+      `/api/exposures/${encodeURIComponent(findingId)}/remediation-preview`,
+    )
+    const body: unknown = await response.json().catch(() => undefined)
+    if (!response.ok) {
+      throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)
+    }
+    return remediationPreviewSchema.parse(body)
+  },
+}

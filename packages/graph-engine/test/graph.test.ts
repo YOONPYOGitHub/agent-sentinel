@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import type { EstateSnapshot, RiskFactors } from '@agent-sentinel/domain'
 
-import { calculateBlastRadius, disableEdge, findAttackPaths } from '../src/index.js'
+import {
+  calculateBlastRadius,
+  disableEdge,
+  findAttackPaths,
+  simulateEdgeRemoval,
+} from '../src/index.js'
 
 const evidence = {
   id: 'evidence-1',
@@ -91,5 +96,21 @@ describe('graph engine', () => {
     expect(before.map((node) => node.id)).toContain('mcp')
     expect(after.map((node) => node.id)).not.toContain('mcp')
     expect(paths).toHaveLength(0)
+  })
+
+  it('previews a non-removable edge without mutating the source snapshot', () => {
+    const immutableEdge = snapshot.edges.find((edge) => edge.id === 'data-mcp')
+    expect(immutableEdge).toBeDefined()
+    const previewSource = {
+      ...snapshot,
+      edges: snapshot.edges.map((edge) =>
+        edge.id === 'data-mcp' ? { ...edge, removable: false } : edge,
+      ),
+    }
+
+    const preview = simulateEdgeRemoval(previewSource, 'data-mcp')
+
+    expect(preview.edges.find((edge) => edge.id === 'data-mcp')?.active).toBe(false)
+    expect(previewSource.edges.find((edge) => edge.id === 'data-mcp')?.active).toBe(true)
   })
 })

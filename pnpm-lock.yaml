@@ -71,6 +71,9 @@ importers:
       '@agent-sentinel/foundry-connector':
         specifier: workspace:*
         version: link:../../connectors/foundry
+      '@agent-sentinel/graph-engine':
+        specifier: workspace:*
+        version: link:../../packages/graph-engine
       '@agent-sentinel/mock-connector':
         specifier: workspace:*
         version: link:../../connectors/mock

@@ -19,9 +19,9 @@ async function makeApp(
     undefined,
     { mode: 'disabled', allowedScopes: { read: [], write: [] } },
     {
-        dataMode: mode,
-        ...(repository ? { exposureRepository: repository } : {}),
-        ...(snapshotRepository ? { snapshotRepository } : {}),
+      dataMode: mode,
+      ...(repository ? { exposureRepository: repository } : {}),
+      ...(snapshotRepository ? { snapshotRepository } : {}),
     },
   )
   return app
@@ -171,12 +171,58 @@ describe('exposure API (mock mode)', () => {
       expect(response.statusCode).toBe(200)
       const graph: EstateSnapshot = response.json()
       expect(graph.nodes.some((node) => node.id === finding.affectedAgentId)).toBe(true)
-      expect(graph.edges.map((edge) => edge.id).sort()).toEqual(
-        [...finding.affectedEdgeIds].sort(),
+      expect(graph.edges.map((edge) => edge.id).sort()).toEqual([...finding.affectedEdgeIds].sort())
+      expect(graph.edges.every((edge) => graph.nodes.some((node) => node.id === edge.from))).toBe(
+        true,
       )
-      expect(graph.edges.every((edge) => graph.nodes.some((node) => node.id === edge.from))).toBe(true)
-      expect(graph.edges.every((edge) => graph.nodes.some((node) => node.id === edge.to))).toBe(true)
+      expect(graph.edges.every((edge) => graph.nodes.some((node) => node.id === edge.to))).toBe(
+        true,
+      )
       expect(graph.evidence.length).toBeGreaterThan(0)
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('calculates a simulation-only remediation impact preview', async () => {
+    const app = await makeApp('mock')
+    try {
+      const list = await app.inject({ method: 'GET', url: '/api/exposures' })
+      const listBody: { findings: ExposureFinding[] } = list.json()
+      const finding = listBody.findings.find((candidate) => candidate.affectedEdgeIds.length > 0)!
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/exposures/${finding.id}/remediation-preview`,
+      })
+      expect(response.statusCode).toBe(200)
+      const preview: {
+        findingId: string
+        simulationOnly: boolean
+        before: { riskScore: number; blastRadiusCount: number }
+        after: { riskScore: number; blastRadiusCount: number }
+        targetEdgeIds: string[]
+        beforeGraph: EstateSnapshot
+        afterGraph: EstateSnapshot
+      } = response.json()
+      expect(preview).toMatchObject({
+        findingId: finding.id,
+        simulationOnly: true,
+        before: { riskScore: finding.riskScore },
+        after: { riskScore: 0 },
+        targetEdgeIds: finding.affectedEdgeIds,
+      })
+      expect(preview.after.blastRadiusCount).toBeLessThan(preview.before.blastRadiusCount)
+      expect(
+        preview.afterGraph.edges
+          .filter((edge) => finding.affectedEdgeIds.includes(edge.id))
+          .every((edge) => !edge.active),
+      ).toBe(true)
+      expect(preview.beforeGraph.nodes.map((node) => node.id).sort()).toEqual(
+        preview.afterGraph.nodes.map((node) => node.id).sort(),
+      )
+      expect(preview.beforeGraph.edges.map((edge) => edge.id).sort()).toEqual(
+        preview.afterGraph.edges.map((edge) => edge.id).sort(),
+      )
     } finally {
       await app.close()
     }
@@ -266,59 +312,59 @@ describe('exposure API (live mode)', () => {
   })
 
   it('loads the finding snapshot with an explicit tenant boundary', async () => {
-      const finding = makeFinding()
-      const repository: ExposureFindingRepository = {
-        upsert: (value) => Promise.resolve(value),
-        findById: () => Promise.resolve(finding),
-        listByTenant: () => Promise.resolve({ items: [], total: 0 }),
-        getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),
-        resolveAbsent: () => Promise.resolve([]),
-      }
-      const snapshot: EstateSnapshot = {
-        tenantId: 'tenant-demo',
-        environment: 'production',
-        generatedAt: '2026-08-14T12:00:00.000Z',
-        nodes: [
-          {
-            id: 'agent-1',
-            kind: 'agent',
-            name: 'Agent One',
-            description: 'Synthetic agent',
-            environment: 'production',
-            evidenceIds: ['ev-1'],
-            metadata: {},
-          },
-        ],
-        edges: [],
-        evidence: [
-          {
-            id: 'ev-1',
-            source: 'Synthetic connector',
-            sourceObjectId: 'agent-1',
-            observedAt: '2026-08-14T12:00:00.000Z',
-            freshness: 'live',
-            confidence: 1,
-            summary: 'Synthetic evidence',
-          },
-        ],
-      }
-      const findById = vi.fn<SnapshotRepository['findById']>().mockResolvedValue(snapshot)
-      const snapshotRepository: SnapshotRepository = {
-        save: () => Promise.resolve(),
-        findLatest: () => Promise.resolve(null),
-        findById,
-        list: () => Promise.resolve([]),
-      }
-      const app = await makeApp('live', repository, snapshotRepository)
-      try {
-        const response = await app.inject({
-          method: 'GET',
-          url: `/api/exposures/${finding.id}/graph`,
-        })
-        expect(response.statusCode).toBe(200)
-        expect(findById).toHaveBeenCalledWith('snap-1', 'tenant-demo')
-      } finally {
-        await app.close()
-      }
-    })
+    const finding = makeFinding()
+    const repository: ExposureFindingRepository = {
+      upsert: (value) => Promise.resolve(value),
+      findById: () => Promise.resolve(finding),
+      listByTenant: () => Promise.resolve({ items: [], total: 0 }),
+      getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),
+      resolveAbsent: () => Promise.resolve([]),
+    }
+    const snapshot: EstateSnapshot = {
+      tenantId: 'tenant-demo',
+      environment: 'production',
+      generatedAt: '2026-08-14T12:00:00.000Z',
+      nodes: [
+        {
+          id: 'agent-1',
+          kind: 'agent',
+          name: 'Agent One',
+          description: 'Synthetic agent',
+          environment: 'production',
+          evidenceIds: ['ev-1'],
+          metadata: {},
+        },
+      ],
+      edges: [],
+      evidence: [
+        {
+          id: 'ev-1',
+          source: 'Synthetic connector',
+          sourceObjectId: 'agent-1',
+          observedAt: '2026-08-14T12:00:00.000Z',
+          freshness: 'live',
+          confidence: 1,
+          summary: 'Synthetic evidence',
+        },
+      ],
+    }
+    const findById = vi.fn<SnapshotRepository['findById']>().mockResolvedValue(snapshot)
+    const snapshotRepository: SnapshotRepository = {
+      save: () => Promise.resolve(),
+      findLatest: () => Promise.resolve(null),
+      findById,
+      list: () => Promise.resolve([]),
+    }
+    const app = await makeApp('live', repository, snapshotRepository)
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/exposures/${finding.id}/graph`,
+      })
+      expect(response.statusCode).toBe(200)
+      expect(findById).toHaveBeenCalledWith('snap-1', 'tenant-demo')
+    } finally {
+      await app.close()
+    }
+  })
 })

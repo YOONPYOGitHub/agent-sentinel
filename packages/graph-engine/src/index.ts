@@ -121,3 +121,15 @@ export function disableEdge(snapshot: EstateSnapshot, edgeId: string): EstateSna
     edges: snapshot.edges.map((edge) => (edge.id === edgeId ? { ...edge, active: false } : edge)),
   }
 }
+
+export function simulateEdgeRemoval(snapshot: EstateSnapshot, edgeId: string): EstateSnapshot {
+  const target = snapshot.edges.find((edge) => edge.id === edgeId)
+  if (target === undefined) {
+    throw new Error(`Cannot simulate unknown edge removal: ${edgeId}`)
+  }
+
+  return {
+    ...snapshot,
+    edges: snapshot.edges.map((edge) => (edge.id === edgeId ? { ...edge, active: false } : edge)),
+  }
+}
