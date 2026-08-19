@@ -6,7 +6,6 @@ import { AppLayout } from './components/AppLayout'
 import { DemoStateProvider } from './hooks/DemoStateProvider'
 import { useDemoState } from './hooks/useDemoState'
 import { AgentDetailPage } from './pages/AgentDetailPage'
-import { ComingSoonPage } from './pages/ComingSoonPage'
 import { ConnectorsPage } from './pages/ConnectorsPage'
 import { EstatePage } from './pages/EstatePage'
 import { ExposureDetailPage } from './pages/ExposureDetailPage'
@@ -15,6 +14,7 @@ import { GovernancePage } from './pages/GovernancePage'
 import { LifecyclePage } from './pages/LifecyclePage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { ObservabilityPage } from './pages/ObservabilityPage'
+import { OptimizationPage } from './pages/OptimizationPage'
 import { OverviewPage } from './pages/OverviewPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { TrustCatalogPage } from './pages/TrustCatalogPage'
@@ -59,7 +59,7 @@ function RoutedApplication() {
         <Route path="exposure/:findingId" element={<ExposureDetailPage />} />
         <Route path="governance" element={<GovernancePage />} />
         <Route path="observability" element={<ObservabilityPage />} />
-        <Route path="optimization" element={<ComingSoonPage title="Optimization" />} />
+        <Route path="optimization" element={<OptimizationPage />} />
         <Route path="lifecycle" element={<LifecyclePage />} />
         <Route path="trust-catalog" element={<TrustCatalogPage />} />
         <Route path="connectors" element={<ConnectorsPage />} />

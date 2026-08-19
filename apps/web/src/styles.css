@@ -1528,6 +1528,235 @@ button {
   white-space: nowrap;
 }
 
+.optimization-boundary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  color: #f9d07a;
+  background: #292314;
+  border: 1px solid #6f581a;
+  border-radius: 8px;
+}
+
+.optimization-boundary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.optimization-boundary span {
+  color: #c7b782;
+  font-size: 0.78rem;
+}
+
+.optimization-state {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  color: #cbd3df;
+  background: #0d141f;
+  border: 1px solid #202b3e;
+  border-radius: 9px;
+}
+
+.optimization-state--error {
+  justify-content: flex-start;
+  color: #ffd8dc;
+  background: #35171c;
+  border-color: #71313b;
+}
+
+.optimization-state--error > div {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.optimization-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.optimization-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 112px;
+  padding: 16px;
+  background: #111925;
+  border: 1px solid #202b3e;
+  border-radius: 8px;
+}
+
+.optimization-metric span,
+.optimization-metric small {
+  color: #8f9bb0;
+  font-size: 0.78rem;
+}
+
+.optimization-metric strong {
+  color: #f5f7fb;
+  font-size: 1.65rem;
+}
+
+.optimization-toolbar {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: #111925;
+  border: 1px solid #202b3e;
+  border-radius: 8px;
+}
+
+.optimization-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #8f9bb0;
+  font-size: 0.78rem;
+}
+
+.optimization-toolbar > strong {
+  margin-left: auto;
+  padding-bottom: 7px;
+  color: #cbd3df;
+  font-size: 0.82rem;
+}
+
+.recommendation-list {
+  display: grid;
+  gap: 10px;
+}
+
+.recommendation-card {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 150px;
+  gap: 14px;
+  padding: 16px;
+  color: #cbd3df;
+  background: #111925;
+  border: 1px solid #202b3e;
+  border-radius: 9px;
+}
+
+.recommendation-card__icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  color: #c9d1ff;
+  background: rgba(79, 107, 237, 0.16);
+  border-radius: 8px;
+}
+
+.recommendation-card__body {
+  min-width: 0;
+}
+
+.recommendation-card__title {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recommendation-card__title span {
+  color: #7f8da2;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.recommendation-card__title h2 {
+  margin: 3px 0 0;
+  color: #f5f7fb;
+  font-size: 1rem;
+}
+
+.recommendation-card__body > p {
+  margin: 10px 0 12px;
+  color: #8f9bb0;
+  line-height: 1.45;
+}
+
+.recommendation-evidence {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.recommendation-evidence > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px;
+  background: #0d141f;
+  border-radius: 6px;
+}
+
+.recommendation-evidence span {
+  color: #7f8da2;
+  font-size: 0.7rem;
+}
+
+.recommendation-evidence strong {
+  color: #cbd3df;
+  font-size: 0.76rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.recommendation-card__action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recommendation-card__action a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  color: #fff;
+  background: #4f6bed;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.optimization-empty {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #8f9bb0;
+  background: #0d141f;
+  border: 1px dashed #354158;
+  border-radius: 9px;
+}
+
+.optimization-empty h2 {
+  margin: 8px 0 4px;
+  color: #d6dce7;
+}
+
+.optimization-empty p {
+  margin: 0;
+}
+
 .main-content {
   grid-area: main;
   min-width: 0;

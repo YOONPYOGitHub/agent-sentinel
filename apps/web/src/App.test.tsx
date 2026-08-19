@@ -8,10 +8,12 @@ import { MemoryRouter } from 'react-router-dom'
 import App from './App'
 import { connectorApi, demoApi } from './api'
 import { governanceApi } from './api/governance-api'
+import { exposureApi } from './api/exposure-api'
 import { governancePostureFixture, testState } from './test-fixture'
 
 vi.mock('./api')
 vi.mock('./api/governance-api')
+vi.mock('./api/exposure-api')
 vi.mock('./components/ExposureGraph', () => ({ ExposureGraph: () => <div /> }))
 
 afterEach(cleanup)
@@ -26,6 +28,11 @@ beforeEach(() => {
     writeEnabled: true,
   })
   vi.mocked(governanceApi.getPosture).mockResolvedValue(governancePostureFixture)
+  vi.mocked(exposureApi.list).mockResolvedValue({
+    findings: [],
+    total: 0,
+    facets: { severity: {}, status: {}, policyId: {} },
+  })
 })
 
 async function renderRoute(route: string) {
@@ -86,6 +93,14 @@ describe('application routing', () => {
     expect(
       screen.getByText('Current-version evidence, not full release orchestration'),
     ).toBeVisible()
+  })
+
+  it('renders bounded optimization recommendations', async () => {
+    await renderRoute('/optimization')
+    expect(
+      await screen.findByRole('heading', { name: 'Evidence-backed recommendations' }),
+    ).toBeVisible()
+    expect(screen.getByText('Recommendation scope is bounded by available evidence')).toBeVisible()
   })
 
   it('renders connector status and metadata', async () => {
