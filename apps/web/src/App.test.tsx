@@ -70,6 +70,16 @@ describe('application routing', () => {
     expect(screen.getByText('Evidence observability, not runtime APM')).toBeVisible()
   })
 
+  it('renders the evidence-backed trust catalog', async () => {
+    await renderRoute('/trust-catalog')
+    expect(
+      await screen.findByRole('heading', { name: 'Agent, MCP, and tool catalog' }),
+    ).toBeVisible()
+    expect(
+      screen.getByText('Discovered capabilities, not a marketplace approval system'),
+    ).toBeVisible()
+  })
+
   it('renders connector status and metadata', async () => {
     await renderRoute('/connectors')
     expect(await screen.findByRole('heading', { name: 'Connector health' })).toBeVisible()

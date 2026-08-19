@@ -16,6 +16,7 @@ import { NotFoundPage } from './pages/NotFoundPage'
 import { ObservabilityPage } from './pages/ObservabilityPage'
 import { OverviewPage } from './pages/OverviewPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { TrustCatalogPage } from './pages/TrustCatalogPage'
 
 function RoutedApplication() {
   const { error, load, operation, state } = useDemoState()
@@ -59,7 +60,7 @@ function RoutedApplication() {
         <Route path="observability" element={<ObservabilityPage />} />
         <Route path="optimization" element={<ComingSoonPage title="Optimization" />} />
         <Route path="lifecycle" element={<ComingSoonPage title="Lifecycle" />} />
-        <Route path="trust-catalog" element={<ComingSoonPage title="Trust catalog" />} />
+        <Route path="trust-catalog" element={<TrustCatalogPage />} />
         <Route path="connectors" element={<ConnectorsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
