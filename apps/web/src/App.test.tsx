@@ -64,6 +64,12 @@ describe('application routing', () => {
     expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeVisible()
   })
 
+  it('renders evidence observability without placeholder metrics', async () => {
+    await renderRoute('/observability')
+    expect(await screen.findByRole('heading', { name: 'Evidence operations' })).toBeVisible()
+    expect(screen.getByText('Evidence observability, not runtime APM')).toBeVisible()
+  })
+
   it('renders connector status and metadata', async () => {
     await renderRoute('/connectors')
     expect(await screen.findByRole('heading', { name: 'Connector health' })).toBeVisible()

@@ -838,6 +838,236 @@ button {
   color: #b5a47a;
 }
 
+.observability-boundary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  color: #c9d1ff;
+  background: #10182a;
+  border: 1px solid #28375a;
+  border-radius: 8px;
+}
+
+.observability-boundary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.observability-boundary span {
+  color: #8f9bb0;
+  font-size: 0.78rem;
+}
+
+.observability-refresh-warning {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  color: #f9d07a;
+  background: #292314;
+  border: 1px solid #6f581a;
+  border-radius: 8px;
+}
+
+.observability-refresh-warning > div {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.observability-refresh-warning span {
+  color: #c7b782;
+  font-size: 0.78rem;
+}
+
+.observability-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.observability-metric {
+  min-height: 126px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  padding: 16px;
+  background: #111925;
+  border: 1px solid #202b3e;
+  border-radius: 8px;
+}
+
+.observability-metric > svg {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  color: #8da2fb;
+}
+
+.observability-metric > span,
+.observability-metric > small {
+  color: #8f9bb0;
+  font-size: 0.78rem;
+}
+
+.observability-metric > strong {
+  color: #f5f7fb;
+  font-size: 1.65rem;
+}
+
+.observability-metric > small {
+  grid-column: 1 / -1;
+}
+
+.observability-metric--success {
+  border-top: 3px solid #54b17a;
+}
+
+.observability-metric--warning {
+  border-top: 3px solid #f9a825;
+}
+
+.observability-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.75fr);
+  gap: 14px;
+}
+
+.observability-card {
+  padding: 16px;
+  background: rgba(13, 20, 31, 0.96);
+  border: 1px solid #202b3e;
+  border-radius: 9px;
+}
+
+.observability-card__header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.observability-card__header h2 {
+  margin: 4px 0 0;
+  color: #f5f7fb;
+  font-size: 1.05rem;
+}
+
+.evidence-source-list {
+  display: grid;
+  gap: 8px;
+}
+
+.observability-empty {
+  min-height: 170px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #8f9bb0;
+  border: 1px dashed #354158;
+  border-radius: 8px;
+}
+
+.observability-empty > svg {
+  width: 26px;
+  height: 26px;
+  color: #8da2fb;
+}
+
+.evidence-source-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.3fr) minmax(160px, 0.8fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  background: #111925;
+  border: 1px solid #273247;
+  border-radius: 7px;
+}
+
+.evidence-source-row > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.evidence-source-row span {
+  color: #8f9bb0;
+  font-size: 0.76rem;
+}
+
+.observability-activity {
+  display: flex;
+  flex-direction: column;
+}
+
+.observability-activity ol {
+  flex: 1;
+  display: grid;
+  align-content: start;
+  gap: 0;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.observability-activity li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 9px;
+  min-height: 78px;
+}
+
+.observability-activity li:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  bottom: -4px;
+  left: 5px;
+  width: 1px;
+  background: #354158;
+}
+
+.timeline-dot {
+  z-index: 1;
+  width: 11px;
+  height: 11px;
+  margin-top: 4px;
+  background: #4f6bed;
+  border: 2px solid #111925;
+  border-radius: 50%;
+}
+
+.timeline-dot--success {
+  background: #54b17a;
+}
+
+.timeline-dot--warning {
+  background: #f9a825;
+}
+
+.observability-activity li > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.observability-activity li span,
+.observability-activity li small {
+  color: #8f9bb0;
+  font-size: 0.76rem;
+}
+
 .main-content {
   grid-area: main;
   min-width: 0;

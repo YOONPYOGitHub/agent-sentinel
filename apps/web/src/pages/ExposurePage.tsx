@@ -100,14 +100,14 @@ export function ExposurePage() {
     const openCount = list.filter((finding) => finding.status === 'open').length
     const affectedAgents = new Set(list.map((finding) => finding.affectedAgentId)).size
     return { criticalCount, highCount, openCount, affectedAgents }
-  }, [data?.findings, policyId])
+  }, [data?.findings])
 
   const policyOptions = useMemo(() => {
     const set = new Set<string>()
     if (policyId) set.add(policyId)
     for (const finding of data?.findings ?? []) set.add(finding.policyId)
     return [...set].sort()
-  }, [data?.findings])
+  }, [data?.findings, policyId])
 
   const stale = isStale(data?.freshness?.generatedAt)
 

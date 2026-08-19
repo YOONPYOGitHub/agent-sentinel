@@ -13,6 +13,7 @@ import { ExposureDetailPage } from './pages/ExposureDetailPage'
 import { ExposurePage } from './pages/ExposurePage'
 import { GovernancePage } from './pages/GovernancePage'
 import { NotFoundPage } from './pages/NotFoundPage'
+import { ObservabilityPage } from './pages/ObservabilityPage'
 import { OverviewPage } from './pages/OverviewPage'
 import { SettingsPage } from './pages/SettingsPage'
 
@@ -55,7 +56,7 @@ function RoutedApplication() {
         <Route path="exposure" element={<ExposurePage />} />
         <Route path="exposure/:findingId" element={<ExposureDetailPage />} />
         <Route path="governance" element={<GovernancePage />} />
-        <Route path="observability" element={<ComingSoonPage title="Observability" />} />
+        <Route path="observability" element={<ObservabilityPage />} />
         <Route path="optimization" element={<ComingSoonPage title="Optimization" />} />
         <Route path="lifecycle" element={<ComingSoonPage title="Lifecycle" />} />
         <Route path="trust-catalog" element={<ComingSoonPage title="Trust catalog" />} />
