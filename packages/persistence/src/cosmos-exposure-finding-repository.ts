@@ -13,6 +13,10 @@ function isNotFound(error: unknown): boolean {
   return candidate.code === 404
 }
 
+export function buildExposureFacetQuery(field: 'severity' | 'status' | 'policyId'): string {
+  return `SELECT c.${field} AS facetValue, COUNT(1) AS facetCount FROM c WHERE c.tenantId = @tenantId GROUP BY c.${field}`
+}
+
 export class CosmosExposureFindingRepository implements ExposureFindingRepository {
   private readonly container: Container
 
@@ -102,15 +106,15 @@ export class CosmosExposureFindingRepository implements ExposureFindingRepositor
     await Promise.all(
       dimensions.map(async ([field, target]) => {
         const { resources } = await this.container.items
-          .query<{ value: string; count: number }>(
+          .query<{ facetValue: string; facetCount: number }>(
             {
-              query: `SELECT c.${field} AS value, COUNT(1) AS count FROM c WHERE c.tenantId = @tenantId GROUP BY c.${field}`,
+              query: buildExposureFacetQuery(field),
               parameters: [{ name: '@tenantId', value: tenantId }],
             },
             { partitionKey: tenantId },
           )
           .fetchAll()
-        for (const row of resources) target[row.value] = row.count
+        for (const row of resources) target[row.facetValue] = row.facetCount
       }),
     )
     return facets

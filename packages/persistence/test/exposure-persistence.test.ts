@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ExposureFinding } from '@agent-sentinel/domain'
 import { InMemoryExposureFindingRepository } from '../src/in-memory-exposure-finding-repository.js'
+import { buildExposureFacetQuery } from '../src/cosmos-exposure-finding-repository.js'
 
 function makeFinding(overrides: Partial<ExposureFinding> = {}): ExposureFinding {
   return {
@@ -96,5 +97,16 @@ describe('InMemoryExposureFindingRepository', () => {
       severity: { critical: 61 },
       policyId: { 'AS-POL-001': 61 },
     })
+  })
+})
+
+describe('Cosmos exposure facet queries', () => {
+  it('uses non-reserved aliases for grouped facet values', () => {
+    for (const field of ['severity', 'status', 'policyId'] as const) {
+      const query = buildExposureFacetQuery(field)
+      expect(query).toContain(`c.${field} AS facetValue`)
+      expect(query).toContain('COUNT(1) AS facetCount')
+      expect(query).not.toMatch(/\bAS value\b/i)
+    }
   })
 })
