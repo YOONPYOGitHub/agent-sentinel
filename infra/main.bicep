@@ -10,9 +10,6 @@ param accountName string = 'ais-agent-sentinel-260814'
 param projectName string = 'agent-sentinel-pjt'
 
 var deploymentDefinitions = [
-  { name: 'gpt-5.4', modelName: 'gpt-5.4', version: '2026-03-05', capacity: 250, upgradeOption: 'OnceNewDefaultVersionAvailable' }
-  { name: 'gpt-5.4-mini', modelName: 'gpt-5.4-mini', version: '2026-03-17', capacity: 50, upgradeOption: 'OnceNewDefaultVersionAvailable' }
-  { name: 'gpt-5.4-nano', modelName: 'gpt-5.4-nano', version: '2026-03-17', capacity: 50, upgradeOption: 'OnceNewDefaultVersionAvailable' }
   { name: 'gpt-5.6-terra', modelName: 'gpt-5.6-terra', version: '2026-07-09', capacity: 10, upgradeOption: 'NoAutoUpgrade' }
 ]
 

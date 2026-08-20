@@ -19,6 +19,15 @@ describe('Foundry manifest', () => {
       expect(computeManifestHash(agent)).toBe(agent.manifestHash)
     }
   })
+  it('changes hashes when the model deployment changes', () => {
+    const agent = foundryManifest.agents[0]!
+    expect(
+      computeManifestHash({
+        ...agent,
+        modelDeployment: `${agent.modelDeployment}-different`,
+      }),
+    ).not.toBe(agent.manifestHash)
+  })
   it('preserves expected risk and trust', () => {
     expect(
       Object.fromEntries(
