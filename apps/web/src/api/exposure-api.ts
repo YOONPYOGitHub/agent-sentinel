@@ -1,11 +1,13 @@
 import {
   exposureFindingSchema,
   exposurePageSchema,
+  incidentNarrativeSchema,
   estateSnapshotSchema,
   remediationPreviewSchema,
   type EstateSnapshot,
   type ExposureFinding,
   type ExposurePage,
+  type IncidentNarrative,
   type RemediationPreview,
 } from '@agent-sentinel/domain'
 
@@ -75,5 +77,24 @@ export const exposureApi = {
       throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)
     }
     return remediationPreviewSchema.parse(body)
+  },
+  async generateNarrative(findingId: string): Promise<IncidentNarrative> {
+    const path = `/api/exposures/${encodeURIComponent(findingId)}/narrative`
+    let response = await fetch(path)
+    let body: unknown = await response.json().catch(() => undefined)
+    if (
+      response.status === 405 &&
+      typeof body === 'object' &&
+      body !== null &&
+      'error' in body &&
+      body.error === 'authenticated_post_required'
+    ) {
+      response = await fetch(path, { method: 'POST' })
+      body = await response.json().catch(() => undefined)
+    }
+    if (!response.ok) {
+      throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)
+    }
+    return incidentNarrativeSchema.parse(body)
   },
 }

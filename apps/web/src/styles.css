@@ -3465,6 +3465,97 @@ button {
   font-size: 1.05rem;
   text-transform: capitalize;
 }
+
+.incident-narrative {
+  margin: 18px 0;
+  padding: 18px;
+  color: #cbd3df;
+  background: linear-gradient(135deg, #121a2b 0%, #171d31 100%);
+  border: 1px solid #405287;
+  border-radius: 9px;
+}
+
+.incident-narrative__header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.incident-narrative__header h2 {
+  margin: 4px 0 0;
+  color: #f5f7fb;
+  font-size: 1.1rem;
+}
+
+.incident-narrative__boundary {
+  margin: 12px 0;
+  padding: 9px 11px;
+  color: #c9d1ff;
+  background: rgba(79, 107, 237, 0.12);
+  border-left: 3px solid #8da2fb;
+  border-radius: 5px;
+  font-size: 0.8rem;
+}
+
+.incident-narrative__sections,
+.incident-narrative__footer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.incident-narrative__sections > div,
+.incident-narrative__footer > div {
+  padding: 12px;
+  background: rgba(8, 13, 22, 0.66);
+  border: 1px solid #273247;
+  border-radius: 7px;
+}
+
+.incident-narrative h3 {
+  margin: 0 0 6px;
+  color: #f5f7fb;
+  font-size: 0.86rem;
+}
+
+.incident-narrative p,
+.incident-narrative li,
+.incident-narrative__footer span {
+  color: #aeb9ca;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.incident-narrative__footer {
+  margin-top: 10px;
+}
+
+.incident-narrative ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.incident-narrative__footer li button,
+.incident-narrative__section-citations button {
+  margin-right: 7px;
+  padding: 2px 6px;
+  color: #9bc5ff;
+  background: #15233a;
+  border: 1px solid #36537b;
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.incident-narrative__section-citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
 .exposure-path-section .graph-shell {
   min-height: 430px;
 }

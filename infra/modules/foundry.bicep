@@ -28,6 +28,25 @@ resource embedding 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01'
   }
 }
 
+resource advisoryModel 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
+  parent: aiAccount
+  name: 'gpt-5.6-terra'
+  sku: {
+    name: 'GlobalStandard'
+    capacity: 10
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: 'gpt-5.6-terra'
+      version: '2026-07-09'
+    }
+    versionUpgradeOption: 'NoAutoUpgrade'
+  }
+}
+
 output aiAccountId string = aiAccount.id
 output projectId string = project.id
 output deploymentName string = embedding.name
+output advisoryDeploymentName string = advisoryModel.name
+output openAiEndpoint string = 'https://${accountName}.openai.azure.com'

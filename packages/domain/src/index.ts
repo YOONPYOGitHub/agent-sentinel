@@ -310,6 +310,33 @@ export const governancePostureSchema = z.object({
 })
 export type GovernancePosture = z.infer<typeof governancePostureSchema>
 
+export const advisoryCitationSchema = z.object({
+  evidenceId: z.string().min(1),
+  claim: z.string().min(1),
+})
+export type AdvisoryCitation = z.infer<typeof advisoryCitationSchema>
+
+export const incidentNarrativeSchema = z.object({
+  findingId: z.string().min(1),
+  model: z.string().min(1),
+  generatedAt: z.iso.datetime(),
+  summary: z.string().min(1),
+  attackPathExplanation: z.string().min(1),
+  impactExplanation: z.string().min(1),
+  recommendationExplanation: z.string().min(1),
+  sectionCitations: z.object({
+    summary: z.array(z.string().min(1)).min(1),
+    attackPathExplanation: z.array(z.string().min(1)).min(1),
+    impactExplanation: z.array(z.string().min(1)).min(1),
+    recommendationExplanation: z.array(z.string().min(1)).min(1),
+    uncertainty: z.array(z.string().min(1)).min(1),
+  }),
+  uncertainty: z.array(z.string().min(1)),
+  citations: z.array(advisoryCitationSchema).min(1),
+  advisoryOnly: z.literal(true),
+})
+export type IncidentNarrative = z.infer<typeof incidentNarrativeSchema>
+
 export type {
   ExposureFindingFacets,
   ExposureFindingRepository,

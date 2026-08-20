@@ -22,6 +22,16 @@ param agentSentinelDataMode string = 'mock'
 @description('Azure AI Foundry project endpoint (empty when data mode is mock).')
 param foundryProjectEndpoint string = ''
 
+@description('Azure OpenAI account endpoint used by the advisory narrative service.')
+param advisoryEndpoint string = ''
+
+@description('Azure OpenAI deployment used by the advisory narrative service.')
+param advisoryModelDeployment string = 'gpt-5.6-terra'
+
+@description('Advisory provider mode. Azure mode must not be enabled until JWT authentication protects generation endpoints.')
+@allowed(['mock', 'azure'])
+param advisoryMode string = 'mock'
+
 @description('Foundry AAD tenant id (empty when data mode is mock).')
 param foundryTenantId string = ''
 
@@ -85,6 +95,9 @@ var env = [
   { name: 'AGENT_SENTINEL_WRITE_ENABLED',          value: 'false' }
   { name: 'AGENT_SENTINEL_DATA_MODE',             value: agentSentinelDataMode }
   { name: 'FOUNDRY_PROJECT_ENDPOINT',             value: foundryProjectEndpoint }
+  { name: 'AGENT_SENTINEL_ADVISORY_ENDPOINT',     value: advisoryEndpoint }
+  { name: 'AGENT_SENTINEL_ADVISORY_MODEL',        value: advisoryModelDeployment }
+  { name: 'AGENT_SENTINEL_ADVISORY_MODE',         value: advisoryMode }
   { name: 'FOUNDRY_TENANT_ID',                    value: foundryTenantId }
   { name: 'AZURE_TENANT_ID',                      value: foundryTenantId }
   { name: 'FOUNDRY_ENVIRONMENT',                  value: foundryEnvironment }

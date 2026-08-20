@@ -107,6 +107,26 @@ const samplePreview = {
   afterGraph: sampleGraph,
 }
 
+const sampleNarrative = {
+  findingId: sampleFinding.id,
+  model: 'gpt-5.6-terra',
+  generatedAt: new Date().toISOString(),
+  summary: 'Evidence-grounded summary.',
+  attackPathExplanation: 'Evidence-grounded attack path.',
+  impactExplanation: 'Evidence-grounded impact.',
+  recommendationExplanation: 'Evidence-grounded recommendation.',
+  sectionCitations: {
+    summary: ['ev-1'],
+    attackPathExplanation: ['ev-1'],
+    impactExplanation: ['ev-1'],
+    recommendationExplanation: ['ev-1'],
+    uncertainty: ['ev-1'],
+  },
+  uncertainty: ['Runtime behavior is not observed.'],
+  citations: [{ evidenceId: 'ev-1', claim: 'Declared configuration supports this claim.' }],
+  advisoryOnly: true as const,
+}
+
 afterEach(cleanup)
 
 beforeEach(() => {
@@ -114,6 +134,7 @@ beforeEach(() => {
   vi.mocked(exposureApi.get).mockResolvedValue(sampleFinding)
   vi.mocked(exposureApi.getGraph).mockResolvedValue(sampleGraph)
   vi.mocked(exposureApi.getRemediationPreview).mockResolvedValue(samplePreview)
+  vi.mocked(exposureApi.generateNarrative).mockResolvedValue(sampleNarrative)
 })
 
 describe('ExposurePage', () => {
@@ -243,6 +264,31 @@ describe('ExposureDetailPage', () => {
     expect(exposureApi.getRemediationPreview).toHaveBeenCalledWith(sampleFinding.id)
   })
 
+  it('generates an advisory narrative and opens cited evidence', async () => {
+    render(
+      <MemoryRouter initialEntries={[`/exposure/${sampleFinding.id}`]}>
+        <Routes>
+          <Route path="/exposure/:findingId" element={<ExposureDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(screen.getByText('Generate AI narrative')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Generate AI narrative' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'Evidence-grounded incident narrative' }),
+    ).toBeVisible()
+    expect(screen.getByText('gpt-5.6-terra')).toBeVisible()
+    expect(
+      screen.getByText(/Deterministic policies and graph calculations remain authoritative/i),
+    ).toBeVisible()
+    const citationButton = screen.getByLabelText('Summary citations').querySelector('button')
+    expect(citationButton).not.toBeNull()
+    fireEvent.click(citationButton!)
+    expect(await screen.findByRole('dialog', { name: 'Synthetic connector' })).toBeVisible()
+  })
+
   it('renders finding details while the attack path is still loading', async () => {
     vi.mocked(exposureApi.getGraph).mockImplementation(() => new Promise(() => undefined))
     render(
@@ -295,6 +341,43 @@ describe('ExposureDetailPage', () => {
     })
 
     expect(screen.queryByText('Simulation only')).not.toBeInTheDocument()
+  })
+
+  it('ignores a stale advisory narrative after navigating to another finding', async () => {
+    let resolveNarrative: ((value: typeof sampleNarrative) => void) | undefined
+    vi.mocked(exposureApi.generateNarrative).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveNarrative = resolve
+        }),
+    )
+    vi.mocked(exposureApi.get).mockImplementation((findingId) =>
+      Promise.resolve(
+        findingId === sampleFinding.id
+          ? sampleFinding
+          : { ...sampleFinding, id: 'finding-2', title: 'Second exposure finding' },
+      ),
+    )
+    const router = createMemoryRouter(
+      [{ path: '/exposure/:findingId', element: <ExposureDetailPage /> }],
+      { initialEntries: [`/exposure/${sampleFinding.id}`] },
+    )
+    render(<RouterProvider router={router} />)
+
+    await waitFor(() => expect(screen.getByText('Generate AI narrative')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Generate AI narrative' }))
+    await act(async () => router.navigate('/exposure/finding-2'))
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Second exposure finding' })).toBeInTheDocument(),
+    )
+    await act(async () => {
+      resolveNarrative?.(sampleNarrative)
+      await Promise.resolve()
+    })
+
+    expect(
+      screen.queryByRole('heading', { name: 'Evidence-grounded incident narrative' }),
+    ).not.toBeInTheDocument()
   })
 
   it('renders a 404 state', async () => {

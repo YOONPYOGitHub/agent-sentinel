@@ -12,6 +12,7 @@ import {
 } from '@agent-sentinel/persistence'
 
 import { buildAuthConfig, createAuthMiddleware, type AuthConfig } from './auth.js'
+import { createAdvisoryService, type AdvisoryService } from './advisory-service.js'
 import { createConfiguredConnector } from './connector-factory.js'
 import { DemoService, NotFoundError, StateConflictError } from './demo-service.js'
 import { registerExposureRoutes } from './exposure-routes.js'
@@ -65,6 +66,7 @@ function buildLiveRepositories(): {
 export interface CreateAppOptions {
   exposureRepository?: ExposureFindingRepository
   snapshotRepository?: SnapshotRepository
+  advisoryService?: AdvisoryService
   dataMode?: 'mock' | 'live'
 }
 
@@ -149,11 +151,13 @@ export async function createApp(
       : undefined
   const exposureRepository = options.exposureRepository ?? liveRepositories?.exposureRepository
   const snapshotRepository = options.snapshotRepository ?? liveRepositories?.snapshotRepository
+  const advisoryService = options.advisoryService ?? createAdvisoryService()
   registerExposureRoutes(app, {
     mode: exposureMode,
     defaultTenantId: defaultTenantId(),
     ...(exposureRepository ? { repository: exposureRepository } : {}),
     ...(snapshotRepository ? { snapshotRepository } : {}),
+    advisoryService,
   })
   registerGovernanceRoutes(app, {
     mode: exposureMode,

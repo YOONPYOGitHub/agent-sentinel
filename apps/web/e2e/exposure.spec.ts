@@ -24,4 +24,13 @@ test('exposure navigation and detail deep link', async ({ page }) => {
     'true',
   )
   await expect(page.getByText('Exposure removed')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Generate AI narrative' }).click()
+  await expect(
+    page.getByRole('heading', { name: 'Evidence-grounded incident narrative' }),
+  ).toBeVisible()
+  await expect(page.getByText('deterministic-advisory-mock')).toBeVisible()
+  await expect(
+    page.getByText(/Deterministic policies and graph calculations remain authoritative/i),
+  ).toBeVisible()
 })

@@ -22,6 +22,8 @@ import { evaluateAllExposurePolicies } from '@agent-sentinel/policy-engine'
 import { foundryManifest, type AgentDefinition } from '@agent-sentinel/scenarios'
 import { mapAgentToSnapshot, FOUNDRY_API_VERSION } from '@agent-sentinel/foundry-connector'
 
+import type { AdvisoryService } from './advisory-service.js'
+
 const listQuerySchema = z.object({
   severity: exposureFindingSeveritySchema.optional(),
   status: exposureFindingStatusSchema.optional(),
@@ -37,6 +39,7 @@ export interface ExposureRoutesOptions {
   defaultTenantId: string
   repository?: ExposureFindingRepository
   snapshotRepository?: SnapshotRepository
+  advisoryService?: AdvisoryService
 }
 
 function agentDefinitionToFoundryAgent(
@@ -332,6 +335,53 @@ export function registerExposureRoutes(app: FastifyInstance, options: ExposureRo
         return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
       }
       return buildExposureGraphSnapshot(context.snapshot, context.finding)
+    },
+  )
+
+  app.post<{ Params: { findingId: string } }>(
+    '/api/exposures/:findingId/narrative',
+    async (request, reply) => {
+      const { findingId } = request.params
+      const context = await loadExposureContext(options, findingId)
+      if (!context) {
+        void reply.status(404)
+        return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
+      }
+      if (!options.advisoryService) {
+        void reply.status(503)
+        return {
+          error: 'advisory_unavailable',
+          message: 'The advisory narrative service is not configured.',
+        }
+      }
+      return options.advisoryService.generate(context)
+    },
+  )
+
+  app.get<{ Params: { findingId: string } }>(
+    '/api/exposures/:findingId/narrative',
+    async (request, reply) => {
+      const { findingId } = request.params
+      const context = await loadExposureContext(options, findingId)
+      if (!context) {
+        void reply.status(404)
+        return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
+      }
+      if (!options.advisoryService) {
+        void reply.status(503)
+        return {
+          error: 'advisory_unavailable',
+          message: 'The advisory narrative service is not configured.',
+        }
+      }
+      if (options.advisoryService.requiresAuthenticatedPost) {
+        void reply.status(405)
+        return {
+          error: 'authenticated_post_required',
+          message: 'Azure advisory generation requires an authenticated POST request.',
+        }
+      }
+      return options.advisoryService.generate(context)
     },
   )
 

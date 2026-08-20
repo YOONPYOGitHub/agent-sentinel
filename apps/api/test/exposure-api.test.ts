@@ -227,6 +227,36 @@ describe('exposure API (mock mode)', () => {
       await app.close()
     }
   })
+
+  it('generates an evidence-cited advisory narrative without changing the finding', async () => {
+    const app = await makeApp('mock')
+    try {
+      const list = await app.inject({ method: 'GET', url: '/api/exposures' })
+      const listBody: { findings: ExposureFinding[] } = list.json()
+      const finding = listBody.findings[0]!
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/exposures/${finding.id}/narrative`,
+      })
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toMatchObject({
+        findingId: finding.id,
+        model: 'deterministic-advisory-mock',
+        advisoryOnly: true,
+      })
+      const detail = await app.inject({ method: 'GET', url: `/api/exposures/${finding.id}` })
+      expect(detail.json()).toMatchObject({
+        id: finding.id,
+        policyId: finding.policyId,
+        status: finding.status,
+        riskScore: finding.riskScore,
+        recommendation: finding.recommendation,
+        validationStatus: finding.validationStatus,
+      })
+    } finally {
+      await app.close()
+    }
+  })
 })
 
 describe('exposure API (live mode)', () => {

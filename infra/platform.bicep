@@ -169,12 +169,15 @@ module containerApps './modules/container-apps.bicep' = {
     imageTag: imageTag
     agentSentinelDataMode: agentSentinelDataMode
     foundryProjectEndpoint: foundryProjectEndpoint
+    advisoryEndpoint: foundry.outputs.openAiEndpoint
+    advisoryModelDeployment: foundry.outputs.advisoryDeploymentName
+    advisoryMode: 'mock'
     foundryTenantId: foundryTenantId
     foundryEnvironment: foundryEnvironment
     cosmosDatabase: cosmosDatabase
     discoveryIntervalMs: discoveryIntervalMs
   }
-  dependsOn: [network, observability, identity, registry, cosmos, postgres, search, serviceBus]
+  dependsOn: [network, observability, foundry, identity, registry, cosmos, postgres, search, serviceBus]
 }
 
 // ?? ACA Environment Private DNS Zone ?????????????????????????????????????????

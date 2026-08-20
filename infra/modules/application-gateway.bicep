@@ -34,6 +34,8 @@ resource wafPolicy 'Microsoft.Network/ApplicationGatewayWebApplicationFirewallPo
       mode: 'Prevention'
     }
     // Temporary safety gate until Entra authentication is deployed; see RB-011.
+    // This intentionally blocks Azure advisory narrative POST requests. Deterministic mock
+    // narratives use GET; enable a narrow authenticated POST exception only with JWT auth.
     customRules: [
       {
         name: 'BlockApiMutationPreAuth'

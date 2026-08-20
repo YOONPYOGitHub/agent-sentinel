@@ -8,7 +8,12 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
-import type { EstateSnapshot, ExposureFinding, RemediationPreview } from '@agent-sentinel/domain'
+import type {
+  EstateSnapshot,
+  ExposureFinding,
+  IncidentNarrative,
+  RemediationPreview,
+} from '@agent-sentinel/domain'
 
 import { exposureApi } from '../api/exposure-api'
 import { EvidenceDrawer } from '../components/EvidenceDrawer'
@@ -28,6 +33,10 @@ export function ExposureDetailPage() {
   const [previewError, setPreviewError] = useState<string | undefined>(undefined)
   const [showPreview, setShowPreview] = useState(false)
   const previewRequestId = useRef(0)
+  const [narrative, setNarrative] = useState<IncidentNarrative>()
+  const [narrativeLoading, setNarrativeLoading] = useState(false)
+  const [narrativeError, setNarrativeError] = useState<string>()
+  const narrativeRequestId = useRef(0)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -37,6 +46,7 @@ export function ExposureDetailPage() {
     if (!findingId) return
     let cancelled = false
     previewRequestId.current += 1
+    narrativeRequestId.current += 1
     setLoading(true)
     setNotFound(false)
     setError(undefined)
@@ -47,6 +57,9 @@ export function ExposureDetailPage() {
     setPreview(undefined)
     setPreviewError(undefined)
     setShowPreview(false)
+    setNarrative(undefined)
+    setNarrativeError(undefined)
+    setNarrativeLoading(false)
     exposureApi
       .get(findingId)
       .then((value) => {
@@ -142,6 +155,28 @@ export function ExposureDetailPage() {
     }
   }
 
+  async function generateNarrative() {
+    if (!findingId) return
+    const requestId = narrativeRequestId.current + 1
+    narrativeRequestId.current = requestId
+    setNarrativeLoading(true)
+    setNarrativeError(undefined)
+    try {
+      const value = await exposureApi.generateNarrative(findingId)
+      if (narrativeRequestId.current !== requestId || value.findingId !== findingId) return
+      setNarrative(value)
+    } catch (narrativeFailure: unknown) {
+      if (narrativeRequestId.current !== requestId) return
+      setNarrativeError(
+        narrativeFailure instanceof Error
+          ? narrativeFailure.message
+          : 'Unable to generate the advisory narrative.',
+      )
+    } finally {
+      if (narrativeRequestId.current === requestId) setNarrativeLoading(false)
+    }
+  }
+
   const displayedGraph = preview ? (showPreview ? preview.afterGraph : preview.beforeGraph) : graph
   const displayedPathStatus = showPreview ? 'mitigated' : finding.validationStatus
 
@@ -176,12 +211,25 @@ export function ExposureDetailPage() {
             {previewLoading ? 'Calculating impact…' : 'Preview response'}
           </Button>
         ) : null}
+        <Button
+          appearance="secondary"
+          disabled={narrativeLoading}
+          onClick={() => void generateNarrative()}
+        >
+          {narrativeLoading ? 'Generating narrative…' : 'Generate AI narrative'}
+        </Button>
       </div>
 
       {previewError ? (
         <div className="inline-error" role="alert">
           <AlertRegular aria-hidden="true" />
           <span>{previewError}</span>
+        </div>
+      ) : null}
+      {narrativeError ? (
+        <div className="inline-error" role="alert">
+          <AlertRegular aria-hidden="true" />
+          <span>{narrativeError}</span>
         </div>
       ) : null}
 
@@ -224,6 +272,15 @@ export function ExposureDetailPage() {
       </section>
 
       {preview ? <RemediationPreviewCard preview={preview} /> : null}
+      {narrative ? (
+        <IncidentNarrativeCard
+          narrative={narrative}
+          onEvidenceSelect={(evidenceId) => {
+            const evidence = graph?.evidence.find((item) => item.id === evidenceId)
+            if (evidence) setSelectedEvidence(evidence)
+          }}
+        />
+      ) : null}
 
       <section className="exposure-path-section" aria-labelledby="exposure-path-title">
         <div className="exposure-path-heading">
@@ -293,6 +350,112 @@ export function ExposureDetailPage() {
         onKeyDown={trapFocus}
       />
     </>
+  )
+}
+
+function IncidentNarrativeCard({
+  narrative,
+  onEvidenceSelect,
+}: {
+  narrative: IncidentNarrative
+  onEvidenceSelect: (evidenceId: string) => void
+}) {
+  return (
+    <section className="incident-narrative" aria-labelledby="incident-narrative-title">
+      <div className="incident-narrative__header">
+        <div>
+          <span className="eyebrow">AI ADVISORY</span>
+          <h2 id="incident-narrative-title">Evidence-grounded incident narrative</h2>
+        </div>
+        <Badge appearance="outline">{narrative.model}</Badge>
+      </div>
+      <p className="incident-narrative__boundary">
+        Advisory explanation only. Deterministic policies and graph calculations remain
+        authoritative.
+      </p>
+      <div className="incident-narrative__sections">
+        <NarrativeSection
+          title="Summary"
+          text={narrative.summary}
+          evidenceIds={narrative.sectionCitations.summary}
+          onEvidenceSelect={onEvidenceSelect}
+        />
+        <NarrativeSection
+          title="Attack path"
+          text={narrative.attackPathExplanation}
+          evidenceIds={narrative.sectionCitations.attackPathExplanation}
+          onEvidenceSelect={onEvidenceSelect}
+        />
+        <NarrativeSection
+          title="Impact"
+          text={narrative.impactExplanation}
+          evidenceIds={narrative.sectionCitations.impactExplanation}
+          onEvidenceSelect={onEvidenceSelect}
+        />
+        <NarrativeSection
+          title="Recommendation"
+          text={narrative.recommendationExplanation}
+          evidenceIds={narrative.sectionCitations.recommendationExplanation}
+          onEvidenceSelect={onEvidenceSelect}
+        />
+      </div>
+      <div className="incident-narrative__footer">
+        <div>
+          <h3>Uncertainty</h3>
+          <ul>
+            {narrative.uncertainty.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          <div className="incident-narrative__section-citations" aria-label="Uncertainty citations">
+            {narrative.sectionCitations.uncertainty.map((evidenceId) => (
+              <button key={evidenceId} type="button" onClick={() => onEvidenceSelect(evidenceId)}>
+                {evidenceId}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <h3>Cited evidence</h3>
+          <ul>
+            {narrative.citations.map((citation) => (
+              <li key={`${citation.evidenceId}-${citation.claim}`}>
+                <button type="button" onClick={() => onEvidenceSelect(citation.evidenceId)}>
+                  {citation.evidenceId}
+                </button>
+                <span>{citation.claim}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function NarrativeSection({
+  title,
+  text,
+  evidenceIds,
+  onEvidenceSelect,
+}: {
+  title: string
+  text: string
+  evidenceIds: string[]
+  onEvidenceSelect: (evidenceId: string) => void
+}) {
+  return (
+    <div>
+      <h3>{title}</h3>
+      <p>{text}</p>
+      <div className="incident-narrative__section-citations" aria-label={`${title} citations`}>
+        {evidenceIds.map((evidenceId) => (
+          <button key={evidenceId} type="button" onClick={() => onEvidenceSelect(evidenceId)}>
+            {evidenceId}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 
