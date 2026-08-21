@@ -47,9 +47,30 @@ test('filters the required estate facets and opens direct detail', async ({ page
   await expect(page.getByLabel('Agent profile').getByText('hr-policy-agent-prod')).toBeVisible()
   await expect(page.getByText('HR Policy Knowledge Base', { exact: true })).toBeVisible()
   await expect(page.getByText('HR SharePoint MCP', { exact: true })).toBeVisible()
-  await expect(page.getByText('No active findings')).toBeVisible()
+  await expect(page.getByText('No active findings', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Assurance scorecard', level: 2 })).toBeVisible()
+  await expect(page.getByText('Governance / Compliance')).toBeVisible()
+  await expect(page.getByText(/Azure AI Foundry Evaluation/)).toBeVisible()
 })
 
+test('shows assurance scorecard dimensions in agent detail', async ({ page }) => {
+  await page.goto('/agent-inventory/sales-research-agent')
+
+  const scorecard = page.getByRole('region', { name: 'Assurance scorecard' })
+  await expect(
+    scorecard.getByRole('heading', { name: 'Assurance scorecard', level: 2 }),
+  ).toBeVisible()
+  const securityCard = scorecard.getByRole('article').filter({ hasText: 'Security' })
+  await expect(securityCard.getByRole('heading', { name: 'Security' })).toBeVisible()
+  // Security derives from live ExposureFinding; demo agent has no live critical exposure in mock API
+  await expect(securityCard.getByText('Healthy')).toBeVisible()
+  const qualityCard = scorecard.getByRole('article').filter({ hasText: 'Quality' })
+  await expect(qualityCard.getByRole('heading', { name: 'Quality' })).toBeVisible()
+  await expect(qualityCard.getByText(/Azure AI Foundry Evaluation/)).toBeVisible()
+  const reliabilityCard = scorecard.getByRole('article').filter({ hasText: 'Reliability' })
+  await expect(reliabilityCard.getByRole('heading', { name: 'Reliability' })).toBeVisible()
+  await expect(reliabilityCard.getByText(/Azure Monitor/)).toBeVisible()
+})
 test('supports required routes and wildcard 404', async ({ page }) => {
   await page.goto('/agent-inventory/code-review-copilot')
   await expect(page.getByRole('heading', { name: 'Code Review Copilot' })).toBeVisible()

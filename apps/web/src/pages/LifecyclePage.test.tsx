@@ -1,14 +1,21 @@
+/* eslint-disable @typescript-eslint/unbound-method */
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import { DemoStateContext, type DemoStateValue } from '../hooks/DemoStateContext'
-import { testState } from '../test-fixture'
+import { salesExposureFinding, testState } from '../test-fixture'
 import { LifecyclePage } from './LifecyclePage'
+import { exposureApi } from '../api/exposure-api'
+
+vi.mock('../api/exposure-api')
 
 afterEach(cleanup)
+beforeEach(() => {
+  vi.mocked(exposureApi.listAll).mockResolvedValue([])
+})
 
 function renderPage(state = testState) {
   const value: DemoStateValue = {
@@ -64,7 +71,7 @@ describe('LifecyclePage', () => {
     expect(screen.getByText('HR Policy Assistant')).toBeVisible()
   })
 
-  it('marks missing owner and version evidence as attention', () => {
+  it('marks missing owner and version evidence as attention', async () => {
     const incomplete = {
       ...testState,
       snapshot: {
@@ -81,10 +88,11 @@ describe('LifecyclePage', () => {
     const row = screen.getByText('HR Policy Assistant').closest('tr')
     expect(row).toHaveTextContent('Unassigned')
     expect(row).toHaveTextContent('Needs attention')
-    expect(row).toHaveTextContent('2/5')
+    // Wait for liveExposures to resolve so the exposure check counts correctly
+    await waitFor(() => expect(row).toHaveTextContent('2/5'))
   })
 
-  it('distinguishes failed validation and ignores mitigated findings as active gaps', () => {
+  it('distinguishes failed validation and ignores mitigated findings as active gaps', async () => {
     const state = {
       ...testState,
       findings: testState.findings.map((finding) => ({
@@ -107,8 +115,31 @@ describe('LifecyclePage', () => {
     renderPage(state)
 
     const row = screen.getByText('Sales Research Agent').closest('tr')
-    expect(row).toHaveTextContent('Checks complete')
+    // Wait for liveExposures to resolve so exposure check passes ([] = no active exposures)
+    await waitFor(() => expect(row).toHaveTextContent('Checks complete'))
     expect(row).toHaveTextContent('5/5')
     expect(row).toHaveTextContent('1 · validated')
+  })
+
+  it('marks the exposure check as unknown and prevents complete when exposures are loading', () => {
+    vi.mocked(exposureApi.listAll).mockReturnValue(new Promise<never>(() => undefined))
+    renderPage()
+
+    // Sales agent: owner + version + fresh evidence + no-exposure(unknown) + no-validation = 3/5
+    // hr-policy-agent: owner + version + fresh evidence + no-exposure(unknown) + no-validation = 3/5
+    const salesRow = screen.getByText('Sales Research Agent').closest('tr')
+    expect(salesRow).toHaveTextContent('Needs attention')
+    expect(salesRow).toHaveTextContent('3/5')
+    expect(salesRow).toHaveTextContent('1 not evaluated')
+  })
+
+  it('marks attention for agent with active live exposure', () => {
+    vi.mocked(exposureApi.listAll).mockResolvedValue([salesExposureFinding])
+    renderPage()
+
+    const salesRow = screen.getByText('Sales Research Agent').closest('tr')
+    expect(salesRow).toHaveTextContent('Needs attention')
+    // exposure check fails; sales agent: owner=true, version=true, evidence=true, exposure=false, validation=false -> 3/5
+    expect(salesRow).toHaveTextContent('3/5')
   })
 })

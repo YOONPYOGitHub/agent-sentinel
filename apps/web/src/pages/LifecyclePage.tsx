@@ -8,10 +8,17 @@ import {
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import type { AgentSentinelState, GraphNode, ValidationRun } from '@agent-sentinel/domain'
+import type {
+  AgentSentinelState,
+  ExposureFinding,
+  GraphNode,
+  ValidationRun,
+} from '@agent-sentinel/domain'
 
 import { PageHeading } from '../components/PageHeading'
 import { useDemoState } from '../hooks/useDemoState'
+import { useExposures } from '../hooks/useExposures'
+import { agentLifecycleReadiness, type ExposureLoadState } from '../scorecard'
 
 interface AgentLifecycleRow {
   agent: GraphNode
@@ -19,13 +26,16 @@ interface AgentLifecycleRow {
   sourceLifecycle: string | undefined
   evidenceCount: number
   staleEvidence: number
-  knownFindings: number
   validationRuns: ValidationRun[]
   readinessChecks: number
+  unknownChecks: number
   readinessStatus: 'complete' | 'attention'
 }
 
-function buildLifecycleRows(state: AgentSentinelState): AgentLifecycleRow[] {
+function buildLifecycleRows(
+  state: AgentSentinelState,
+  liveExposures: ExposureFinding[] | ExposureLoadState,
+): AgentLifecycleRow[] {
   const evidenceById = new Map(state.snapshot.evidence.map((item) => [item.id, item]))
   return state.snapshot.nodes
     .filter((node) => node.kind === 'agent')
@@ -36,34 +46,29 @@ function buildLifecycleRows(state: AgentSentinelState): AgentLifecycleRow[] {
       const relatedFindings = state.findings.filter((finding) =>
         finding.path.nodeIds.includes(agent.id),
       )
-      const activeFindings = relatedFindings.filter(
-        (finding) => finding.path.status !== 'mitigated',
-      )
       const relatedFindingIds = new Set(relatedFindings.map((finding) => finding.id))
       const validationRuns = state.validations.filter((validation) =>
         relatedFindingIds.has(validation.findingId),
       )
       const version = agent.metadata.version || undefined
       const staleEvidence = evidence.filter((item) => item.freshness === 'stale').length
-      const checks = [
-        agent.owner !== undefined,
-        version !== undefined,
-        evidence.length > 0 && staleEvidence === 0,
-        activeFindings.length === 0,
-        validationRuns.some((validation) => validation.status === 'validated'),
-      ]
-      const readinessChecks = checks.filter(Boolean).length
+      const { readinessChecks, unknownChecks, total } = agentLifecycleReadiness(
+        agent,
+        state,
+        liveExposures,
+      )
       const readinessStatus: AgentLifecycleRow['readinessStatus'] =
-        readinessChecks === checks.length ? 'complete' : 'attention'
+        readinessChecks === total ? 'complete' : 'attention'
+
       return {
         agent,
         version,
         sourceLifecycle: agent.metadata.lifecycle || agent.metadata.status || undefined,
         evidenceCount: evidence.length,
         staleEvidence,
-        knownFindings: activeFindings.length,
         validationRuns,
         readinessChecks,
+        unknownChecks,
         readinessStatus,
       }
     })
@@ -74,7 +79,11 @@ export function LifecyclePage() {
   const { state } = useDemoState()
   const [environment, setEnvironment] = useState('')
   const [status, setStatus] = useState<'complete' | 'attention' | ''>('')
-  const rows = useMemo(() => (state ? buildLifecycleRows(state) : []), [state])
+  const liveExposures = useExposures()
+  const rows = useMemo(
+    () => (state ? buildLifecycleRows(state, liveExposures) : []),
+    [state, liveExposures],
+  )
   const environments = useMemo(
     () => [...new Set(rows.map((row) => row.agent.environment))].sort(),
     [rows],
@@ -213,6 +222,9 @@ export function LifecyclePage() {
                             : 'Needs attention'}
                         </span>
                         <strong>{row.readinessChecks}/5</strong>
+                        {row.unknownChecks > 0 ? (
+                          <small>{row.unknownChecks} not evaluated</small>
+                        ) : null}
                       </div>
                       <ProgressBar
                         aria-label={`${row.agent.name} evidence readiness ${row.readinessChecks} of 5 checks`}

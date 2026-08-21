@@ -1,6 +1,7 @@
 import type {
   AgentSentinelState,
   Evidence,
+  ExposureFinding,
   GovernancePosture,
   GraphNode,
 } from '@agent-sentinel/domain'
@@ -289,4 +290,31 @@ export const governancePostureFixture: GovernancePosture = {
   sourceMode: 'mock',
   evidenceBasis: 'declared_configuration',
   evaluationCoverage: 'complete',
+}
+
+export const salesExposureFinding: ExposureFinding = {
+  id: 'finding-1',
+  policyId: 'AS-POL-004',
+  policyName: 'Data egress without approval',
+  severity: 'critical',
+  status: 'open',
+  riskScore: 82,
+  title: 'Sales exposure',
+  summary: 'Sales agent is exposed.',
+  recommendation: 'Contain.',
+  affectedAgentId: 'sales-research-agent',
+  affectedAgentName: 'Sales Research Agent',
+  declaredTools: [],
+  affectedNodeIds: ['sales-research-agent'],
+  affectedEdgeIds: ['edge-sales'],
+  evidenceIds: ['evidence-sales'],
+  evidenceTypes: ['declared_configuration'],
+  blastRadiusCount: 2,
+  blastRadiusNodeIds: ['sales-research-agent', 'sales-identity'],
+  firstSeen: observedAt,
+  lastSeen: observedAt,
+  sourceMode: 'mock',
+  validationStatus: 'theoretical',
+  tenantId: 'test',
+  snapshotId: 'snap-test',
 }

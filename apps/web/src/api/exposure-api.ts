@@ -44,6 +44,62 @@ function buildQuery(params: ExposureListParams): string {
 }
 
 export const exposureApi = {
+  async listAll(params: Omit<ExposureListParams, 'page'> = {}): Promise<ExposureFinding[]> {
+    const findingsById = new Map<string, ExposureFinding>()
+    const pageSize = params.pageSize ?? 200
+    const MAX_PAGES = 100
+    let expectedTotal: number | undefined
+    let expectedSnapshotId: string | undefined
+
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const result = await this.list({ ...params, page, pageSize })
+      expectedTotal ??= result.total
+      if (result.total !== expectedTotal) {
+        throw new Error(
+          `Exposure pagination changed during collection: expected ${expectedTotal} findings but page ${page} reported ${result.total}.`,
+        )
+      }
+
+      const pageSnapshotIds = new Set(result.findings.map((finding) => finding.snapshotId))
+      if (pageSnapshotIds.size > 1) {
+        throw new Error(`Exposure page ${page} contains findings from multiple snapshots.`)
+      }
+      const pageSnapshotId = pageSnapshotIds.values().next().value
+      expectedSnapshotId ??= pageSnapshotId
+      if (
+        pageSnapshotId !== undefined &&
+        expectedSnapshotId !== undefined &&
+        pageSnapshotId !== expectedSnapshotId
+      ) {
+        throw new Error(
+          `Exposure snapshot changed during pagination: expected ${expectedSnapshotId} but page ${page} returned ${pageSnapshotId}.`,
+        )
+      }
+
+      for (const finding of result.findings) findingsById.set(finding.id, finding)
+
+      const findings = [...findingsById.values()]
+      if (findings.length === expectedTotal) return findings
+      if (findings.length > expectedTotal) {
+        throw new Error(
+          `Exposure pagination returned ${findings.length} unique findings but reported ${expectedTotal}.`,
+        )
+      }
+      if (result.findings.length === 0) {
+        throw new Error(
+          `Exposure pagination ended before completion: collected ${findings.length} of ${expectedTotal} reported findings.`,
+        )
+      }
+
+      if (page === MAX_PAGES) {
+        throw new Error(
+          `Pagination limit (${MAX_PAGES} pages) exhausted: collected ${findings.length} of ${expectedTotal} reported findings.`,
+        )
+      }
+    }
+
+    throw new Error('Exposure pagination ended without a complete result.')
+  },
   async list(params: ExposureListParams = {}): Promise<ExposurePage> {
     const response = await fetch(`/api/exposures${buildQuery(params)}`)
     const body: unknown = await response.json().catch(() => undefined)

@@ -34,6 +34,7 @@ beforeEach(() => {
     total: 0,
     facets: { severity: {}, status: {}, policyId: {} },
   })
+  vi.mocked(exposureApi.listAll).mockResolvedValue([])
 })
 
 async function renderRoute(route: string) {

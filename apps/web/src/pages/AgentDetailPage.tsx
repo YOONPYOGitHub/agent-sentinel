@@ -12,9 +12,10 @@ import type { EstateSnapshot, GraphEdge } from '@agent-sentinel/domain'
 
 import { EvidenceDrawer } from '../components/EvidenceDrawer'
 import { PageHeading } from '../components/PageHeading'
-import { getAgentStatus } from '../estate'
 import { useDemoState } from '../hooks/useDemoState'
+import { useExposures } from '../hooks/useExposures'
 import { useEvidenceDrawer } from '../hooks/useEvidenceDrawer'
+import { buildAgentScorecard, type ScorecardPosture } from '../scorecard'
 
 function dependencyEdges(snapshot: EstateSnapshot, agentId: string): GraphEdge[] {
   const visited = new Set([agentId])
@@ -39,6 +40,7 @@ export function AgentDetailPage() {
   const { agentId } = useParams()
   const { state } = useDemoState()
   const { selectedEvidence, setSelectedEvidence, drawerRef, trapFocus } = useEvidenceDrawer()
+  const liveExposures = useExposures(agentId)
   const agent = state?.snapshot.nodes.find((node) => node.kind === 'agent' && node.id === agentId)
 
   if (agent === undefined || state === undefined) {
@@ -54,7 +56,20 @@ export function AgentDetailPage() {
     )
   }
 
-  const status = getAgentStatus(agent, state.findings)
+  const agentExposures = Array.isArray(liveExposures)
+    ? liveExposures.filter(
+        (f) => (f.status === 'open' || f.status === 'validated') && f.affectedAgentId === agent.id,
+      )
+    : []
+  const liveHeaderStatus: 'Critical' | 'Attention' | 'Healthy' | 'Unknown' = !Array.isArray(
+    liveExposures,
+  )
+    ? 'Unknown'
+    : agentExposures.some((f) => f.severity === 'critical')
+      ? 'Critical'
+      : agentExposures.length > 0
+        ? 'Attention'
+        : 'Healthy'
   const relationships = dependencyEdges(state.snapshot, agent.id)
   const dependencyIds = new Set(relationships.flatMap((edge) => [edge.from, edge.to]))
   const dependencies = state.snapshot.nodes.filter(
@@ -67,7 +82,10 @@ export function AgentDetailPage() {
     ...relationships.flatMap((edge) => edge.evidenceIds),
   ])
   const evidence = state.snapshot.evidence.filter((item) => evidenceIds.has(item.id))
-  const findings = state.findings.filter((finding) => finding.path.nodeIds.includes(agent.id))
+  const liveFindings = Array.isArray(liveExposures)
+    ? liveExposures.filter((f) => f.affectedAgentId === agent.id)
+    : liveExposures
+  const scorecard = buildAgentScorecard(agent, state, liveExposures)
 
   return (
     <>
@@ -82,9 +100,17 @@ export function AgentDetailPage() {
         actions={
           <Badge
             appearance="filled"
-            color={status === 'Critical' ? 'danger' : status === 'Review' ? 'warning' : 'success'}
+            color={
+              liveHeaderStatus === 'Critical'
+                ? 'danger'
+                : liveHeaderStatus === 'Attention'
+                  ? 'warning'
+                  : liveHeaderStatus === 'Healthy'
+                    ? 'success'
+                    : 'informative'
+            }
           >
-            {status}
+            {liveHeaderStatus}
           </Badge>
         }
       />
@@ -182,28 +208,34 @@ export function AgentDetailPage() {
             </div>
             <ShieldCheckmarkRegular />
           </div>
-          {findings.length === 0 ? (
+          {!Array.isArray(liveFindings) ? (
+            <p className="muted">
+              {liveFindings === 'loading'
+                ? 'Loading exposure data…'
+                : 'Exposure data could not be loaded. Check connector health.'}
+            </p>
+          ) : liveFindings.length === 0 ? (
             <div className="healthy-empty">
               <ShieldCheckmarkRegular />
               <div>
                 <strong>No active findings</strong>
-                <span>Current evidence does not place this agent on a policy finding path.</span>
+                <span>No live exposures are linked to this agent.</span>
               </div>
             </div>
           ) : (
             <ul className="finding-list">
-              {findings.map((finding) => (
+              {liveFindings.map((finding) => (
                 <li key={finding.id}>
-                  <Badge color={finding.path.status === 'mitigated' ? 'success' : 'danger'}>
-                    {finding.path.status}
+                  <Badge color={finding.severity === 'critical' ? 'danger' : 'warning'}>
+                    {finding.severity}
                   </Badge>
                   <div>
                     <strong>{finding.title}</strong>
                     <span>{finding.summary}</span>
                     <small>
-                      {finding.policyId} · risk {finding.path.riskScore}/100
+                      {finding.policyId} · risk {finding.riskScore}/100
                     </small>
-                    <Link to="/overview">View finding in overview</Link>
+                    <Link to={`/exposure/${finding.id}`}>View finding detail</Link>
                   </div>
                 </li>
               ))}
@@ -211,6 +243,77 @@ export function AgentDetailPage() {
           )}
         </section>
       </div>
+      <section className="surface-card agent-scorecard" aria-labelledby="agent-scorecard-title">
+        <div className="agent-scorecard__header">
+          <div>
+            <span className="eyebrow">EVIDENCE-BASED ASSURANCE</span>
+            <h2 id="agent-scorecard-title">Assurance scorecard</h2>
+          </div>
+          <p>
+            Evidence-derived posture only. This scorecard does not calculate or imply an assurance
+            score.
+          </p>
+        </div>
+        <div className="agent-scorecard__notice" role="note">
+          Agent Sentinel correlates cross-product evidence. Microsoft Agent 365 remains
+          authoritative for registry and admin decisions.
+        </div>
+        <div className="agent-scorecard__grid">
+          {scorecard.dimensions.map((dimension) => {
+            const headingId = `scorecard-${dimension.id}-title`
+            return (
+              <article
+                className={`scorecard-card scorecard-card--${dimension.posture}`}
+                aria-labelledby={headingId}
+                key={dimension.id}
+              >
+                <div className="scorecard-card__heading">
+                  <h3 id={headingId}>{dimension.label}</h3>
+                  <Badge
+                    appearance="outline"
+                    className={`scorecard-badge scorecard-badge--${dimension.posture}`}
+                  >
+                    {postureLabel(dimension.posture)}
+                  </Badge>
+                </div>
+                <Badge
+                  appearance="tint"
+                  className={`scorecard-coverage scorecard-coverage--${dimension.coverage}`}
+                  aria-label={`Coverage ${dimension.coverage}`}
+                >
+                  Coverage: {dimension.coverage}
+                </Badge>
+                <p>{dimension.explanation}</p>
+                {dimension.findingIds.length > 0 ? (
+                  <ul
+                    className="scorecard-card__findings"
+                    aria-label={`Linked ${dimension.label} findings`}
+                  >
+                    {dimension.findingIds.map((findingId) => {
+                      const exposure = Array.isArray(liveExposures)
+                        ? liveExposures.find((item) => item.id === findingId)
+                        : undefined
+                      return (
+                        <li key={findingId}>
+                          <Link to={`/exposure/${findingId}`}>
+                            {exposure?.title ?? findingId}
+                            {exposure ? ` - finding risk score ${exposure.riskScore}/100` : ''}
+                          </Link>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : null}
+                {dimension.missingConnector ? (
+                  <span className="scorecard-card__connector">
+                    Missing connector: {dimension.missingConnector}
+                  </span>
+                ) : null}
+              </article>
+            )
+          })}
+        </div>
+      </section>
       <EvidenceDrawer
         evidence={selectedEvidence}
         drawerRef={drawerRef}
@@ -219,4 +322,8 @@ export function AgentDetailPage() {
       />
     </>
   )
+}
+
+function postureLabel(posture: ScorecardPosture): string {
+  return posture.charAt(0).toUpperCase() + posture.slice(1)
 }

@@ -1,15 +1,17 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import App from '../App'
 import { connectorApi, demoApi } from '../api'
-import { testState } from '../test-fixture'
+import { exposureApi } from '../api/exposure-api'
+import { salesExposureFinding, testState } from '../test-fixture'
 
 vi.mock('../api')
+vi.mock('../api/exposure-api')
 afterEach(cleanup)
 beforeEach(() => {
   vi.mocked(demoApi.getState).mockResolvedValue(testState)
@@ -18,6 +20,7 @@ beforeEach(() => {
     connectorId: 'mock-agent-estate',
     mode: 'mock',
   })
+  vi.spyOn(exposureApi, 'listAll').mockResolvedValue([])
 })
 
 function renderDetail(agentId: string) {
@@ -42,7 +45,8 @@ describe('AgentDetailPage', () => {
     expect(screen.getByText('HR Policy Knowledge Base')).toBeVisible()
     expect(screen.getByText('HR SharePoint MCP')).toBeVisible()
     expect(screen.getByText(/4 evidence objects cover 3 observed relationships/)).toBeVisible()
-    expect(screen.getByText('No active findings')).toBeVisible()
+    expect(await screen.findByText('No active findings')).toBeVisible()
+
     expect(
       screen
         .getAllByRole('link', { name: /Agent inventory/ })
@@ -50,18 +54,165 @@ describe('AgentDetailPage', () => {
     ).toBe(true)
   })
 
-  it('opens accessible evidence and links an affected agent to its finding', async () => {
-    const user = userEvent.setup()
+  it('shows assurance scorecard with critical security dimension for agent with active finding', async () => {
+    vi.spyOn(exposureApi, 'listAll').mockResolvedValue([salesExposureFinding])
+    renderDetail('sales-research-agent')
+
+    expect(
+      await screen.findByRole('heading', { name: 'Assurance scorecard', level: 2 }),
+    ).toBeVisible()
+    const securityCard = screen.getByRole('heading', { name: 'Security' }).closest('article')
+    expect(securityCard).not.toBeNull()
+    expect(await within(securityCard!).findByText('Critical')).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Quality' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Reliability' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Cost / Efficiency' })).toBeVisible()
+    expect(screen.getByText(/Azure AI Foundry Evaluation/)).toBeVisible()
+    expect(
+      within(securityCard!).getByRole('link', {
+        name: /^Sales exposure - finding risk score 82\/100$/,
+      }),
+    ).toHaveAttribute('href', '/exposure/finding-1')
+  })
+
+  it('shows assurance scorecard with healthy security dimension for clean agent', async () => {
+    renderDetail('hr-policy-agent')
+
+    expect(
+      await screen.findByRole('heading', { name: 'Assurance scorecard', level: 2 }),
+    ).toBeVisible()
+    const securityCard = screen.getByRole('heading', { name: 'Security' }).closest('article')
+    expect(securityCard).not.toBeNull()
+    expect(await within(securityCard!).findByText('Healthy')).toBeVisible()
+    expect(
+      within(securityCard!).getByText(
+        'No active exposures in connected evidence affect this agent.',
+      ),
+    ).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Quality' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Reliability' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Cost / Efficiency' })).toBeVisible()
+  })
+
+  it('shows unknown security while live exposures are loading', async () => {
+    vi.spyOn(exposureApi, 'listAll').mockReturnValue(new Promise<never>(() => undefined))
+    renderDetail('sales-research-agent')
+
+    expect(
+      await screen.findByRole('heading', { name: 'Assurance scorecard', level: 2 }),
+    ).toBeVisible()
+    const securityCard = screen.getByRole('heading', { name: 'Security' }).closest('article')!
+    expect(within(securityCard).getByText('Unknown')).toBeVisible()
+    expect(within(securityCard).getByText(/Live exposure evidence is loading/)).toBeVisible()
+    expect(within(securityCard).queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it('shows unknown security when live exposures fail to load', async () => {
+    vi.spyOn(exposureApi, 'listAll').mockRejectedValue(new Error('offline'))
+    renderDetail('sales-research-agent')
+
+    const explanation = await screen.findByText(
+      'Live exposure data could not be loaded, so the security posture is unknown. Check connector health.',
+    )
+    const securityCard = screen.getByRole('heading', { name: 'Security' }).closest('article')!
+    expect(explanation).toBeVisible()
+    expect(within(securityCard).getByText('Unknown')).toBeVisible()
+    expect(within(securityCard).queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it('shows live finding linkage with direct link to exposure detail', async () => {
+    vi.spyOn(exposureApi, 'listAll').mockResolvedValue([salesExposureFinding])
     renderDetail('sales-research-agent')
     expect(await screen.findByText('Sales exposure')).toBeVisible()
-    expect(screen.getByRole('link', { name: 'View finding in overview' })).toHaveAttribute(
+
+    expect(screen.getByRole('link', { name: 'View finding detail' })).toHaveAttribute(
       'href',
-      '/overview',
+      '/exposure/finding-1',
     )
+  })
+
+  it('opens accessible evidence drawer and closes on Escape', async () => {
+    const user = userEvent.setup()
+    renderDetail('sales-research-agent')
+    expect(await screen.findByRole('heading', { name: 'Sales Research Agent' })).toBeVisible()
     await user.click(screen.getByRole('button', { name: /Copilot Studio/ }))
     expect(screen.getByRole('dialog', { name: 'Copilot Studio' })).toHaveFocus()
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('shows Unknown header badge while live exposures are loading', async () => {
+    vi.spyOn(exposureApi, 'listAll').mockReturnValue(new Promise<never>(() => undefined))
+    renderDetail('hr-policy-agent')
+
+    expect(await screen.findByRole('heading', { name: 'HR Policy Assistant' })).toBeVisible()
+    const heading = screen.getByRole('heading', { name: 'HR Policy Assistant' }).closest('section')!
+    expect(within(heading).getByText('Unknown')).toBeVisible()
+  })
+
+  it('shows Healthy header badge after clean exposure load', async () => {
+    renderDetail('hr-policy-agent')
+
+    expect(await screen.findByRole('heading', { name: 'HR Policy Assistant' })).toBeVisible()
+    const heading = screen.getByRole('heading', { name: 'HR Policy Assistant' }).closest('section')!
+    expect(await within(heading).findByText('Healthy')).toBeVisible()
+  })
+
+  it('shows Critical header badge for agent with critical live exposure', async () => {
+    vi.spyOn(exposureApi, 'listAll').mockResolvedValue([salesExposureFinding])
+    renderDetail('sales-research-agent')
+
+    expect(await screen.findByRole('heading', { name: 'Sales Research Agent' })).toBeVisible()
+    const heading = screen
+      .getByRole('heading', { name: 'Sales Research Agent' })
+      .closest('section')!
+    expect(await within(heading).findByText('Critical')).toBeVisible()
+  })
+
+  it('shows loading state in finding linkage while exposures are loading', async () => {
+    vi.spyOn(exposureApi, 'listAll').mockReturnValue(new Promise<never>(() => undefined))
+    renderDetail('sales-research-agent')
+
+    expect(await screen.findByRole('heading', { name: 'Finding linkage' })).toBeVisible()
+    expect(screen.getByText(/Loading exposure data/)).toBeVisible()
+  })
+
+  it('shows error state in finding linkage when exposures fail to load', async () => {
+    vi.spyOn(exposureApi, 'listAll').mockRejectedValue(new Error('offline'))
+    renderDetail('sales-research-agent')
+
+    expect(await screen.findByText(/Exposure data could not be loaded/)).toBeVisible()
+  })
+
+  it('discards stale exposure results when the agent component is remounted', async () => {
+    // First exposure load is slow (never resolves in this test)
+    vi.spyOn(exposureApi, 'listAll').mockReturnValue(new Promise<never>(() => undefined))
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/agent-inventory/sales-research-agent']}>
+        <App />
+      </MemoryRouter>,
+    )
+    // Sales agent header shows Unknown while loading
+    await screen.findByRole('heading', { name: 'Sales Research Agent' })
+    const salesSection = screen
+      .getByRole('heading', { name: 'Sales Research Agent' })
+      .closest('section')!
+    expect(within(salesSection).getByText('Unknown')).toBeVisible()
+
+    // Unmount (simulates leaving the route) and remount for a different agent
+    unmount()
+    vi.spyOn(exposureApi, 'listAll').mockResolvedValue([])
+    render(
+      <MemoryRouter initialEntries={['/agent-inventory/hr-policy-agent']}>
+        <App />
+      </MemoryRouter>,
+    )
+    // New agent gets a fresh load - should show Healthy once resolved
+    await screen.findByRole('heading', { name: 'HR Policy Assistant' })
+    const hrSection = screen
+      .getByRole('heading', { name: 'HR Policy Assistant' })
+      .closest('section')!
+    expect(await within(hrSection).findByText('Healthy')).toBeVisible()
   })
 
   it('renders a useful state for an unknown direct link', async () => {
