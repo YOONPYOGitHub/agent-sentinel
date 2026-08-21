@@ -12,11 +12,17 @@ import {
   PlayRegular,
   ShieldCheckmarkRegular,
 } from '@fluentui/react-icons'
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 
-import type { Remediation } from '@agent-sentinel/domain'
+import type {
+  AgentSentinelState,
+  ExposurePage as ExposurePageDto,
+  Remediation,
+} from '@agent-sentinel/domain'
 
 import { demoApi } from '../api'
+import { exposureApi } from '../api/exposure-api'
 import { EvidenceDrawer } from '../components/EvidenceDrawer'
 import { ExposureGraph } from '../components/ExposureGraph'
 import { PageHeading } from '../components/PageHeading'
@@ -59,6 +65,9 @@ export function OverviewPage() {
   const writeEnabled = connectorStatus?.writeEnabled !== false
   const { selectedEvidence, setSelectedEvidence, drawerRef, trapFocus } = useEvidenceDrawer()
   const finding = state?.findings[0]
+  const [liveExposure, setLiveExposure] = useState<ExposurePageDto>()
+  const [liveExposureError, setLiveExposureError] = useState<string>()
+  const [liveExposureLoading, setLiveExposureLoading] = useState(false)
   const remediation = state?.remediations[0]
   const validation = state?.validations[0]
   const pathStatus = finding?.path.status ?? 'theoretical'
@@ -81,6 +90,52 @@ export function OverviewPage() {
       evidence: state.snapshot.evidence.filter((item) => evidenceIds.has(item.id)),
     }
   }, [finding, state])
+
+  const loadLiveExposure = useCallback(async () => {
+    setLiveExposureLoading(true)
+    setLiveExposureError(undefined)
+    try {
+      const activeFindings = []
+      for (const status of ['open', 'validated'] as const) {
+        const statusFindings = []
+        let page = 1
+        let total = Number.POSITIVE_INFINITY
+        while (statusFindings.length < total) {
+          const result = await exposureApi.list({ status, page, pageSize: 200 })
+          statusFindings.push(...result.findings)
+          total = result.total
+          if (result.findings.length === 0) break
+          page += 1
+        }
+        activeFindings.push(...statusFindings)
+      }
+      const facets = {
+        severity: {} as Record<string, number>,
+        status: {} as Record<string, number>,
+        policyId: {} as Record<string, number>,
+      }
+      for (const item of activeFindings) {
+        facets.severity[item.severity] = (facets.severity[item.severity] ?? 0) + 1
+        facets.status[item.status] = (facets.status[item.status] ?? 0) + 1
+        facets.policyId[item.policyId] = (facets.policyId[item.policyId] ?? 0) + 1
+      }
+      setLiveExposure({
+        findings: activeFindings,
+        total: activeFindings.length,
+        facets,
+      })
+    } catch (caught: unknown) {
+      setLiveExposureError(
+        caught instanceof Error ? caught.message : 'Live exposure summary could not be loaded.',
+      )
+    } finally {
+      setLiveExposureLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (finding === undefined) void loadLiveExposure()
+  }, [finding, loadLiveExposure])
 
   const primaryAction = useMemo(() => {
     if (finding === undefined) return undefined
@@ -121,7 +176,7 @@ export function OverviewPage() {
     }
   }, [finding, operation, pathStatus, remediation, run])
 
-  if (state === undefined || finding === undefined || pathSnapshot === undefined) {
+  if (state === undefined) {
     return (
       <div className="empty-state page-empty">
         <AlertRegular aria-hidden="true" />
@@ -131,6 +186,21 @@ export function OverviewPage() {
           Try again
         </Button>
       </div>
+    )
+  }
+
+  if (finding === undefined || pathSnapshot === undefined) {
+    return (
+      <LiveEstateOverview
+        state={state}
+        exposure={liveExposure}
+        exposureError={liveExposureError}
+        exposureLoading={liveExposureLoading}
+        connectorSource={connectorStatus?.source ?? 'unavailable'}
+        providerError={error}
+        providerLoading={operation !== undefined}
+        onRefresh={() => void Promise.all([load(), loadLiveExposure()])}
+      />
     )
   }
 
@@ -377,6 +447,200 @@ export function OverviewPage() {
         onClose={() => setSelectedEvidence(undefined)}
         onKeyDown={trapFocus}
       />
+    </>
+  )
+}
+
+function LiveEstateOverview({
+  state,
+  exposure,
+  exposureError,
+  exposureLoading,
+  connectorSource,
+  providerError,
+  providerLoading,
+  onRefresh,
+}: {
+  state: AgentSentinelState
+  exposure: ExposurePageDto | undefined
+  exposureError: string | undefined
+  exposureLoading: boolean
+  connectorSource: string
+  providerError: string | undefined
+  providerLoading: boolean
+  onRefresh: () => void
+}) {
+  const agents = state.snapshot.nodes.filter((node) => node.kind === 'agent')
+  const evidenceSources = new Set(state.snapshot.evidence.map((item) => item.source))
+  const critical = exposure?.findings.filter((item) => item.severity === 'critical').length ?? 0
+  const high = exposure?.findings.filter((item) => item.severity === 'high').length ?? 0
+  const trusted = agents.filter((agent) => agent.trust === 'trusted').length
+
+  return (
+    <>
+      <PageHeading
+        section="Overview"
+        title="Agent operations overview"
+        description="Live Foundry inventory, declared-configuration exposure, and evidence posture."
+        actions={
+          <Button
+            appearance="secondary"
+            icon={<ArrowResetRegular />}
+            disabled={exposureLoading || providerLoading}
+            onClick={onRefresh}
+          >
+            Refresh live posture
+          </Button>
+        }
+      />
+
+      <section className="live-overview-boundary">
+        <DataUsageRegular />
+        <div>
+          <strong>Foundry declared configuration is connected</strong>
+          <span>
+            Full cross-plane attack paths require Entra identity, data-classification, and MCP
+            runtime telemetry. Their absence does not imply safety.
+          </span>
+        </div>
+        <Badge appearance="outline">{connectorSource}</Badge>
+      </section>
+
+      {exposureError ? (
+        <div className="inline-error" role="alert">
+          <AlertRegular />
+          <span>{exposureError} · Inventory and evidence remain available.</span>
+        </div>
+      ) : null}
+      {providerError ? (
+        <div className="inline-error" role="alert">
+          <AlertRegular />
+          <span>
+            Foundry refresh failed: {providerError} · Showing the last-known discovery snapshot.
+          </span>
+        </div>
+      ) : null}
+
+      <section className="metric-grid" aria-label="Live agent estate metrics">
+        {[
+          {
+            label: 'Discovered agents',
+            value: agents.length,
+            detail: `${agents.filter((agent) => agent.owner).length} with declared owners`,
+            tone: 'neutral',
+            icon: BotRegular,
+          },
+          {
+            label: 'Open exposures',
+            value: exposure?.total ?? '—',
+            detail: exposureLoading
+              ? 'Loading live findings'
+              : `${critical} critical · ${high} high`,
+            tone: critical > 0 ? 'danger' : 'neutral',
+            icon: AlertRegular,
+          },
+          {
+            label: 'Evidence objects',
+            value: state.snapshot.evidence.length,
+            detail: `${evidenceSources.size} source systems`,
+            tone: 'success',
+            icon: DataUsageRegular,
+          },
+          {
+            label: 'Trusted agents',
+            value: trusted,
+            detail: `${agents.length - trusted} conditional or untrusted`,
+            tone: trusted === agents.length ? 'success' : 'warning',
+            icon: ShieldCheckmarkRegular,
+          },
+        ].map((metric) => {
+          const Icon = metric.icon
+          return (
+            <article className={`metric-card metric-card--${metric.tone}`} key={metric.label}>
+              <div className="metric-card__top">
+                <span>{metric.label}</span>
+                <Icon />
+              </div>
+              <strong>{metric.value}</strong>
+              <span>{metric.detail}</span>
+            </article>
+          )
+        })}
+      </section>
+
+      <section className="live-overview-grid">
+        <article className="surface-card">
+          <div className="surface-card__header">
+            <div>
+              <span className="eyebrow">EXPOSURE POSTURE</span>
+              <h2>Declared-configuration findings</h2>
+            </div>
+            <Link to="/exposure">Open Exposure</Link>
+          </div>
+          {exposureLoading && exposure === undefined ? (
+            <div className="live-overview-state">Loading live findings…</div>
+          ) : exposureError && exposure === undefined ? (
+            <div className="live-overview-state live-overview-state--error">
+              Active exposure posture is unavailable.
+            </div>
+          ) : exposure?.findings.length ? (
+            <div className="live-finding-list">
+              {exposure.findings.slice(0, 5).map((item) => (
+                <Link to={`/exposure/${item.id}`} key={item.id}>
+                  <Badge
+                    appearance="tint"
+                    color={item.severity === 'critical' ? 'danger' : 'warning'}
+                  >
+                    {item.severity}
+                  </Badge>
+                  <div>
+                    <strong>{item.title}</strong>
+                    <span>
+                      {item.policyId} · Risk {item.riskScore} · {item.validationStatus}
+                    </span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="live-overview-state">
+              No active declared-configuration finding was returned.
+            </div>
+          )}
+        </article>
+
+        <article className="surface-card">
+          <div className="surface-card__header">
+            <div>
+              <span className="eyebrow">EVIDENCE COVERAGE</span>
+              <h2>Current discovery snapshot</h2>
+            </div>
+            <Link to="/observability">Open Observability</Link>
+          </div>
+          <dl className="live-evidence-summary">
+            <div>
+              <dt>Environment</dt>
+              <dd>{state.snapshot.environment}</dd>
+            </div>
+            <div>
+              <dt>Generated</dt>
+              <dd>{new Date(state.snapshot.generatedAt).toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt>Graph relationships</dt>
+              <dd>{state.snapshot.edges.length}</dd>
+            </div>
+            <div>
+              <dt>Evidence source systems</dt>
+              <dd>{evidenceSources.size}</dd>
+            </div>
+          </dl>
+          <p className="live-overview-note">
+            Identity privilege, sensitive-data reachability, runtime activity, reliability, quality,
+            and cost remain unavailable until their authoritative connectors are added.
+          </p>
+        </article>
+      </section>
     </>
   )
 }

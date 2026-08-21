@@ -51,6 +51,25 @@ describe('application routing', () => {
     expect(screen.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
   })
 
+  it('renders a live estate overview when the mock attack path is absent', async () => {
+    vi.mocked(demoApi.getState).mockResolvedValue({ ...testState, findings: [] })
+    vi.mocked(exposureApi.list).mockResolvedValue({
+      findings: [],
+      total: 3,
+      facets: {
+        severity: { critical: 2, high: 1 },
+        status: { open: 3 },
+        policyId: { 'AS-POL-001': 2, 'AS-POL-002': 1 },
+      },
+    })
+    await renderRoute('/overview')
+
+    expect(await screen.findByText('Foundry declared configuration is connected')).toBeVisible()
+    expect(screen.getByText('Discovered agents')).toBeVisible()
+    expect(screen.getByText('Open exposures')).toBeVisible()
+    expect(screen.queryByText('Agent estate is unavailable')).not.toBeInTheDocument()
+  })
+
   it('renders the exact estate and direct detail routes', async () => {
     await renderRoute('/agent-estate')
     expect(await screen.findByText('3 of 3 agents')).toBeVisible()

@@ -1757,6 +1757,130 @@ button {
   margin: 0;
 }
 
+.live-overview-boundary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  color: #c9d1ff;
+  background: #10182a;
+  border: 1px solid #28375a;
+  border-radius: 8px;
+}
+
+.live-overview-boundary > div {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.live-overview-boundary span {
+  color: #8f9bb0;
+  font-size: 0.78rem;
+}
+
+.live-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.8fr);
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.live-overview-grid .surface-card__header a {
+  color: #7eb8ff;
+  font-size: 0.8rem;
+}
+
+.live-finding-list {
+  display: grid;
+  gap: 8px;
+}
+
+.live-finding-list > a {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 11px;
+  color: #cbd3df;
+  background: #111925;
+  border: 1px solid #273247;
+  border-radius: 7px;
+}
+
+.live-finding-list > a:hover {
+  border-color: #4f6bed;
+}
+
+.live-finding-list > a > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.live-finding-list strong {
+  overflow: hidden;
+  color: #f5f7fb;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-finding-list span {
+  color: #8f9bb0;
+  font-size: 0.74rem;
+}
+
+.live-overview-state {
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8f9bb0;
+  border: 1px dashed #354158;
+  border-radius: 7px;
+}
+
+.live-overview-state--error {
+  color: #ffd8dc;
+  background: #35171c;
+  border-color: #71313b;
+}
+
+.live-evidence-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.live-evidence-summary > div {
+  padding: 11px;
+  background: #111925;
+  border-radius: 7px;
+}
+
+.live-evidence-summary dt {
+  color: #7f8da2;
+  font-size: 0.72rem;
+}
+
+.live-evidence-summary dd {
+  margin: 5px 0 0;
+  color: #d6dce7;
+  font-size: 0.82rem;
+}
+
+.live-overview-note {
+  margin: 12px 0 0;
+  color: #8f9bb0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
 .main-content {
   grid-area: main;
   min-width: 0;
