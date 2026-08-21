@@ -47,8 +47,8 @@ export function AgentDetailPage() {
         <BotRegular />
         <h1>Agent not found</h1>
         <p>The requested agent is not part of this estate snapshot.</p>
-        <Link className="primary-link" to="/agent-estate">
-          Return to agent estate
+        <Link className="primary-link" to="/agent-inventory">
+          Return to agent inventory
         </Link>
       </div>
     )
@@ -71,12 +71,12 @@ export function AgentDetailPage() {
 
   return (
     <>
-      <Link className="back-link" to="/agent-estate">
+      <Link className="back-link" to="/agent-inventory">
         <ArrowLeftRegular />
-        Agent estate
+        Agent inventory
       </Link>
       <PageHeading
-        section="Agent estate / Detail"
+        section="Agent inventory / Detail"
         title={agent.name}
         description={agent.description}
         actions={

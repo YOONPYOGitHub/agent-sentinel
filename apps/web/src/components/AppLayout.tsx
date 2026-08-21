@@ -2,29 +2,34 @@ import { Button, Input, Tooltip } from '@fluentui/react-components'
 import {
   ArrowResetRegular,
   ArrowTrendingRegular,
+  BookmarkRegular,
   BotRegular,
   CheckmarkCircleRegular,
   ChevronRightRegular,
   HomeRegular,
   LockClosedRegular,
-  MoreHorizontalRegular,
   NavigationRegular,
+  PersonRegular,
   PlugConnectedRegular,
   PulseRegular,
+  QuestionCircleRegular,
   SearchRegular,
   SettingsRegular,
   ShieldCheckmarkRegular,
 } from '@fluentui/react-icons'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
+
 import { useDemoState } from '../hooks/useDemoState'
+import { usePreferences } from '../hooks/usePreferences'
 import { GlobalSearchDialog } from './GlobalSearchDialog'
 import { ReadOnlyBanner } from './ReadOnlyBanner'
 import { ShellMenu } from './ShellMenu'
 
 const navigation = [
   { label: 'Overview', icon: HomeRegular, to: '/overview', end: true },
-  { label: 'Agent estate', icon: BotRegular, to: '/agent-estate', end: false },
+  { label: 'Agent inventory', icon: BotRegular, to: '/agent-inventory', end: false },
+  { label: 'Agent catalog', icon: BookmarkRegular, to: '/agent-catalog', end: false },
   { label: 'Exposure', icon: ShieldCheckmarkRegular, to: '/exposure', end: false },
   { label: 'Governance', icon: LockClosedRegular, to: '/governance', end: false },
   { label: 'Observability', icon: PulseRegular, to: '/observability', end: false },
@@ -37,6 +42,7 @@ const navigation = [
 export function AppLayout() {
   const [navExpanded, setNavExpanded] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [prefs] = usePreferences()
   const { connectorStatus, state } = useDemoState()
   const liveFoundry = connectorStatus?.mode === 'foundry'
   const searchTriggerRef = useRef<HTMLDivElement>(null)
@@ -57,7 +63,11 @@ export function AppLayout() {
   }, [])
 
   return (
-    <div className={`app-shell ${navExpanded ? '' : 'app-shell--collapsed'}`}>
+    <div
+      className={`app-shell ${navExpanded ? '' : 'app-shell--collapsed'} ${
+        prefs.density === 'compact' ? 'app-shell--compact' : ''
+      }`}
+    >
       <aside className="side-nav">
         <NavLink className="brand" to="/overview" aria-label="Agent Sentinel overview">
           <div className="brand-mark">
@@ -172,34 +182,50 @@ export function AppLayout() {
             <Link to="/connectors">Open connector health</Link>
           </ShellMenu>
           <ShellMenu
-            label="More actions"
+            label="Help and diagnostics"
             trigger={
-              <Tooltip content="More actions" relationship="label">
+              <Tooltip content="Help and diagnostics" relationship="label">
                 <span className="shell-icon-trigger" aria-hidden="true">
-                  <MoreHorizontalRegular />
+                  <QuestionCircleRegular />
                 </span>
               </Tooltip>
             }
           >
             <Link to="/connectors">Connector diagnostics</Link>
             <Link to="/settings">Application settings</Link>
+            <div className="shell-menu__status">
+              <strong>Keyboard shortcuts</strong>
+              <span>Ctrl K — Global search</span>
+              <span>Esc — Close dialog or menu</span>
+            </div>
             <div className="shell-menu__status shell-menu__status--bordered">
               <strong>Agent Sentinel</strong>
-              <span>Operations & Security · Hackathon build</span>
+              <span>Operations &amp; Security · Hackathon build</span>
             </div>
           </ShellMenu>
-          <ShellMenu label="User menu" trigger={<span className="avatar">AM</span>}>
+          <ShellMenu
+            label="Authentication status"
+            trigger={
+              <span className="avatar avatar--unsigned">
+                <PersonRegular />
+              </span>
+            }
+          >
             <div className="shell-menu__profile">
-              <span className="avatar avatar--large">AM</span>
+              <span className="avatar avatar--large avatar--unsigned">
+                <PersonRegular />
+              </span>
               <div>
-                <strong>Avery Morgan · demo persona</strong>
-                <span>Simulated Agent Security Analyst</span>
+                <strong>Not signed in</strong>
+                <span>Authentication not configured</span>
               </div>
             </div>
-            <Link to="/settings">Profile and preferences</Link>
             <p className="shell-menu__note">
-              Authentication status is separate from this synthetic demo identity.
+              Microsoft Entra ID is the intended sign-in provider. Entra authentication will
+              establish user identity; entitlement connector evidence will personalize catalog
+              access.
             </p>
+            <Link to="/settings">Authentication settings</Link>
           </ShellMenu>
         </div>
       </header>

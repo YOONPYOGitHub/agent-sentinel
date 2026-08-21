@@ -33,11 +33,18 @@ const destinations: SearchResult[] = [
     to: '/overview',
   },
   {
-    id: 'page-estate',
-    label: 'Agent estate',
-    detail: 'Inventory and ownership',
+    id: 'page-inventory',
+    label: 'Agent inventory',
+    detail: 'Inventory, ownership, and governance readiness',
     type: 'Page',
-    to: '/agent-estate',
+    to: '/agent-inventory',
+  },
+  {
+    id: 'page-agent-catalog',
+    label: 'Agent assurance catalog',
+    detail: 'Employee-facing risk and evidence overlay',
+    type: 'Page',
+    to: '/agent-catalog',
   },
   {
     id: 'page-exposure',
@@ -109,7 +116,7 @@ function searchableAssets(state: AgentSentinelState): SearchResult[] {
       detail: `${node.kind} · ${node.owner ?? node.environment}`,
       type: node.kind,
       kind: node.kind,
-      to: agent ? `/agent-estate/${agent.id}` : '/agent-estate',
+      to: agent ? `/agent-inventory/${agent.id}` : '/agent-inventory',
     }
   })
   const evidence = state.snapshot.evidence.map((item) => {
@@ -120,7 +127,7 @@ function searchableAssets(state: AgentSentinelState): SearchResult[] {
       label: item.source,
       detail: `${item.summary} · ${Math.round(item.confidence * 100)}% confidence`,
       type: 'Evidence',
-      to: agent ? `/agent-estate/${agent.id}` : '/agent-estate',
+      to: agent ? `/agent-inventory/${agent.id}` : '/agent-inventory',
     }
   })
   return [...assets, ...evidence]

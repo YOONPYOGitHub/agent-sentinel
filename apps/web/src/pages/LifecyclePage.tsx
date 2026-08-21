@@ -248,7 +248,7 @@ export function LifecyclePage() {
                     )}
                   </td>
                   <td>
-                    <Link to={`/agent-estate/${row.agent.id}`}>View agent</Link>
+                    <Link to={`/agent-inventory/${row.agent.id}`}>View agent</Link>
                   </td>
                 </tr>
               ))}

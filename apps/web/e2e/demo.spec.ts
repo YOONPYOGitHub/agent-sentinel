@@ -34,14 +34,15 @@ test('opens evidence from the overview snapshot graph', async ({ page }) => {
 
 test('filters the required estate facets and opens direct detail', async ({ page }) => {
   await page.goto('/agent-estate')
-  await expect(page.getByRole('heading', { name: 'Agent estate', exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/\/agent-inventory$/)
+  await expect(page.getByRole('heading', { name: 'Agent inventory', exact: true })).toBeVisible()
   await expect(page.getByText('3 of 3 agents')).toBeVisible()
   await page
     .getByRole('combobox', { name: 'Filter agents by platform' })
     .selectOption('Azure OpenAI Service')
   await expect(page.getByText('1 of 3 agents')).toBeVisible()
   await page.getByRole('link', { name: /HR Policy Assistant/ }).click()
-  await expect(page).toHaveURL(/\/agent-estate\/hr-policy-agent$/)
+  await expect(page).toHaveURL(/\/agent-inventory\/hr-policy-agent$/)
   await expect(page.getByRole('heading', { name: 'HR Policy Assistant' })).toBeVisible()
   await expect(page.getByLabel('Agent profile').getByText('hr-policy-agent-prod')).toBeVisible()
   await expect(page.getByText('HR Policy Knowledge Base', { exact: true })).toBeVisible()
@@ -50,12 +51,12 @@ test('filters the required estate facets and opens direct detail', async ({ page
 })
 
 test('supports required routes and wildcard 404', async ({ page }) => {
-  await page.goto('/agent-estate/code-review-copilot')
+  await page.goto('/agent-inventory/code-review-copilot')
   await expect(page.getByRole('heading', { name: 'Code Review Copilot' })).toBeVisible()
   await expect(page.getByText('Engineering Codebase', { exact: true })).toBeVisible()
   await expect(page.getByText('GitHub Actions MCP', { exact: true })).toBeVisible()
-  await page.getByRole('main').getByRole('link', { name: 'Agent estate' }).click()
-  await expect(page).toHaveURL(/\/agent-estate$/)
+  await page.getByRole('main').getByRole('link', { name: 'Agent inventory' }).click()
+  await expect(page).toHaveURL(/\/agent-inventory$/)
   await page.goto('/governance')
   await expect(page.getByRole('heading', { name: 'Governance' })).toBeVisible()
   await page.goto('/not-a-real-route')

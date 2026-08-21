@@ -19,6 +19,7 @@ vi.mock('./components/ExposureGraph', () => ({ ExposureGraph: () => <div /> }))
 afterEach(cleanup)
 
 beforeEach(() => {
+  localStorage.clear()
   vi.mocked(demoApi.getState).mockResolvedValue(testState)
   vi.mocked(connectorApi.getConnectorStatus).mockResolvedValue({
     source: 'foundry',
@@ -70,10 +71,22 @@ describe('application routing', () => {
     expect(screen.queryByText('Agent estate is unavailable')).not.toBeInTheDocument()
   })
 
-  it('renders the exact estate and direct detail routes', async () => {
-    await renderRoute('/agent-estate')
+  it('renders the inventory and direct detail routes', async () => {
+    await renderRoute('/agent-inventory')
     expect(await screen.findByText('3 of 3 agents')).toBeVisible()
-    expect(screen.getByRole('link', { name: 'Agent estate' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Agent inventory' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    cleanup()
+    await renderRoute('/agent-inventory/hr-policy-agent')
+    expect(await screen.findByRole('heading', { name: 'HR Policy Assistant' })).toBeVisible()
+  })
+
+  it('redirects legacy agent estate routes to the inventory', async () => {
+    await renderRoute('/agent-estate')
+    expect(await screen.findByRole('heading', { name: 'Agent inventory' })).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Agent inventory' })).toHaveAttribute(
       'aria-current',
       'page',
     )
@@ -166,13 +179,13 @@ describe('application routing', () => {
     expect(screen.getByText(/Environment changes are deployment-controlled/i)).toBeVisible()
     fireEvent.keyDown(document, { key: 'Escape' })
 
-    fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Help and diagnostics' }))
     expect(screen.getByRole('link', { name: 'Connector diagnostics' })).toBeVisible()
     fireEvent.keyDown(document, { key: 'Escape' })
 
-    fireEvent.click(screen.getByRole('button', { name: 'User menu' }))
-    expect(screen.getByText('Simulated Agent Security Analyst')).toBeVisible()
-    expect(screen.getByRole('link', { name: 'Profile and preferences' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Authentication status' }))
+    expect(screen.getByText('Authentication not configured')).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Authentication settings' })).toBeVisible()
   })
 
   it('renders real settings and links to connector management', async () => {
@@ -183,6 +196,8 @@ describe('application routing', () => {
       screen.getByRole('heading', { name: 'Configured scope · Foundry-connected' }),
     ).toBeVisible()
     expect(screen.getByRole('heading', { name: 'Microsoft Foundry' })).toBeVisible()
+    expect(screen.getByRole('combobox', { name: 'Default landing page' })).toBeVisible()
+    expect(screen.getByRole('combobox', { name: 'Display density' })).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Manage connectors' }))
     expect(await screen.findByRole('heading', { name: 'Connector health' })).toBeVisible()
   })

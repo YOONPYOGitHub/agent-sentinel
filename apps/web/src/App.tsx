@@ -1,13 +1,15 @@
 import { Button, Spinner } from '@fluentui/react-components'
 import { AlertRegular, ShieldCheckmarkRegular } from '@fluentui/react-icons'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useParams } from 'react-router-dom'
 
 import { AppLayout } from './components/AppLayout'
 import { DemoStateProvider } from './hooks/DemoStateProvider'
 import { useDemoState } from './hooks/useDemoState'
+import { usePreferences } from './hooks/usePreferences'
+import { AgentCatalogPage } from './pages/AgentCatalogPage'
 import { AgentDetailPage } from './pages/AgentDetailPage'
+import { AgentInventoryPage } from './pages/AgentInventoryPage'
 import { ConnectorsPage } from './pages/ConnectorsPage'
-import { EstatePage } from './pages/EstatePage'
 import { ExposureDetailPage } from './pages/ExposureDetailPage'
 import { ExposurePage } from './pages/ExposurePage'
 import { GovernancePage } from './pages/GovernancePage'
@@ -18,6 +20,16 @@ import { OptimizationPage } from './pages/OptimizationPage'
 import { OverviewPage } from './pages/OverviewPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { TrustCatalogPage } from './pages/TrustCatalogPage'
+
+function AgentEstateDetailRedirect() {
+  const { agentId } = useParams()
+  return <Navigate to={`/agent-inventory/${agentId ?? ''}`} replace />
+}
+
+function DefaultRedirect() {
+  const [prefs] = usePreferences()
+  return <Navigate to={prefs.landingPage} replace />
+}
 
 function RoutedApplication() {
   const { error, load, operation, state } = useDemoState()
@@ -51,10 +63,13 @@ function RoutedApplication() {
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        <Route index element={<Navigate to="/overview" replace />} />
+        <Route index element={<DefaultRedirect />} />
         <Route path="overview" element={<OverviewPage />} />
-        <Route path="agent-estate" element={<EstatePage />} />
-        <Route path="agent-estate/:agentId" element={<AgentDetailPage />} />
+        <Route path="agent-inventory" element={<AgentInventoryPage />} />
+        <Route path="agent-inventory/:agentId" element={<AgentDetailPage />} />
+        <Route path="agent-estate" element={<Navigate to="/agent-inventory" replace />} />
+        <Route path="agent-estate/:agentId" element={<AgentEstateDetailRedirect />} />
+        <Route path="agent-catalog" element={<AgentCatalogPage />} />
         <Route path="exposure" element={<ExposurePage />} />
         <Route path="exposure/:findingId" element={<ExposureDetailPage />} />
         <Route path="governance" element={<GovernancePage />} />

@@ -18,10 +18,12 @@ test('app shell controls are functional and honest', async ({ page }) => {
   await expect(page.getByText(/Environment changes are deployment-controlled/i)).toBeVisible()
   await page.keyboard.press('Escape')
 
-  await page.getByRole('button', { name: 'More actions' }).click()
+  await page.getByRole('button', { name: 'Help and diagnostics' }).click()
   await page.getByRole('link', { name: 'Application settings' }).click()
   await expect(page.getByRole('heading', { name: 'Application settings' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'User menu' }).click()
-  await expect(page.getByText('Simulated Agent Security Analyst')).toBeVisible()
+  await page.getByRole('button', { name: 'Authentication status' }).click()
+  await expect(
+    page.getByText(/Entra authentication will establish user identity/i),
+  ).toBeVisible()
 })

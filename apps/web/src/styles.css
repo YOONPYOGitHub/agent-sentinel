@@ -3714,3 +3714,202 @@ button {
   border-left: 4px solid #f9a825;
   font-size: 0.9rem;
 }
+
+/* Inventory evidence note */
+.inventory-evidence-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border: 1px solid #2a3548;
+  border-radius: 8px;
+  background: rgba(79, 107, 237, 0.07);
+  color: #8da2fb;
+  font-size: 12px;
+}
+
+.inventory-evidence-note svg {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+}
+
+/* Catalog entra note */
+.catalog-entra-note {
+  margin-top: 20px;
+  padding: 14px 18px;
+  border-left: 3px solid #4f6bed;
+  border-radius: 7px;
+  background: #0d141f;
+  color: #8f9bb0;
+  font-size: 12px;
+}
+
+.catalog-entra-note strong {
+  display: block;
+  color: #cbd3df;
+  margin-bottom: 4px;
+}
+
+.catalog-entra-note a {
+  color: #8da2fb;
+}
+
+/* Catalog item entitlement note */
+.catalog-item__entitlement-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #202b3e;
+  color: #7f8da2;
+  font-size: 11px;
+}
+
+.catalog-item__entitlement-note svg {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+}
+
+/* Unsigned avatar (no initials, just an icon) */
+.avatar--unsigned {
+  display: grid;
+  place-items: center;
+  color: #7f8da2;
+  background: #182132;
+  border: 1px dashed #2a3548;
+}
+
+.avatar--unsigned svg {
+  width: 16px;
+  height: 16px;
+}
+
+.avatar--large.avatar--unsigned svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* Settings editable preferences section */
+.settings-prefs {
+  margin-bottom: 20px;
+}
+
+.settings-prefs-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: #8f9bb0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.settings-prefs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-pref-card {
+  padding: 16px 18px;
+  border: 1px solid #3a4a63;
+  border-radius: 9px;
+  background: #111925;
+}
+
+.settings-pref-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-pref-card label > span {
+  color: #8f9bb0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.settings-pref-card h3 {
+  margin: 0 0 10px;
+  color: #f5f7fb;
+  font-size: 0.9rem;
+}
+
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 20px 0 12px;
+  color: #8f9bb0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.settings-readonly-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #182132;
+  color: #5d7294;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.settings-auth-card {
+  display: flex;
+  gap: 14px;
+  padding: 18px;
+  color: #cbd3df;
+  background: #0d141f;
+  border: 1px solid #3a4a63;
+  border-radius: 9px;
+  margin-top: 12px;
+}
+
+.settings-auth-card > svg {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  color: #7f8da2;
+}
+
+.settings-auth-card h2 {
+  margin: 8px 0 5px;
+  font-size: 1rem;
+}
+
+.settings-auth-card p {
+  margin: 0;
+  color: #8f9bb0;
+}
+
+/* Compact density overrides */
+.app-shell--compact .page-heading {
+  padding-top: 16px;
+  padding-bottom: 12px;
+}
+
+.app-shell--compact .estate-table th,
+.app-shell--compact .estate-table td {
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.app-shell--compact .settings-card {
+  padding: 14px 16px;
+}
+
+.app-shell--compact .catalog-item {
+  padding: 14px 16px;
+}

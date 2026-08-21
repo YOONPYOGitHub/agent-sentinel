@@ -198,7 +198,7 @@ export function ExposureDetailPage() {
         >
           Back to exposures
         </Button>
-        <Link to={`/agent-estate/${finding.affectedAgentId}`} className="exposure-agent-link">
+        <Link to={`/agent-inventory/${finding.affectedAgentId}`} className="exposure-agent-link">
           <BotRegular aria-hidden="true" /> View agent in estate
         </Link>
         {finding.affectedEdgeIds.length > 0 ? (

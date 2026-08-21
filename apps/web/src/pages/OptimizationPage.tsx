@@ -135,7 +135,7 @@ export function OptimizationPage() {
           verification:
             'Confirm the owner is present in the next authoritative discovery snapshot.',
           actionLabel: 'Review agent',
-          to: `/agent-estate/${agent.id}`,
+          to: `/agent-inventory/${agent.id}`,
           simulationAvailable: false,
         })
       }

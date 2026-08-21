@@ -22,14 +22,14 @@ beforeEach(() => {
 
 async function renderEstate() {
   render(
-    <MemoryRouter initialEntries={['/agent-estate']}>
+    <MemoryRouter initialEntries={['/agent-inventory']}>
       <App />
     </MemoryRouter>,
   )
-  expect(await screen.findByRole('heading', { name: 'Agent estate' })).toBeVisible()
+  expect(await screen.findByRole('heading', { name: 'Agent inventory' })).toBeVisible()
 }
 
-describe('EstatePage', () => {
+describe('AgentInventoryPage legacy coverage', () => {
   it('filters independently by platform, environment, owner, and trust', async () => {
     const user = userEvent.setup()
     await renderEstate()
@@ -70,7 +70,7 @@ describe('EstatePage', () => {
     await renderEstate()
     await user.type(screen.getByRole('textbox', { name: 'Filter agents by text' }), 'policy')
     const link = screen.getByRole('link', { name: /HR Policy Assistant/ })
-    expect(link).toHaveAttribute('href', '/agent-estate/hr-policy-agent')
+    expect(link).toHaveAttribute('href', '/agent-inventory/hr-policy-agent')
     await waitFor(() => expect(screen.getByText('1 of 3 agents')).toBeVisible())
   })
 

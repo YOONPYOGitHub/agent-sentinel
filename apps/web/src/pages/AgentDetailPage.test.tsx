@@ -22,7 +22,7 @@ beforeEach(() => {
 
 function renderDetail(agentId: string) {
   render(
-    <MemoryRouter initialEntries={[`/agent-estate/${agentId}`]}>
+    <MemoryRouter initialEntries={[`/agent-inventory/${agentId}`]}>
       <App />
     </MemoryRouter>,
   )
@@ -45,8 +45,8 @@ describe('AgentDetailPage', () => {
     expect(screen.getByText('No active findings')).toBeVisible()
     expect(
       screen
-        .getAllByRole('link', { name: /Agent estate/ })
-        .some((link) => link.getAttribute('href') === '/agent-estate'),
+        .getAllByRole('link', { name: /Agent inventory/ })
+        .some((link) => link.getAttribute('href') === '/agent-inventory'),
     ).toBe(true)
   })
 
