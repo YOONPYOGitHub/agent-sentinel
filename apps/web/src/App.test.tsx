@@ -7,11 +7,13 @@ import { MemoryRouter } from 'react-router-dom'
 
 import App from './App'
 import { connectorApi, demoApi } from './api'
+import { connectorsApi } from './api/connectors-api'
 import { governanceApi } from './api/governance-api'
 import { exposureApi } from './api/exposure-api'
 import { governancePostureFixture, testState } from './test-fixture'
 
 vi.mock('./api')
+vi.mock('./api/connectors-api')
 vi.mock('./api/governance-api')
 vi.mock('./api/exposure-api')
 vi.mock('./components/ExposureGraph', () => ({ ExposureGraph: () => <div /> }))
@@ -35,6 +37,27 @@ beforeEach(() => {
     facets: { severity: {}, status: {}, policyId: {} },
   })
   vi.mocked(exposureApi.listAll).mockResolvedValue([])
+  vi.mocked(connectorsApi.listConnectors).mockResolvedValue({
+    active: {
+      id: 'azure-ai-foundry-agent-service',
+      mode: 'foundry',
+      source: 'foundry',
+      lifecycleState: 'connected',
+      writeEnabled: true,
+      projectEndpoint: 'https://contoso.services.ai.azure.com/api/projects/sentinel',
+    },
+    catalog: [
+      {
+        id: 'azure-ai-foundry',
+        name: 'Azure AI Foundry',
+        description: 'Discovers agents.',
+        lifecycleState: 'connected',
+        capabilities: ['discovery'],
+        sourceOfTruth: true,
+        ownershipModel: 'consumes',
+      },
+    ],
+  })
 })
 
 async function renderRoute(route: string) {
@@ -138,10 +161,7 @@ describe('application routing', () => {
 
   it('renders connector status and metadata', async () => {
     await renderRoute('/connectors')
-    expect(await screen.findByRole('heading', { name: 'Connector health' })).toBeVisible()
-    expect(
-      await screen.findByRole('heading', { name: 'azure-ai-foundry-agent-service' }),
-    ).toBeVisible()
+    expect(await screen.findByRole('heading', { name: 'Data connectors' })).toBeVisible()
     expect(await screen.findByText('Project endpoint')).toBeVisible()
   })
 
@@ -181,7 +201,7 @@ describe('application routing', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Help and diagnostics' }))
-    expect(screen.getByRole('link', { name: 'Connector diagnostics' })).toBeVisible()
+    expect(screen.getByRole('link', { name: /connector management/i })).toBeVisible()
     fireEvent.keyDown(document, { key: 'Escape' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Authentication status' }))
@@ -200,7 +220,7 @@ describe('application routing', () => {
     expect(screen.getByRole('combobox', { name: 'Default landing page' })).toBeVisible()
     expect(screen.getByRole('combobox', { name: 'Display density' })).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Manage connectors' }))
-    expect(await screen.findByRole('heading', { name: 'Connector health' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: 'Data connectors' })).toBeVisible()
   })
 
   it('shows read-only mode and disables mutations when writes are blocked', async () => {

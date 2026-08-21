@@ -17,6 +17,7 @@ import { createConfiguredConnector } from './connector-factory.js'
 import { DemoService, NotFoundError, StateConflictError } from './demo-service.js'
 import { registerExposureRoutes } from './exposure-routes.js'
 import { registerGovernanceRoutes } from './governance-routes.js'
+import { buildConnectorsCollection } from './connectors-catalog.js'
 
 const approvalSchema = z.object({
   approvedBy: z.string().trim().min(2).max(100),
@@ -117,6 +118,18 @@ export async function createApp(
 
   app.get('/api/demo/state', async () => service.getState())
   app.get('/api/connector/status', async () => service.getConnectorStatus())
+  app.get('/api/connectors', async () => {
+    const [status, connection] = await Promise.all([
+      service.getConnectorStatus(),
+      service.testConnectorConnection(),
+    ])
+    return buildConnectorsCollection(status.mode, {
+      connectorId: status.connectorId,
+      connectionOk: connection.ok,
+      ...(status.writeEnabled !== undefined ? { writeEnabled: status.writeEnabled } : {}),
+      ...(status.projectEndpoint !== undefined ? { projectEndpoint: status.projectEndpoint } : {}),
+    })
+  })
   app.post('/api/demo/reset', async () => service.reset())
 
   app.post<{ Params: { findingId: string } }>(

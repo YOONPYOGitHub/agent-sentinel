@@ -18,5 +18,5 @@ test('observability reports only available evidence operations', async ({ page }
     ),
   ).toBeVisible()
   await page.getByRole('button', { name: 'Open connector health' }).click()
-  await expect(page.getByRole('heading', { name: 'Connector health' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Data connectors' })).toBeVisible()
 })

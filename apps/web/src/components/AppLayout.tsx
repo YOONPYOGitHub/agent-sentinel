@@ -191,7 +191,7 @@ export function AppLayout() {
               </Tooltip>
             }
           >
-            <Link to="/connectors">Connector diagnostics</Link>
+            <Link to="/connectors">Connector management &amp; diagnostics</Link>
             <Link to="/settings">Application settings</Link>
             <div className="shell-menu__status">
               <strong>Keyboard shortcuts</strong>

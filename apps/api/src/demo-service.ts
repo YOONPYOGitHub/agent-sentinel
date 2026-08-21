@@ -48,6 +48,7 @@ export class DemoService {
     projectEndpoint?: string
     writeEnabled?: boolean
   }> {
+    const configuredWriteMode = process.env['AGENT_SENTINEL_WRITE_ENABLED']?.trim().toLowerCase()
     const result: {
       source: 'mock' | 'foundry'
       connectorId: string
@@ -58,12 +59,18 @@ export class DemoService {
       source: this.connectorMode,
       connectorId: this.connector.descriptor.id,
       mode: this.connectorMode,
-      writeEnabled: process.env['AGENT_SENTINEL_WRITE_ENABLED']?.trim().toLowerCase() !== 'false',
+      writeEnabled:
+        configuredWriteMode === 'true' ||
+        (configuredWriteMode === undefined && this.connectorMode === 'mock'),
     }
     if (this.projectEndpoint !== undefined) {
       result.projectEndpoint = this.projectEndpoint
     }
     return Promise.resolve(result)
+  }
+
+  testConnectorConnection() {
+    return this.connector.testConnection()
   }
 
   async validateFinding(findingId: string): Promise<AgentSentinelState> {
