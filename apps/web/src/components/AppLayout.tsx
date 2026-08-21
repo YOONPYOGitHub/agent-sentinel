@@ -38,6 +38,7 @@ export function AppLayout() {
   const [navExpanded, setNavExpanded] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
   const { connectorStatus, state } = useDemoState()
+  const liveFoundry = connectorStatus?.mode === 'foundry'
   const searchTriggerRef = useRef<HTMLDivElement>(null)
   const closeSearch = useCallback(() => {
     setSearchOpen(false)
@@ -128,14 +129,18 @@ export function AppLayout() {
             trigger={
               <span className="scope-selector">
                 <span className="status-dot status-dot--healthy" />
-                Demo scope
+                {liveFoundry ? 'Foundry scope' : 'Demo scope'}
                 <ChevronRightRegular />
               </span>
             }
           >
             <div className="shell-menu__status">
-              <strong>Contoso AI Lab</strong>
-              <span>Synthetic demo scope · active</span>
+              <strong>Configured agent scope</strong>
+              <span>
+                {liveFoundry
+                  ? 'Foundry-connected portfolio · active'
+                  : 'Synthetic demo scope · active'}
+              </span>
             </div>
             <div className="shell-menu__meta">
               <span>Tenant</span>

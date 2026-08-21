@@ -15,6 +15,7 @@ export function SettingsPage() {
   const navigate = useNavigate()
   const { connectorStatus, state } = useDemoState()
   const writeEnabled = connectorStatus?.writeEnabled !== false
+  const liveFoundry = connectorStatus?.mode === 'foundry'
 
   return (
     <>
@@ -37,7 +38,7 @@ export function SettingsPage() {
           <DatabaseRegular />
           <div>
             <span>Active scope</span>
-            <h2>Contoso AI Lab · synthetic demo</h2>
+            <h2>Configured scope · {liveFoundry ? 'Foundry-connected' : 'synthetic demo'}</h2>
             <p>
               Tenant {state?.snapshot.tenantId ?? 'unavailable'} · Environment{' '}
               {state?.snapshot.environment ?? 'unavailable'}
@@ -76,9 +77,12 @@ export function SettingsPage() {
       <section className="settings-note">
         <strong>Configuration is source-controlled.</strong>
         <p>
-          The friendly scope and persona are synthetic demo labels. Tenant identifiers, Korea
-          Central deployment, connector permissions, and write capabilities are changed through
-          deployment configuration to preserve auditability.
+          The persona is synthetic. The active scope is{' '}
+          {liveFoundry
+            ? 'the configured Foundry-connected portfolio'
+            : 'a deterministic local demo portfolio'}
+          . Tenant identifiers, Korea Central deployment, connector permissions, and write
+          capabilities are changed through deployment configuration to preserve auditability.
         </p>
       </section>
     </>

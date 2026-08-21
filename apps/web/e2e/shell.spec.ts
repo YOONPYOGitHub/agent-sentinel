@@ -11,7 +11,7 @@ test('app shell controls are functional and honest', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Sales Research Agent' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Scope information' }).click()
-  await expect(page.getByText(/Synthetic demo scope/i)).toBeVisible()
+  await expect(page.getByText(/Foundry-connected portfolio|Synthetic demo scope/i)).toBeVisible()
   await page.keyboard.press('Escape')
 
   await page.getByRole('button', { name: 'Environment information' }).click()

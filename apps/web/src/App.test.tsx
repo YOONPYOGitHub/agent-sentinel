@@ -158,7 +158,7 @@ describe('application routing', () => {
     await renderRoute('/overview')
 
     fireEvent.click(screen.getByRole('button', { name: 'Scope information' }))
-    expect(screen.getByText(/Synthetic demo scope/i)).toBeVisible()
+    expect(screen.getByText(/Foundry-connected portfolio/i)).toBeVisible()
     expect(screen.getAllByText('test').length).toBeGreaterThanOrEqual(2)
     fireEvent.keyDown(document, { key: 'Escape' })
 
@@ -179,7 +179,9 @@ describe('application routing', () => {
     await renderRoute('/settings')
 
     expect(await screen.findByRole('heading', { name: 'Application settings' })).toBeVisible()
-    expect(screen.getByRole('heading', { name: 'Contoso AI Lab · synthetic demo' })).toBeVisible()
+    expect(
+      screen.getByRole('heading', { name: 'Configured scope · Foundry-connected' }),
+    ).toBeVisible()
     expect(screen.getByRole('heading', { name: 'Microsoft Foundry' })).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Manage connectors' }))
     expect(await screen.findByRole('heading', { name: 'Connector health' })).toBeVisible()
