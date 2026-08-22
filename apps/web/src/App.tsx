@@ -4,6 +4,8 @@ import { Navigate, Route, Routes, useParams } from 'react-router-dom'
 
 import { AppLayout } from './components/AppLayout'
 import { DemoStateProvider } from './hooks/DemoStateProvider'
+import { AuthProvider } from './hooks/AuthProvider'
+import { useAuth } from './hooks/useAuth'
 import { useDemoState } from './hooks/useDemoState'
 import { usePreferences } from './hooks/usePreferences'
 import { AgentCatalogPage } from './pages/AgentCatalogPage'
@@ -86,6 +88,54 @@ function RoutedApplication() {
 }
 
 function App() {
+  return (
+    <AuthProvider>
+      <AuthenticatedApplication />
+    </AuthProvider>
+  )
+}
+
+export function AuthenticatedApplication() {
+  const { authError, isConfigured, isLoading, isSignedIn, signIn } = useAuth()
+
+  if (isLoading) {
+    return (
+      <div className="center-state" role="status">
+        <div className="brand-mark brand-mark--large">
+          <ShieldCheckmarkRegular />
+        </div>
+        <Spinner size="large" label="Checking authentication configuration..." />
+      </div>
+    )
+  }
+
+  if (authError !== null) {
+    return (
+      <div className="center-state">
+        <div className="empty-state" role="alert">
+          <AlertRegular aria-hidden="true" />
+          <h1>Authentication is unavailable</h1>
+          <p>{authError}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (isConfigured && !isSignedIn) {
+    return (
+      <div className="center-state">
+        <div className="empty-state">
+          <ShieldCheckmarkRegular aria-hidden="true" />
+          <h1>Sign in to Agent Sentinel</h1>
+          <p>Use your Microsoft work account to access governed agent evidence.</p>
+          <Button appearance="primary" onClick={() => void signIn()}>
+            Sign in with Microsoft
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <DemoStateProvider>
       <RoutedApplication />

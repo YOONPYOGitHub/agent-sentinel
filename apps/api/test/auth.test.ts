@@ -59,7 +59,9 @@ describe('buildAuthConfig', () => {
 
 describe('JWT middleware', () => {
   it('accepts a valid token using the tenant JWKS and read scope', async () => {
-    jose.jwtVerify.mockResolvedValue({ payload: { scp: 'Sentinel.Read' } })
+    jose.jwtVerify.mockResolvedValue({
+      payload: { sub: 'subject-id', tid: 'tenant-id', scp: 'Sentinel.Read' },
+    })
     const app = await createApp(undefined, jwtConfig)
     apps.push(app)
 
@@ -107,7 +109,9 @@ describe('JWT middleware', () => {
   })
 
   it('returns 403 when the token lacks the required scope', async () => {
-    jose.jwtVerify.mockResolvedValue({ payload: { scp: 'Sentinel.Other' } })
+    jose.jwtVerify.mockResolvedValue({
+      payload: { sub: 'subject-id', tid: 'tenant-id', scp: 'Sentinel.Other' },
+    })
     const app = await createApp(undefined, jwtConfig)
     apps.push(app)
     const response = await app.inject({

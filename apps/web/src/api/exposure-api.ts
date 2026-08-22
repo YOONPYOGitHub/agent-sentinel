@@ -1,3 +1,4 @@
+import { apiFetch } from './auth-fetch'
 import {
   exposureFindingSchema,
   exposurePageSchema,
@@ -101,7 +102,7 @@ export const exposureApi = {
     throw new Error('Exposure pagination ended without a complete result.')
   },
   async list(params: ExposureListParams = {}): Promise<ExposurePage> {
-    const response = await fetch(`/api/exposures${buildQuery(params)}`)
+    const response = await apiFetch(`/api/exposures${buildQuery(params)}`)
     const body: unknown = await response.json().catch(() => undefined)
     if (!response.ok) {
       throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)
@@ -109,7 +110,7 @@ export const exposureApi = {
     return exposurePageSchema.parse(body)
   },
   async get(findingId: string): Promise<ExposureFinding> {
-    const response = await fetch(`/api/exposures/${encodeURIComponent(findingId)}`)
+    const response = await apiFetch(`/api/exposures/${encodeURIComponent(findingId)}`)
     const body: unknown = await response.json().catch(() => undefined)
     if (!response.ok) {
       throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)
@@ -117,7 +118,7 @@ export const exposureApi = {
     return exposureFindingSchema.parse(body)
   },
   async getGraph(findingId: string): Promise<EstateSnapshot> {
-    const response = await fetch(`/api/exposures/${encodeURIComponent(findingId)}/graph`)
+    const response = await apiFetch(`/api/exposures/${encodeURIComponent(findingId)}/graph`)
     const body: unknown = await response.json().catch(() => undefined)
     if (!response.ok) {
       throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)
@@ -125,7 +126,7 @@ export const exposureApi = {
     return estateSnapshotSchema.parse(body)
   },
   async getRemediationPreview(findingId: string): Promise<RemediationPreview> {
-    const response = await fetch(
+    const response = await apiFetch(
       `/api/exposures/${encodeURIComponent(findingId)}/remediation-preview`,
     )
     const body: unknown = await response.json().catch(() => undefined)
@@ -136,7 +137,7 @@ export const exposureApi = {
   },
   async generateNarrative(findingId: string): Promise<IncidentNarrative> {
     const path = `/api/exposures/${encodeURIComponent(findingId)}/narrative`
-    let response = await fetch(path)
+    let response = await apiFetch(path)
     let body: unknown = await response.json().catch(() => undefined)
     if (
       response.status === 405 &&
@@ -145,7 +146,7 @@ export const exposureApi = {
       'error' in body &&
       body.error === 'authenticated_post_required'
     ) {
-      response = await fetch(path, { method: 'POST' })
+      response = await apiFetch(path, { method: 'POST' })
       body = await response.json().catch(() => undefined)
     }
     if (!response.ok) {

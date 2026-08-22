@@ -10,6 +10,19 @@ import type { ExposureFinding, ExposurePage as ExposurePageDto } from '@agent-se
 import { ExposurePage } from './ExposurePage'
 import { ExposureDetailPage } from './ExposureDetailPage'
 import { exposureApi } from '../api/exposure-api'
+import { AuthContext, type AuthContextValue } from '../hooks/AuthContext'
+
+const disabledAuth: AuthContextValue = {
+  isConfigured: false,
+  spaConfig: null,
+  isLoading: false,
+  isSignedIn: false,
+  principal: null,
+  authError: null,
+  signIn: () => Promise.resolve(),
+  signOut: () => Promise.resolve(),
+  getAccessToken: () => Promise.resolve(null),
+}
 
 vi.mock('../api/exposure-api')
 vi.mock('../components/ExposureGraph', () => ({
@@ -221,11 +234,13 @@ describe('ExposurePage', () => {
 describe('ExposureDetailPage', () => {
   it('renders the finding detail', async () => {
     render(
-      <MemoryRouter initialEntries={[`/exposure/${sampleFinding.id}`]}>
-        <Routes>
-          <Route path="/exposure/:findingId" element={<ExposureDetailPage />} />
-        </Routes>
-      </MemoryRouter>,
+      <AuthContext.Provider value={disabledAuth}>
+        <MemoryRouter initialEntries={[`/exposure/${sampleFinding.id}`]}>
+          <Routes>
+            <Route path="/exposure/:findingId" element={<ExposureDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>,
     )
     await waitFor(() =>
       expect(
@@ -241,11 +256,13 @@ describe('ExposureDetailPage', () => {
 
   it('previews remediation impact and compares the after graph', async () => {
     render(
-      <MemoryRouter initialEntries={[`/exposure/${sampleFinding.id}`]}>
-        <Routes>
-          <Route path="/exposure/:findingId" element={<ExposureDetailPage />} />
-        </Routes>
-      </MemoryRouter>,
+      <AuthContext.Provider value={disabledAuth}>
+        <MemoryRouter initialEntries={[`/exposure/${sampleFinding.id}`]}>
+          <Routes>
+            <Route path="/exposure/:findingId" element={<ExposureDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>,
     )
 
     await waitFor(() => expect(screen.getByText('Preview response')).toBeInTheDocument())
@@ -266,11 +283,13 @@ describe('ExposureDetailPage', () => {
 
   it('generates an advisory narrative and opens cited evidence', async () => {
     render(
-      <MemoryRouter initialEntries={[`/exposure/${sampleFinding.id}`]}>
-        <Routes>
-          <Route path="/exposure/:findingId" element={<ExposureDetailPage />} />
-        </Routes>
-      </MemoryRouter>,
+      <AuthContext.Provider value={disabledAuth}>
+        <MemoryRouter initialEntries={[`/exposure/${sampleFinding.id}`]}>
+          <Routes>
+            <Route path="/exposure/:findingId" element={<ExposureDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>,
     )
 
     await waitFor(() => expect(screen.getByText('Generate AI narrative')).toBeInTheDocument())

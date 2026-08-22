@@ -1,3 +1,5 @@
+import { beforeEach, vi } from 'vitest'
+
 class ResizeObserverMock implements ResizeObserver {
   observe(): void {}
 
@@ -10,4 +12,19 @@ Object.defineProperty(globalThis, 'ResizeObserver', {
   configurable: true,
   writable: true,
   value: ResizeObserverMock,
+})
+
+beforeEach(() => {
+  const nativeFetch = globalThis.fetch
+  vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+    if (input === '/api/auth/config') {
+      return Promise.resolve(
+        new Response(JSON.stringify({ enabled: false }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    }
+    return nativeFetch(input, init)
+  })
 })

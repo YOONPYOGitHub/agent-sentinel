@@ -11,7 +11,12 @@ import {
   CosmosSnapshotRepository,
 } from '@agent-sentinel/persistence'
 
-import { buildAuthConfig, createAuthMiddleware, type AuthConfig } from './auth.js'
+import {
+  buildAuthConfig,
+  createAuthMiddleware,
+  requireCapability,
+  type AuthConfig,
+} from './auth.js'
 import { createAdvisoryService, type AdvisoryService } from './advisory-service.js'
 import { createConfiguredConnector } from './connector-factory.js'
 import { DemoService, NotFoundError, StateConflictError } from './demo-service.js'
@@ -110,6 +115,52 @@ export async function createApp(
     done()
   })
 
+  // Public SPA authentication configuration.
+  app.get('/api/auth/config', async (_request, reply) => {
+    if (authConfig.mode !== 'jwt') {
+      return { enabled: false }
+    }
+    if (authConfig.spaConfig === undefined) {
+      await reply.status(503).send({
+        error: 'auth_configuration_incomplete',
+        message: 'JWT authentication is enabled but the SPA client ID is not configured.',
+      })
+      return
+    }
+    return {
+      enabled: true,
+      clientId: authConfig.spaConfig.clientId,
+      authority: authConfig.spaConfig.authority,
+      scopes: authConfig.spaConfig.scopes,
+    }
+  })
+
+  // Sanitized current principal.
+  app.get('/api/auth/me', async (request, reply) => {
+    if (authConfig.mode !== 'jwt') {
+      await reply
+        .status(401)
+        .send({ error: 'unauthorized', message: 'Authentication is not configured.' })
+      return
+    }
+    const principal = request.authPrincipal
+    if (principal === undefined) {
+      await reply.status(401).send({ error: 'unauthorized', message: 'Bearer token required.' })
+      return
+    }
+    return {
+      subject: principal.subject,
+      ...(principal.objectId !== undefined ? { objectId: principal.objectId } : {}),
+      tenantId: principal.tenantId,
+      ...(principal.displayName !== undefined ? { displayName: principal.displayName } : {}),
+      ...(principal.preferredUsername !== undefined
+        ? { preferredUsername: principal.preferredUsername }
+        : {}),
+      roles: principal.roles,
+      capabilities: [...principal.capabilities],
+    }
+  })
+
   app.get('/health', () => ({
     status: 'ok',
     service: 'agent-sentinel-api',
@@ -130,28 +181,45 @@ export async function createApp(
       ...(status.projectEndpoint !== undefined ? { projectEndpoint: status.projectEndpoint } : {}),
     })
   })
-  app.post('/api/demo/reset', async () => service.reset())
+  app.post(
+    '/api/demo/reset',
+    {
+      preHandler: requireCapability(authConfig, 'configure'),
+    },
+    async () => service.reset(),
+  )
 
   app.post<{ Params: { findingId: string } }>(
     '/api/demo/findings/:findingId/validate',
+    { preHandler: requireCapability(authConfig, 'validateFinding') },
     async (request) => service.validateFinding(request.params.findingId),
   )
 
   app.post<{ Params: { findingId: string } }>(
     '/api/demo/findings/:findingId/remediations',
+    { preHandler: requireCapability(authConfig, 'proposeRemediation') },
     async (request) => service.proposeRemediation(request.params.findingId),
   )
 
   app.post<{ Params: { remediationId: string }; Body: unknown }>(
     '/api/demo/remediations/:remediationId/approve',
+    { preHandler: requireCapability(authConfig, 'approveRemediation') },
     async (request) => {
-      const body = approvalSchema.parse(request.body)
-      return service.approveRemediation(request.params.remediationId, body.approvedBy)
+      const principal = request.authPrincipal
+      const approvedBy =
+        authConfig.mode === 'jwt' && principal !== undefined
+          ? (principal.preferredUsername ??
+            principal.displayName ??
+            principal.objectId ??
+            principal.subject)
+          : approvalSchema.parse(request.body).approvedBy
+      return service.approveRemediation(request.params.remediationId, approvedBy)
     },
   )
 
   app.post<{ Params: { remediationId: string } }>(
     '/api/demo/remediations/:remediationId/execute',
+    { preHandler: requireCapability(authConfig, 'executeRemediation') },
     async (request) => service.executeRemediation(request.params.remediationId),
   )
 
@@ -171,6 +239,7 @@ export async function createApp(
     ...(exposureRepository ? { repository: exposureRepository } : {}),
     ...(snapshotRepository ? { snapshotRepository } : {}),
     advisoryService,
+    authConfig,
   })
   registerGovernanceRoutes(app, {
     mode: exposureMode,

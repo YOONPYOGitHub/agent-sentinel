@@ -23,7 +23,5 @@ test('app shell controls are functional and honest', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Application settings' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Authentication status' }).click()
-  await expect(
-    page.getByText(/Entra authentication will establish user identity/i),
-  ).toBeVisible()
+  await expect(page.getByText(/Entra authentication will establish user identity/i)).toBeVisible()
 })

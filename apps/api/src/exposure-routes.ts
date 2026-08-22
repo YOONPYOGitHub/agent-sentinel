@@ -23,6 +23,7 @@ import { foundryManifest, type AgentDefinition } from '@agent-sentinel/scenarios
 import { mapAgentToSnapshot, FOUNDRY_API_VERSION } from '@agent-sentinel/foundry-connector'
 
 import type { AdvisoryService } from './advisory-service.js'
+import { requireCapability, type AuthConfig } from './auth.js'
 
 const listQuerySchema = z.object({
   severity: exposureFindingSeveritySchema.optional(),
@@ -40,6 +41,7 @@ export interface ExposureRoutesOptions {
   repository?: ExposureFindingRepository
   snapshotRepository?: SnapshotRepository
   advisoryService?: AdvisoryService
+  authConfig?: AuthConfig
 }
 
 function agentDefinitionToFoundryAgent(
@@ -338,8 +340,12 @@ export function registerExposureRoutes(app: FastifyInstance, options: ExposureRo
     },
   )
 
+  const narrativeGuard = options.authConfig
+    ? requireCapability(options.authConfig, 'generateAdvisory')
+    : undefined
   app.post<{ Params: { findingId: string } }>(
     '/api/exposures/:findingId/narrative',
+    narrativeGuard !== undefined ? { preHandler: narrativeGuard } : {},
     async (request, reply) => {
       const { findingId } = request.params
       const context = await loadExposureContext(options, findingId)
@@ -360,6 +366,7 @@ export function registerExposureRoutes(app: FastifyInstance, options: ExposureRo
 
   app.get<{ Params: { findingId: string } }>(
     '/api/exposures/:findingId/narrative',
+    narrativeGuard !== undefined ? { preHandler: narrativeGuard } : {},
     async (request, reply) => {
       const { findingId } = request.params
       const context = await loadExposureContext(options, findingId)

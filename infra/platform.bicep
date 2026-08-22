@@ -29,6 +29,21 @@ param cosmosDatabase string = 'agent-sentinel-db'
 
 @description('Ingestion worker discovery interval in milliseconds.')
 param discoveryIntervalMs string = '300000'
+@description('API authentication mode. Keep disabled until Entra and WAF configuration are approved.')
+@allowed(['disabled', 'mock', 'jwt'])
+param authMode string = 'disabled'
+@description('Entra tenant ID used for API token validation when authMode is jwt.')
+param authTenantId string = ''
+@description('API application ID URI / audience used for token validation.')
+param authAudience string = ''
+@description('Public SPA application client ID. Contains no secret.')
+param authClientId string = ''
+@description('Comma-separated delegated API scopes requested by the SPA.')
+param authScopes string = ''
+@description('Comma-separated delegated scopes that grant read access.')
+param authReadScopes string = 'AgentSentinel.Read'
+@description('Comma-separated delegated scopes that grant Analyst capabilities.')
+param authWriteScopes string = 'AgentSentinel.Write'
 
 @description('ACA environment default domain for private DNS zone creation (e.g. blackrock-0e55f941.koreacentral.azurecontainerapps.io). Empty string = skip DNS zone (use after first deployment). See deployment.md for post-deploy DNS step.')
 param acaEnvDomain string = ''
@@ -176,6 +191,13 @@ module containerApps './modules/container-apps.bicep' = {
     foundryEnvironment: foundryEnvironment
     cosmosDatabase: cosmosDatabase
     discoveryIntervalMs: discoveryIntervalMs
+    authMode: authMode
+    authTenantId: authTenantId
+    authAudience: authAudience
+    authClientId: authClientId
+    authScopes: authScopes
+    authReadScopes: authReadScopes
+    authWriteScopes: authWriteScopes
   }
   dependsOn: [network, observability, foundry, identity, registry, cosmos, postgres, search, serviceBus]
 }

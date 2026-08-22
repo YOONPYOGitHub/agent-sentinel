@@ -1,4 +1,4 @@
-import { Badge, Button, Spinner } from '@fluentui/react-components'
+import { Badge, Button, Spinner, Tooltip } from '@fluentui/react-components'
 import {
   AlertRegular,
   ArrowLeftRegular,
@@ -20,6 +20,7 @@ import { EvidenceDrawer } from '../components/EvidenceDrawer'
 import { ExposureGraph } from '../components/ExposureGraph'
 import { PageHeading } from '../components/PageHeading'
 import { useEvidenceDrawer } from '../hooks/useEvidenceDrawer'
+import { usePermission, usePermissionMessage } from '../hooks/usePermission'
 
 export function ExposureDetailPage() {
   const { findingId } = useParams<{ findingId: string }>()
@@ -41,6 +42,8 @@ export function ExposureDetailPage() {
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
   const { selectedEvidence, setSelectedEvidence, drawerRef, trapFocus } = useEvidenceDrawer()
+  const canGenerateAdvisory = usePermission('generateAdvisory')
+  const advisoryPermMsg = usePermissionMessage('generateAdvisory')
 
   useEffect(() => {
     if (!findingId) return
@@ -211,13 +214,27 @@ export function ExposureDetailPage() {
             {previewLoading ? 'Calculating impact…' : 'Preview response'}
           </Button>
         ) : null}
-        <Button
-          appearance="secondary"
-          disabled={narrativeLoading}
-          onClick={() => void generateNarrative()}
-        >
-          {narrativeLoading ? 'Generating narrative…' : 'Generate AI narrative'}
-        </Button>
+        {advisoryPermMsg !== null ? (
+          <Tooltip content={advisoryPermMsg} relationship="label">
+            <span>
+              <Button
+                appearance="secondary"
+                disabled={narrativeLoading || !canGenerateAdvisory}
+                onClick={() => void generateNarrative()}
+              >
+                {narrativeLoading ? 'Generating narrative…' : 'Generate AI narrative'}
+              </Button>
+            </span>
+          </Tooltip>
+        ) : (
+          <Button
+            appearance="secondary"
+            disabled={narrativeLoading}
+            onClick={() => void generateNarrative()}
+          >
+            {narrativeLoading ? 'Generating narrative…' : 'Generate AI narrative'}
+          </Button>
+        )}
       </div>
 
       {previewError ? (

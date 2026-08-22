@@ -1,3 +1,4 @@
+import { apiFetch } from './auth-fetch'
 import { z } from 'zod'
 
 export const connectorLifecycleStateSchema = z.enum([
@@ -64,7 +65,7 @@ function responseMessage(value: unknown): string | undefined {
 
 export const connectorsApi = {
   async listConnectors(): Promise<ConnectorsCollection> {
-    const response = await fetch('/api/connectors')
+    const response = await apiFetch('/api/connectors')
     const body: unknown = await response.json().catch(() => undefined)
     if (!response.ok) {
       throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)

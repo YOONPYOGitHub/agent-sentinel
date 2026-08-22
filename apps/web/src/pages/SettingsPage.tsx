@@ -10,6 +10,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 
 import { PageHeading } from '../components/PageHeading'
+import { useAuth } from '../hooks/useAuth'
 import { useDemoState } from '../hooks/useDemoState'
 import { isLandingPage, usePreferences } from '../hooks/usePreferences'
 
@@ -17,6 +18,7 @@ export function SettingsPage() {
   const navigate = useNavigate()
   const { connectorStatus, state } = useDemoState()
   const [preferences, updatePreferences] = usePreferences()
+  const { isConfigured, isSignedIn, principal, signIn, signOut, isLoading: authLoading } = useAuth()
   const writeEnabled = connectorStatus?.writeEnabled !== false
   const liveFoundry = connectorStatus?.mode === 'foundry'
 
@@ -130,12 +132,48 @@ export function SettingsPage() {
       <section className="settings-auth-card" aria-label="Authentication">
         <PersonRegular aria-hidden="true" />
         <div>
-          <span className="settings-readonly-badge">Not signed in</span>
-          <h2>Authentication not configured</h2>
-          <p>
-            Microsoft Entra ID is the intended identity provider. Configure it to enable sign-in,
-            group entitlements, and personalized agent catalog access.
-          </p>
+          {isSignedIn && principal !== null ? (
+            <>
+              <span className="settings-readonly-badge settings-readonly-badge--active">
+                Signed in
+              </span>
+              <h2>
+                {principal.displayName ?? principal.preferredUsername ?? 'Authenticated user'}
+              </h2>
+              <p>
+                Roles: {principal.roles.join(', ') || 'None assigned'} ? Tenant {principal.tenantId}
+              </p>
+              <Button appearance="subtle" size="small" onClick={() => void signOut()}>
+                Sign out
+              </Button>
+            </>
+          ) : isConfigured ? (
+            <>
+              <span className="settings-readonly-badge">Not signed in</span>
+              <h2>Authentication configured ? not signed in</h2>
+              <p>
+                Microsoft Entra ID is configured. Sign in to enable role-based access controls and
+                personalized catalog access.
+              </p>
+              <Button
+                appearance="primary"
+                size="small"
+                disabled={authLoading}
+                onClick={() => void signIn()}
+              >
+                Sign in with Microsoft
+              </Button>
+            </>
+          ) : (
+            <>
+              <span className="settings-readonly-badge">Not signed in</span>
+              <h2>Authentication not configured</h2>
+              <p>
+                Microsoft Entra ID is the intended identity provider. Configure it to enable
+                sign-in, group entitlements, and personalized agent catalog access.
+              </p>
+            </>
+          )}
         </div>
       </section>
 

@@ -13,7 +13,7 @@ test('contains a validated attack path and preserves the business workflow', asy
   await page.getByRole('button', { name: 'Build response plan' }).click()
   await expect(page.getByText('Block unapproved MCP egress')).toBeVisible()
   await page.getByRole('button', { name: 'Approve response' }).click()
-  await expect(page.getByText('Approved by Avery Morgan')).toBeVisible()
+  await expect(page.getByText('Approved by Local demo operator')).toBeVisible()
   await page.getByRole('button', { name: 'Execute containment' }).click()
   await expect(page.getByText('Exposure removed')).toBeVisible()
   await expect(page.getByText('Residual risk')).toBeVisible()

@@ -190,6 +190,7 @@ describe('application routing', () => {
 
   it('makes scope, environment, overflow, and user shell controls informative', async () => {
     await renderRoute('/overview')
+    expect(await screen.findByRole('heading', { name: 'Agent operations overview' })).toBeVisible()
 
     fireEvent.click(screen.getByRole('button', { name: 'Scope information' }))
     expect(screen.getByText(/Foundry-connected portfolio/i)).toBeVisible()

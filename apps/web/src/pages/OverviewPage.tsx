@@ -1,4 +1,4 @@
-import { Badge, Button, ProgressBar } from '@fluentui/react-components'
+import { Badge, Button, ProgressBar, Tooltip } from '@fluentui/react-components'
 import {
   AlertRegular,
   ArrowResetRegular,
@@ -27,6 +27,8 @@ import { EvidenceDrawer } from '../components/EvidenceDrawer'
 import { ExposureGraph } from '../components/ExposureGraph'
 import { PageHeading } from '../components/PageHeading'
 import { useDemoState } from '../hooks/useDemoState'
+import { usePermission, usePermissionMessage } from '../hooks/usePermission'
+import { useAuth } from '../hooks/useAuth'
 import { useEvidenceDrawer } from '../hooks/useEvidenceDrawer'
 
 const portfolioMetrics = [
@@ -62,7 +64,20 @@ const portfolioMetrics = [
 
 export function OverviewPage() {
   const { state, connectorStatus, operation, error, clearError, load, run } = useDemoState()
+  const { principal } = useAuth()
   const writeEnabled = connectorStatus?.writeEnabled !== false
+
+  // Permission hooks ? auth-gated in JWT mode; no-op in disabled mode
+  const canValidate = usePermission('validateFinding')
+  const canPropose = usePermission('proposeRemediation')
+  const canApprove = usePermission('approveRemediation')
+  const canExecute = usePermission('executeRemediation')
+  const canReset = usePermission('configure')
+  const validateMsg = usePermissionMessage('validateFinding')
+  const proposeMsg = usePermissionMessage('proposeRemediation')
+  const approveMsg = usePermissionMessage('approveRemediation')
+  const executeMsg = usePermissionMessage('executeRemediation')
+  const resetMsg = usePermissionMessage('configure')
   const { selectedEvidence, setSelectedEvidence, drawerRef, trapFocus } = useEvidenceDrawer()
   const finding = state?.findings[0]
   const [liveExposure, setLiveExposure] = useState<ExposurePageDto>()
@@ -159,7 +174,16 @@ export function OverviewPage() {
         icon: PersonRegular,
         busy: operation === 'approving',
         onClick: () =>
-          run('approving', () => demoApi.approveRemediation(remediation.id, 'Avery Morgan')),
+          run('approving', () =>
+            demoApi.approveRemediation(
+              remediation.id,
+              principal?.preferredUsername ??
+                principal?.displayName ??
+                principal?.objectId ??
+                principal?.subject ??
+                'Local demo operator',
+            ),
+          ),
       }
     if (remediation?.status === 'approved')
       return {
@@ -174,7 +198,7 @@ export function OverviewPage() {
       busy: operation === 'resetting',
       onClick: () => run('resetting', demoApi.reset),
     }
-  }, [finding, operation, pathStatus, remediation, run])
+  }, [finding, operation, pathStatus, principal, remediation, run])
 
   if (state === undefined) {
     return (
@@ -216,24 +240,60 @@ export function OverviewPage() {
               <span className="status-dot status-dot--healthy" />
               Updated 18 sec ago
             </span>
-            <Button
-              appearance="secondary"
-              icon={<ArrowResetRegular />}
-              onClick={() => void run('resetting', demoApi.reset)}
-              disabled={!writeEnabled || operation !== undefined}
-            >
-              Reset
-            </Button>
-            {primaryAction === undefined ? null : (
+            {resetMsg !== null ? (
+              <Tooltip content={resetMsg} relationship="label">
+                <span>
+                  <Button
+                    appearance="secondary"
+                    icon={<ArrowResetRegular />}
+                    onClick={() => void run('resetting', demoApi.reset)}
+                    disabled={!writeEnabled || operation !== undefined || !canReset}
+                  >
+                    Reset
+                  </Button>
+                </span>
+              </Tooltip>
+            ) : (
               <Button
-                appearance="primary"
-                icon={<primaryAction.icon />}
-                disabled={!writeEnabled || operation !== undefined}
-                onClick={() => void primaryAction.onClick()}
+                appearance="secondary"
+                icon={<ArrowResetRegular />}
+                onClick={() => void run('resetting', demoApi.reset)}
+                disabled={!writeEnabled || operation !== undefined || !canReset}
               >
-                {primaryAction.busy ? 'Working…' : primaryAction.label}
+                Reset
               </Button>
             )}
+            {primaryAction === undefined
+              ? null
+              : (() => {
+                  const cap =
+                    primaryAction.label === 'Run safe validation'
+                      ? { can: canValidate, msg: validateMsg }
+                      : primaryAction.label === 'Build response plan'
+                        ? { can: canPropose, msg: proposeMsg }
+                        : primaryAction.label === 'Approve response'
+                          ? { can: canApprove, msg: approveMsg }
+                          : primaryAction.label === 'Execute containment'
+                            ? { can: canExecute, msg: executeMsg }
+                            : { can: true, msg: null }
+                  const btn = (
+                    <Button
+                      appearance="primary"
+                      icon={<primaryAction.icon />}
+                      disabled={!writeEnabled || operation !== undefined || !cap.can}
+                      onClick={() => void primaryAction.onClick()}
+                    >
+                      {primaryAction.busy ? 'Working…' : primaryAction.label}
+                    </Button>
+                  )
+                  return cap.msg !== null ? (
+                    <Tooltip content={cap.msg} relationship="label">
+                      <span>{btn}</span>
+                    </Tooltip>
+                  ) : (
+                    btn
+                  )
+                })()}
           </>
         }
       />

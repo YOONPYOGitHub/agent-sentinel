@@ -178,6 +178,9 @@ importers:
       '@agent-sentinel/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@azure/msal-browser':
+        specifier: ^5.18.0
+        version: 5.18.0
       '@fluentui/react-components':
         specifier: ^9.69.0
         version: 9.74.6(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(scheduler@0.27.0)

@@ -1,3 +1,4 @@
+import { apiFetch } from './api/auth-fetch'
 import { agentSentinelStateSchema, type AgentSentinelState } from '@agent-sentinel/domain'
 import { z } from 'zod'
 
@@ -31,7 +32,7 @@ async function request(path: string, init?: RequestInit): Promise<AgentSentinelS
     headers.set('Content-Type', 'application/json')
     requestInit.headers = headers
   }
-  const response = await fetch(path, requestInit)
+  const response = await apiFetch(path, requestInit)
   const body: unknown = await response.json().catch(() => undefined)
   if (!response.ok) {
     throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)
@@ -57,7 +58,7 @@ export const demoApi = {
 
 export const connectorApi = {
   getConnectorStatus: async (): Promise<ConnectorStatus> => {
-    const response = await fetch('/api/connector/status')
+    const response = await apiFetch('/api/connector/status')
     const body: unknown = await response.json()
     if (!response.ok) {
       throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)

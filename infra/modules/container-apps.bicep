@@ -31,6 +31,27 @@ param advisoryModelDeployment string = 'gpt-5.6-terra'
 @description('Advisory provider mode. Azure mode must not be enabled until JWT authentication protects generation endpoints.')
 @allowed(['mock', 'azure'])
 param advisoryMode string = 'mock'
+@description('Authentication mode for the API layer. Keep disabled until Entra app registration and WAF approval are complete.')
+@allowed(['disabled', 'mock', 'jwt'])
+param authMode string = 'disabled'
+
+@description('Entra tenant ID for JWT validation. Required when authMode is jwt. Do not set to a real value here.')
+param authTenantId string = ''
+
+@description('API audience / application ID URI. Required when authMode is jwt.')
+param authAudience string = ''
+
+@description('SPA client ID (public config, no secret). Optional; enables /api/auth/config SPA initialization.')
+param authClientId string = ''
+
+@description('Comma-separated OAuth scopes the SPA requests. Defaults to {authAudience}/AgentSentinel.Read.')
+param authScopes string = ''
+
+@description('Comma-separated delegated scopes that grant read access.')
+param authReadScopes string = 'AgentSentinel.Read'
+
+@description('Comma-separated delegated scopes that grant Analyst capabilities.')
+param authWriteScopes string = 'AgentSentinel.Write'
 
 @description('Foundry AAD tenant id (empty when data mode is mock).')
 param foundryTenantId string = ''
@@ -107,6 +128,13 @@ var env = [
   { name: 'AGENT_SENTINEL_CONNECTOR',             value: agentSentinelDataMode == 'live' ? 'foundry' : 'mock' }
   { name: 'AZURE_CLIENT_ID',                       value: uamiClientId }
   { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsightsConnectionString }
+  { name: 'AUTH_MODE',                             value: authMode }
+  { name: 'AUTH_TENANT_ID',                        value: authTenantId }
+  { name: 'AUTH_AUDIENCE',                         value: authAudience }
+  { name: 'AUTH_CLIENT_ID',                        value: authClientId }
+  { name: 'AUTH_SCOPES',                           value: authScopes }
+  { name: 'AUTH_READ_SCOPES',                      value: authReadScopes }
+  { name: 'AUTH_WRITE_SCOPES',                     value: authWriteScopes }
 ]
 
 resource apps 'Microsoft.App/containerApps@2024-03-01' = [for app in appDefinitions: {

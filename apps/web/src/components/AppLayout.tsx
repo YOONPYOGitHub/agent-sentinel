@@ -21,6 +21,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
 
 import { useDemoState } from '../hooks/useDemoState'
+import { useAuth } from '../hooks/useAuth'
 import { usePreferences } from '../hooks/usePreferences'
 import { GlobalSearchDialog } from './GlobalSearchDialog'
 import { ReadOnlyBanner } from './ReadOnlyBanner'
@@ -38,6 +39,86 @@ const navigation = [
   { label: 'Trust catalog', icon: CheckmarkCircleRegular, to: '/trust-catalog', end: false },
   { label: 'Connectors', icon: PlugConnectedRegular, to: '/connectors', end: false },
 ]
+
+function AuthShellMenu() {
+  const { isConfigured, isSignedIn, principal, signIn, signOut, isLoading } = useAuth()
+  const initials =
+    principal?.displayName
+      ?.split(' ')
+      .filter((p) => p.length > 0)
+      .map((p) => p[0] ?? '')
+      .slice(0, 2)
+      .join('') ?? ''
+
+  return (
+    <ShellMenu
+      label="Authentication status"
+      trigger={
+        <span className={isSignedIn ? 'avatar avatar--signed-in' : 'avatar avatar--unsigned'}>
+          {isSignedIn && initials.length > 0 ? (
+            <span aria-hidden="true">{initials}</span>
+          ) : (
+            <PersonRegular />
+          )}
+        </span>
+      }
+    >
+      <div className="shell-menu__profile">
+        <span
+          className={
+            isSignedIn
+              ? 'avatar avatar--large avatar--signed-in'
+              : 'avatar avatar--large avatar--unsigned'
+          }
+        >
+          {isSignedIn && initials.length > 0 ? (
+            <span aria-hidden="true">{initials}</span>
+          ) : (
+            <PersonRegular />
+          )}
+        </span>
+        <div>
+          {isSignedIn && principal !== null ? (
+            <>
+              <strong>{principal.displayName ?? principal.preferredUsername ?? 'Signed in'}</strong>
+              <span>{principal.roles.join(', ') || 'No roles assigned'}</span>
+            </>
+          ) : isConfigured ? (
+            <>
+              <strong>Not signed in</strong>
+              <span>Authentication configured - not signed in</span>
+            </>
+          ) : (
+            <>
+              <strong>Not signed in</strong>
+              <span>Authentication not configured</span>
+            </>
+          )}
+        </div>
+      </div>
+      {isConfigured && !isSignedIn ? (
+        <Button
+          appearance="primary"
+          size="small"
+          disabled={isLoading}
+          onClick={() => void signIn()}
+        >
+          Sign in with Microsoft
+        </Button>
+      ) : isSignedIn ? (
+        <Button appearance="subtle" size="small" onClick={() => void signOut()}>
+          Sign out
+        </Button>
+      ) : (
+        <p className="shell-menu__note">
+          Microsoft Entra ID is the intended sign-in provider. Entra authentication will establish
+          user identity; entitlement connector evidence will personalize catalog access.
+        </p>
+      )}
+      <Link to="/settings">Authentication settings</Link>
+    </ShellMenu>
+  )
+}
 
 export function AppLayout() {
   const [navExpanded, setNavExpanded] = useState(true)
@@ -203,30 +284,7 @@ export function AppLayout() {
               <span>Operations &amp; Security · Hackathon build</span>
             </div>
           </ShellMenu>
-          <ShellMenu
-            label="Authentication status"
-            trigger={
-              <span className="avatar avatar--unsigned">
-                <PersonRegular />
-              </span>
-            }
-          >
-            <div className="shell-menu__profile">
-              <span className="avatar avatar--large avatar--unsigned">
-                <PersonRegular />
-              </span>
-              <div>
-                <strong>Not signed in</strong>
-                <span>Authentication not configured</span>
-              </div>
-            </div>
-            <p className="shell-menu__note">
-              Microsoft Entra ID is the intended sign-in provider. Entra authentication will
-              establish user identity; entitlement connector evidence will personalize catalog
-              access.
-            </p>
-            <Link to="/settings">Authentication settings</Link>
-          </ShellMenu>
+          <AuthShellMenu />
         </div>
       </header>
       <main className="main-content">

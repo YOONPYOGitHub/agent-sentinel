@@ -8,6 +8,9 @@ import { MemoryRouter } from 'react-router-dom'
 import App from '../App'
 import { connectorApi, demoApi } from '../api'
 import { testState } from '../test-fixture'
+import { AuthContext, type AuthContextValue } from '../hooks/AuthContext'
+import { DemoStateContext } from '../hooks/DemoStateContext'
+import { SettingsPage } from './SettingsPage'
 
 vi.mock('../api')
 afterEach(cleanup)
@@ -64,5 +67,93 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('heading', { name: 'Authentication not configured' })).toBeVisible()
     expect(screen.getAllByText('Not signed in').length).toBeGreaterThan(0)
     expect(screen.getByText(/Microsoft Entra ID is the intended identity provider/i)).toBeVisible()
+  })
+
+  it('shows configured-but-not-signed-in state truthfully', () => {
+    const configuredCtx: AuthContextValue = {
+      isConfigured: true,
+      spaConfig: { clientId: 'c', authority: 'https://login.microsoftonline.com/t', scopes: [] },
+      isLoading: false,
+      isSignedIn: false,
+      principal: null,
+      authError: null,
+      signIn: vi.fn().mockResolvedValue(undefined),
+      signOut: vi.fn().mockResolvedValue(undefined),
+      getAccessToken: vi.fn().mockResolvedValue(null),
+    }
+    render(
+      <AuthContext.Provider value={configuredCtx}>
+        <DemoStateContext.Provider
+          value={{
+            state: testState,
+            connectorStatus: {
+              source: 'mock',
+              connectorId: 'mock-agent-estate',
+              mode: 'mock',
+              writeEnabled: true,
+            },
+            operation: undefined,
+            error: undefined,
+            clearError: vi.fn(),
+            load: vi.fn().mockResolvedValue(undefined),
+            run: vi.fn().mockResolvedValue(undefined),
+          }}
+        >
+          <MemoryRouter>
+            <SettingsPage />
+          </MemoryRouter>
+        </DemoStateContext.Provider>
+      </AuthContext.Provider>,
+    )
+    expect(screen.getByRole('heading', { name: /Authentication configured/i })).toBeVisible()
+    expect(screen.getAllByText('Not signed in').length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: /Sign in with Microsoft/i })).toBeVisible()
+  })
+
+  it('shows signed-in principal truthfully', () => {
+    const signedInCtx: AuthContextValue = {
+      isConfigured: true,
+      spaConfig: { clientId: 'c', authority: 'https://login.microsoftonline.com/t', scopes: [] },
+      isLoading: false,
+      isSignedIn: true,
+      principal: {
+        subject: 'sub',
+        tenantId: 'tenant-id',
+        displayName: 'Alice Analyst',
+        preferredUsername: 'alice@contoso.com',
+        roles: ['Analyst'],
+        capabilities: ['read', 'validateFinding', 'generateAdvisory', 'proposeRemediation'],
+      },
+      authError: null,
+      signIn: vi.fn().mockResolvedValue(undefined),
+      signOut: vi.fn().mockResolvedValue(undefined),
+      getAccessToken: vi.fn().mockResolvedValue(null),
+    }
+    render(
+      <AuthContext.Provider value={signedInCtx}>
+        <DemoStateContext.Provider
+          value={{
+            state: testState,
+            connectorStatus: {
+              source: 'mock',
+              connectorId: 'mock-agent-estate',
+              mode: 'mock',
+              writeEnabled: true,
+            },
+            operation: undefined,
+            error: undefined,
+            clearError: vi.fn(),
+            load: vi.fn().mockResolvedValue(undefined),
+            run: vi.fn().mockResolvedValue(undefined),
+          }}
+        >
+          <MemoryRouter>
+            <SettingsPage />
+          </MemoryRouter>
+        </DemoStateContext.Provider>
+      </AuthContext.Provider>,
+    )
+    expect(screen.getByText('Signed in')).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Alice Analyst' })).toBeVisible()
   })
 })
