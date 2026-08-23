@@ -83,3 +83,38 @@ Represents a single declared-configuration policy violation surfaced by the Expo
 - `tenantId`, `snapshotId`
 
 Cosmos DB container: `exposure-findings` (partition key `/tenantId`, upsert preserves `firstSeen`).
+
+### GovernanceCase
+
+Represents a deterministic governance workflow record.
+
+- `id`, `kind` (finding-review|remediation-proposal|policy-exception|lifecycle-review)
+- `title`, `description`
+- `status` (open|in-review|pending-approval|approved|rejected|expired|closed)
+- `createdByIdentity`, `createdByRole`, `createdAt`
+- `assigneeIdentity`, `proposerIdentity`, `lastTransitionAt`
+- Optional links: `findingId`, `agentId`, `policyId`
+- `evidenceSnapshotIds` – evidence snapshot references carried through the workflow
+- `sourceMode` (mock|foundry) and `writeEnabledAtCreation`
+
+### GovernanceCaseTransition
+
+Immutable audit record for each workflow step.
+
+- `id`, `caseId`, `operation`
+- `fromStatus`, `toStatus`
+- `actorIdentity`, `actorRole`, `actorCapability`
+- `timestamp`, optional `reason`
+- `evidenceSnapshotIds`, `idempotencyKey`
+
+The allowed transition operations are deterministic and enforced server-side:
+
+- `open` → `pick-up`
+- `in-review` → `propose`, `reject-finding`, `withdraw`
+- `pending-approval` → `approve`, `reject`, `withdraw`
+- `approved` → `close`
+- `rejected` → `reopen`
+- `expired` → `re-evaluate`
+- `closed` → none
+
+Live mode currently has no dedicated Cosmos container for this queue, so live reads are soft-boundary synthetic responses and live writes remain unavailable.

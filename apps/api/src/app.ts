@@ -5,7 +5,11 @@ import { z } from 'zod'
 import { CosmosClient } from '@azure/cosmos'
 import { DefaultAzureCredential } from '@azure/identity'
 
-import type { ExposureFindingRepository, SnapshotRepository } from '@agent-sentinel/domain'
+import type {
+  ExposureFindingRepository,
+  GovernanceCaseRepository,
+  SnapshotRepository,
+} from '@agent-sentinel/domain'
 import {
   CosmosExposureFindingRepository,
   CosmosSnapshotRepository,
@@ -22,6 +26,10 @@ import { createConfiguredConnector } from './connector-factory.js'
 import { DemoService, NotFoundError, StateConflictError } from './demo-service.js'
 import { registerExposureRoutes } from './exposure-routes.js'
 import { registerGovernanceRoutes } from './governance-routes.js'
+import {
+  createSeededGovernanceCaseRepository,
+  registerGovernanceQueueRoutes,
+} from './governance-queue-routes.js'
 import { buildConnectorsCollection } from './connectors-catalog.js'
 
 const approvalSchema = z.object({
@@ -52,6 +60,11 @@ function defaultTenantId(): string {
   return process.env['AGENT_SENTINEL_TENANT_ID']?.trim() || 'tenant-demo'
 }
 
+function defaultWriteEnabled(mode: 'mock' | 'live'): boolean {
+  const configuredWriteMode = process.env['AGENT_SENTINEL_WRITE_ENABLED']?.trim().toLowerCase()
+  return configuredWriteMode === 'true' || (configuredWriteMode === undefined && mode === 'mock')
+}
+
 function buildLiveRepositories(): {
   exposureRepository: ExposureFindingRepository
   snapshotRepository: SnapshotRepository
@@ -72,6 +85,7 @@ function buildLiveRepositories(): {
 export interface CreateAppOptions {
   exposureRepository?: ExposureFindingRepository
   snapshotRepository?: SnapshotRepository
+  governanceCaseRepository?: GovernanceCaseRepository
   advisoryService?: AdvisoryService
   dataMode?: 'mock' | 'live'
 }
@@ -224,6 +238,7 @@ export async function createApp(
   )
 
   const exposureMode: 'mock' | 'foundry' = resolvedDataMode === 'live' ? 'foundry' : 'mock'
+  const writeEnabled = defaultWriteEnabled(resolvedDataMode)
   const liveRepositories =
     resolvedDataMode === 'live' &&
     options.exposureRepository === undefined &&
@@ -232,6 +247,11 @@ export async function createApp(
       : undefined
   const exposureRepository = options.exposureRepository ?? liveRepositories?.exposureRepository
   const snapshotRepository = options.snapshotRepository ?? liveRepositories?.snapshotRepository
+  const governanceCaseRepository =
+    options.governanceCaseRepository ??
+    (resolvedDataMode === 'mock'
+      ? createSeededGovernanceCaseRepository(exposureMode, writeEnabled)
+      : undefined)
   const advisoryService = options.advisoryService ?? createAdvisoryService()
   registerExposureRoutes(app, {
     mode: exposureMode,
@@ -245,6 +265,12 @@ export async function createApp(
     mode: exposureMode,
     defaultTenantId: defaultTenantId(),
     ...(exposureRepository ? { repository: exposureRepository } : {}),
+  })
+  registerGovernanceQueueRoutes(app, {
+    mode: exposureMode,
+    authConfig,
+    writeEnabled,
+    ...(governanceCaseRepository ? { repository: governanceCaseRepository } : {}),
   })
 
   app.setErrorHandler((error, _request, reply) => {

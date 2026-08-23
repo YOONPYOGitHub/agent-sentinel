@@ -1,4 +1,11 @@
-import type { EstateSnapshot, Finding, Evidence, ValidationRun } from './index.js'
+import type { EstateSnapshot, Evidence, Finding, ValidationRun } from './index.js'
+import type {
+  GovernanceCase,
+  GovernanceCaseKind,
+  GovernanceCaseStatus,
+  GovernanceCaseTransition,
+} from './governance-queue.js'
+import type { ExposureFinding, ExposureFindingSeverity, ExposureFindingStatus } from './index.js'
 
 export interface SnapshotRepository {
   save(snapshot: EstateSnapshot): Promise<void>
@@ -29,8 +36,6 @@ export interface ValidationRunRepository {
   update(id: string, patch: Partial<ValidationRun>): Promise<ValidationRun>
 }
 
-import type { ExposureFinding, ExposureFindingSeverity, ExposureFindingStatus } from './index.js'
-
 export interface ExposureFindingListFilters {
   severity?: ExposureFindingSeverity
   status?: ExposureFindingStatus
@@ -55,4 +60,40 @@ export interface ExposureFindingRepository {
   ): Promise<{ items: ExposureFinding[]; total: number }>
   getFacets(tenantId: string): Promise<ExposureFindingFacets>
   resolveAbsent(tenantId: string, presentIds: readonly string[]): Promise<ExposureFinding[]>
+}
+
+export interface GovernanceCaseListFilters {
+  status?: GovernanceCaseStatus
+  kind?: GovernanceCaseKind
+  assignee?: string
+  search?: string
+  page?: number
+  pageSize?: number
+}
+
+export interface GovernanceCaseRepository {
+  create(
+    caseRecord: GovernanceCase,
+    firstTransition: GovernanceCaseTransition,
+  ): Promise<{ case: GovernanceCase; created: boolean }>
+  findById(
+    id: string,
+  ): Promise<{ case: GovernanceCase; transitions: GovernanceCaseTransition[] } | null>
+  listAll(filters?: GovernanceCaseListFilters): Promise<{ items: GovernanceCase[]; total: number }>
+  applyTransition(
+    caseId: string,
+    expectedStatus: GovernanceCaseStatus,
+    updated: GovernanceCase,
+    transition: GovernanceCaseTransition,
+  ): Promise<
+    | {
+        applied: true
+        case: GovernanceCase
+        transitions: GovernanceCaseTransition[]
+      }
+    | {
+        applied: false
+        reason: 'not_found' | 'idempotency_conflict' | 'state_conflict'
+      }
+  >
 }

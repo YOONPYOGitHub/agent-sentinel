@@ -21,32 +21,32 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 
 ## Complete
 
-| Item                                          | Evidence boundary                                                                                                          |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Full application shell and navigation         | All eleven routes plus global search implemented and covered by unit, component, and end-to-end tests.                     |
-| Mock acceptance path across every surface     | Deterministic in-repository fixtures; no Azure access required to run or test the product.                                 |
-| Live Microsoft Foundry discovery              | **Live declared configuration only.** Agent and function-tool definitions. No runtime traces, tool authorization, or cost. |
-| Cosmos-backed exposure findings               | **Live.** Container `exposure-findings`, partition key `/tenantId`, upsert preserves `firstSeen`.                          |
-| Cosmos-backed governance posture              | **Live.** Derived from the same findings; posture tiles deep-link to the filtered findings that produced them.             |
-| Jobs ingestion loop                           | **Live.** Interval discovery plus optional `snapshot-ingestion` Service Bus trigger with idempotency.                      |
-| Terra live validation, 6 of 6                 | **Synthetic, operator-invoked.** `pnpm foundry:validate` exercises all six agents; never run by CI.                        |
-| Agent inventory and assurance catalog         | **Current.** Populated from live Foundry discovery; other platforms are absent, not empty-but-clean.                       |
-| Live evidence-backed scorecards               | **Current.** Security, governance, and lifecycle derive from evidence. Quality, reliability, and cost report `unknown`.    |
-| Connector management catalog                  | **Current.** One connector is connectable; one is `authorization-required`; eight are `planned`.                           |
-| Entra authentication and RBAC code foundation | **Current code, not activated.** `AUTH_MODE=disabled` is deployed.                                                         |
-| Azure deployment, revision 11 on `8179785`    | **Live.** Container Apps `web`, `api`, `jobs` on a private ACA environment, with authentication disabled.                  |
-| Corporate Service Tree registration           | **Complete.** Registered under the confirmed `MCAPS > GES Asia > Korea` hierarchy with two administrators.                 |
+| Item                                          | Evidence boundary                                                                                                                          |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Full application shell and navigation         | Twelve routes plus global search are implemented with API, component, and end-to-end coverage for the work queue and established surfaces. |
+| Mock acceptance path across every surface     | Deterministic in-repository fixtures; no Azure access required to run or test the product.                                                 |
+| Live Microsoft Foundry discovery              | **Live declared configuration only.** Agent and function-tool definitions. No runtime traces, tool authorization, or cost.                 |
+| Cosmos-backed exposure findings               | **Live.** Container `exposure-findings`, partition key `/tenantId`, upsert preserves `firstSeen`.                                          |
+| Cosmos-backed governance posture              | **Live.** Derived from the same findings; posture tiles deep-link to the filtered findings that produced them.                             |
+| Jobs ingestion loop                           | **Live.** Interval discovery plus optional `snapshot-ingestion` Service Bus trigger with idempotency.                                      |
+| Terra live validation, 6 of 6                 | **Synthetic, operator-invoked.** `pnpm foundry:validate` exercises all six agents; never run by CI.                                        |
+| Agent inventory and assurance catalog         | **Current.** Populated from live Foundry discovery; other platforms are absent, not empty-but-clean.                                       |
+| Live evidence-backed scorecards               | **Current.** Security, governance, and lifecycle derive from evidence. Quality, reliability, and cost report `unknown`.                    |
+| Connector management catalog                  | **Current.** One connector is connectable; one is `authorization-required`; eight are `planned`.                                           |
+| Entra authentication and RBAC code foundation | **Current code, not activated.** `AUTH_MODE=disabled` is deployed.                                                                         |
+| Azure deployment, revision 11 on `8179785`    | **Live.** Container Apps `web`, `api`, `jobs` on a private ACA environment, with authentication disabled.                                  |
+| Corporate Service Tree registration           | **Complete.** Registered under the confirmed `MCAPS > GES Asia > Korea` hierarchy with two administrators.                                 |
 
 ---
 
 ## In progress
 
-| Item                                         | Where it stands                                                                                              |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Governance work queue and lifecycle workflow | Posture is live and read-only. The approval queue, exception handling, and state transitions are not merged. |
-| Unified inventory for future connectors      | Inventory renders any connector's records, but only the Foundry connector currently supplies live data.      |
-| Employee catalog entitlement personalization | The assurance overlay renders. Per-employee entitlement filtering needs an authenticated principal.          |
-| Repository documentation                     | This rebuild. Superseded and contradictory statements are being corrected in place.                          |
+| Item                                         | Where it stands                                                                                                                                                                 |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unified inventory for future connectors      | Inventory renders any connector's records, but only the Foundry connector currently supplies live data.                                                                         |
+| Employee catalog entitlement personalization | The assurance overlay renders. Per-employee entitlement filtering needs an authenticated principal.                                                                             |
+| Governance work queue and lifecycle workflow | Deterministic queue state, server-side transitions, separation-of-duties, immutable history, and mock fixtures are implemented on the current branch. Live persistence remains. |
+| Repository documentation                     | This rebuild. Superseded and contradictory statements are being corrected in place.                                                                                             |
 
 ---
 
@@ -123,9 +123,9 @@ Measured on 2026-08-23 on `feature/live-exposure`. Application code may be modif
 
 | Suite                        | Command                                   | Result                                              |
 | ---------------------------- | ----------------------------------------- | --------------------------------------------------- |
-| API unit tests               | `pnpm --filter @agent-sentinel/api test`  | **93 passing**, 8 files                             |
-| Web unit and component tests | `pnpm --filter @agent-sentinel/web test`  | **165 passing**, 23 files                           |
-| End-to-end                   | `pnpm test:e2e`                           | **20 tests** across 9 Playwright specs              |
+| API unit tests               | `pnpm --filter @agent-sentinel/api test`  | **105 passing**, 9 files                            |
+| Web unit and component tests | `pnpm --filter @agent-sentinel/web test`  | **172 passing**, 24 files                           |
+| End-to-end                   | `pnpm test:e2e`                           | **22 tests** across 10 Playwright specs             |
 | Bicep                        | `az bicep build`                          | Builds, with baseline linter warnings               |
 | Web production build         | `pnpm --filter @agent-sentinel/web build` | Succeeds with a Rollup chunk-size warning (>500 kB) |
 

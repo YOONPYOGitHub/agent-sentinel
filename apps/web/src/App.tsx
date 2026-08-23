@@ -22,6 +22,7 @@ import { OptimizationPage } from './pages/OptimizationPage'
 import { OverviewPage } from './pages/OverviewPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { TrustCatalogPage } from './pages/TrustCatalogPage'
+import { WorkQueuePage } from './pages/WorkQueuePage'
 
 function AgentEstateDetailRedirect() {
   const { agentId } = useParams()
@@ -75,6 +76,7 @@ function RoutedApplication() {
         <Route path="exposure" element={<ExposurePage />} />
         <Route path="exposure/:findingId" element={<ExposureDetailPage />} />
         <Route path="governance" element={<GovernancePage />} />
+        <Route path="work-queue" element={<WorkQueuePage />} />
         <Route path="observability" element={<ObservabilityPage />} />
         <Route path="optimization" element={<OptimizationPage />} />
         <Route path="lifecycle" element={<LifecyclePage />} />

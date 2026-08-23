@@ -16,6 +16,7 @@ import {
   SearchRegular,
   SettingsRegular,
   ShieldCheckmarkRegular,
+  TaskListLtrRegular,
 } from '@fluentui/react-icons'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
@@ -33,6 +34,7 @@ const navigation = [
   { label: 'Agent catalog', icon: BookmarkRegular, to: '/agent-catalog', end: false },
   { label: 'Exposure', icon: ShieldCheckmarkRegular, to: '/exposure', end: false },
   { label: 'Governance', icon: LockClosedRegular, to: '/governance', end: false },
+  { label: 'Work queue', icon: TaskListLtrRegular, to: '/work-queue', end: false },
   { label: 'Observability', icon: PulseRegular, to: '/observability', end: false },
   { label: 'Optimization', icon: ArrowTrendingRegular, to: '/optimization', end: false },
   { label: 'Lifecycle', icon: ArrowResetRegular, to: '/lifecycle', end: false },

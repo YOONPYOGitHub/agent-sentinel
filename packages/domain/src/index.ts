@@ -341,4 +341,36 @@ export type {
   ExposureFindingFacets,
   ExposureFindingRepository,
   ExposureFindingListFilters,
+  GovernanceCaseListFilters,
+  GovernanceCaseRepository,
 } from './repositories.js'
+
+export {
+  governanceCaseKindSchema,
+  governanceCaseStatusSchema,
+  governanceCaseTransitionOpSchema,
+  governanceActorCapabilitySchema,
+  governanceCaseSourceModeSchema,
+  governanceCaseTransitionSchema,
+  governanceCaseSchema,
+  governanceCaseDetailSchema,
+  governanceQueueSummarySchema,
+  governanceQueuePageSchema,
+  VALID_TRANSITIONS,
+  TRANSITION_RESULT,
+  CASE_SLA_MS,
+  computeOverdue,
+} from './governance-queue.js'
+
+export type {
+  GovernanceActorCapability,
+  GovernanceCase,
+  GovernanceCaseDetail,
+  GovernanceCaseKind,
+  GovernanceCaseSourceMode,
+  GovernanceCaseStatus,
+  GovernanceCaseTransition,
+  GovernanceCaseTransitionOp,
+  GovernanceQueuePage,
+  GovernanceQueueSummary,
+} from './governance-queue.js'

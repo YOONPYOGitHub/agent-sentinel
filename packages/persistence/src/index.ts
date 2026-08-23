@@ -10,3 +10,4 @@ export {
   InMemoryValidationRunRepository,
 } from './in-memory-repositories.js'
 export { InMemoryExposureFindingRepository } from './in-memory-exposure-finding-repository.js'
+export { InMemoryGovernanceCaseRepository } from './in-memory-governance-case-repository.js'
