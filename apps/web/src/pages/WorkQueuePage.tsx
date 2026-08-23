@@ -10,7 +10,7 @@ import {
 } from '@fluentui/react-components'
 import { AlertRegular, ArrowClockwiseRegular, SearchRegular } from '@fluentui/react-icons'
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 
 import {
   VALID_TRANSITIONS,
@@ -153,6 +153,7 @@ function createIdempotencyKey(prefix: string): string {
 }
 
 export function WorkQueuePage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const { connectorStatus } = useDemoState()
   const { principal } = useAuth()
   const canCreate = usePermission('proposeRemediation')
@@ -186,6 +187,7 @@ export function WorkQueuePage() {
   const [createFindingId, setCreateFindingId] = useState('')
   const [createAgentId, setCreateAgentId] = useState('')
   const [createPolicyId, setCreatePolicyId] = useState('')
+  const [createEvidenceSnapshotIds, setCreateEvidenceSnapshotIds] = useState<string[]>([])
   const [createError, setCreateError] = useState<string | undefined>(undefined)
 
   const viewerIdentity = useMemo(
@@ -197,6 +199,28 @@ export function WorkQueuePage() {
     [principal],
   )
   const writeEnabled = connectorStatus?.writeEnabled !== false
+
+  useEffect(() => {
+    if (searchParams.get('create') !== 'remediation-proposal' || !canCreate) {
+      return
+    }
+
+    const findingId = searchParams.get('findingId')?.trim() ?? ''
+    const agentId = searchParams.get('agentId')?.trim() ?? ''
+    const policyId = searchParams.get('policyId')?.trim() ?? ''
+    const snapshotId = searchParams.get('snapshotId')?.trim() ?? ''
+    setCreateKind('remediation-proposal')
+    setCreateTitle(findingId ? `Review finding ${findingId}` : 'Review exposure finding')
+    setCreateDescription(
+      'Review the cited evidence and prepare a remediation proposal for approval.',
+    )
+    setCreateFindingId(findingId)
+    setCreateAgentId(agentId)
+    setCreatePolicyId(policyId)
+    setCreateEvidenceSnapshotIds(snapshotId ? [snapshotId] : [])
+    setCreateOpen(true)
+    setSearchParams({}, { replace: true })
+  }, [canCreate, searchParams, setSearchParams])
 
   const permissionByCapability = useMemo(
     () => ({
@@ -287,6 +311,9 @@ export function WorkQueuePage() {
       ...(createFindingId.trim().length > 0 ? { findingId: createFindingId.trim() } : {}),
       ...(createAgentId.trim().length > 0 ? { agentId: createAgentId.trim() } : {}),
       ...(createPolicyId.trim().length > 0 ? { policyId: createPolicyId.trim() } : {}),
+      ...(createEvidenceSnapshotIds.length > 0
+        ? { evidenceSnapshotIds: createEvidenceSnapshotIds }
+        : {}),
       idempotencyKey: createIdempotencyKey('queue-create'),
     }
 
@@ -298,6 +325,7 @@ export function WorkQueuePage() {
       setCreateFindingId('')
       setCreateAgentId('')
       setCreatePolicyId('')
+      setCreateEvidenceSnapshotIds([])
       await loadQueue()
     } catch (caught: unknown) {
       setCreateError(caught instanceof Error ? caught.message : 'The case could not be created.')
@@ -308,6 +336,7 @@ export function WorkQueuePage() {
     createFindingId,
     createKind,
     createPolicyId,
+    createEvidenceSnapshotIds,
     createTitle,
     loadQueue,
     principal?.roles,
@@ -460,6 +489,15 @@ export function WorkQueuePage() {
               <Input
                 value={createPolicyId}
                 onChange={(_event, data) => setCreatePolicyId(data.value)}
+              />
+            </label>
+            <label>
+              <span>Evidence snapshot ID</span>
+              <Input
+                value={createEvidenceSnapshotIds[0] ?? ''}
+                onChange={(_event, data) =>
+                  setCreateEvidenceSnapshotIds(data.value.trim() ? [data.value.trim()] : [])
+                }
               />
             </label>
           </div>

@@ -33,3 +33,17 @@ test('governance work queue applies and audits a deterministic transition', asyn
   await expect(page.getByText(/None\s*→\s*Open/)).toBeVisible()
   await expect(page.getByText(/Open\s*→\s*In review/)).toBeVisible()
 })
+
+test('exposure finding deep link prefills a governance remediation case', async ({ page }) => {
+  await page.goto('/exposure')
+  const findingLink = page.locator('.exposure-table tbody tr').first().locator('a').first()
+  await findingLink.click()
+  await page.getByRole('button', { name: 'Create governance case' }).click()
+
+  await expect(page).toHaveURL(/\/work-queue$/)
+  await expect(page.getByRole('region', { name: 'Create governance case' })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Finding ID' })).not.toHaveValue('')
+  await expect(page.getByRole('textbox', { name: 'Agent ID' })).not.toHaveValue('')
+  await expect(page.getByRole('textbox', { name: 'Policy ID' })).not.toHaveValue('')
+  await expect(page.getByRole('textbox', { name: 'Evidence snapshot ID' })).not.toHaveValue('')
+})

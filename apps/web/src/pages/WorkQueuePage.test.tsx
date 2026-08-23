@@ -70,11 +70,12 @@ const demoStateValue: DemoStateValue = {
 function renderPage(
   authValue: AuthContextValue = disabledAuth,
   demoValue: DemoStateValue = demoStateValue,
+  initialEntry = '/work-queue',
 ) {
   render(
     <AuthContext.Provider value={authValue}>
       <DemoStateContext.Provider value={demoValue}>
-        <MemoryRouter>
+        <MemoryRouter initialEntries={[initialEntry]}>
           <WorkQueuePage />
         </MemoryRouter>
       </DemoStateContext.Provider>
@@ -139,6 +140,20 @@ describe('WorkQueuePage', () => {
     expect(
       screen.queryByText('[Mock] Review uncontrolled data egress finding'),
     ).not.toBeInTheDocument()
+  })
+
+  it('prefills a remediation case from an exposure deep link', async () => {
+    renderPage(
+      analystAuth,
+      demoStateValue,
+      '/work-queue?create=remediation-proposal&findingId=finding-1&agentId=agent-1&policyId=AS-POL-001&snapshotId=snapshot-1',
+    )
+
+    expect(await screen.findByRole('region', { name: 'Create governance case' })).toBeVisible()
+    expect(screen.getByRole('textbox', { name: 'Finding ID' })).toHaveValue('finding-1')
+    expect(screen.getByRole('textbox', { name: 'Agent ID' })).toHaveValue('agent-1')
+    expect(screen.getByRole('textbox', { name: 'Policy ID' })).toHaveValue('AS-POL-001')
+    expect(screen.getByRole('textbox', { name: 'Evidence snapshot ID' })).toHaveValue('snapshot-1')
   })
 
   it('shows an SLA warning for overdue cases', async () => {

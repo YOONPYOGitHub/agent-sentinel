@@ -4,6 +4,7 @@ import {
   ArrowLeftRegular,
   BotRegular,
   ShieldCheckmarkRegular,
+  TaskListLtrRegular,
 } from '@fluentui/react-icons'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -44,6 +45,8 @@ export function ExposureDetailPage() {
   const { selectedEvidence, setSelectedEvidence, drawerRef, trapFocus } = useEvidenceDrawer()
   const canGenerateAdvisory = usePermission('generateAdvisory')
   const advisoryPermMsg = usePermissionMessage('generateAdvisory')
+  const canProposeRemediation = usePermission('proposeRemediation')
+  const remediationPermissionMessage = usePermissionMessage('proposeRemediation')
 
   useEffect(() => {
     if (!findingId) return
@@ -182,6 +185,13 @@ export function ExposureDetailPage() {
 
   const displayedGraph = preview ? (showPreview ? preview.afterGraph : preview.beforeGraph) : graph
   const displayedPathStatus = showPreview ? 'mitigated' : finding.validationStatus
+  const queueParams = new URLSearchParams({
+    create: 'remediation-proposal',
+    findingId: finding.id,
+    agentId: finding.affectedAgentId,
+    policyId: finding.policyId,
+    snapshotId: finding.snapshotId,
+  })
 
   return (
     <>
@@ -204,6 +214,28 @@ export function ExposureDetailPage() {
         <Link to={`/agent-inventory/${finding.affectedAgentId}`} className="exposure-agent-link">
           <BotRegular aria-hidden="true" /> View agent in estate
         </Link>
+        {remediationPermissionMessage !== null ? (
+          <Tooltip content={remediationPermissionMessage} relationship="label">
+            <span>
+              <Button
+                appearance="secondary"
+                icon={<TaskListLtrRegular />}
+                disabled={!canProposeRemediation}
+                onClick={() => void navigate(`/work-queue?${queueParams.toString()}`)}
+              >
+                Create governance case
+              </Button>
+            </span>
+          </Tooltip>
+        ) : (
+          <Button
+            appearance="secondary"
+            icon={<TaskListLtrRegular />}
+            onClick={() => void navigate(`/work-queue?${queueParams.toString()}`)}
+          >
+            Create governance case
+          </Button>
+        )}
         {finding.affectedEdgeIds.length > 0 ? (
           <Button
             appearance="primary"

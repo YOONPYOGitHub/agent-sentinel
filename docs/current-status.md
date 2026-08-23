@@ -124,8 +124,8 @@ Measured on 2026-08-23 on `feature/live-exposure`. Application code may be modif
 | Suite                        | Command                                   | Result                                              |
 | ---------------------------- | ----------------------------------------- | --------------------------------------------------- |
 | API unit tests               | `pnpm --filter @agent-sentinel/api test`  | **105 passing**, 9 files                            |
-| Web unit and component tests | `pnpm --filter @agent-sentinel/web test`  | **172 passing**, 24 files                           |
-| End-to-end                   | `pnpm test:e2e`                           | **22 tests** across 10 Playwright specs             |
+| Web unit and component tests | `pnpm --filter @agent-sentinel/web test`  | **173 passing**, 24 files                           |
+| End-to-end                   | `pnpm test:e2e`                           | **23 tests** across 10 Playwright specs             |
 | Bicep                        | `az bicep build`                          | Builds, with baseline linter warnings               |
 | Web production build         | `pnpm --filter @agent-sentinel/web build` | Succeeds with a Rollup chunk-size warning (>500 kB) |
 
