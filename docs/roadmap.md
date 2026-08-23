@@ -78,11 +78,12 @@ Turn read-only governance posture into an operable workflow.
 
 ---
 
-## Phase 2 — Corporate identity activation · **Ready** · _Service Tree gate cleared_
+## Phase 2 — Corporate identity activation · **Blocked** · _IcM onboarding required_
 
 **Current condition:** the Agent Sentinel Service Tree record was created on
-2026-08-23 under the confirmed owning hierarchy. API and SPA registration can
-now proceed.
+2026-08-23 under the confirmed owning hierarchy, but it does not yet have a
+valid IcM node. Microsoft Entra rejects the service management reference until
+IcM onboarding and propagation complete.
 
 **Scope**
 
