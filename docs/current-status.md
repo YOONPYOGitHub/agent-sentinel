@@ -1,0 +1,147 @@
+# Current status
+
+**Status date: 2026-08-23** · Branch: `feature/live-exposure` · Head commit: `8179785`
+
+This is the authoritative dated ledger for the Agent Sentinel control plane. Every row states what is true today, not what is intended. Where a capability is absent, the ledger says so rather than describing it as pending success.
+
+This document contains no secrets, tokens, subscription or tenant identifiers, personal contact details, or local absolute user paths.
+
+---
+
+## Recent delivery on `feature/live-exposure`
+
+| Commit    | Change                                             | Effect                                                                                   |
+| --------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `8179785` | Microsoft Entra authentication and RBAC foundation | JWT validation, four roles, per-route capability guards, SPA MSAL wiring. Not activated. |
+| `ec43f2e` | Connector management catalog                       | Ten connectors with honest lifecycle states, capabilities, prerequisites, and readiness. |
+| `6c12596` | Evidence-backed agent scorecards                   | Six independent assurance dimensions; live exposure drives the security dimension.       |
+| `5ce3269` | Agent inventory and assurance catalog              | Organization-wide inventory plus the employee-facing assurance overlay.                  |
+
+---
+
+## Complete
+
+| Item                                          | Evidence boundary                                                                                                          |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Full application shell and navigation         | All eleven routes plus global search implemented and covered by unit, component, and end-to-end tests.                     |
+| Mock acceptance path across every surface     | Deterministic in-repository fixtures; no Azure access required to run or test the product.                                 |
+| Live Microsoft Foundry discovery              | **Live declared configuration only.** Agent and function-tool definitions. No runtime traces, tool authorization, or cost. |
+| Cosmos-backed exposure findings               | **Live.** Container `exposure-findings`, partition key `/tenantId`, upsert preserves `firstSeen`.                          |
+| Cosmos-backed governance posture              | **Live.** Derived from the same findings; posture tiles deep-link to the filtered findings that produced them.             |
+| Jobs ingestion loop                           | **Live.** Interval discovery plus optional `snapshot-ingestion` Service Bus trigger with idempotency.                      |
+| Terra live validation, 6 of 6                 | **Synthetic, operator-invoked.** `pnpm foundry:validate` exercises all six agents; never run by CI.                        |
+| Agent inventory and assurance catalog         | **Current.** Populated from live Foundry discovery; other platforms are absent, not empty-but-clean.                       |
+| Live evidence-backed scorecards               | **Current.** Security, governance, and lifecycle derive from evidence. Quality, reliability, and cost report `unknown`.    |
+| Connector management catalog                  | **Current.** One connector is connectable; one is `authorization-required`; eight are `planned`.                           |
+| Entra authentication and RBAC code foundation | **Current code, not activated.** `AUTH_MODE=disabled` is deployed.                                                         |
+| Azure deployment, revision 11 on `8179785`    | **Live.** Container Apps `web`, `api`, `jobs` on a private ACA environment, with authentication disabled.                  |
+| Corporate Service Tree registration           | **Complete.** Registered under the confirmed `MCAPS > GES Asia > Korea` hierarchy with two administrators.                 |
+
+---
+
+## In progress
+
+| Item                                         | Where it stands                                                                                              |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Governance work queue and lifecycle workflow | Posture is live and read-only. The approval queue, exception handling, and state transitions are not merged. |
+| Unified inventory for future connectors      | Inventory renders any connector's records, but only the Foundry connector currently supplies live data.      |
+| Employee catalog entitlement personalization | The assurance overlay renders. Per-employee entitlement filtering needs an authenticated principal.          |
+| Repository documentation                     | This rebuild. Superseded and contradictory statements are being corrected in place.                          |
+
+---
+
+## Blocked
+
+| Item                                                                         | Blocking condition                                                                                             | Unblocks when                                                                 |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Corporate Microsoft Entra activation                                         | The Service Tree gate is cleared; separate API and SPA app registrations are not created yet.                  | Create both app registrations and configure scopes, roles, and redirect URIs. |
+| Real employee login                                                          | Depends on the corporate app registrations above.                                                              | Entra activation completes.                                                   |
+| Terra authenticated `POST`                                                   | The `BlockApiMutationPreAuth` WAF rule blocks every non-`GET`/`HEAD`/`OPTIONS` request under `/api/` pre-auth. | Authenticated write scopes are validated, then the rule is narrowed.          |
+| WAF rule narrowing                                                           | Must not be relaxed while `AUTH_MODE=disabled`, or anonymous mutation becomes possible.                        | JWT write-scope tests and an authorized remediation smoke test pass.          |
+| Employee entitlement personalization                                         | Requires an authenticated principal and Entra entitlement evidence.                                            | Entra activation plus the `entra-agent-id` connector.                         |
+| The Service Tree record was created on 2026-08-23. Generated identifiers,    |
+| requester identity, contact details, and correspondence are deliberately not |
+| stored in this repository. See                                               |
+| [internal-onboarding.md](internal-onboarding.md).                            |
+
+---
+
+## Pending
+
+| Item                                  | Not started because                                                                                    |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Behavior baseline and drift detection | Requires a runtime telemetry connector. `azure-monitor-otel` is catalogued as `planned`.               |
+| Token economics                       | Same dependency. The cost scorecard dimension reports `unknown`; no cost figure is estimated anywhere. |
+| Universal adapters                    | The custom manifest schema and authenticated ingestion API are not implemented.                        |
+| Business-value evidence               | Requires runtime telemetry plus outcome sources.                                                       |
+| Shift-left scanner                    | Deliberately sequenced after the governance lifecycle workflow so it reuses one policy definition.     |
+
+---
+
+## Exact evidence boundaries
+
+These boundaries are what keep the product honest. They are enforced in code, not only in documentation.
+
+| Boundary                                                                                              | Enforcement                                                                             |
+| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Foundry evidence is **declared configuration**, never observed runtime behavior.                      | Connector label plus explicit blind-spot reporting on `GET /api/connectors`.            |
+| The connector never infers tools, relationships, owners, or health that Foundry did not return.       | Schema validation; a malformed response fails rather than degrading to a guess.         |
+| A degraded connector reports degraded health; it is never replaced with mock success.                 | Connector health path in `apps/api`.                                                    |
+| Quality, reliability, and cost report `unknown` because no telemetry connector is connected.          | Scorecard dimension explanations in `apps/web/src/scorecard.ts`.                        |
+| Missing evidence lowers confidence and never implies safety.                                          | Product invariant, see [CONTEXT.md](CONTEXT.md).                                        |
+| The advisory model explains evidence; it never establishes security truth or authorizes an action.    | Grounding check plus schema validation; ungrounded output is rejected.                  |
+| Live mode is read-only for demo routes.                                                               | Non-`GET` requests to `/api/demo/*` return `403 read_only_mode` in live mode.           |
+| Remediation execution requires the `executeRemediation` capability, which only `Administrator` holds. | Per-route capability guards in `apps/api/src/auth.ts`.                                  |
+| The estate is synthetic. No production customer agents exist in the environment.                      | Six-agent manifest owned by `@agent-sentinel/scenarios`; deployment tagged `synthetic`. |
+
+---
+
+## Current Azure state
+
+| Component                 | State on 2026-08-23                                                                                                                      |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Container Apps            | `web` (external within the internal ACA environment), `api` (environment-internal only), `jobs` (no ingress). Revision 11 on `8179785`.  |
+| ACA environment           | Internal, VNet-integrated, private.                                                                                                      |
+| Data services             | Cosmos DB, PostgreSQL Flexible Server, Azure AI Search, Service Bus — all behind private endpoints or a delegated subnet.                |
+| Platform services         | Key Vault, Azure Container Registry (public network access disabled), Application Insights.                                              |
+| Public edge — App Gateway | **Active.** WAF v2 in Prevention mode, HTTP on port 80 only, no custom domain or TLS. Management-automated and may stop.                 |
+| Public edge — Front Door  | **Active.** The Front Door endpoint currently routes both web and API over HTTPS and is the candidate SPA redirect target.               |
+| Data mode                 | `live` — the API and jobs use the Foundry connector against Cosmos.                                                                      |
+| Auth mode                 | `disabled`.                                                                                                                              |
+| Write posture             | `writeEnabled=false`, and the WAF blocks pre-auth mutations under `/api/`.                                                               |
+| Advisory model            | `gpt-5.6-terra`, `GlobalStandard`, `NoAutoUpgrade`. Advisory output on the public edge is **mock** until Entra and WAF activation.       |
+| Build path                | Private self-hosted GitHub Actions runner inside the VNet. May be deallocated and must be started before a build.                        |
+| Deploy path               | The runner's managed identity holds `AcrPush` only. Automated platform deploy and what-if lack permission; ACA image updates are manual. |
+
+Endpoint host names, resource names, and operational commands are in [deployment.md](deployment.md) and [runbooks.md](runbooks.md). No subscription, tenant, or credential values are recorded in documentation.
+
+---
+
+## Validation baseline
+
+Measured on 2026-08-23 on `feature/live-exposure`. Application code may be modified concurrently by other work; re-run before relying on these numbers.
+
+| Suite                        | Command                                   | Result                                              |
+| ---------------------------- | ----------------------------------------- | --------------------------------------------------- |
+| API unit tests               | `pnpm --filter @agent-sentinel/api test`  | **93 passing**, 8 files                             |
+| Web unit and component tests | `pnpm --filter @agent-sentinel/web test`  | **165 passing**, 23 files                           |
+| End-to-end                   | `pnpm test:e2e`                           | **20 tests** across 9 Playwright specs              |
+| Bicep                        | `az bicep build`                          | Builds, with baseline linter warnings               |
+| Web production build         | `pnpm --filter @agent-sentinel/web build` | Succeeds with a Rollup chunk-size warning (>500 kB) |
+
+The recorded pre-concurrency baseline for the web suite was 164 tests; the count above reflects a test added by concurrent application work. Treat the API count of 93 and the end-to-end count of 20 as stable.
+
+---
+
+## Next unblock conditions
+
+In dependency order. Each condition gates everything below it in its own track.
+
+1. **Entra app registrations created** (API app with read and write scopes, SPA app with redirect URIs) → `AUTH_MODE=jwt` can be configured.
+2. **`AUTH_MODE=jwt` deployed with real employee login validated** → per-employee entitlement personalization and owner-scoped views become meaningful.
+3. **JWT write-scope tests plus an authorized remediation smoke test pass** → the `BlockApiMutationPreAuth` WAF rule can be narrowed, unblocking Terra authenticated `POST` and remediation execution.
+4. **Custom domain and TLS on the public edge** → the HTTP-only Application Gateway listener stops being the constraint and the SPA redirect URI can be finalized.
+5. **A runtime telemetry connector lands** → quality, reliability, and cost stop reporting `unknown`; behavior baselines, drift detection, and token economics become buildable.
+
+Tracks 1–4 are identity- or edge-dependent. Track 5 is independent and can
+proceed in parallel. See [roadmap.md](roadmap.md).
