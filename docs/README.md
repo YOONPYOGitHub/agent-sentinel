@@ -16,13 +16,13 @@ Start with the [root README](../README.md) for the value proposition, quick star
 
 ## Engineering
 
-| Document                                       | Read this when you need to…                                                                             |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| [Architecture](architecture.md)                | Understand the runtime topology, network boundaries, public edges, and package layout.                  |
-| [Data model](data-model.md)                    | Look up domain types, Cosmos containers, PostgreSQL tables, search indexes, and Service Bus entities.   |
-| [Development](development.md)                  | Set up the canonical WSL workflow, run the test pyramid, and follow branch and commit practice.         |
-| [Foundry live agents](foundry-live-agents.md)  | Provision, validate, or clean up the six synthetic Microsoft Foundry validation agents.                 |
-| [Corporate onboarding](internal-onboarding.md) | Repeat Service Tree, Feature Alias, and corporate Entra onboarding without storing private identifiers. |
+| Document                                       | Read this when you need to…                                                                                                           |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| [Architecture](architecture.md)                | Understand the runtime topology, network boundaries, public edges, the custom manifest adapter, and package layout.                   |
+| [Data model](data-model.md)                    | Look up domain types, the manifest envelope contract, Cosmos containers, PostgreSQL tables, search indexes, and Service Bus entities. |
+| [Development](development.md)                  | Set up the canonical WSL workflow, run the test pyramid, follow branch and commit practice, and develop the custom manifest adapter.  |
+| [Foundry live agents](foundry-live-agents.md)  | Provision, validate, or clean up the six synthetic Microsoft Foundry validation agents.                                               |
+| [Corporate onboarding](internal-onboarding.md) | Repeat Service Tree, Feature Alias, and corporate Entra onboarding without storing private identifiers.                               |
 
 ## Operations
 

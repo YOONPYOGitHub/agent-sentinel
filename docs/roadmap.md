@@ -28,16 +28,16 @@ flowchart TD
     TEL --> VALUE["Business-value evidence"]
 
     GOV["Governance work queue<br/>(independent)"] --> SHIFT["Shift-left scanner"]
-    ADAPT["Universal adapter contract<br/>(independent)"]
+    ADAPT["Universal adapter contract<br/>(independent, manifest adapter shipped)"]
 ```
 
-| Track                            | Gate                                 | Can start today? |
-| -------------------------------- | ------------------------------------ | ---------------- |
-| Identity, write, and remediation | API and SPA app registration         | **Yes**          |
-| Runtime telemetry and economics  | None — connector implementation work | **Yes**          |
-| Governance workflow              | None                                 | **Yes**          |
-| Universal adapters               | None                                 | **Yes**          |
-| Public edge hardening            | Domain ownership, not Service Tree   | **Yes**          |
+| Track                            | Gate                                                   | Can start today? |
+| -------------------------------- | ------------------------------------------------------ | ---------------- |
+| Identity, write, and remediation | API and SPA app registration                           | **Yes**          |
+| Runtime telemetry and economics  | None — connector implementation work                   | **Yes**          |
+| Governance workflow              | None                                                   | **Yes**          |
+| Universal adapters               | None — manifest adapter shipped; ingestion API remains | **Yes**          |
+| Public edge hardening            | Domain ownership, not Service Tree                     | **Yes**          |
 
 ---
 
@@ -175,16 +175,23 @@ The highest-leverage independent work. Three currently `unknown` scorecard dimen
 
 ---
 
-## Phase 7 — Universal adapters · _independent_
+## Phase 7 — Universal adapters · **Partially delivered** · _independent_
 
-**Scope:** a documented manifest schema and an authenticated ingestion API so any agent runtime — including third-party and in-house — can supply evidence. Catalogued today as `custom-manifest-adapter` with `sourceOfTruth: false`.
+**Scope:** a documented manifest schema and an authenticated ingestion API so any agent runtime — including third-party and in-house — can supply evidence. Catalogued as `custom-manifest-adapter` with `sourceOfTruth: false`, now `available-to-configure`.
 
-**Definition of done**
+**Delivered**
 
-- Published, versioned manifest schema with validation.
-- Authenticated ingestion endpoint with tenant isolation and idempotency.
-- Adapter-sourced evidence is visibly distinguished from first-party connector evidence, with lower default confidence.
-- A reference adapter and its conformance tests ship with the schema.
+- Published, versioned manifest schema with strict validation. `MANIFEST_SCHEMA_VERSION` and `SUPPORTED_MANIFEST_VERSIONS` live in `@agent-sentinel/connector-sdk`; unsupported versions are rejected, never coerced. A hand-maintained JSON Schema ships alongside and is parity-tested.
+- Reference adapter and conformance tests: `@agent-sentinel/manifest-connector` with a normalization, isolation, referential-integrity, confidence, and path-safety suite, plus a worked example manifest.
+- Adapter-sourced evidence is visibly distinguished from first-party connector evidence: `sourceOfTruth: false`, `isNonAuthoritative: true`, default confidence 0.4, capped at 0.7 unless the manifest declares deep runtime telemetry.
+- Tenant and environment isolation plus deterministic SHA-256 manifest hashing for ingestion idempotency.
+- Offline validation CLI: `pnpm manifest:validate`.
+
+**Remaining**
+
+- Authenticated ingestion endpoint with tenant isolation and idempotency. Manifests are currently operator-supplied inline or from an absolute local path; there is no ingestion API, and an unauthenticated one will not be added.
+- Correlation of adapter claims against first-party connectors so overlapping evidence is reconciled rather than duplicated.
+- Independent verification of `runtime_observed` manifest claims, which depends on Phase 4.
 
 ---
 

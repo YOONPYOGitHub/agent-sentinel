@@ -12,6 +12,7 @@ storybook-static
 *.log
 *.tsbuildinfo
 scripts/live-validation-report.json
+connectors/manifest/tests/.fixtures
 infra/main.json
 infra/platform.json
 

@@ -121,13 +121,13 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     id: 'custom-manifest-adapter',
     name: 'Custom Manifest / API Adapter',
     description:
-      'Planned adapter contract for custom-built agents that are not covered by first-party connectors.',
-    lifecycleState: 'planned',
+      'Ingests an operator-supplied, read-only agent manifest for custom-built agents that no first-party connector covers. Claims are non-authoritative declared configuration and never override first-party evidence.',
+    lifecycleState: 'available-to-configure',
     capabilities: ['discovery'],
     sourceOfTruth: false,
     ownershipModel: 'consumes',
     prerequisiteNote:
-      'The manifest schema and authenticated ingestion API are not implemented yet.',
+      'Local/operator-supplied read-only manifest, non-authoritative evidence, no live API ingestion. Manifests are loaded from an absolute local path or supplied inline; remote URLs are rejected and the adapter performs no actions.',
     unlocksScorecard: ['security', 'governance', 'lifecycle'],
   },
 ]

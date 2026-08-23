@@ -61,3 +61,38 @@ FOUNDRY_PROJECT_ENDPOINT=https://ais-agent-sentinel-260814.services.ai.azure.com
 ```
 
 Live validation writes the sanitized, Git-ignored `scripts/live-validation-report.json`.
+
+## Custom manifest adapter
+
+The `@agent-sentinel/manifest-connector` workspace ingests an operator-supplied
+manifest describing agents that no first-party connector covers. It is a
+**non-authoritative** source and exists to make coverage gaps explicit rather
+than invisible.
+
+Vocabulary:
+
+- **Manifest envelope:** the versioned, strictly validated document an operator
+  supplies. Defined once in `@agent-sentinel/connector-sdk`.
+- **Adapter claim:** an evidence record originating from a manifest. Always
+  `sourceOfTruth: false` and `isNonAuthoritative: true`.
+- **Declared configuration vs runtime observed:** manifest evidence is treated as
+  declared configuration unless the manifest declares `runtime_observed` evidence
+  _and_ the adapter declares `supportsRuntimeTelemetry` with `evidenceDepth: 'deep'`.
+  Otherwise the claim is downgraded to declared configuration.
+
+Invariants specific to the adapter, on top of the shared invariants above:
+
+- A manifest never outranks a first-party connector. Confidence is capped at 0.7
+  (default 0.4) for declared claims.
+- The adapter performs no network I/O. Remote URLs and relative paths are
+  rejected before any read; only absolute local paths are accepted.
+- The adapter cannot act. There is no `execute()` and an `execute` action depth is
+  rejected at load time.
+- Tenant and environment must match the connector configuration, enforced below
+  the UI.
+- Ingestion is operator-initiated. There is no unauthenticated ingestion endpoint;
+  an authenticated ingestion API remains future work.
+
+```bash
+pnpm manifest:validate -- /absolute/path/to/manifest.json
+```

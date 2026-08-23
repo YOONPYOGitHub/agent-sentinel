@@ -1,0 +1,150 @@
+{
+  "schemaVersion": "1.0",
+  "manifestId": "contoso-inhouse-agents-2026-08",
+  "tenantId": "contoso-ai-lab",
+  "environmentId": "production",
+  "producedAt": "2026-08-20T09:00:00.000Z",
+  "producer": {
+    "name": "Contoso In-House Agent Registry",
+    "version": "2.4.0",
+    "contact": "agent-platform@contoso.example"
+  },
+  "capabilities": {
+    "supportsDiscovery": true,
+    "evidenceDepth": "deep",
+    "supportsRuntimeTelemetry": true,
+    "supportsActions": "propose"
+  },
+  "agents": [
+    {
+      "id": "invoice-triage-agent",
+      "displayName": "Invoice Triage Agent",
+      "description": "Classifies inbound supplier invoices and routes exceptions to finance operations.",
+      "environment": "production",
+      "owner": "Finance Automation",
+      "platform": "Contoso Agent Runtime",
+      "version": "9",
+      "model": "in-house-llm-medium",
+      "trust": "conditional",
+      "observedAt": "2026-08-20T08:55:00.000Z"
+    },
+    {
+      "id": "warehouse-forecast-agent",
+      "displayName": "Warehouse Forecast Agent",
+      "description": "Produces weekly replenishment forecasts from warehouse telemetry.",
+      "environment": "production",
+      "owner": "Supply Chain Engineering",
+      "platform": "Contoso Agent Runtime",
+      "version": "3",
+      "model": "in-house-llm-small",
+      "trust": "trusted"
+    }
+  ],
+  "tools": [
+    {
+      "id": "invoice-ledger-read",
+      "displayName": "invoice_ledger_read",
+      "description": "Read-only lookup against the supplier invoice ledger.",
+      "environment": "production",
+      "toolType": "function",
+      "trust": "conditional"
+    },
+    {
+      "id": "supplier-notify",
+      "displayName": "supplier_notify",
+      "description": "Sends a templated notification to an external supplier contact.",
+      "environment": "production",
+      "toolType": "action",
+      "trust": "untrusted"
+    }
+  ],
+  "identities": [
+    {
+      "id": "invoice-triage-principal",
+      "displayName": "svc-invoice-triage-prod",
+      "description": "Workload identity used by the Invoice Triage Agent.",
+      "environment": "production",
+      "owner": "Finance Automation",
+      "principalType": "workload",
+      "permissions": ["Ledger.Invoice.Read", "Notification.Supplier.Send"],
+      "trust": "conditional"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "supplier-invoice-ledger",
+      "displayName": "Supplier Invoice Ledger",
+      "description": "Structured supplier invoice records including payment terms.",
+      "environment": "production",
+      "owner": "Finance Operations",
+      "sensitivity": "confidential",
+      "classification": "Financial records",
+      "trust": "trusted"
+    }
+  ],
+  "mcpDependencies": [
+    {
+      "id": "supplier-directory-mcp",
+      "displayName": "Supplier Directory MCP",
+      "description": "Internal MCP server exposing supplier contact records.",
+      "environment": "production",
+      "endpointRef": "supplier-directory.internal",
+      "approved": true,
+      "trust": "conditional"
+    }
+  ],
+  "edges": [
+    {
+      "from": { "kind": "agent", "id": "invoice-triage-agent" },
+      "to": { "kind": "identity", "id": "invoice-triage-principal" },
+      "relationship": "RUNS_AS",
+      "observedAt": "2026-08-20T08:55:00.000Z"
+    },
+    {
+      "from": { "kind": "identity", "id": "invoice-triage-principal" },
+      "to": { "kind": "dataSources", "id": "supplier-invoice-ledger" },
+      "relationship": "CAN_READ"
+    },
+    {
+      "from": { "kind": "agent", "id": "invoice-triage-agent" },
+      "to": { "kind": "tool", "id": "supplier-notify" },
+      "relationship": "CAN_CALL"
+    },
+    {
+      "from": { "kind": "agent", "id": "warehouse-forecast-agent" },
+      "to": { "kind": "mcp", "id": "supplier-directory-mcp" },
+      "relationship": "CAN_CALL"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "invoice-triage-config",
+      "subjectId": "invoice-triage-agent",
+      "evidenceType": "declared_configuration",
+      "confidence": 0.6,
+      "observedAt": "2026-08-20T08:55:00.000Z",
+      "claims": {
+        "registryRecord": "agents/invoice-triage/9",
+        "approvalState": "approved",
+        "reviewedBy": "Finance Automation review board"
+      }
+    },
+    {
+      "id": "supplier-notify-invocation",
+      "subjectId": "supplier-notify",
+      "evidenceType": "runtime_observed",
+      "confidence": 0.85,
+      "observedAt": "2026-08-20T08:58:30.000Z",
+      "claims": {
+        "invocationsLast24h": "412",
+        "externalDestinations": "3",
+        "traceSample": "trace/inhouse-9f31c2"
+      }
+    }
+  ],
+  "metadata": {
+    "costCenter": "FIN-3120",
+    "reviewCadence": "quarterly",
+    "syntheticExample": "true"
+  }
+}

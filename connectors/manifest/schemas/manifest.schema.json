@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-sentinel.microsoft.example/schemas/manifest/1.0/manifest.schema.json",
+  "title": "Agent Sentinel custom manifest envelope",
+  "description": "Operator-supplied, non-authoritative description of an agent estate. Hand-maintained; parity with the Zod contract in @agent-sentinel/connector-sdk is asserted by tests.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "manifestId",
+    "tenantId",
+    "producedAt",
+    "producer",
+    "capabilities",
+    "agents",
+    "tools",
+    "identities",
+    "dataSources",
+    "edges",
+    "evidence"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "enum": ["1.0"]
+    },
+    "manifestId": { "$ref": "#/$defs/localId" },
+    "tenantId": { "$ref": "#/$defs/localId" },
+    "environmentId": { "$ref": "#/$defs/localId" },
+    "producedAt": { "$ref": "#/$defs/timestamp" },
+    "producer": { "$ref": "#/$defs/producer" },
+    "capabilities": { "$ref": "#/$defs/capabilities" },
+    "agents": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/agentDeclaration" }
+    },
+    "tools": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/toolDeclaration" }
+    },
+    "identities": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/identityDeclaration" }
+    },
+    "dataSources": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/dataSourceDeclaration" }
+    },
+    "mcpDependencies": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/mcpDependencyDeclaration" }
+    },
+    "edges": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": { "$ref": "#/$defs/edgeDeclaration" }
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": { "$ref": "#/$defs/evidenceDeclaration" }
+    },
+    "metadata": { "$ref": "#/$defs/metadata" }
+  },
+  "$defs": {
+    "localId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "minLength": 1
+    },
+    "opaqueRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^(?!//)(?!.*://).*$",
+      "description": "Opaque reference. URL schemes and protocol-relative prefixes are rejected; nothing is ever dereferenced."
+    },
+    "trust": {
+      "type": "string",
+      "enum": ["trusted", "conditional", "untrusted"]
+    },
+    "sensitivity": {
+      "type": "string",
+      "enum": ["public", "internal", "confidential", "highly-confidential"]
+    },
+    "actionDepth": {
+      "type": "string",
+      "enum": ["none", "simulate", "propose", "execute"],
+      "description": "The manifest connector always rejects \"execute\"."
+    },
+    "entityKind": {
+      "type": "string",
+      "enum": ["agent", "tool", "identity", "dataSources", "mcp"]
+    },
+    "relationship": {
+      "type": "string",
+      "enum": ["TRIGGERS", "RUNS_AS", "CAN_READ", "CAN_CALL", "CAN_EXFILTRATE_TO", "PROTECTED_BY"]
+    },
+    "evidenceType": {
+      "type": "string",
+      "enum": ["declared_configuration", "runtime_observed"]
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "#/$defs/displayName" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "contact": { "$ref": "#/$defs/opaqueRef" }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supportsDiscovery", "evidenceDepth", "supportsRuntimeTelemetry"],
+      "properties": {
+        "supportsDiscovery": { "type": "boolean" },
+        "evidenceDepth": { "type": "string", "enum": ["shallow", "deep"] },
+        "supportsRuntimeTelemetry": { "type": "boolean" },
+        "supportsActions": { "$ref": "#/$defs/actionDepth", "default": "none" }
+      }
+    },
+    "declarationBase": {
+      "type": "object",
+      "required": ["id", "displayName"],
+      "properties": {
+        "id": { "$ref": "#/$defs/localId" },
+        "displayName": { "$ref": "#/$defs/displayName" },
+        "description": { "$ref": "#/$defs/text" },
+        "environment": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "owner": { "$ref": "#/$defs/displayName" },
+        "trust": { "$ref": "#/$defs/trust" },
+        "observedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "agentDeclaration": {
+      "$ref": "#/$defs/declarationBase",
+      "unevaluatedProperties": false,
+      "properties": {
+        "platform": { "$ref": "#/$defs/displayName" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "model": { "$ref": "#/$defs/displayName" }
+      }
+    },
+    "toolDeclaration": {
+      "$ref": "#/$defs/declarationBase",
+      "unevaluatedProperties": false,
+      "properties": {
+        "toolType": {
+          "type": "string",
+          "enum": ["function", "retrieval", "action", "unknown"]
+        }
+      }
+    },
+    "identityDeclaration": {
+      "$ref": "#/$defs/declarationBase",
+      "unevaluatedProperties": false,
+      "properties": {
+        "principalType": {
+          "type": "string",
+          "enum": ["service-principal", "managed-identity", "user", "workload", "unknown"]
+        },
+        "permissions": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/displayName" }
+        }
+      }
+    },
+    "dataSourceDeclaration": {
+      "$ref": "#/$defs/declarationBase",
+      "unevaluatedProperties": false,
+      "properties": {
+        "sensitivity": { "$ref": "#/$defs/sensitivity" },
+        "classification": { "$ref": "#/$defs/displayName" }
+      }
+    },
+    "mcpDependencyDeclaration": {
+      "$ref": "#/$defs/declarationBase",
+      "unevaluatedProperties": false,
+      "properties": {
+        "endpointRef": { "$ref": "#/$defs/opaqueRef" },
+        "approved": { "type": "boolean" }
+      }
+    },
+    "edgeEndpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/entityKind" },
+        "id": { "$ref": "#/$defs/localId" }
+      }
+    },
+    "edgeDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "relationship"],
+      "properties": {
+        "from": { "$ref": "#/$defs/edgeEndpoint" },
+        "to": { "$ref": "#/$defs/edgeEndpoint" },
+        "relationship": { "$ref": "#/$defs/relationship" },
+        "observedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "evidenceDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "subjectId", "evidenceType", "observedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/localId" },
+        "subjectId": { "$ref": "#/$defs/localId" },
+        "evidenceType": { "$ref": "#/$defs/evidenceType" },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.4,
+          "description": "Declared-configuration evidence may not exceed 0.7."
+        },
+        "observedAt": { "$ref": "#/$defs/timestamp" },
+        "claims": { "$ref": "#/$defs/claims" }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "maxProperties": 20,
+      "propertyNames": { "minLength": 1, "maxLength": 128 },
+      "additionalProperties": { "type": "string", "maxLength": 256 }
+    },
+    "claims": {
+      "type": "object",
+      "maxProperties": 50,
+      "propertyNames": { "minLength": 1, "maxLength": 128 },
+      "additionalProperties": { "type": "string", "maxLength": 512 }
+    },
+    "sourceProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "producer",
+        "sourceObjectIds",
+        "observedAt",
+        "confidence",
+        "freshness",
+        "isNonAuthoritative",
+        "sourceOfTruth"
+      ],
+      "properties": {
+        "producer": { "$ref": "#/$defs/producer" },
+        "sourceObjectIds": {
+          "type": "array",
+          "maxItems": 200,
+          "items": { "$ref": "#/$defs/localId" }
+        },
+        "observedAt": { "$ref": "#/$defs/timestamp" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "freshness": {
+          "type": "string",
+          "pattern": "^P(?!$)(\\d+Y)?(\\d+M)?(\\d+W)?(\\d+D)?(T(?=\\d)(\\d+H)?(\\d+M)?(\\d+(?:\\.\\d+)?S)?)?$"
+        },
+        "isNonAuthoritative": { "const": true },
+        "sourceOfTruth": { "const": false }
+      }
+    }
+  }
+}

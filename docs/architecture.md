@@ -119,8 +119,30 @@ The API container is never directly addressable from the public internet or from
 - **@agent-sentinel/messaging** ? Service Bus event contracts, idempotency primitives
 - **@agent-sentinel/graph-engine** ? Attack path computation
 - **@agent-sentinel/policy-engine** ? Policy evaluation
-- **@agent-sentinel/connector-sdk** ? Connector base abstractions
+- **@agent-sentinel/connector-sdk** ? Connector base abstractions and the versioned manifest envelope contract
 - **@agent-sentinel/scenarios** ? Scenario fixtures
+- **@agent-sentinel/manifest-connector** ? Offline, read-only custom manifest adapter
+- **@agent-sentinel/tools** ? Offline developer CLIs (manifest validation)
+
+## Custom Manifest Adapter
+
+The custom manifest adapter ingests agent inventory that no first-party connector covers. It is deliberately the weakest-privilege connector in the system:
+
+```
+operator manifest (inline object or absolute local file)
+  -> file-loader        path safety, size cap, regular-file check; no network, no URLs
+  -> validator          schema version, strict Zod, action depth, tenant, environment
+  -> normalizer         EstateSnapshot + SourceProvenance (sourceOfTruth: false)
+  -> existing graph/policy pipeline
+```
+
+Boundaries that hold by construction:
+
+- **No ingress.** There is no ingestion endpoint. The adapter reads a caller-supplied object or a local file the operator already controls; there is no unauthenticated ingestion path.
+- **No egress.** Any path containing `://` or a leading `//` is rejected before I/O, so the adapter cannot be steered into an SSRF fetch.
+- **No action.** `ManifestConnector` implements discovery and evidence only. It has no `execute()`, and a manifest declaring `supportsActions: 'execute'` is rejected.
+- **No authority.** Provenance is pinned to `sourceOfTruth: false` and `isNonAuthoritative: true`. Declared claims are capped at confidence 0.7 (default 0.4) and only rise when the manifest declares deep runtime telemetry.
+- **Tenant-scoped.** The envelope's `tenantId`, and `environmentId` when configured, must match the connector configuration or the load fails closed.
 
 ## Security
 

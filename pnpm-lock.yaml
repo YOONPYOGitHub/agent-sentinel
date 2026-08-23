@@ -250,6 +250,18 @@ importers:
         specifier: ^1.10.1
         version: 1.11.0
 
+  connectors/manifest:
+    dependencies:
+      '@agent-sentinel/connector-sdk':
+        specifier: workspace:*
+        version: link:../../packages/connector-sdk
+      '@agent-sentinel/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
+
   connectors/mock:
     dependencies:
       '@agent-sentinel/connector-sdk':
@@ -267,6 +279,9 @@ importers:
       '@agent-sentinel/domain':
         specifier: workspace:*
         version: link:../domain
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
 
   packages/domain:
     dependencies:
@@ -365,6 +380,28 @@ importers:
       zod:
         specifier: ^4.1.5
         version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: ^22.18.1
+        version: 22.20.1
+      tsx:
+        specifier: ^4.20.5
+        version: 4.23.12
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@22.20.1)(jsdom@26.1.0)(lightningcss@1.33.0)(tsx@4.23.12)(yaml@2.9.0)
+
+  tools:
+    dependencies:
+      '@agent-sentinel/connector-sdk':
+        specifier: workspace:*
+        version: link:../packages/connector-sdk
+      '@agent-sentinel/manifest-connector':
+        specifier: workspace:*
+        version: link:../connectors/manifest
     devDependencies:
       '@types/node':
         specifier: ^22.18.1

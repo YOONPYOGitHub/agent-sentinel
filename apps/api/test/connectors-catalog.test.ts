@@ -101,6 +101,16 @@ describe('buildConnectorsCollection', () => {
     expect(entra?.capabilities).toContain('entitlement')
   })
 
+  it('custom manifest adapter is configurable but never a source of truth', () => {
+    const result = buildConnectorsCollection('mock', { connectorId: 'mock-agent-estate' })
+    const manifest = result.catalog.find((e) => e.id === 'custom-manifest-adapter')
+    expect(manifest?.lifecycleState).toBe('available-to-configure')
+    expect(manifest?.sourceOfTruth).toBe(false)
+    expect(manifest?.capabilities).toContain('discovery')
+    expect(manifest?.prerequisiteNote).toContain('non-authoritative evidence')
+    expect(manifest?.settingsPath).toBeUndefined()
+  })
+
   it('Agent 365 has sourceOfTruth and requires authorization', () => {
     const result = buildConnectorsCollection('mock', { connectorId: 'mock-agent-estate' })
     const agent365 = result.catalog.find((e) => e.id === 'm365-agent-registry')

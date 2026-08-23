@@ -1,0 +1,22 @@
+{
+  "name": "@agent-sentinel/tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate-manifest": "tsx validate-manifest.ts",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@agent-sentinel/connector-sdk": "workspace:*",
+    "@agent-sentinel/manifest-connector": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

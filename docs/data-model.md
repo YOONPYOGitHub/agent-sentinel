@@ -118,3 +118,58 @@ The allowed transition operations are deterministic and enforced server-side:
 - `closed` → none
 
 Live mode currently has no dedicated Cosmos container for this queue, so live reads are soft-boundary synthetic responses and live writes remain unavailable.
+
+## Manifest Envelope (packages/connector-sdk)
+
+**Current.** The versioned contract an operator-supplied manifest must satisfy before the custom manifest adapter will normalize it. Defined in `packages/connector-sdk/src/manifest.ts` and mirrored as Draft 2020-12 JSON Schema in `connectors/manifest/schemas/manifest.schema.json`.
+
+### ManifestEnvelope
+
+- `schemaVersion` – must appear in `SUPPORTED_MANIFEST_VERSIONS` (currently `1.0`); unsupported versions are rejected, never coerced
+- `manifestId`, `tenantId`, optional `environmentId`
+- `producedAt`: ISO 8601 datetime
+- `producer`: `{ name, version?, contact? }`
+- `capabilities`: AdapterCapabilityDeclaration
+- `agents`, `tools`, `identities`, `dataSources`, optional `mcpDependencies` – entity declarations with manifest-local ids
+- `edges`: EdgeDeclaration[] – `{ from, to, relationship }` where each endpoint is `{ kind, id }`
+- `evidence`: EvidenceDeclaration[]
+- optional `metadata`: bounded `Record<string, string>`
+
+All object schemas are `.strict()`; unknown keys fail validation.
+
+### AdapterCapabilityDeclaration
+
+- `supportsDiscovery`: boolean
+- `evidenceDepth`: `shallow` | `deep`
+- `supportsRuntimeTelemetry`: boolean
+- `supportsActions`: ActionDepth (`none` | `simulate` | `propose` | `execute`)
+
+`execute` is a prohibited action depth. It parses, so an unsafe manifest is described accurately, but the connector rejects it at load time.
+
+### EvidenceDeclaration
+
+- `id`, `subjectId` (must reference a declared entity), `observedAt`
+- `evidenceType`: `declared_configuration` | `runtime_observed`
+- `confidence`: 0–1, default `0.4`, capped at `0.7` unless the evidence is `runtime_observed` **and** `supportsRuntimeTelemetry` is true **and** `evidenceDepth` is `deep`
+- `claims`: bounded `Record<string, string>`
+
+### SourceProvenance
+
+Attached to every normalized snapshot: `producer`, `sourceObjectIds`, `observedAt`, `confidence`, `freshness` (ISO 8601 duration), `isNonAuthoritative: true`, `sourceOfTruth: false`. The last two are constants — manifest input can never assert authority.
+
+### Bounds
+
+| Bound                   | Limit |
+| ----------------------- | ----- |
+| Metadata keys           | 20    |
+| Metadata value length   | 256   |
+| Claim keys per evidence | 50    |
+| Claim value length      | 512   |
+| Entities per type       | 500   |
+| Edges                   | 2000  |
+| Evidence records        | 2000  |
+| Manifest file size      | 5 MiB |
+
+### Identity and idempotency
+
+Normalized ids are `manifest::<manifestId>::<localId>` via `stableId`. `computeManifestHash` returns the hex SHA-256 of canonical JSON with recursively sorted keys, so an unchanged manifest always yields the same hash and re-ingestion is idempotent.

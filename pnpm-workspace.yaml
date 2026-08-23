@@ -3,5 +3,6 @@ packages:
   - packages/*
   - connectors/*
   - scripts
+  - tools
 onlyBuiltDependencies:
   - esbuild
