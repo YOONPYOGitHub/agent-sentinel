@@ -184,11 +184,11 @@ There are **no production customer agents** in the environment. The Foundry conn
 
 ## Token economics scope
 
-**Planned and pending. Not implemented.**
+**Measured analysis is implemented; live activation is pending.**
 
-Agent-level token economics — per-agent token consumption, cost attribution to owner and business unit, cost-per-outcome, and anomaly detection on spend — is a design commitment, not a current capability.
+Agent-level measured token totals, measured cost-per-success, coverage, and deterministic anomalies are implemented. Owner/business-unit attribution and broader business-outcome economics remain planned.
 
-It is gated on a runtime telemetry connector. The `azure-monitor-otel` connector is catalogued as `planned` and is the intended source; it is listed as unlocking the `quality`, `reliability`, and `cost` scorecard dimensions. Until it exists:
+It is gated on configured runtime telemetry. The read-only `azure-monitor-otel` connector is implemented and is the intended measured source for behavior drift and token economics; deployment activation still requires instrumented request spans, workspace configuration, and least-privilege query access. Until those prerequisites are injected:
 
 - The **cost** dimension of every assurance scorecard reports `unknown` with the explanation that agent-level token usage and cost telemetry are not connected.
 - No estimated, extrapolated, or model-inferred cost figure is displayed anywhere in the product.
@@ -199,11 +199,11 @@ Sequencing and definition of done: [roadmap.md](roadmap.md).
 
 ## Planned capabilities
 
-| Capability                     | Description                                                                                          | Depends on                                      |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| **Behavioral drift detection** | Baseline normal agent behavior, then detect and explain deviation.                                   | Runtime telemetry connector                     |
-| **Universal adapters**         | A documented manifest and authenticated ingestion contract so any agent runtime can supply evidence. | `custom-manifest-adapter` schema and ingest API |
-| **Shift-left scanning**        | Evaluate an agent definition against the same deterministic policies before it is published.         | Governance lifecycle workflow completion        |
-| **Business-value evidence**    | Tie agent activity to business outcomes rather than to raw invocation counts.                        | Runtime telemetry plus outcome sources          |
+| Capability                      | Description                                                                                           | Depends on                                      |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| **Behavioral drift activation** | Baseline normal agent behavior, then detect and explain deviation from configured measured telemetry. | Instrumented spans and connector configuration  |
+| **Universal adapters**          | A documented manifest and authenticated ingestion contract so any agent runtime can supply evidence.  | `custom-manifest-adapter` schema and ingest API |
+| **Shift-left scanning**         | Evaluate an agent definition against the same deterministic policies before it is published.          | Governance lifecycle workflow completion        |
+| **Business-value evidence**     | Tie agent activity to business outcomes rather than to raw invocation counts.                         | Runtime telemetry plus outcome sources          |
 
 See [roadmap.md](roadmap.md) for phases and definitions of done, and [known-issues.md](known-issues.md) for what currently constrains each one.

@@ -123,16 +123,17 @@ complete.
 
 ---
 
-## Phase 4 — Runtime telemetry connector · _independent, can start today_
+## Phase 4 — Runtime telemetry connector · _implementation complete; deployment activation pending_
 
-The highest-leverage independent work. Three currently `unknown` scorecard dimensions and three planned capabilities all sit behind this one connector.
+The connector and engine bridge are implemented. Deployment prerequisites and the separate graph/evidence integrations below remain.
 
 **Scope**
 
-- Implement `azure-monitor-otel`: OpenTelemetry-compatible traces and Azure Monitor logs for agent runtime activity.
-- **Real OTel token telemetry**: Implement the azure-monitor-otel ingestion pipeline to convert OpenTelemetry spans into ObservationWindow objects. The token economics engine and drift-analysis engine are ready; only the ingestion connector is absent.
-- Map runtime spans to existing graph nodes and edges without inventing relationships.
-- Distinguish observed runtime behavior from declared configuration at the evidence-type level.
+- [x] Implement `azure-monitor-otel`: restricted Azure Monitor Logs queries over OpenTelemetry-compatible agent request spans.
+- [x] Strictly convert projected rows into bound `ObservationWindow` objects and feed behavior drift and token economics.
+- [ ] Instrument the target agents, inject workspace/tenant/environment configuration, and grant read-only query permission.
+- [ ] Map runtime spans to existing graph nodes and edges without inventing relationships.
+- [ ] Distinguish observed runtime behavior from declared configuration at the evidence-type level.
 
 **Definition of done**
 
@@ -196,20 +197,20 @@ The highest-leverage independent work. Three currently `unknown` scorecard dimen
 
 ---
 
-## Phase 8 — Behavioral drift and token economics · _engine done, connector pending_
+## Phase 8 — Behavioral drift and token economics · _engine and connector integration done; activation pending_
 
 **Scope**
 
 - ~~Baseline normal agent behavior from runtime telemetry.~~ **Done (deterministic engine):** `@agent-sentinel/behavior-engine` implements median/MAD statistics, drift analysis, and evidence-coverage scoring. Domain types and Zod schemas are in `@agent-sentinel/domain`.
 - ~~Detect and explain deviation from baseline as evidence, not as a model opinion.~~ **Done (deterministic engine):** `analyzeDrift` produces `DriftAnalysisResult` with per-dimension explanations citing thresholds and measured values. No LLM involvement.
-- **Remaining:** OTel connector ingestion pipeline — bridge from OpenTelemetry spans to `ObservationWindow` objects. Once connected, the engine receives live data and replaces synthetic mock observations.
-- Per-agent token consumption, cost attribution to owner and business unit, cost-per-outcome, and spend anomaly detection. Depends on OTel connector.
+- ~~Bridge OpenTelemetry spans to `ObservationWindow` objects.~~ **Done:** the read-only Azure Monitor OTel connector strictly maps bound request rows and feeds both engines without a live mock fallback.
+- ~~Per-agent measured token consumption, cost per success, and spend anomaly detection.~~ **Done:** measured-only token economics is implemented. Owner/business-unit attribution and business-outcome economics remain planned.
 
 **Definition of done**
 
 - A drift finding cites the baseline window, the observed deviation, and the evidence for both. ✅ (typed `DriftAnalysisResult.baselineEvidenceId` + `observedEvidenceId`)
 - Cost figures are measured, never estimated or model-inferred. If telemetry is missing, cost stays `unknown`. ✅ (cost dimension absent when no `costUsd` in baseline)
-- The Cost / Efficiency scorecard consumes a validated full-coverage Token Economics report and otherwise remains `unknown`. ✅ for the synthetic seam; live activation remains pending OTel.
+- The Cost / Efficiency scorecard consumes a validated full-coverage Token Economics report and otherwise remains `unknown`. ✅ for mock and live connector seams; deployment activation requires instrumented spans, configuration, and read-only query permission.
 - Mock mode shows clearly marked synthetic drift examples; live mode shows `Telemetry not connected`. ✅
 
 ---

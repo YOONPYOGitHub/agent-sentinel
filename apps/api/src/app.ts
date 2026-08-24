@@ -4,6 +4,8 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { CosmosClient } from '@azure/cosmos'
 import { DefaultAzureCredential } from '@azure/identity'
+import { createAzureMonitorOtelConnector } from '@agent-sentinel/azure-monitor-otel-connector'
+import type { RuntimeTelemetryConnector } from '@agent-sentinel/connector-sdk'
 
 import type {
   ExposureFindingRepository,
@@ -59,7 +61,11 @@ function dataMode(): 'mock' | 'live' {
 }
 
 function defaultTenantId(): string {
-  return process.env['AGENT_SENTINEL_TENANT_ID']?.trim() || 'tenant-demo'
+  return (
+    process.env['AGENT_SENTINEL_TENANT_ID']?.trim() ||
+    process.env['AZURE_MONITOR_TENANT_ID']?.trim() ||
+    'tenant-demo'
+  )
 }
 
 function defaultWriteEnabled(mode: 'mock' | 'live'): boolean {
@@ -90,6 +96,8 @@ export interface CreateAppOptions {
   governanceCaseRepository?: GovernanceCaseRepository
   advisoryService?: AdvisoryService
   dataMode?: 'mock' | 'live'
+  /** `null` explicitly keeps live telemetry unconfigured, including in tests. */
+  runtimeTelemetryConnector?: RuntimeTelemetryConnector | null
 }
 
 export async function createApp(
@@ -114,6 +122,12 @@ export async function createApp(
   app.addHook('onRequest', createAuthMiddleware(authConfig))
 
   const resolvedDataMode = options.dataMode ?? dataMode()
+  const runtimeTelemetryConnector =
+    resolvedDataMode === 'live'
+      ? options.runtimeTelemetryConnector === null
+        ? undefined
+        : (options.runtimeTelemetryConnector ?? createAzureMonitorOtelConnector())
+      : undefined
 
   // Live mode: forbid non-GET writes to /api/demo/* to keep production read-only.
   app.addHook('preHandler', (request, reply, done) => {
@@ -195,6 +209,7 @@ export async function createApp(
       connectionOk: connection.ok,
       ...(status.writeEnabled !== undefined ? { writeEnabled: status.writeEnabled } : {}),
       ...(status.projectEndpoint !== undefined ? { projectEndpoint: status.projectEndpoint } : {}),
+      runtimeTelemetryConfigured: runtimeTelemetryConnector !== undefined,
     })
   })
   app.post(
@@ -277,10 +292,12 @@ export async function createApp(
   registerBehaviorRoutes(app, {
     mode: exposureMode,
     defaultTenantId: defaultTenantId(),
+    ...(runtimeTelemetryConnector !== undefined ? { runtimeTelemetryConnector } : {}),
   })
   registerTokenEconomicsRoutes(app, {
     mode: exposureMode,
     defaultTenantId: defaultTenantId(),
+    ...(runtimeTelemetryConnector !== undefined ? { runtimeTelemetryConnector } : {}),
   })
 
   app.setErrorHandler((error, _request, reply) => {

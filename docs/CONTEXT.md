@@ -124,22 +124,24 @@ It depends only on `@agent-sentinel/domain` and performs no network I/O.
 
 ### Mode separation
 
-| Result field        | Mock mode                 | Live mode (OTel absent) |
-| ------------------- | ------------------------- | ----------------------- |
-| `source`            | `'mock-synthetic'`        | `'azure-monitor-otel'`  |
-| `status`            | `'ready'` (or data issue) | `'invalid'`             |
-| `unavailableReason` | Set only for a data issue | Always set              |
-| Drift shown?        | Yes (synthetic data)      | No (`anyDrift: false`)  |
+| Result field        | Mock mode                 | Live mode (OTel configured)                |
+| ------------------- | ------------------------- | ------------------------------------------ |
+| `source`            | `'mock-synthetic'`        | `'azure-monitor-otel'`                     |
+| `status`            | `'ready'` (or data issue) | engine result, or typed unknown on failure |
+| `unavailableReason` | Set only for a data issue | Set for absent/failed/invalid telemetry    |
+| Drift shown?        | Yes (synthetic data)      | Only when measured windows validate        |
 
 `source: 'mock-synthetic'` is **never** present in live mode API responses.
 Synthetic results never replace an unavailable live result.
 
-### What is NOT implemented
+### Live runtime adapter
 
-The OTel span → `ObservationWindow` ingestion pipeline (the `azure-monitor-otel`
-connector). Until that is connected, the engine runs only on the fixed synthetic
-observations defined in `@agent-sentinel/mock-connector`. All synthetic results
-are labeled `[SYNTHETIC]` in the UI.
+The `@agent-sentinel/azure-monitor-otel-connector` workspace performs a bounded,
+read-only Azure Monitor Logs query and strictly maps projected OTel
+`AppRequests` rows into `ObservationWindow` objects. It activates only when its
+workspace, tenant, and environment configuration is injected. Absent
+configuration and provider/contract failures remain typed unknown; only mock
+mode reads the fixed fixtures in `@agent-sentinel/mock-connector`.
 
 Invariants:
 

@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { driftAnalysisResultSchema } from '@agent-sentinel/domain'
 import type { ExposureFindingRepository, SnapshotRepository } from '@agent-sentinel/domain'
 import { createApp } from '../src/app.js'
+import {
+  createFailingRuntimeTelemetryFixture,
+  createRuntimeTelemetryFixture,
+  createSyntheticRuntimeTelemetryFixture,
+} from './runtime-telemetry-fixture.js'
 
 function makeStubRepositories(): {
   exposureRepository: ExposureFindingRepository
@@ -36,7 +41,7 @@ async function makeFoundryApp() {
   const app = await createApp(
     undefined,
     { mode: 'disabled', allowedScopes: { read: [], write: [] } },
-    { dataMode: 'live', ...makeStubRepositories() },
+    { dataMode: 'live', runtimeTelemetryConnector: null, ...makeStubRepositories() },
   )
   return app
 }
@@ -187,6 +192,76 @@ describe('behavior drift API — foundry/live mode', () => {
       url: '/api/behavior/agents/any-agent/drift',
     })
     expect(response.statusCode).toBe(200)
+  })
+
+  it('runs the drift engine on injected Azure Monitor OTel windows', async () => {
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: createRuntimeTelemetryFixture(),
+        ...makeStubRepositories(),
+      },
+    )
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/live-agent/drift',
+    })
+    const result = driftAnalysisResultSchema.parse(response.json())
+
+    expect(result.status).toBe('ready')
+    expect(result.source).toBe('azure-monitor-otel')
+    expect(result.environment).toBe('production')
+    expect(result.baselineEvidenceId).toBe('otel-baseline-evidence')
+    expect(result.observedEvidenceId).toBe('otel-observed-evidence')
+    expect(result.anyDrift).toBe(true)
+    await app.close()
+  })
+
+  it('returns typed unknown rather than mock data when the provider fails', async () => {
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: createFailingRuntimeTelemetryFixture(),
+        ...makeStubRepositories(),
+      },
+    )
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/live-agent/drift',
+    })
+    const result = driftAnalysisResultSchema.parse(response.json())
+
+    expect(result.status).toBe('invalid')
+    expect(result.source).toBe('azure-monitor-otel')
+    expect(result.anyDrift).toBe(false)
+    expect(result.unavailableReason).not.toContain('provider details')
+    await app.close()
+  })
+
+  it('rejects synthetic windows injected into live mode', async () => {
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: createSyntheticRuntimeTelemetryFixture(),
+        ...makeStubRepositories(),
+      },
+    )
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/live-agent/drift',
+    })
+    const result = driftAnalysisResultSchema.parse(response.json())
+
+    expect(result.status).toBe('invalid')
+    expect(result.source).toBe('azure-monitor-otel')
+    expect(result.anyDrift).toBe(false)
+    await app.close()
   })
 
   it('keeps unavailable analysis IDs bounded at the HTTP path-parameter limit', async () => {

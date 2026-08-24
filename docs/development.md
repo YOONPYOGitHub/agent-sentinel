@@ -66,6 +66,52 @@ When changing the envelope:
 - Keep the adapter read-only. `ManifestConnector` intentionally has no
   `execute()`, and an `execute` action depth is rejected at load time.
 
+## Azure Monitor OpenTelemetry runtime connector
+
+`@agent-sentinel/azure-monitor-otel-connector` is query-only. It sends one
+bounded query to the fixed Azure Monitor Logs endpoint and fixed `AppRequests`
+table, then strictly maps the projected rows into baseline and observed
+`ObservationWindow` objects. It does not create resources, ingest telemetry, or
+fall back to local data.
+
+Live activation requires all of:
+
+- `AZURE_MONITOR_WORKSPACE_ID`
+- `AZURE_MONITOR_TENANT_ID` (must match the API tenant binding)
+- `AZURE_MONITOR_ENVIRONMENT`
+
+Optional bounds are `AZURE_MONITOR_BASELINE_WINDOW_HOURS` (default 168),
+`AZURE_MONITOR_OBSERVED_WINDOW_HOURS` (default 24), and
+`AZURE_MONITOR_REQUEST_TIMEOUT_MS` (default 15000). Authentication uses
+`DefaultAzureCredential`; grant only the Azure Monitor Logs query data action
+(`Microsoft.OperationalInsights/workspaces/query/read`, commonly through Log
+Analytics Reader) on the target workspace. No shared key is accepted.
+
+Instrumented request spans must reach `AppRequests` with these OTel/custom
+properties:
+
+| Property                         | Mapping                                     |
+| -------------------------------- | ------------------------------------------- |
+| `agent.sentinel.tenant_id`       | Required tenant binding                     |
+| `gen_ai.agent.id`                | Required agent binding                      |
+| `deployment.environment.name`    | Required environment binding                |
+| `agent.sentinel.observation_id`  | Observation id (falls back to request id)   |
+| `gen_ai.usage.input_tokens`      | Optional measured input tokens              |
+| `gen_ai.usage.output_tokens`     | Optional measured output tokens             |
+| `agent.sentinel.cost.usd`        | Optional measured USD cost; never estimated |
+| `agent.sentinel.tool_call_names` | Optional JSON string array of ordered tools |
+| `error.type`                     | Optional error code                         |
+
+The checked-in Azure Monitor response fixture is local-only and contract-tested:
+
+```bash
+pnpm --filter @agent-sentinel/azure-monitor-otel-connector test
+```
+
+If configuration is absent, credentials fail, the provider rejects the query,
+or any row violates its tenant/agent/environment/time binding, the API returns
+typed unknown. It never reads the mock fixtures in live mode.
+
 ## Contribution practice
 
 - Work on feature branches.

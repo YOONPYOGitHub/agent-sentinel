@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { tokenEconomicsReportSchema } from '@agent-sentinel/domain'
 import { createApp } from '../src/app.js'
 import type { ExposureFindingRepository, SnapshotRepository } from '@agent-sentinel/domain'
+import {
+  createFailingRuntimeTelemetryFixture,
+  createRuntimeTelemetryFixture,
+} from './runtime-telemetry-fixture.js'
 
 function makeStubRepositories(): {
   exposureRepository: ExposureFindingRepository
@@ -37,7 +41,7 @@ async function makeFoundryApp() {
   return createApp(
     undefined,
     { mode: 'disabled', allowedScopes: { read: [], write: [] } },
-    { dataMode: 'live', ...makeStubRepositories() },
+    { dataMode: 'live', runtimeTelemetryConnector: null, ...makeStubRepositories() },
   )
 }
 
@@ -159,6 +163,54 @@ describe('token economics API - foundry mode', () => {
     const result = tokenEconomicsReportSchema.parse(response.json())
     expect(result.status).toBe('connector-not-connected')
     expect(result.source).toBe('azure-monitor-otel')
+    await app.close()
+  })
+
+  it('runs token economics on injected measured Azure Monitor OTel windows', async () => {
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: createRuntimeTelemetryFixture(),
+        ...makeStubRepositories(),
+      },
+    )
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/token-economics/agents/live-agent',
+    })
+    const result = tokenEconomicsReportSchema.parse(response.json())
+
+    expect(result.status).toBe('ready')
+    expect(result.source).toBe('azure-monitor-otel')
+    expect(result.environment).toBe('production')
+    expect(result.coverage?.costCoverage).toBe(1)
+    expect(result.measuredCostUsd).toBeGreaterThan(0)
+    expect(result.anomalies?.length).toBeGreaterThan(0)
+    await app.close()
+  })
+
+  it('returns typed unknown rather than mock economics when the provider fails', async () => {
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: createFailingRuntimeTelemetryFixture(),
+        ...makeStubRepositories(),
+      },
+    )
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/token-economics/agents/live-agent',
+    })
+    const result = tokenEconomicsReportSchema.parse(response.json())
+
+    expect(result.status).toBe('unavailable')
+    expect(result.source).toBe('azure-monitor-otel')
+    expect(result.coverage).toBeUndefined()
+    expect(result.unavailableReason).not.toContain('provider details')
     await app.close()
   })
 })

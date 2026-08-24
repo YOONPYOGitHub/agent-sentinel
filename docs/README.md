@@ -59,7 +59,7 @@ Every statement in these documents carries an explicit maturity label. The label
 | **Current**                     | Implemented, merged on `feature/live-exposure`, and covered by tests.                                     |
 | **Live**                        | Running against a real Azure service in the deployed environment.                                         |
 | **Live declared configuration** | Real data read from a real source, describing what was _configured_ — not what was _observed_ at runtime. |
-| **Future runtime evidence**     | Requires a telemetry connector that does not exist yet.                                                   |
+| **Future runtime evidence**     | Requires an implemented telemetry connector to be configured against an authorized measured source.       |
 | **Synthetic**                   | Backed by the six purpose-built Microsoft Foundry validation agents, not by customer workloads.           |
 | **Mock-only**                   | Served by a deterministic in-repository fixture or provider.                                              |
 | **Planned**                     | Designed and catalogued, not implemented.                                                                 |

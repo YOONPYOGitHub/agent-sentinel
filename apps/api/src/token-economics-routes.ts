@@ -4,11 +4,17 @@ import type { FastifyInstance } from 'fastify'
 import type { TokenEconomicsReport } from '@agent-sentinel/domain'
 import { tokenEconomicsReportSchema } from '@agent-sentinel/domain'
 import { analyzeTokenEconomics } from '@agent-sentinel/behavior-engine'
+import { computeBaseline } from '@agent-sentinel/behavior-engine'
 import { MOCK_TOKEN_ECONOMICS_WINDOWS } from '@agent-sentinel/mock-connector'
+import {
+  runtimeObservationWindowsSchema,
+  type RuntimeTelemetryConnector,
+} from '@agent-sentinel/connector-sdk'
 
 export interface TokenEconomicsRoutesOptions {
   mode: 'mock' | 'foundry'
   defaultTenantId: string
+  runtimeTelemetryConnector?: RuntimeTelemetryConnector
 }
 
 function unavailableReportId(agentId: string): string {
@@ -23,9 +29,9 @@ function unavailableReportId(agentId: string): string {
  *              Known agents return a 'ready' report.
  *              Unknown agents return 'insufficient-data', not invented success.
  *
- * Foundry mode - OTel connector is absent; returns status: 'connector-not-connected'.
- *                Response carries source: 'azure-monitor-otel'.
- *                Never falls back to synthetic data.
+ * Foundry mode - runs on injected Azure Monitor OTel windows. Missing or
+ *                failed providers return typed unknown. Never falls back to
+ *                synthetic data.
  *
  * There is no POST/ingestion endpoint on this route family.
  */
@@ -40,6 +46,58 @@ export function registerTokenEconomicsRoutes(
       const tenantId = opts.defaultTenantId
 
       if (opts.mode === 'foundry') {
+        if (opts.runtimeTelemetryConnector !== undefined) {
+          try {
+            const windows = runtimeObservationWindowsSchema.parse(
+              await opts.runtimeTelemetryConnector.readObservationWindows({
+                tenantId,
+                agentId,
+              }),
+            )
+            if (windows.observed.tenantId !== tenantId || windows.observed.agentId !== agentId) {
+              throw new Error('Runtime telemetry response does not match the API request binding.')
+            }
+            const baselineResult = computeBaseline(windows.baseline, windows.baselineEvidenceId)
+            if ('baseline' in baselineResult) {
+              const result = analyzeTokenEconomics(windows.observed, baselineResult.baseline, {
+                clock: () => new Date(windows.queriedAt),
+                observedEvidenceId: windows.observedEvidenceId,
+              })
+              return reply.status(200).send(result)
+            }
+            const result: TokenEconomicsReport = tokenEconomicsReportSchema.parse({
+              reportId: unavailableReportId(agentId),
+              tenantId,
+              agentId,
+              environment: windows.observed.environment,
+              source: 'azure-monitor-otel',
+              windowStart: windows.observed.windowStart,
+              windowEnd: windows.observed.windowEnd,
+              computedAt: windows.queriedAt,
+              status:
+                baselineResult.error === 'insufficient-data' ? 'insufficient-data' : 'unavailable',
+              unavailableReason: baselineResult.reason,
+            })
+            return reply.status(200).send(result)
+          } catch {
+            const now = new Date().toISOString()
+            const result: TokenEconomicsReport = tokenEconomicsReportSchema.parse({
+              reportId: unavailableReportId(agentId),
+              tenantId,
+              agentId,
+              environment: 'unknown',
+              source: 'azure-monitor-otel',
+              windowStart: new Date(0).toISOString(),
+              windowEnd: now,
+              computedAt: now,
+              status: 'unavailable',
+              unavailableReason:
+                'Runtime telemetry provider query failed or returned data that did not satisfy the connector contract.',
+            })
+            return reply.status(200).send(result)
+          }
+        }
+
         const result: TokenEconomicsReport = tokenEconomicsReportSchema.parse({
           reportId: unavailableReportId(agentId),
           tenantId,
@@ -51,7 +109,7 @@ export function registerTokenEconomicsRoutes(
           computedAt: new Date().toISOString(),
           status: 'connector-not-connected',
           unavailableReason:
-            'Runtime telemetry connector is not connected. ' +
+            'Runtime telemetry connector is not configured. ' +
             'Connect the azure-monitor-otel connector to unlock token economics analysis.',
         })
         return reply.status(200).send(result)

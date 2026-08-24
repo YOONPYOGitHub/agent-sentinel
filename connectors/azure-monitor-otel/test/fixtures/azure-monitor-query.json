@@ -1,0 +1,79 @@
+{
+  "tables": [
+    {
+      "name": "PrimaryResult",
+      "columns": [
+        { "name": "ObservationId", "type": "string" },
+        { "name": "ObservedAt", "type": "datetime" },
+        { "name": "TenantId", "type": "string" },
+        { "name": "AgentId", "type": "string" },
+        { "name": "Environment", "type": "string" },
+        { "name": "LatencyMs", "type": "long" },
+        { "name": "InputTokens", "type": "long" },
+        { "name": "OutputTokens", "type": "long" },
+        { "name": "CostUsd", "type": "real" },
+        { "name": "Success", "type": "bool" },
+        { "name": "ErrorCode", "type": "string" },
+        { "name": "ToolCallNames", "type": "string" }
+      ],
+      "rows": [
+        [
+          "fixture-baseline-1",
+          "2026-08-22T18:00:00.000Z",
+          "tenant-a",
+          "agent-a",
+          "production",
+          820,
+          320,
+          110,
+          0.012,
+          true,
+          "",
+          "[\"knowledge_search\",\"answer\"]"
+        ],
+        [
+          "fixture-baseline-2",
+          "2026-08-23T06:00:00.000Z",
+          "tenant-a",
+          "agent-a",
+          "production",
+          900,
+          350,
+          125,
+          null,
+          false,
+          "timeout",
+          "[\"knowledge_search\"]"
+        ],
+        [
+          "fixture-observed-1",
+          "2026-08-23T18:00:00.000Z",
+          "tenant-a",
+          "agent-a",
+          "production",
+          860,
+          330,
+          115,
+          0.013,
+          true,
+          "",
+          "[\"knowledge_search\",\"answer\"]"
+        ],
+        [
+          "fixture-observed-2",
+          "2026-08-24T06:00:00.000Z",
+          "tenant-a",
+          "agent-a",
+          "production",
+          880,
+          340,
+          120,
+          null,
+          true,
+          "",
+          "[]"
+        ]
+      ]
+    }
+  ]
+}

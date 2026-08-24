@@ -93,6 +93,22 @@ describe('buildConnectorsCollection', () => {
     expect(result.active.lifecycleState).toBe('connected')
   })
 
+  it('marks Azure Monitor OTel connected only when runtime configuration is injected', () => {
+    const unavailable = buildConnectorsCollection('foundry', {
+      connectorId: 'foundry-connector',
+    })
+    const configured = buildConnectorsCollection('foundry', {
+      connectorId: 'foundry-connector',
+      runtimeTelemetryConfigured: true,
+    })
+    expect(
+      unavailable.catalog.find((entry) => entry.id === 'azure-monitor-otel')?.lifecycleState,
+    ).toBe('available-to-configure')
+    expect(
+      configured.catalog.find((entry) => entry.id === 'azure-monitor-otel')?.lifecycleState,
+    ).toBe('connected')
+  })
+
   it('Entra Agent ID is planned and distinct from Foundry auth', () => {
     const result = buildConnectorsCollection('mock', { connectorId: 'mock-agent-estate' })
     const entra = result.catalog.find((e) => e.id === 'entra-agent-id')

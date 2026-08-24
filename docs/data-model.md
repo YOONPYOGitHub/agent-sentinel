@@ -184,7 +184,7 @@ These types are produced by `@agent-sentinel/behavior-engine` and consumed by th
 
 `'mock-synthetic'` | `'azure-monitor-otel'`
 
-Labels every result with its provenance. `mock-synthetic` is never present in live mode responses; `azure-monitor-otel` is the future live source.
+Labels every result with its provenance. `mock-synthetic` is never present in live mode responses; `azure-monitor-otel` identifies rows strictly mapped from the configured Azure Monitor Logs source.
 
 ### RuntimeObservation
 
@@ -219,7 +219,7 @@ The output of `analyzeDrift`. Fields: `analysisId`, `tenantId`, `agentId`, `envi
 - `ready`: analysis ran successfully on sufficient, fresh, non-duplicate data.
 - `insufficient-data`: fewer than `MIN_SAMPLES` (10) observations in baseline or observed window.
 - `stale`: window end is older than `STALE_WINDOW_HOURS` (168 h / 7 days).
-- `invalid`: data quality check failed (e.g. timestamps invalid, duplicate ratio too high, end ≤ start) or the OTel connector is absent.
+- `invalid`: data quality check failed (e.g. timestamps invalid, duplicate ratio too high, end ≤ start), the OTel connector is unconfigured, or its provider query/row contract failed.
 
 ### DimensionDriftResult
 
@@ -254,7 +254,7 @@ Bounded report for one agent in one observation window.
 - `medianInputTokens`, `medianOutputTokens`, `medianTotalTokens`: robust medians (present when ready)
 - `measuredCostUsd`: sum of measured costUsd values only; absent when not measured (never estimated)
 - `medianCostUsd`: median of cost-measured observations only
-- `costPerSuccessUsd`: measured cost / successful calls within the same cost-measured population; absent when that population has zero successes
+- `costPerSuccessUsd`: total cost of the entire cost-measured population, including failed calls, divided by successes in that same population; absent when that population has zero successes
 - `anomalies`: TokenEconomicsAnomaly[] (up to 20)
 
 ### TokenEconomicsCoverage

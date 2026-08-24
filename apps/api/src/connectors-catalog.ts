@@ -108,19 +108,17 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     id: 'azure-monitor-otel',
     name: 'Azure Monitor & OpenTelemetry',
     description:
-      'Ingests agent runtime telemetry via OpenTelemetry-compatible traces and Azure Monitor logs. ' +
-      'When connected, it unlocks the deterministic behavior-baseline and drift-analysis engine ' +
-      '(already implemented) and replaces synthetic mock observations with real per-agent telemetry. ' +
-      'Until connected, quality/reliability/cost/drift remain unknown and no synthetic data is shown in live mode.',
-    lifecycleState: 'planned',
+      'Queries OpenTelemetry-compatible agent request spans from Azure Monitor Logs. ' +
+      'When configured, it feeds measured windows to deterministic behavior drift and token economics. ' +
+      'Until configured, runtime analysis remains typed unknown and no synthetic data is shown in live mode.',
+    lifecycleState: 'available-to-configure',
     capabilities: ['runtime-telemetry'],
     sourceOfTruth: true,
     ownershipModel: 'consumes',
     prerequisiteNote:
-      'Requires Azure Monitor workspace and OTEL_EXPORTER_OTLP_ENDPOINT or Application Insights connection string. ' +
-      'Agent instrumentation must emit OTel spans. The behavior-baseline engine is ready; ' +
-      'only the ingestion pipeline from OTel spans to ObservationWindow objects is absent.',
-    unlocksScorecard: ['quality', 'reliability', 'cost'],
+      'Requires AZURE_MONITOR_WORKSPACE_ID, AZURE_MONITOR_TENANT_ID, and AZURE_MONITOR_ENVIRONMENT. ' +
+      'Uses DefaultAzureCredential with read-only Log Analytics query permission. Instrumented agent request spans must emit the documented OTel attributes.',
+    unlocksScorecard: ['cost'],
   },
   {
     id: 'custom-manifest-adapter',
@@ -150,6 +148,7 @@ export function buildConnectorsCollection(
     connectionOk?: boolean
     writeEnabled?: boolean
     projectEndpoint?: string
+    runtimeTelemetryConfigured?: boolean
   },
 ): ConnectorsCollectionResponse {
   const connectionOk = opts.connectionOk !== false
@@ -158,6 +157,9 @@ export function buildConnectorsCollection(
   const catalog: CatalogConnectorEntry[] = BASE_CATALOG.map((entry) => {
     if (entry.id === 'azure-ai-foundry') {
       return { ...entry, lifecycleState: foundryLifecycle }
+    }
+    if (entry.id === 'azure-monitor-otel' && opts.runtimeTelemetryConfigured === true) {
+      return { ...entry, lifecycleState: 'connected' }
     }
     return { ...entry }
   })

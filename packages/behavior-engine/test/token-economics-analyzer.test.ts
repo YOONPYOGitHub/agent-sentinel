@@ -254,6 +254,26 @@ describe('analyzeTokenEconomics', () => {
     ).toBe(false)
   })
 
+  it.each([
+    ['input', { inputTokens: 250, outputTokens: undefined }, 250],
+    ['output', { inputTokens: undefined, outputTokens: 125 }, 125],
+  ] as const)(
+    'keeps totalTokens reconciled when only %s tokens are measured',
+    (_dimension, tokenFields, expectedPerObservation) => {
+      const observations = enoughObs(MIN_SAMPLES).map((observation) => ({
+        ...observation,
+        ...tokenFields,
+      }))
+      const result = analyzeTokenEconomics(makeWindow(observations))
+
+      expect(result.totalTokens).toBe(expectedPerObservation * MIN_SAMPLES)
+      expect(result.totalTokens).toBe(
+        (result.totalInputTokens ?? 0) + (result.totalOutputTokens ?? 0),
+      )
+      expect(result.coverage?.totalTokenMeasuredCount).toBe(MIN_SAMPLES)
+    },
+  )
+
   it('omits costPerSuccessUsd when zero successes', () => {
     const obs = enoughObs(MIN_SAMPLES, { costUsd: 0.04, success: false })
     const result = analyzeTokenEconomics(makeWindow(obs))
