@@ -196,7 +196,7 @@ A bounded, timestamped collection of `RuntimeObservation` objects: `id`, `agentI
 
 ### BaselineWindow
 
-Pre-computed statistical summary of a historical window: `agentId`, `tenantId`, `environment`, `source`, `windowStart`, `windowEnd`, `sampleCount` (integer ≥ 0), `latencyMs` (`DistributionStats`, optional), `inputTokens` (`DistributionStats`, optional), `outputTokens` (`DistributionStats`, optional), `costUsd` (`DistributionStats`, optional — **never present when cost is not measured**), `successRate`, `errorRate`, `toolSequence` (`ToolSequenceSummary`), `evidenceId` (immutable evidence reference), `computedAt`.
+Pre-computed statistical summary of a historical window: `agentId`, `tenantId`, `environment`, `source`, `windowStart`, `windowEnd`, `sampleCount` (integer ≥ 0), `latencyMs` (`DistributionStats`, optional), `inputTokens` (`DistributionStats`, optional), `outputTokens` (`DistributionStats`, optional), `totalTokens` (`DistributionStats`, optional), `costUsd` (`DistributionStats`, optional — **never present when cost is not measured**), `successRate`, `errorRate`, `toolSequence` (`ToolSequenceSummary`), `evidenceId` (immutable evidence reference), `computedAt`.
 
 `ToolSequenceSummary` records both the sorted unique tool set and bounded,
 canonical per-invocation sequence patterns, so pure ordering changes are
@@ -234,3 +234,49 @@ One dimension's result: `dimension` (`DriftDimension`), `drifted` (boolean), `se
 | Tool call names per obs | 50     |
 | Unique tools tracked    | 100    |
 | unavailableReason       | 500 ch |
+
+---
+
+## Token Economics Domain Types (packages/domain/src/token-economics.ts)
+
+### TokenEconomicsReport
+
+Bounded report for one agent in one observation window.
+
+- `reportId`: deterministic hash of tenant, agent, environment, source, and window
+- `tenantId`, `agentId`, `environment`, `source` (mock-synthetic | azure-monitor-otel)
+- `windowStart`, `windowEnd`, `computedAt`: ISO 8601
+- `status`: `ready | insufficient-data | unavailable | connector-not-connected`
+- `unavailableReason`: present when status is not `ready`
+- `coverage`: TokenEconomicsCoverage (present when ready)
+- `baselineEvidenceId`, `observedEvidenceId`: immutable references required for anomaly-backed posture
+- `totalInputTokens`, `totalOutputTokens`, `totalTokens`: measured totals (present when ready)
+- `medianInputTokens`, `medianOutputTokens`, `medianTotalTokens`: robust medians (present when ready)
+- `measuredCostUsd`: sum of measured costUsd values only; absent when not measured (never estimated)
+- `medianCostUsd`: median of cost-measured observations only
+- `costPerSuccessUsd`: measured cost / successful calls within the same cost-measured population; absent when that population has zero successes
+- `anomalies`: TokenEconomicsAnomaly[] (up to 20)
+
+### TokenEconomicsCoverage
+
+- `totalObservations`, `deduplicatedObservations`, `duplicatesRemoved`
+- `successCount`, `measuredSuccessCount`, token-dimension measured counts, `costMeasuredCount`
+- `costCoverage`: fraction 0-1; partial (< 1) when not all observations have measured cost
+
+### TokenEconomicsAnomaly
+
+- `anomalyId`: deterministic hash
+- `dimension`: `input-tokens | output-tokens | total-tokens | cost`
+- `severity`: `low | medium | high | critical`
+- `baselineMedian`, `observedMedian`, `deviationMads` (optional, absent for zero-variance baselines)
+- `evidenceIds`: baseline and observed evidence references
+- `explanation`: human-readable description
+
+## Design constraints for Token Economics
+
+- Cost is strictly from measured RuntimeObservation.costUsd fields. Never estimated from token counts or model pricing tables.
+- Partial cost coverage (costCoverage < 1) must always be surfaced to users; no extrapolation to full estate.
+- `costPerSuccessUsd` is the total measured cost of the cost-measured population, including failed calls, divided by successful calls in that same population. It is absent when that population has zero successes.
+- Anomaly detection reuses the same MAD-based thresholds as the drift-analysis engine (MADS_THRESHOLDS, PCT_THRESHOLDS from behavior-engine).
+- No currency conversion, ROI, estimated savings, or cost avoidance calculations.
+- `source: 'mock-synthetic'` must never appear in live Foundry-mode API responses.

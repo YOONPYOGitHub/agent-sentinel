@@ -592,6 +592,11 @@ export function computeBaseline(
   const outputValues = deduplicated.flatMap((o) =>
     o.outputTokens !== undefined ? [o.outputTokens] : [],
   )
+  const totalTokenValues = deduplicated.flatMap((o) =>
+    o.inputTokens !== undefined || o.outputTokens !== undefined
+      ? [(o.inputTokens ?? 0) + (o.outputTokens ?? 0)]
+      : [],
+  )
   const costValues = deduplicated.flatMap((o) => (o.costUsd !== undefined ? [o.costUsd] : []))
 
   const totalObs = deduplicated.length
@@ -602,6 +607,7 @@ export function computeBaseline(
   const latencyStats = computeDistributionStats(latencyValues)
   const inputStats = computeDistributionStats(inputValues)
   const outputStats = computeDistributionStats(outputValues)
+  const totalTokenStats = computeDistributionStats(totalTokenValues)
   const costStats = computeDistributionStats(costValues)
 
   const baseline: BaselineWindow = {
@@ -616,6 +622,7 @@ export function computeBaseline(
     ...(latencyStats !== null ? { latencyMs: latencyStats } : {}),
     ...(inputStats !== null ? { inputTokens: inputStats } : {}),
     ...(outputStats !== null ? { outputTokens: outputStats } : {}),
+    ...(totalTokenStats !== null ? { totalTokens: totalTokenStats } : {}),
     ...(costStats !== null ? { costUsd: costStats } : {}),
     successRate: totalObs > 0 ? successCount / totalObs : undefined,
     errorRate: totalObs > 0 ? (totalObs - successCount) / totalObs : undefined,

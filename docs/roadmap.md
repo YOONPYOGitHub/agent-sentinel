@@ -1,6 +1,6 @@
 # Roadmap
 
-Phased delivery plan for Agent Sentinel. Last reviewed **2026-08-23** against branch `feature/live-exposure`.
+Phased delivery plan for Agent Sentinel. Last reviewed **2026-08-24** against branch `feature/live-exposure`.
 
 Every phase has an explicit definition of done. A phase is not done because its UI renders; it is done when its evidence is real, its boundaries are enforced in code, and its tests prove the behavior without model access.
 
@@ -130,6 +130,7 @@ The highest-leverage independent work. Three currently `unknown` scorecard dimen
 **Scope**
 
 - Implement `azure-monitor-otel`: OpenTelemetry-compatible traces and Azure Monitor logs for agent runtime activity.
+- **Real OTel token telemetry**: Implement the azure-monitor-otel ingestion pipeline to convert OpenTelemetry spans into ObservationWindow objects. The token economics engine and drift-analysis engine are ready; only the ingestion connector is absent.
 - Map runtime spans to existing graph nodes and edges without inventing relationships.
 - Distinguish observed runtime behavior from declared configuration at the evidence-type level.
 
@@ -208,7 +209,7 @@ The highest-leverage independent work. Three currently `unknown` scorecard dimen
 
 - A drift finding cites the baseline window, the observed deviation, and the evidence for both. ✅ (typed `DriftAnalysisResult.baselineEvidenceId` + `observedEvidenceId`)
 - Cost figures are measured, never estimated or model-inferred. If telemetry is missing, cost stays `unknown`. ✅ (cost dimension absent when no `costUsd` in baseline)
-- The cost dimension explanation stops saying that telemetry is not connected. _Pending OTel connector._
+- The Cost / Efficiency scorecard consumes a validated full-coverage Token Economics report and otherwise remains `unknown`. ✅ for the synthetic seam; live activation remains pending OTel.
 - Mock mode shows clearly marked synthetic drift examples; live mode shows `Telemetry not connected`. ✅
 
 ---

@@ -8,7 +8,12 @@ import {
 } from '@fluentui/react-icons'
 import { Link, useParams } from 'react-router-dom'
 
-import type { DriftAnalysisResult, EstateSnapshot, GraphEdge } from '@agent-sentinel/domain'
+import type {
+  DriftAnalysisResult,
+  EstateSnapshot,
+  GraphEdge,
+  TokenEconomicsReport,
+} from '@agent-sentinel/domain'
 
 import { EvidenceDrawer } from '../components/EvidenceDrawer'
 import { PageHeading } from '../components/PageHeading'
@@ -16,6 +21,7 @@ import { useDemoState } from '../hooks/useDemoState'
 import { useAgentDrift } from '../hooks/useAgentDrift'
 import { useExposures } from '../hooks/useExposures'
 import { useEvidenceDrawer } from '../hooks/useEvidenceDrawer'
+import { useTokenEconomics } from '../hooks/useTokenEconomics'
 import { buildAgentScorecard, type ScorecardPosture } from '../scorecard'
 
 function dependencyEdges(snapshot: EstateSnapshot, agentId: string): GraphEdge[] {
@@ -43,6 +49,7 @@ export function AgentDetailPage() {
   const { selectedEvidence, setSelectedEvidence, drawerRef, trapFocus } = useEvidenceDrawer()
   const liveExposures = useExposures(agentId)
   const agentDrift = useAgentDrift(agentId ?? '')
+  const tokenEconomicsState = useTokenEconomics(agentId ?? '')
   const agent = state?.snapshot.nodes.find((node) => node.kind === 'agent' && node.id === agentId)
 
   if (agent === undefined || state === undefined) {
@@ -87,7 +94,12 @@ export function AgentDetailPage() {
   const liveFindings = Array.isArray(liveExposures)
     ? liveExposures.filter((f) => f.affectedAgentId === agent.id)
     : liveExposures
-  const scorecard = buildAgentScorecard(agent, state, liveExposures)
+  const scorecard = buildAgentScorecard(
+    agent,
+    state,
+    liveExposures,
+    tokenEconomicsState.status === 'done' ? tokenEconomicsState.report : undefined,
+  )
 
   return (
     <>
@@ -317,6 +329,7 @@ export function AgentDetailPage() {
         </div>
       </section>
       <AgentDriftSection drift={agentDrift} />
+      <AgentTokenEconomicsSummary agentId={agent.id} state={tokenEconomicsState} />
       <EvidenceDrawer
         evidence={selectedEvidence}
         drawerRef={drawerRef}
@@ -374,6 +387,114 @@ function AgentDriftSection({ drift }: { drift: DriftAnalysisResult | null }) {
           )}
         </>
       )}
+    </section>
+  )
+}
+
+function AgentTokenEconomicsSummary({
+  agentId,
+  state,
+}: {
+  agentId: string
+  state:
+    | { status: 'loading' }
+    | { status: 'error'; message: string }
+    | { status: 'done'; report: TokenEconomicsReport }
+}) {
+  const isSynthetic = state.status === 'done' && state.report.source === 'mock-synthetic'
+  const isConnectorNotConnected =
+    state.status === 'done' && state.report.status === 'connector-not-connected'
+
+  return (
+    <section
+      className="surface-card agent-token-economics-section"
+      aria-labelledby={`agent-te-title-${agentId}`}
+    >
+      <h2 id={`agent-te-title-${agentId}`}>Token economics</h2>
+      {state.status === 'loading' && (
+        <p className="muted" role="status">
+          Loading token economics…
+        </p>
+      )}
+      {state.status === 'error' && (
+        <p className="muted" role="alert">
+          {state.message}
+        </p>
+      )}
+      {isSynthetic && (
+        <div className="drift-badge drift-badge--synthetic" role="note">
+          [SYNTHETIC] Mock demonstration — no live telemetry connected
+        </div>
+      )}
+      {isConnectorNotConnected && (
+        <p className="muted">
+          Telemetry not connected.{' '}
+          {state.report.unavailableReason ?? 'Connect the Azure Monitor & OpenTelemetry connector.'}
+        </p>
+      )}
+      {state.status === 'done' && !isConnectorNotConnected && state.report.status === 'ready' && (
+        <>
+          <dl className="token-economics-stats">
+            <div>
+              <dt>Total tokens (window)</dt>
+              <dd>{state.report.totalTokens?.toLocaleString() ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Median tokens / call</dt>
+              <dd>{state.report.medianTotalTokens?.toFixed(0) ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Measured cost (USD)</dt>
+              <dd>
+                {state.report.measuredCostUsd !== undefined
+                  ? `$${state.report.measuredCostUsd.toFixed(4)} (${Math.round((state.report.coverage?.costCoverage ?? 0) * 100)}% coverage)`
+                  : 'Not measured by connector'}
+              </dd>
+            </div>
+            {state.report.costPerSuccessUsd !== undefined && (
+              <div>
+                <dt>Cost per measured success</dt>
+                <dd>${state.report.costPerSuccessUsd.toFixed(4)}</dd>
+              </div>
+            )}
+          </dl>
+          {state.report.anomalies !== undefined && state.report.anomalies.length > 0 && (
+            <div
+              className="token-economics-anomalies"
+              role="list"
+              aria-label="Agent token economics anomalies"
+            >
+              {state.report.anomalies.map((anomaly) => (
+                <div
+                  key={anomaly.anomalyId}
+                  role="listitem"
+                  className={`anomaly-item anomaly-item--${anomaly.severity}`}
+                >
+                  <Badge
+                    appearance="tint"
+                    color={
+                      anomaly.severity === 'critical' || anomaly.severity === 'high'
+                        ? 'danger'
+                        : 'warning'
+                    }
+                  >
+                    {anomaly.severity}
+                  </Badge>
+                  <span>{anomaly.explanation}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      {state.status === 'done' &&
+        !isConnectorNotConnected &&
+        state.report.status !== 'ready' &&
+        state.report.status !== 'connector-not-connected' && (
+          <p className="muted">
+            {state.report.unavailableReason ?? 'Token economics data unavailable.'}
+          </p>
+        )}
     </section>
   )
 }

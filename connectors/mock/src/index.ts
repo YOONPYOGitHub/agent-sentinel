@@ -441,3 +441,6 @@ export class MockAgentConnector implements AgentConnector {
 
 export { MOCK_BEHAVIOR_WINDOWS } from './behavior-observations.js'
 export type { MockBehaviorWindows } from './behavior-observations.js'
+
+export { MOCK_TOKEN_ECONOMICS_WINDOWS } from './token-economics-observations.js'
+export type { MockTokenEconomicsWindows } from './token-economics-observations.js'

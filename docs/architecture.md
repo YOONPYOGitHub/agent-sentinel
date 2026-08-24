@@ -122,7 +122,7 @@ The API container is never directly addressable from the public internet or from
 - **@agent-sentinel/connector-sdk** ? Connector base abstractions and the versioned manifest envelope contract
 - **@agent-sentinel/scenarios** ? Scenario fixtures
 - **@agent-sentinel/manifest-connector** ? Offline, read-only custom manifest adapter
-- **@agent-sentinel/behavior-engine** - Deterministic behavior-baseline and drift-analysis engine (median/MAD statistics, tool-sequence drift, evidence coverage). Depends on `@agent-sentinel/domain`. No network I/O, no LLM.
+- **@agent-sentinel/behavior-engine** - Deterministic behavior-baseline, drift, and measured-only token economics engine (median/MAD statistics, tool-sequence drift, reconciled coverage, evidence-linked cost anomalies). Depends on `@agent-sentinel/domain`. No network I/O, pricing lookup, or LLM.
 - **@agent-sentinel/tools** ? Offline developer CLIs (manifest validation)
 
 ## Custom Manifest Adapter
@@ -154,6 +154,27 @@ Boundaries that hold by construction:
 - VNet integration for ACA (internal environment)
 - **API Container App uses internal-only ingress** ? unreachable from internet or VNet directly
 - WAF v2 in Prevention mode (OWASP 3.2 + Bot Manager) on public entry point
+
+## Token Economics Analysis
+
+The token economics analysis engine (`@agent-sentinel/behavior-engine`) reuses the same MAD-based statistical infrastructure as the drift-analysis engine.
+
+### Evidence boundaries
+
+| Boundary                     | State                                                                                                             |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Token economics engine       | Implemented. Deterministic MAD-based analysis, deduplication, coverage tracking.                                  |
+| Mock synthetic fixtures      | Three agents (hr-policy-agent, code-review-copilot, sales-research-agent) with healthy/anomaly/no-cost scenarios. |
+| GET /api/token-economics/... | Implemented. Mock returns synthetic; foundry returns connector-not-connected.                                     |
+| OTel ingestion pipeline      | Not implemented. Requires azure-monitor-otel connector (planned).                                                 |
+| Cost connector               | Not implemented. Real costUsd requires a cost-management telemetry connector.                                     |
+| Live efficiency scorecard    | Not unlocked. Cost/efficiency scorecard dimension remains unknown in live mode.                                   |
+
+### Mode boundaries
+
+- **Mock mode**: Returns deterministic synthetic reports labeled `[SYNTHETIC]`. Includes three agents with measured cost, anomaly, and missing-cost examples.
+- **Foundry mode**: Returns typed `connector-not-connected` response. Never falls back to synthetic data.
+- **Unknown agent**: Returns `insufficient-data`, not invented success data.
 
 ## Next Steps
 

@@ -410,3 +410,19 @@ export type {
   DimensionDriftResult,
   DriftAnalysisResult,
 } from './behavior-baseline.js'
+
+export {
+  tokenEconomicsAnalysisStatusSchema,
+  tokenEconomicsAnomalyDimensionSchema,
+  tokenEconomicsAnomalySchema,
+  tokenEconomicsCoverageSchema,
+  tokenEconomicsReportSchema,
+} from './token-economics.js'
+
+export type {
+  TokenEconomicsAnalysisStatus,
+  TokenEconomicsAnomalyDimension,
+  TokenEconomicsAnomaly,
+  TokenEconomicsCoverage,
+  TokenEconomicsReport,
+} from './token-economics.js'

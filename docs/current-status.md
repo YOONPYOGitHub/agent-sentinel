@@ -1,6 +1,6 @@
 # Current status
 
-**Status date: 2026-08-23** · Branch: `feature/live-exposure` · Head commit: `8179785`
+**Status date: 2026-08-24** · Branch: `feature/live-exposure`
 
 This is the authoritative dated ledger for the Agent Sentinel control plane. Every row states what is true today, not what is intended. Where a capability is absent, the ledger says so rather than describing it as pending success.
 
@@ -10,34 +10,36 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 
 ## Recent delivery on `feature/live-exposure`
 
-| Commit    | Change                                             | Effect                                                                                   |
-| --------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `8179785` | Microsoft Entra authentication and RBAC foundation | JWT validation, four roles, per-route capability guards, SPA MSAL wiring. Not activated. |
-| `ec43f2e` | Connector management catalog                       | Ten connectors with honest lifecycle states, capabilities, prerequisites, and readiness. |
-| `6c12596` | Evidence-backed agent scorecards                   | Six independent assurance dimensions; live exposure drives the security dimension.       |
-| `5ce3269` | Agent inventory and assurance catalog              | Organization-wide inventory plus the employee-facing assurance overlay.                  |
+| Commit    | Change                                             | Effect                                                                                                                                                                                |
+| --------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HEAD`    | Token Economics foundation (mock mode)             | Deterministic engine, typed domain, synthetic fixtures, GET API, Optimization/Detail UI seams. Mock-mode only; live mode returns connector-not-connected. No OTel, no real telemetry. |
+| `8179785` | Microsoft Entra authentication and RBAC foundation | JWT validation, four roles, per-route capability guards, SPA MSAL wiring. Not activated.                                                                                              |
+| `ec43f2e` | Connector management catalog                       | Ten connectors with honest lifecycle states, capabilities, prerequisites, and readiness.                                                                                              |
+| `6c12596` | Evidence-backed agent scorecards                   | Six independent assurance dimensions; live exposure drives the security dimension.                                                                                                    |
+| `5ce3269` | Agent inventory and assurance catalog              | Organization-wide inventory plus the employee-facing assurance overlay.                                                                                                               |
 
 ---
 
 ## Complete
 
-| Item                                          | Evidence boundary                                                                                                                                                                                                                                   |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Full application shell and navigation         | Twelve routes plus global search are implemented with API, component, and end-to-end coverage for the work queue and established surfaces.                                                                                                          |
-| Mock acceptance path across every surface     | Deterministic in-repository fixtures; no Azure access required to run or test the product.                                                                                                                                                          |
-| Live Microsoft Foundry discovery              | **Live declared configuration only.** Agent and function-tool definitions. No runtime traces, tool authorization, or cost.                                                                                                                          |
-| Cosmos-backed exposure findings               | **Live.** Container `exposure-findings`, partition key `/tenantId`, upsert preserves `firstSeen`.                                                                                                                                                   |
-| Cosmos-backed governance posture              | **Live.** Derived from the same findings; posture tiles deep-link to the filtered findings that produced them.                                                                                                                                      |
-| Jobs ingestion loop                           | **Live.** Interval discovery plus optional `snapshot-ingestion` Service Bus trigger with idempotency.                                                                                                                                               |
-| Terra live validation, 6 of 6                 | **Synthetic, operator-invoked.** `pnpm foundry:validate` exercises all six agents; never run by CI.                                                                                                                                                 |
-| Agent inventory and assurance catalog         | **Current.** Populated from live Foundry discovery; other platforms are absent, not empty-but-clean.                                                                                                                                                |
-| Live evidence-backed scorecards               | **Current.** Security, governance, and lifecycle derive from evidence. Quality, reliability, and cost report `unknown`.                                                                                                                             |
-| Connector management catalog                  | **Current.** One connector is connectable; one is `authorization-required`; one is `available-to-configure` offline; seven are `planned`.                                                                                                           |
-| Entra authentication and RBAC code foundation | **Current code, not activated.** `AUTH_MODE=disabled` is deployed.                                                                                                                                                                                  |
-| Azure deployment, revision 11 on `8179785`    | **Live.** Container Apps `web`, `api`, `jobs` on a private ACA environment, with authentication disabled.                                                                                                                                           |
-| Corporate Service Tree registration           | **Complete.** Registered under the confirmed `MCAPS > GES Asia > Korea` hierarchy with two administrators.                                                                                                                                          |
-| Universal custom manifest adapter             | **Current, offline.** `@agent-sentinel/manifest-connector` normalizes an operator-supplied manifest into an `EstateSnapshot`. Non-authoritative, read-only, no ingestion endpoint.                                                                  |
-| Deterministic behavior-baseline engine        | **Current, mock-mode only.** `@agent-sentinel/behavior-engine` implements median/MAD statistics, drift analysis, evidence coverage, and typed `DriftAnalysisResult`. No OTel connector yet; quality/reliability/cost remain `unknown` in live mode. |
+| Item                                          | Evidence boundary                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Full application shell and navigation         | Twelve routes plus global search are implemented with API, component, and end-to-end coverage for the work queue and established surfaces.                                                                                                                                                                                                                                                       |
+| Mock acceptance path across every surface     | Deterministic in-repository fixtures; no Azure access required to run or test the product.                                                                                                                                                                                                                                                                                                       |
+| Live Microsoft Foundry discovery              | **Live declared configuration only.** Agent and function-tool definitions. No runtime traces, tool authorization, or cost.                                                                                                                                                                                                                                                                       |
+| Cosmos-backed exposure findings               | **Live.** Container `exposure-findings`, partition key `/tenantId`, upsert preserves `firstSeen`.                                                                                                                                                                                                                                                                                                |
+| Cosmos-backed governance posture              | **Live.** Derived from the same findings; posture tiles deep-link to the filtered findings that produced them.                                                                                                                                                                                                                                                                                   |
+| Jobs ingestion loop                           | **Live.** Interval discovery plus optional `snapshot-ingestion` Service Bus trigger with idempotency.                                                                                                                                                                                                                                                                                            |
+| Terra live validation, 6 of 6                 | **Synthetic, operator-invoked.** `pnpm foundry:validate` exercises all six agents; never run by CI.                                                                                                                                                                                                                                                                                              |
+| Agent inventory and assurance catalog         | **Current.** Populated from live Foundry discovery; other platforms are absent, not empty-but-clean.                                                                                                                                                                                                                                                                                             |
+| Live evidence-backed scorecards               | **Current.** Security, governance, and lifecycle derive from connected evidence. Cost / Efficiency derives only from a validated, fully measured Token Economics report; it remains `unknown` in the deployed live environment. Quality and reliability remain `unknown`.                                                                                                                        |
+| Connector management catalog                  | **Current.** One connector is connectable; one is `authorization-required`; one is `available-to-configure` offline; seven are `planned`.                                                                                                                                                                                                                                                        |
+| Entra authentication and RBAC code foundation | **Current code, not activated.** `AUTH_MODE=disabled` is deployed.                                                                                                                                                                                                                                                                                                                               |
+| Azure deployment, revision 11 on `8179785`    | **Live.** Container Apps `web`, `api`, `jobs` on a private ACA environment, with authentication disabled.                                                                                                                                                                                                                                                                                        |
+| Corporate Service Tree registration           | **Complete.** Registered under the confirmed `MCAPS > GES Asia > Korea` hierarchy with two administrators.                                                                                                                                                                                                                                                                                       |
+| Universal custom manifest adapter             | **Current, offline.** `@agent-sentinel/manifest-connector` normalizes an operator-supplied manifest into an `EstateSnapshot`. Non-authoritative, read-only, no ingestion endpoint.                                                                                                                                                                                                               |
+| Deterministic behavior-baseline engine        | **Current, mock-mode only.** `@agent-sentinel/behavior-engine` implements median/MAD statistics, drift analysis, evidence coverage, and typed `DriftAnalysisResult`. No OTel connector yet; quality/reliability/cost remain `unknown` in live mode.                                                                                                                                              |
+| Token Economics foundation (mock mode)        | **Current, mock-mode only.** `analyzeTokenEconomics()` uses measured-only populations, reconciled coverage, evidence-linked MAD anomalies, and same-population cost per success. Three synthetic fixtures cover healthy, cost-anomaly, and missing-cost scenarios. Agent Detail conditionally activates Cost / Efficiency only for validated full-coverage reports. Live mode remains `unknown`. |
 
 ---
 
@@ -70,13 +72,13 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 
 ## Pending
 
-| Item                                  | Not started because                                                                                              |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Behavior baseline and drift detection | Requires a runtime telemetry connector. `azure-monitor-otel` is catalogued as `planned`.                         |
-| Token economics                       | Same dependency. The cost scorecard dimension reports `unknown`; no cost figure is estimated anywhere.           |
-| Universal adapters                    | The custom manifest adapter is implemented and offline-only. The authenticated ingestion API is not implemented. |
-| Business-value evidence               | Requires runtime telemetry plus outcome sources.                                                                 |
-| Shift-left scanner                    | Deliberately sequenced after the governance lifecycle workflow so it reuses one policy definition.               |
+| Item                                  | Not started because                                                                                                                                                                               |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Behavior baseline and drift detection | Engine is implemented in mock mode; live evidence still requires a runtime telemetry connector. `azure-monitor-otel` is catalogued as `planned`.                                                  |
+| Real token economics telemetry        | Mock-mode foundation is implemented. Live token economics still requires a runtime telemetry connector; the cost scorecard dimension remains `unknown`, and no cost figure is estimated anywhere. |
+| Universal adapters                    | The custom manifest adapter is implemented and offline-only. The authenticated ingestion API is not implemented.                                                                                  |
+| Business-value evidence               | Requires runtime telemetry plus outcome sources.                                                                                                                                                  |
+| Shift-left scanner                    | Deliberately sequenced after the governance lifecycle workflow so it reuses one policy definition.                                                                                                |
 
 ---
 
@@ -89,7 +91,7 @@ These boundaries are what keep the product honest. They are enforced in code, no
 | Foundry evidence is **declared configuration**, never observed runtime behavior.                      | Connector label plus explicit blind-spot reporting on `GET /api/connectors`.                           |
 | The connector never infers tools, relationships, owners, or health that Foundry did not return.       | Schema validation; a malformed response fails rather than degrading to a guess.                        |
 | A degraded connector reports degraded health; it is never replaced with mock success.                 | Connector health path in `apps/api`.                                                                   |
-| Quality, reliability, and cost report `unknown` because no telemetry connector is connected.          | Scorecard dimension explanations in `apps/web/src/scorecard.ts`.                                       |
+| Live quality, reliability, and cost report `unknown` because no telemetry connector is connected.     | Scorecard validation in `apps/web/src/scorecard.ts`; mock cost posture is explicitly synthetic.        |
 | Missing evidence lowers confidence and never implies safety.                                          | Product invariant, see [CONTEXT.md](CONTEXT.md).                                                       |
 | The advisory model explains evidence; it never establishes security truth or authorizes an action.    | Grounding check plus schema validation; ungrounded output is rejected.                                 |
 | Live mode is read-only for demo routes.                                                               | Non-`GET` requests to `/api/demo/*` return `403 read_only_mode` in live mode.                          |
@@ -124,14 +126,14 @@ Endpoint host names, resource names, and operational commands are in [deployment
 
 ## Validation baseline
 
-Measured on 2026-08-23 on `feature/live-exposure`. Application code may be modified concurrently by other work; re-run before relying on these numbers.
+Measured on 2026-08-24 on `feature/live-exposure`.
 
 | Suite                        | Command                                                 | Result                                              |
 | ---------------------------- | ------------------------------------------------------- | --------------------------------------------------- |
-| Behavior engine tests        | `pnpm --filter @agent-sentinel/behavior-engine test`    | **49 passing**, 2 files                             |
-| API unit tests               | `pnpm --filter @agent-sentinel/api test`                | **119 passing**, 10 files                           |
+| Behavior engine tests        | `pnpm --filter @agent-sentinel/behavior-engine test`    | **70 passing**, 3 files                             |
+| API unit tests               | `pnpm --filter @agent-sentinel/api test`                | **127 passing**, 11 files                           |
 | Manifest connector tests     | `pnpm --filter @agent-sentinel/manifest-connector test` | **53 passing**, 1 file                              |
-| Web unit and component tests | `pnpm --filter @agent-sentinel/web test`                | **180 passing**, 25 files                           |
+| Web unit and component tests | `pnpm --filter @agent-sentinel/web test`                | **194 passing**, 26 files                           |
 | End-to-end                   | `pnpm test:e2e`                                         | **23 tests** across 10 Playwright specs             |
 | Bicep                        | `az bicep build`                                        | Builds, with baseline linter warnings               |
 | Web production build         | `pnpm --filter @agent-sentinel/web build`               | Succeeds with a Rollup chunk-size warning (>500 kB) |

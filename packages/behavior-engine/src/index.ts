@@ -13,3 +13,6 @@ export {
   RATE_THRESHOLDS,
   MAX_DUPLICATE_RATIO,
 } from './thresholds.js'
+
+export { analyzeTokenEconomics } from './token-economics-analyzer.js'
+export type { TokenEconomicsAnalysisOptions } from './token-economics-analyzer.js'

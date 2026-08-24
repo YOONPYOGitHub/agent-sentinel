@@ -2,7 +2,12 @@
 import '@testing-library/jest-dom/vitest'
 import { describe, expect, it } from 'vitest'
 
-import type { AgentSentinelState, ExposureFinding, GraphNode } from '@agent-sentinel/domain'
+import type {
+  AgentSentinelState,
+  ExposureFinding,
+  GraphNode,
+  TokenEconomicsReport,
+} from '@agent-sentinel/domain'
 
 import { governancePostureFixture, salesExposureFinding, testState } from './test-fixture'
 import { agentLifecycleReadiness, buildAgentScorecard, type ExposureLoadState } from './scorecard'
@@ -51,8 +56,50 @@ function dimension(
   state: AgentSentinelState,
   id: string,
   exposures: ExposureFinding[] | ExposureLoadState = 'loading',
+  tokenEconomicsReport?: TokenEconomicsReport,
 ) {
-  return buildAgentScorecard(agent, state, exposures).dimensions.find((item) => item.id === id)!
+  return buildAgentScorecard(agent, state, exposures, tokenEconomicsReport).dimensions.find(
+    (item) => item.id === id,
+  )!
+}
+
+function readyTokenEconomics(overrides: Partial<TokenEconomicsReport> = {}): TokenEconomicsReport {
+  return {
+    reportId: 'te-scorecard',
+    tenantId: testState.snapshot.tenantId,
+    agentId: hrAgent.id,
+    environment: hrAgent.environment,
+    source: 'mock-synthetic',
+    windowStart: '2026-08-01T00:00:00.000Z',
+    windowEnd: '2026-08-23T23:59:59.000Z',
+    computedAt: '2026-08-23T23:59:59.000Z',
+    status: 'ready',
+    baselineEvidenceId: 'te-baseline-evidence',
+    observedEvidenceId: 'te-observed-evidence',
+    coverage: {
+      totalObservations: 20,
+      deduplicatedObservations: 20,
+      duplicatesRemoved: 0,
+      successCount: 20,
+      measuredSuccessCount: 20,
+      inputTokenMeasuredCount: 20,
+      outputTokenMeasuredCount: 20,
+      totalTokenMeasuredCount: 20,
+      costMeasuredCount: 20,
+      costCoverage: 1,
+    },
+    totalInputTokens: 5200,
+    totalOutputTokens: 3760,
+    totalTokens: 8960,
+    medianInputTokens: 260,
+    medianOutputTokens: 188,
+    medianTotalTokens: 448,
+    measuredCostUsd: 0.44,
+    medianCostUsd: 0.022,
+    costPerSuccessUsd: 0.022,
+    anomalies: [],
+    ...overrides,
+  }
 }
 
 describe('agentLifecycleReadiness', () => {
@@ -277,6 +324,103 @@ describe('buildAgentScorecard', () => {
       expect(item).toMatchObject({ posture: 'unknown', coverage: 'unknown' })
       expect(item?.missingConnector).toBeTruthy()
     }
+  })
+
+  it('derives a healthy Cost posture from a fully measured validated report', () => {
+    const cost = dimension(hrAgent, testState, 'cost', [], readyTokenEconomics())
+
+    expect(cost).toMatchObject({
+      posture: 'healthy',
+      coverage: 'derived',
+    })
+
+    expect(cost.missingConnector).toBeUndefined()
+    expect(cost.explanation).toContain('[SYNTHETIC]')
+    expect(cost.explanation).toContain('20 of 20 calls')
+    expect(cost.explanation).toContain('No token or cost anomaly')
+  })
+
+  it('uses observed coverage for a ready live measured-cost report', () => {
+    const cost = dimension(
+      hrAgent,
+      testState,
+      'cost',
+      [],
+      readyTokenEconomics({ source: 'azure-monitor-otel' }),
+    )
+    expect(cost).toMatchObject({ posture: 'healthy', coverage: 'observed' })
+    expect(cost.explanation).toContain('Measured runtime observations')
+  })
+
+  it('maps measured token or cost anomalies to attention and critical postures', () => {
+    const anomaly = {
+      anomalyId: 'te-anomaly',
+      dimension: 'cost' as const,
+      severity: 'high' as const,
+      baselineMedian: 0.02,
+      observedMedian: 0.08,
+      deviationMads: 12,
+      evidenceIds: ['te-baseline-evidence', 'te-observed-evidence'],
+      explanation: 'Measured cost increased.',
+    }
+    expect(
+      dimension(hrAgent, testState, 'cost', [], readyTokenEconomics({ anomalies: [anomaly] }))
+        .posture,
+    ).toBe('attention')
+    expect(
+      dimension(
+        hrAgent,
+        testState,
+        'cost',
+        [],
+        readyTokenEconomics({
+          anomalies: [{ ...anomaly, severity: 'critical' }],
+        }),
+      ).posture,
+    ).toBe('critical')
+  })
+
+  it('keeps Cost unknown for partial, unmeasured, unavailable, or mismatched reports', () => {
+    const partial = readyTokenEconomics({
+      coverage: {
+        ...readyTokenEconomics().coverage!,
+        costMeasuredCount: 10,
+        measuredSuccessCount: 10,
+        costCoverage: 0.5,
+      },
+      measuredCostUsd: 0.22,
+      costPerSuccessUsd: 0.022,
+    })
+    expect(dimension(hrAgent, testState, 'cost', [], partial)).toMatchObject({
+      posture: 'unknown',
+      coverage: 'unknown',
+    })
+    expect(dimension(hrAgent, testState, 'cost', [], partial).explanation).toContain('50%')
+
+    const unavailable = readyTokenEconomics({
+      source: 'azure-monitor-otel',
+      status: 'connector-not-connected',
+      unavailableReason: 'Runtime telemetry connector is not connected.',
+      coverage: undefined,
+      measuredCostUsd: undefined,
+      medianCostUsd: undefined,
+      costPerSuccessUsd: undefined,
+    })
+    expect(dimension(hrAgent, testState, 'cost', [], unavailable)).toMatchObject({
+      posture: 'unknown',
+      coverage: 'unknown',
+      missingConnector: 'Azure Monitor & measured cost telemetry',
+    })
+
+    const mismatched = readyTokenEconomics({ tenantId: 'other-tenant' })
+    expect(dimension(hrAgent, testState, 'cost', [], mismatched).posture).toBe('unknown')
+  })
+
+  it('keeps Cost unknown when evidence references are incomplete', () => {
+    const report = readyTokenEconomics({ observedEvidenceId: undefined })
+    const cost = dimension(hrAgent, testState, 'cost', [], report)
+    expect(cost.posture).toBe('unknown')
+    expect(cost.explanation).toContain('evidence references are incomplete')
   })
 
   it('labels the finding risk score and does not present it as assurance', () => {

@@ -12,11 +12,12 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import type { ExposureFinding, ExposurePage } from '@agent-sentinel/domain'
+import type { ExposureFinding, ExposurePage, TokenEconomicsReport } from '@agent-sentinel/domain'
 
 import { exposureApi } from '../api/exposure-api'
 import { PageHeading } from '../components/PageHeading'
 import { useDemoState } from '../hooks/useDemoState'
+import { useTokenEconomics } from '../hooks/useTokenEconomics'
 
 type RecommendationCategory = 'security' | 'ownership' | 'lifecycle' | 'evidence'
 type RecommendationPriority = 'critical' | 'high' | 'medium' | 'low'
@@ -224,12 +225,15 @@ export function OptimizationPage() {
         <div>
           <strong>Recommendation scope is bounded by available evidence</strong>
           <span>
-            Cost, latency, reliability, quality, adoption, and sustainability recommendations are
-            unavailable until their telemetry models are connected. No savings or outcome is
-            estimated here.
+            Latency, reliability, quality, adoption, and sustainability recommendations are
+            unavailable until their telemetry models are connected. Token economics data is
+            available in synthetic demonstration mode (marked [SYNTHETIC]) and unknown in live mode.
+            No savings or outcome is estimated here.
           </span>
         </div>
       </section>
+
+      <TokenEconomicsSection />
 
       {loading && exposure === undefined ? (
         <div className="optimization-state" role="status">
@@ -378,6 +382,161 @@ export function OptimizationPage() {
             </section>
           )}
         </>
+      )}
+    </>
+  )
+}
+
+function TokenEconomicsSection() {
+  return (
+    <section className="optimization-token-economics" aria-labelledby="token-economics-heading">
+      <h2 id="token-economics-heading">Token Economics</h2>
+      <p className="muted">
+        Measured token usage and cost when supplied by connected telemetry. Synthetic examples are
+        explicitly labeled; unavailable live data remains unknown. Partial cost coverage is labeled,
+        and totals represent measured observations only.
+      </p>
+      <div className="token-economics-grid">
+        {['hr-policy-agent', 'code-review-copilot', 'sales-research-agent'].map((agentId) => (
+          <AgentTokenEconomicsCard key={agentId} agentId={agentId} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function AgentTokenEconomicsCard({ agentId }: { agentId: string }) {
+  const state = useTokenEconomics(agentId)
+  const label = agentId
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+
+  return (
+    <article className="token-economics-card" aria-label={`Token economics for ${label}`}>
+      <h3>{label}</h3>
+      <TokenEconomicsCardContent state={state} />
+    </article>
+  )
+}
+
+function TokenEconomicsCardContent({
+  state,
+}: {
+  state:
+    | { status: 'loading' }
+    | { status: 'error'; message: string }
+    | { status: 'done'; report: TokenEconomicsReport }
+}) {
+  if (state.status === 'loading') {
+    return (
+      <p className="muted" role="status">
+        Loading token economics…
+      </p>
+    )
+  }
+  if (state.status === 'error') {
+    return (
+      <p className="muted" role="alert">
+        {state.message}
+      </p>
+    )
+  }
+
+  const { report } = state
+
+  if (report.status === 'connector-not-connected') {
+    return (
+      <p className="muted" role="note">
+        Connector not connected. Connect the Azure Monitor &amp; OpenTelemetry connector to unlock
+        token economics.
+      </p>
+    )
+  }
+
+  if (report.status !== 'ready') {
+    return (
+      <p className="muted" role="note">
+        {report.unavailableReason ?? 'Token economics data unavailable.'}
+      </p>
+    )
+  }
+
+  const costCoveragePct =
+    report.coverage !== undefined ? Math.round(report.coverage.costCoverage * 100) : 0
+
+  return (
+    <>
+      {report.source === 'mock-synthetic' && (
+        <div
+          className="drift-badge drift-badge--synthetic"
+          role="note"
+          aria-label="Synthetic demonstration data"
+        >
+          [SYNTHETIC] Mock demonstration — no live telemetry connected
+        </div>
+      )}
+      <dl className="token-economics-stats">
+        <div>
+          <dt>Total tokens</dt>
+          <dd>{report.totalTokens?.toLocaleString() ?? '—'}</dd>
+        </div>
+        <div>
+          <dt>Median input tokens</dt>
+          <dd>{report.medianInputTokens?.toFixed(0) ?? '—'}</dd>
+        </div>
+        <div>
+          <dt>Median output tokens</dt>
+          <dd>{report.medianOutputTokens?.toFixed(0) ?? '—'}</dd>
+        </div>
+        <div>
+          <dt>Measured cost (USD)</dt>
+          <dd>
+            {report.measuredCostUsd !== undefined
+              ? `$${report.measuredCostUsd.toFixed(4)} (${costCoveragePct}% coverage)`
+              : 'Not measured'}
+          </dd>
+        </div>
+        {report.costPerSuccessUsd !== undefined && (
+          <div>
+            <dt>Cost per measured success</dt>
+            <dd>${report.costPerSuccessUsd.toFixed(4)}</dd>
+          </div>
+        )}
+        <div>
+          <dt>Sample coverage</dt>
+          <dd>
+            {report.coverage?.deduplicatedObservations ?? 0} observations ·{' '}
+            {report.coverage?.successCount ?? 0} successes
+          </dd>
+        </div>
+      </dl>
+      {report.anomalies !== undefined && report.anomalies.length > 0 && (
+        <div
+          className="token-economics-anomalies"
+          role="list"
+          aria-label="Token economics anomalies"
+        >
+          {report.anomalies.map((anomaly) => (
+            <div
+              key={anomaly.anomalyId}
+              role="listitem"
+              className={`anomaly-item anomaly-item--${anomaly.severity}`}
+            >
+              <Badge
+                appearance="tint"
+                color={
+                  anomaly.severity === 'critical' || anomaly.severity === 'high'
+                    ? 'danger'
+                    : 'warning'
+                }
+              >
+                {anomaly.severity}
+              </Badge>
+              <span>{anomaly.explanation}</span>
+            </div>
+          ))}
+        </div>
       )}
     </>
   )

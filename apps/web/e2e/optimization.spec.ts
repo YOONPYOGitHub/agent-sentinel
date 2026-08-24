@@ -8,8 +8,11 @@ test('optimization ranks bounded recommendations and opens simulation', async ({
   ).toBeVisible()
   await expect(
     page.getByText(
-      /Cost, latency, reliability, quality, adoption, and sustainability recommendations are unavailable/i,
+      /Latency, reliability, quality, adoption, and sustainability recommendations are unavailable/i,
     ),
+  ).toBeVisible()
+  await expect(
+    page.getByText(/Token economics data is available in synthetic demonstration mode/i),
   ).toBeVisible()
 
   await page

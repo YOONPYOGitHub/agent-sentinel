@@ -8,10 +8,12 @@ import { MemoryRouter } from 'react-router-dom'
 import App from '../App'
 import { connectorApi, demoApi } from '../api'
 import { exposureApi } from '../api/exposure-api'
+import { useTokenEconomics } from '../hooks/useTokenEconomics'
 import { salesExposureFinding, testState } from '../test-fixture'
 
 vi.mock('../api')
 vi.mock('../api/exposure-api')
+vi.mock('../hooks/useTokenEconomics')
 afterEach(cleanup)
 beforeEach(() => {
   vi.mocked(demoApi.getState).mockResolvedValue(testState)
@@ -21,6 +23,7 @@ beforeEach(() => {
     mode: 'mock',
   })
   vi.spyOn(exposureApi, 'listAll').mockResolvedValue([])
+  vi.mocked(useTokenEconomics).mockReturnValue({ status: 'loading' })
 })
 
 function renderDetail(agentId: string) {
@@ -52,6 +55,106 @@ describe('AgentDetailPage', () => {
         .getAllByRole('link', { name: /Agent inventory/ })
         .some((link) => link.getAttribute('href') === '/agent-inventory'),
     ).toBe(true)
+  })
+
+  it('shows token economics section in agent detail', async () => {
+    const mockReport = {
+      reportId: 'te-abc',
+      tenantId: 'test',
+      agentId: 'hr-policy-agent',
+      environment: 'production',
+      source: 'mock-synthetic' as const,
+      windowStart: '2026-08-01T00:00:00.000Z',
+      windowEnd: '2026-08-23T23:59:59.000Z',
+      computedAt: '2026-08-23T23:59:59.000Z',
+      status: 'ready' as const,
+      baselineEvidenceId: 'te-baseline-evidence',
+      observedEvidenceId: 'te-observed-evidence',
+      coverage: {
+        totalObservations: 20,
+        deduplicatedObservations: 20,
+        duplicatesRemoved: 0,
+        successCount: 20,
+        measuredSuccessCount: 20,
+        inputTokenMeasuredCount: 20,
+        outputTokenMeasuredCount: 20,
+        totalTokenMeasuredCount: 20,
+        costMeasuredCount: 20,
+        costCoverage: 1,
+      },
+      totalInputTokens: 5200,
+      totalOutputTokens: 3760,
+      totalTokens: 8960,
+      medianTotalTokens: 448,
+      measuredCostUsd: 0.44,
+      medianCostUsd: 0.022,
+      costPerSuccessUsd: 0.022,
+      anomalies: [],
+    }
+    vi.mocked(useTokenEconomics).mockReturnValue({ status: 'done', report: mockReport })
+    renderDetail('hr-policy-agent')
+    expect(await screen.findByRole('heading', { name: 'Token economics', level: 2 })).toBeVisible()
+    expect(
+      screen.getByText('[SYNTHETIC] Mock demonstration — no live telemetry connected'),
+    ).toBeVisible()
+    expect(screen.getAllByText(/\$0\.4400/).length).toBeGreaterThanOrEqual(1)
+    const costCard = screen.getByRole('heading', { name: 'Cost / Efficiency' }).closest('article')
+    expect(costCard).not.toBeNull()
+    expect(within(costCard!).getByText('Healthy')).toBeVisible()
+    expect(within(costCard!).getByText(/\[SYNTHETIC\]/)).toBeVisible()
+  })
+
+  it('shows token economics anomaly evidence in agent detail', async () => {
+    vi.mocked(useTokenEconomics).mockReturnValue({
+      status: 'done',
+      report: {
+        reportId: 'te-anomaly',
+        tenantId: 'test',
+        agentId: 'hr-policy-agent',
+        environment: 'production',
+        source: 'mock-synthetic',
+        windowStart: '2026-08-01T00:00:00.000Z',
+        windowEnd: '2026-08-23T23:59:59.000Z',
+        computedAt: '2026-08-23T23:59:59.000Z',
+        status: 'ready',
+        baselineEvidenceId: 'te-baseline-evidence',
+        observedEvidenceId: 'te-observed-evidence',
+        coverage: {
+          totalObservations: 20,
+          deduplicatedObservations: 20,
+          duplicatesRemoved: 0,
+          successCount: 20,
+          measuredSuccessCount: 20,
+          inputTokenMeasuredCount: 20,
+          outputTokenMeasuredCount: 20,
+          totalTokenMeasuredCount: 20,
+          costMeasuredCount: 20,
+          costCoverage: 1,
+        },
+        totalInputTokens: 5200,
+        totalOutputTokens: 3760,
+        totalTokens: 8960,
+        measuredCostUsd: 0.88,
+        medianCostUsd: 0.044,
+        costPerSuccessUsd: 0.044,
+        anomalies: [
+          {
+            anomalyId: 'te-anomaly-cost',
+            dimension: 'cost',
+            severity: 'high',
+            baselineMedian: 0.022,
+            observedMedian: 0.044,
+            evidenceIds: ['te-baseline-evidence', 'te-observed-evidence'],
+            explanation: 'Measured cost exceeded the deterministic threshold.',
+          },
+        ],
+      },
+    })
+    renderDetail('hr-policy-agent')
+
+    const list = await screen.findByRole('list', { name: 'Agent token economics anomalies' })
+    expect(within(list).getByText('high')).toBeVisible()
+    expect(within(list).getByText(/Measured cost exceeded/)).toBeVisible()
   })
 
   it('shows assurance scorecard with critical security dimension for agent with active finding', async () => {

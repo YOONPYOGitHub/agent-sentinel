@@ -124,6 +124,7 @@ export const baselineWindowSchema = z.object({
   latencyMs: distributionStatsSchema.optional(),
   inputTokens: distributionStatsSchema.optional(),
   outputTokens: distributionStatsSchema.optional(),
+  totalTokens: distributionStatsSchema.optional(),
   costUsd: distributionStatsSchema.optional(),
   successRate: z.number().min(0).max(1).optional(),
   errorRate: z.number().min(0).max(1).optional(),
