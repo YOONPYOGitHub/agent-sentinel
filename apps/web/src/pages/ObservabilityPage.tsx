@@ -5,15 +5,17 @@ import {
   ClockRegular,
   DataUsageRegular,
   PulseRegular,
+  SparkleRegular,
   WarningRegular,
 } from '@fluentui/react-icons'
 import { useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
-import type { Evidence } from '@agent-sentinel/domain'
+import type { DriftAnalysisResult, Evidence } from '@agent-sentinel/domain'
 
 import { PageHeading } from '../components/PageHeading'
 import { useDemoState } from '../hooks/useDemoState'
+import { useAgentDrift } from '../hooks/useAgentDrift'
 
 function formatDateTime(value: string): string {
   const date = new Date(value)
@@ -259,7 +261,143 @@ export function ObservabilityPage() {
           </Button>
         </aside>
       </section>
+
+      <BehaviorDriftSummary />
     </>
+  )
+}
+
+/**
+ * Shows synthetic drift examples in mock mode or a "not connected" notice in
+ * live mode. Every synthetic result is clearly marked.
+ */
+function BehaviorDriftSummary() {
+  const salesDrift = useAgentDrift('sales-research-agent')
+  const crDrift = useAgentDrift('code-review-copilot')
+  const hrDrift = useAgentDrift('hr-policy-agent')
+
+  const allResults = [salesDrift, crDrift, hrDrift].filter(
+    (r): r is DriftAnalysisResult => r !== null,
+  )
+
+  const liveMode =
+    allResults.length > 0 && allResults.every((r) => r.source === 'azure-monitor-otel')
+
+  return (
+    <section
+      className="observability-card observability-drift"
+      aria-labelledby="drift-section-title"
+    >
+      <div className="observability-card__header">
+        <div>
+          <span className="eyebrow">BEHAVIOR BASELINE &amp; DRIFT</span>
+          <h2 id="drift-section-title">Agent runtime behavior</h2>
+        </div>
+        <SparkleRegular aria-hidden="true" />
+      </div>
+
+      {liveMode ? (
+        <div className="observability-boundary" role="status">
+          <PulseRegular aria-hidden="true" />
+          <div>
+            <strong>Telemetry not connected</strong>
+            <span>
+              Connect the <strong>Azure Monitor &amp; OpenTelemetry</strong> connector to unlock
+              behavior baselines and drift detection. The analysis engine is implemented and ready.
+            </span>
+          </div>
+        </div>
+      ) : allResults.length === 0 ? (
+        <div className="observability-empty">
+          <DataUsageRegular aria-hidden="true" />
+          <strong>No drift data available</strong>
+          <span>Drift analysis will appear here once observations are loaded.</span>
+        </div>
+      ) : (
+        <>
+          <div
+            className="observability-boundary observability-boundary--synthetic"
+            role="note"
+            aria-label="Synthetic data notice"
+          >
+            <SparkleRegular aria-hidden="true" />
+            <div>
+              <strong>[SYNTHETIC] Mock demonstration only</strong>
+              <span>
+                These results are generated from fixed synthetic observations and exist to
+                demonstrate the deterministic drift-analysis engine. No live telemetry is connected.
+              </span>
+            </div>
+          </div>
+          <div className="drift-results-grid">
+            {allResults.map((result) => (
+              <DriftAgentCard key={result.agentId} result={result} />
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+function DriftAgentCard({ result }: { result: DriftAnalysisResult }) {
+  const driftedDimensions = result.dimensions.filter((d) => d.drifted)
+  const topSeverity = result.highestSeverity
+
+  return (
+    <article
+      className={`drift-card drift-card--${result.anyDrift ? (topSeverity ?? 'low') : 'healthy'}`}
+      aria-label={`Drift summary for ${result.agentId}`}
+    >
+      <div className="drift-card__header">
+        <strong>
+          <Link to={`/agent-inventory/${result.agentId}`}>{result.agentId}</Link>
+        </strong>
+        <Badge
+          appearance="filled"
+          color={
+            topSeverity === 'critical'
+              ? 'danger'
+              : topSeverity === 'high'
+                ? 'warning'
+                : topSeverity === 'medium' || topSeverity === 'low'
+                  ? 'informative'
+                  : 'success'
+          }
+        >
+          {result.anyDrift ? `Drift: ${topSeverity ?? 'low'}` : 'Stable'}
+        </Badge>
+      </div>
+      {result.coverage !== undefined && (
+        <p className="muted">
+          {result.coverage.baselineSamples} baseline / {result.coverage.observedSamples} observed
+          samples &middot; {Math.round(result.coverage.coverageScore * 100)}% metric coverage
+        </p>
+      )}
+      {driftedDimensions.length > 0 ? (
+        <ul className="drift-dimension-list" aria-label="Drifted dimensions">
+          {driftedDimensions.map((dim) => (
+            <li key={dim.dimension}>
+              <Badge
+                appearance="tint"
+                color={
+                  dim.severity === 'critical'
+                    ? 'danger'
+                    : dim.severity === 'high'
+                      ? 'warning'
+                      : 'informative'
+                }
+              >
+                {dim.dimension}
+              </Badge>
+              <span>{dim.explanation}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">No drift detected across {result.dimensions.length} dimensions.</p>
+      )}
+    </article>
   )
 }
 

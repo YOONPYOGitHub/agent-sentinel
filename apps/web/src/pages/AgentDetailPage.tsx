@@ -8,11 +8,12 @@ import {
 } from '@fluentui/react-icons'
 import { Link, useParams } from 'react-router-dom'
 
-import type { EstateSnapshot, GraphEdge } from '@agent-sentinel/domain'
+import type { DriftAnalysisResult, EstateSnapshot, GraphEdge } from '@agent-sentinel/domain'
 
 import { EvidenceDrawer } from '../components/EvidenceDrawer'
 import { PageHeading } from '../components/PageHeading'
 import { useDemoState } from '../hooks/useDemoState'
+import { useAgentDrift } from '../hooks/useAgentDrift'
 import { useExposures } from '../hooks/useExposures'
 import { useEvidenceDrawer } from '../hooks/useEvidenceDrawer'
 import { buildAgentScorecard, type ScorecardPosture } from '../scorecard'
@@ -41,6 +42,7 @@ export function AgentDetailPage() {
   const { state } = useDemoState()
   const { selectedEvidence, setSelectedEvidence, drawerRef, trapFocus } = useEvidenceDrawer()
   const liveExposures = useExposures(agentId)
+  const agentDrift = useAgentDrift(agentId ?? '')
   const agent = state?.snapshot.nodes.find((node) => node.kind === 'agent' && node.id === agentId)
 
   if (agent === undefined || state === undefined) {
@@ -314,6 +316,7 @@ export function AgentDetailPage() {
           })}
         </div>
       </section>
+      <AgentDriftSection drift={agentDrift} />
       <EvidenceDrawer
         evidence={selectedEvidence}
         drawerRef={drawerRef}
@@ -321,6 +324,57 @@ export function AgentDetailPage() {
         onClose={() => setSelectedEvidence(undefined)}
       />
     </>
+  )
+}
+
+function AgentDriftSection({ drift }: { drift: DriftAnalysisResult | null }) {
+  if (drift === null) return null
+
+  const isSynthetic = drift.source === 'mock-synthetic'
+  const isUnavailable = drift.source === 'azure-monitor-otel' && drift.status !== 'ready'
+
+  return (
+    <section className="surface-card agent-drift-section" aria-labelledby="agent-drift-title">
+      <h2 id="agent-drift-title">Runtime behavior drift</h2>
+      {isSynthetic && (
+        <div className="drift-badge drift-badge--synthetic" role="note">
+          [SYNTHETIC] Mock demonstration — no live telemetry connected
+        </div>
+      )}
+      {isUnavailable ? (
+        <p className="muted">
+          Telemetry not connected.{' '}
+          {drift.unavailableReason ?? 'Connect the Azure Monitor & OpenTelemetry connector.'}
+        </p>
+      ) : (
+        <>
+          <p className="muted">
+            Status: <strong>{drift.status}</strong>
+            {drift.coverage !== undefined &&
+              ` · ${drift.coverage.baselineSamples} baseline / ${drift.coverage.observedSamples} observed samples`}
+          </p>
+          {drift.anyDrift ? (
+            <ul className="drift-dimension-list" aria-label="Drifted dimensions">
+              {drift.dimensions
+                .filter((d) => d.drifted)
+                .map((d) => (
+                  <li key={d.dimension}>
+                    <strong>{d.dimension}</strong> — {d.explanation}
+                    {d.severity !== undefined && (
+                      <>
+                        {' '}
+                        (severity: <strong>{d.severity}</strong>)
+                      </>
+                    )}
+                  </li>
+                ))}
+            </ul>
+          ) : (
+            <p className="muted">No behavioral drift detected in this window.</p>
+          )}
+        </>
+      )}
+    </section>
   )
 }
 

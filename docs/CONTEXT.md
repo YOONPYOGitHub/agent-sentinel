@@ -96,3 +96,56 @@ Invariants specific to the adapter, on top of the shared invariants above:
 ```bash
 pnpm manifest:validate -- /absolute/path/to/manifest.json
 ```
+
+## Behavior baseline and drift-analysis engine
+
+The `@agent-sentinel/behavior-engine` workspace implements a deterministic
+statistical engine for per-agent runtime behavior baselines and drift findings.
+It depends only on `@agent-sentinel/domain` and performs no network I/O.
+
+### What is implemented
+
+- **Robust statistics:** median and MAD (median absolute deviation) for
+  latency, token, and measured cost distributions. Resistant to outliers; no
+  mean/stddev.
+- **Rate drift:** absolute-delta comparison of error rate with four severity
+  levels. Success rate is not duplicated because it is the exact complement.
+- **Tool-sequence drift:** set and order-pattern analysis of added, removed, and
+  reordered tool calls with explainable severity.
+- **Fail-closed data quality:** stale windows, sparse samples (< 10),
+  invalid timestamps, high duplicate ratios, and clock-skew violations all
+  produce `status: 'invalid'` or `status: 'insufficient-data'`, never a
+  silent healthy fallback.
+- **Cost absent = unknown:** `costUsd` is never estimated; the cost dimension is
+  omitted when measurements are absent and analyzed with the same robust
+  thresholds when measurements exist.
+- **Typed evidence references:** `DriftAnalysisResult.baselineEvidenceId` and
+  `observedEvidenceId` are immutable string references to evidence records.
+
+### Mode separation
+
+| Result field        | Mock mode                 | Live mode (OTel absent) |
+| ------------------- | ------------------------- | ----------------------- |
+| `source`            | `'mock-synthetic'`        | `'azure-monitor-otel'`  |
+| `status`            | `'ready'` (or data issue) | `'invalid'`             |
+| `unavailableReason` | Set only for a data issue | Always set              |
+| Drift shown?        | Yes (synthetic data)      | No (`anyDrift: false`)  |
+
+`source: 'mock-synthetic'` is **never** present in live mode API responses.
+Synthetic results never replace an unavailable live result.
+
+### What is NOT implemented
+
+The OTel span → `ObservationWindow` ingestion pipeline (the `azure-monitor-otel`
+connector). Until that is connected, the engine runs only on the fixed synthetic
+observations defined in `@agent-sentinel/mock-connector`. All synthetic results
+are labeled `[SYNTHETIC]` in the UI.
+
+Invariants:
+
+- No LLM involvement in drift analysis. Severity and confidence are
+  deterministic functions of measured values and thresholds defined in
+  `packages/behavior-engine/src/thresholds.ts`.
+- Computational bounds are explicit: ≤ 10,000 observations per window,
+  ≤ 10 dimensions per analysis result, ≤ 50 tool names per observation.
+- The engine is read-only. There is no ingestion endpoint.

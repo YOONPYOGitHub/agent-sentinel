@@ -374,3 +374,39 @@ export type {
   GovernanceQueuePage,
   GovernanceQueueSummary,
 } from './governance-queue.js'
+
+// ---------------------------------------------------------------------------
+// Behavior baseline and drift-analysis domain types
+// ---------------------------------------------------------------------------
+
+export {
+  observationSourceSchema,
+  runtimeObservationSchema,
+  observationWindowSchema,
+  analysisStatusSchema,
+  distributionStatsSchema,
+  toolSequenceSummarySchema,
+  baselineWindowSchema,
+  driftDimensionSchema,
+  driftSeveritySchema,
+  toolSequenceChangeSchema,
+  evidenceCoverageSchema,
+  dimensionDriftResultSchema,
+  driftAnalysisResultSchema,
+} from './behavior-baseline.js'
+
+export type {
+  ObservationSource,
+  RuntimeObservation,
+  ObservationWindow,
+  AnalysisStatus,
+  DistributionStats,
+  ToolSequenceSummary,
+  BaselineWindow,
+  DriftDimension,
+  DriftSeverity,
+  ToolSequenceChange,
+  EvidenceCoverage,
+  DimensionDriftResult,
+  DriftAnalysisResult,
+} from './behavior-baseline.js'

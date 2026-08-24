@@ -108,13 +108,18 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     id: 'azure-monitor-otel',
     name: 'Azure Monitor & OpenTelemetry',
     description:
-      'Ingests agent runtime telemetry via OpenTelemetry-compatible traces and Azure Monitor logs. Provides performance and reliability evidence independent of agent platform.',
+      'Ingests agent runtime telemetry via OpenTelemetry-compatible traces and Azure Monitor logs. ' +
+      'When connected, it unlocks the deterministic behavior-baseline and drift-analysis engine ' +
+      '(already implemented) and replaces synthetic mock observations with real per-agent telemetry. ' +
+      'Until connected, quality/reliability/cost/drift remain unknown and no synthetic data is shown in live mode.',
     lifecycleState: 'planned',
     capabilities: ['runtime-telemetry'],
     sourceOfTruth: true,
     ownershipModel: 'consumes',
     prerequisiteNote:
-      'Requires Azure Monitor workspace and OTEL_EXPORTER_OTLP_ENDPOINT or Application Insights connection string. Agent instrumentation must emit OTel spans.',
+      'Requires Azure Monitor workspace and OTEL_EXPORTER_OTLP_ENDPOINT or Application Insights connection string. ' +
+      'Agent instrumentation must emit OTel spans. The behavior-baseline engine is ready; ' +
+      'only the ingestion pipeline from OTel spans to ObservationWindow objects is absent.',
     unlocksScorecard: ['quality', 'reliability', 'cost'],
   },
   {

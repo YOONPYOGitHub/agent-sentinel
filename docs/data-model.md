@@ -173,3 +173,64 @@ Attached to every normalized snapshot: `producer`, `sourceObjectIds`, `observedA
 ### Identity and idempotency
 
 Normalized ids are `manifest::<manifestId>::<localId>` via `stableId`. `computeManifestHash` returns the hex SHA-256 of canonical JSON with recursively sorted keys, so an unchanged manifest always yields the same hash and re-ingestion is idempotent.
+
+---
+
+## Behavior baseline and drift types (`@agent-sentinel/domain` — `behavior-baseline.ts`)
+
+These types are produced by `@agent-sentinel/behavior-engine` and consumed by the API behavior routes and web UX. All schemas are Zod-validated.
+
+### ObservationSource
+
+`'mock-synthetic'` | `'azure-monitor-otel'`
+
+Labels every result with its provenance. `mock-synthetic` is never present in live mode responses; `azure-monitor-otel` is the future live source.
+
+### RuntimeObservation
+
+One sampled invocation. Fields: `id`, `tenantId`, `agentId`, `environment`, `source`, `observedAt` (ISO 8601), `latencyMs` (integer ≥ 0), `inputTokens` (integer ≥ 0), `outputTokens` (integer ≥ 0), `costUsd` (number ≥ 0, optional), `success` (boolean), `toolCallNames` (bounded string array ≤ 50). No raw prompts or unbounded payloads.
+
+### ObservationWindow
+
+A bounded, timestamped collection of `RuntimeObservation` objects: `id`, `agentId`, `tenantId`, `environment`, `source`, `windowStart`, `windowEnd`, `observations` (array ≤ 10,000).
+
+### BaselineWindow
+
+Pre-computed statistical summary of a historical window: `agentId`, `tenantId`, `environment`, `source`, `windowStart`, `windowEnd`, `sampleCount` (integer ≥ 0), `latencyMs` (`DistributionStats`, optional), `inputTokens` (`DistributionStats`, optional), `outputTokens` (`DistributionStats`, optional), `costUsd` (`DistributionStats`, optional — **never present when cost is not measured**), `successRate`, `errorRate`, `toolSequence` (`ToolSequenceSummary`), `evidenceId` (immutable evidence reference), `computedAt`.
+
+`ToolSequenceSummary` records both the sorted unique tool set and bounded,
+canonical per-invocation sequence patterns, so pure ordering changes are
+detectable even when the tool set is unchanged.
+
+### DistributionStats
+
+`median` (number), `mad` (number ≥ 0), `zeroVariance` (boolean), `sampleCount` (integer ≥ 1).
+
+MAD (median absolute deviation) is used instead of standard deviation because it is resistant to outliers and bounded-distribution skew.
+
+### DriftAnalysisResult
+
+The output of `analyzeDrift`. Fields: `analysisId`, `tenantId`, `agentId`, `environment`, `source`, `status` (`AnalysisStatus`), `computedAt`, `baselineEvidenceId` (optional), `observedEvidenceId` (optional), `dimensions` (array ≤ 10 of `DimensionDriftResult`), `coverage` (`EvidenceCoverage`, optional), `anyDrift` (boolean), `highestSeverity` (optional), `unavailableReason` (optional — explains unavailable live data or an invalid, stale, or insufficient synthetic fixture).
+
+### AnalysisStatus
+
+`'ready'` | `'insufficient-data'` | `'stale'` | `'invalid'`
+
+- `ready`: analysis ran successfully on sufficient, fresh, non-duplicate data.
+- `insufficient-data`: fewer than `MIN_SAMPLES` (10) observations in baseline or observed window.
+- `stale`: window end is older than `STALE_WINDOW_HOURS` (168 h / 7 days).
+- `invalid`: data quality check failed (e.g. timestamps invalid, duplicate ratio too high, end ≤ start) or the OTel connector is absent.
+
+### DimensionDriftResult
+
+One dimension's result: `dimension` (`DriftDimension`), `drifted` (boolean), `severity` (optional `DriftSeverity`), `explanation` (human-readable string citing thresholds and measured values), optional measured-value fields (`baselineMedian`, `observedMedian`, `deviationMads`, `baselineRate`, `observedRate`, `absoluteDelta`, `toolSequenceChange`).
+
+### Bounds
+
+| Bound                   | Limit  |
+| ----------------------- | ------ |
+| Observations per window | 500    |
+| Dimensions per analysis | 10     |
+| Tool call names per obs | 50     |
+| Unique tools tracked    | 100    |
+| unavailableReason       | 500 ch |

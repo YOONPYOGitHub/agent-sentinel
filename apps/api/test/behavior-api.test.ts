@@ -1,0 +1,213 @@
+import { describe, expect, it } from 'vitest'
+import { driftAnalysisResultSchema } from '@agent-sentinel/domain'
+import type { ExposureFindingRepository, SnapshotRepository } from '@agent-sentinel/domain'
+import { createApp } from '../src/app.js'
+
+function makeStubRepositories(): {
+  exposureRepository: ExposureFindingRepository
+  snapshotRepository: SnapshotRepository
+} {
+  const exposureRepository: ExposureFindingRepository = {
+    upsert: (f) => Promise.resolve(f),
+    findById: () => Promise.resolve(null),
+    listByTenant: () => Promise.resolve({ items: [], total: 0 }),
+    getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),
+    resolveAbsent: () => Promise.resolve([]),
+  }
+  const snapshotRepository: SnapshotRepository = {
+    save: () => Promise.resolve(),
+    findLatest: () => Promise.resolve(null),
+    findById: () => Promise.resolve(null),
+    list: () => Promise.resolve([]),
+  }
+  return { exposureRepository, snapshotRepository }
+}
+
+async function makeMockApp() {
+  process.env['AGENT_SENTINEL_CONNECTOR'] = 'mock'
+  return createApp(
+    undefined,
+    { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+    { dataMode: 'mock' },
+  )
+}
+
+async function makeFoundryApp() {
+  const app = await createApp(
+    undefined,
+    { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+    { dataMode: 'live', ...makeStubRepositories() },
+  )
+  return app
+}
+
+describe('behavior drift API — mock mode', () => {
+  it('returns status ready and source mock-synthetic for a known agent', async () => {
+    const app = await makeMockApp()
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/sales-research-agent/drift',
+    })
+    expect(response.statusCode).toBe(200)
+    const body: unknown = response.json()
+    const result = driftAnalysisResultSchema.parse(body)
+    expect(result.agentId).toBe('sales-research-agent')
+    expect(result.status).toBe('ready')
+    expect(result.source).toBe('mock-synthetic')
+    // Confirms synthetic data is always clearly labeled
+    expect(result.unavailableReason).toBeUndefined()
+    expect(
+      result.dimensions.find((dimension) => dimension.dimension === 'input-tokens'),
+    ).toMatchObject({ drifted: false, baselineMedian: 420, observedMedian: 430 })
+  })
+
+  it('returns status ready for hr-policy-agent (stable healthy)', async () => {
+    const app = await makeMockApp()
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/hr-policy-agent/drift',
+    })
+    expect(response.statusCode).toBe(200)
+    const body: unknown = response.json()
+    const result = driftAnalysisResultSchema.parse(body)
+    expect(result.status).toBe('ready')
+    expect(result.source).toBe('mock-synthetic')
+  })
+
+  it('returns status ready for code-review-copilot (high error drift)', async () => {
+    const app = await makeMockApp()
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/code-review-copilot/drift',
+    })
+    expect(response.statusCode).toBe(200)
+    const body: unknown = response.json()
+    const result = driftAnalysisResultSchema.parse(body)
+    expect(result.status).toBe('ready')
+    expect(result.source).toBe('mock-synthetic')
+    // code-review-copilot has a high error-rate drift
+    const errorDim = result.dimensions.find((d) => d.dimension === 'error-rate')
+    expect(errorDim?.drifted).toBe(true)
+  })
+
+  it('returns insufficient-data for an unknown agent in mock mode', async () => {
+    const app = await makeMockApp()
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/nonexistent-agent-xyz/drift',
+    })
+    expect(response.statusCode).toBe(200)
+    const body: unknown = response.json()
+    const result = driftAnalysisResultSchema.parse(body)
+    expect(result.agentId).toBe('nonexistent-agent-xyz')
+    expect(result.status).toBe('insufficient-data')
+    expect(result.source).toBe('mock-synthetic')
+    expect(result.anyDrift).toBe(false)
+  })
+
+  it('never includes unavailableReason on synthetic results', async () => {
+    const app = await makeMockApp()
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/sales-research-agent/drift',
+    })
+    const body: unknown = response.json()
+    const result = driftAnalysisResultSchema.parse(body)
+    expect(result.unavailableReason).toBeUndefined()
+  })
+
+  it('response parses as valid DriftAnalysisResult for all known agents', async () => {
+    const app = await makeMockApp()
+    const agentIds = ['sales-research-agent', 'hr-policy-agent', 'code-review-copilot']
+    for (const agentId of agentIds) {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/behavior/agents/${agentId}/drift`,
+      })
+      expect(response.statusCode).toBe(200)
+      // Will throw if schema validation fails
+      driftAnalysisResultSchema.parse(response.json())
+    }
+  })
+
+  it('is deterministic — identical results on repeated calls', async () => {
+    const app = await makeMockApp()
+    const url = '/api/behavior/agents/sales-research-agent/drift'
+    const r1: unknown = (await app.inject({ method: 'GET', url })).json()
+    const r2: unknown = (await app.inject({ method: 'GET', url })).json()
+    const res1 = driftAnalysisResultSchema.parse(r1)
+    const res2 = driftAnalysisResultSchema.parse(r2)
+    expect(res1).toEqual(res2)
+  })
+})
+
+describe('behavior drift API — foundry/live mode', () => {
+  it('returns status invalid with unavailableReason in live mode', async () => {
+    const app = await makeFoundryApp()
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/sales-research-agent/drift',
+    })
+    expect(response.statusCode).toBe(200)
+    const body: unknown = response.json()
+    const result = driftAnalysisResultSchema.parse(body)
+    expect(result.status).toBe('invalid')
+    expect(result.source).toBe('azure-monitor-otel')
+    expect(result.unavailableReason).toBeDefined()
+    expect(typeof result.unavailableReason).toBe('string')
+    expect(result.unavailableReason!.length).toBeGreaterThan(0)
+  })
+
+  it('never returns source mock-synthetic in live mode', async () => {
+    const app = await makeFoundryApp()
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/hr-policy-agent/drift',
+    })
+    const body: unknown = response.json()
+    const result = driftAnalysisResultSchema.parse(body)
+    expect(result.source).not.toBe('mock-synthetic')
+  })
+
+  it('never returns anyDrift=true in live mode without real data', async () => {
+    const app = await makeFoundryApp()
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/code-review-copilot/drift',
+    })
+    const body: unknown = response.json()
+    const result = driftAnalysisResultSchema.parse(body)
+    expect(result.anyDrift).toBe(false)
+  })
+
+  it('returns HTTP 200 (not 503 or 404) in live mode — typed unavailable contract', async () => {
+    const app = await makeFoundryApp()
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/any-agent/drift',
+    })
+    expect(response.statusCode).toBe(200)
+  })
+
+  it('keeps unavailable analysis IDs bounded at the HTTP path-parameter limit', async () => {
+    const app = await makeFoundryApp()
+    const agentId = 'a'.repeat(100)
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/behavior/agents/${agentId}/drift`,
+    })
+    expect(response.statusCode).toBe(200)
+    const result = driftAnalysisResultSchema.parse(response.json())
+    expect(result.agentId).toBe(agentId)
+    expect(result.analysisId.length).toBeLessThanOrEqual(200)
+  })
+
+  it('rejects agent IDs outside the HTTP path-parameter bound', async () => {
+    const app = await makeFoundryApp()
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/behavior/agents/${'a'.repeat(101)}/drift`,
+    })
+    expect(response.statusCode).toBe(414)
+  })
+})

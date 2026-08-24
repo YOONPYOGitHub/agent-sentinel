@@ -122,6 +122,7 @@ The API container is never directly addressable from the public internet or from
 - **@agent-sentinel/connector-sdk** ? Connector base abstractions and the versioned manifest envelope contract
 - **@agent-sentinel/scenarios** ? Scenario fixtures
 - **@agent-sentinel/manifest-connector** ? Offline, read-only custom manifest adapter
+- **@agent-sentinel/behavior-engine** - Deterministic behavior-baseline and drift-analysis engine (median/MAD statistics, tool-sequence drift, evidence coverage). Depends on `@agent-sentinel/domain`. No network I/O, no LLM.
 - **@agent-sentinel/tools** ? Offline developer CLIs (manifest validation)
 
 ## Custom Manifest Adapter

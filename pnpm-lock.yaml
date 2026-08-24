@@ -62,6 +62,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@agent-sentinel/behavior-engine':
+        specifier: workspace:*
+        version: link:../../packages/behavior-engine
       '@agent-sentinel/connector-sdk':
         specifier: workspace:*
         version: link:../../packages/connector-sdk
@@ -273,6 +276,15 @@ importers:
       '@agent-sentinel/graph-engine':
         specifier: workspace:*
         version: link:../../packages/graph-engine
+
+  packages/behavior-engine:
+    dependencies:
+      '@agent-sentinel/domain':
+        specifier: workspace:*
+        version: link:../domain
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
 
   packages/connector-sdk:
     dependencies:

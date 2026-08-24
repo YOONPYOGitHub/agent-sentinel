@@ -195,19 +195,21 @@ The highest-leverage independent work. Three currently `unknown` scorecard dimen
 
 ---
 
-## Phase 8 — Behavioral drift and token economics · _depends on Phase 4_
+## Phase 8 — Behavioral drift and token economics · _engine done, connector pending_
 
 **Scope**
 
-- Baseline normal agent behavior from runtime telemetry.
-- Detect and explain deviation from baseline as evidence, not as a model opinion.
-- Per-agent token consumption, cost attribution to owner and business unit, cost-per-outcome, and spend anomaly detection.
+- ~~Baseline normal agent behavior from runtime telemetry.~~ **Done (deterministic engine):** `@agent-sentinel/behavior-engine` implements median/MAD statistics, drift analysis, and evidence-coverage scoring. Domain types and Zod schemas are in `@agent-sentinel/domain`.
+- ~~Detect and explain deviation from baseline as evidence, not as a model opinion.~~ **Done (deterministic engine):** `analyzeDrift` produces `DriftAnalysisResult` with per-dimension explanations citing thresholds and measured values. No LLM involvement.
+- **Remaining:** OTel connector ingestion pipeline — bridge from OpenTelemetry spans to `ObservationWindow` objects. Once connected, the engine receives live data and replaces synthetic mock observations.
+- Per-agent token consumption, cost attribution to owner and business unit, cost-per-outcome, and spend anomaly detection. Depends on OTel connector.
 
 **Definition of done**
 
-- A drift finding cites the baseline window, the observed deviation, and the evidence for both.
-- Cost figures are measured, never estimated or model-inferred. If telemetry is missing, cost stays `unknown`.
-- The cost dimension explanation stops saying that telemetry is not connected.
+- A drift finding cites the baseline window, the observed deviation, and the evidence for both. ✅ (typed `DriftAnalysisResult.baselineEvidenceId` + `observedEvidenceId`)
+- Cost figures are measured, never estimated or model-inferred. If telemetry is missing, cost stays `unknown`. ✅ (cost dimension absent when no `costUsd` in baseline)
+- The cost dimension explanation stops saying that telemetry is not connected. _Pending OTel connector._
+- Mock mode shows clearly marked synthetic drift examples; live mode shows `Telemetry not connected`. ✅
 
 ---
 

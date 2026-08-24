@@ -438,3 +438,6 @@ export class MockAgentConnector implements AgentConnector {
     this.snapshot = createSeedSnapshot()
   }
 }
+
+export { MOCK_BEHAVIOR_WINDOWS } from './behavior-observations.js'
+export type { MockBehaviorWindows } from './behavior-observations.js'

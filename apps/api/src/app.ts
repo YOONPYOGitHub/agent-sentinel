@@ -31,6 +31,7 @@ import {
   registerGovernanceQueueRoutes,
 } from './governance-queue-routes.js'
 import { buildConnectorsCollection } from './connectors-catalog.js'
+import { registerBehaviorRoutes } from './behavior-routes.js'
 
 const approvalSchema = z.object({
   approvedBy: z.string().trim().min(2).max(100),
@@ -271,6 +272,10 @@ export async function createApp(
     authConfig,
     writeEnabled,
     ...(governanceCaseRepository ? { repository: governanceCaseRepository } : {}),
+  })
+  registerBehaviorRoutes(app, {
+    mode: exposureMode,
+    defaultTenantId: defaultTenantId(),
   })
 
   app.setErrorHandler((error, _request, reply) => {
