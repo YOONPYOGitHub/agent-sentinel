@@ -13,14 +13,15 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import {
-  VALID_TRANSITIONS,
   computeOverdue,
+  validTransitionsForCase,
   type GovernanceActorCapability,
   type GovernanceCase,
   type GovernanceCaseDetail,
   type GovernanceCaseKind,
   type GovernanceCaseStatus,
   type GovernanceCaseTransitionOp,
+  type GovernanceLifecycleAction,
   type GovernanceQueuePage,
 } from '@agent-sentinel/domain'
 
@@ -46,6 +47,10 @@ const operationCapabilityMap: Record<GovernanceCaseTransitionOp, GovernanceActor
   reopen: 'proposeRemediation',
   're-evaluate': 'validateFinding',
   expire: 'configure',
+  promote: 'executeRemediation',
+  'acknowledge-drift': 'validateFinding',
+  rollback: 'executeRemediation',
+  retire: 'executeRemediation',
 }
 
 const statusOptions: GovernanceCaseStatus[] = [
@@ -145,6 +150,14 @@ function humanizeOperation(operation: GovernanceCaseTransitionOp): string {
       return 'Re-evaluate'
     case 'expire':
       return 'Expire'
+    case 'promote':
+      return 'Promote'
+    case 'acknowledge-drift':
+      return 'Acknowledge drift'
+    case 'rollback':
+      return 'Rollback'
+    case 'retire':
+      return 'Retire'
   }
 }
 
@@ -180,6 +193,9 @@ export function WorkQueuePage() {
   const [detailLoadingById, setDetailLoadingById] = useState<Record<string, boolean>>({})
   const [detailErrorById, setDetailErrorById] = useState<Record<string, string>>({})
   const [actionCaseId, setActionCaseId] = useState<string | undefined>(undefined)
+  const [reEvaluationById, setReEvaluationById] = useState<
+    Record<string, { expiresAt: string; evidenceSnapshotId: string }>
+  >({})
   const [createOpen, setCreateOpen] = useState(false)
   const [createKind, setCreateKind] = useState<GovernanceCaseKind>('remediation-proposal')
   const [createTitle, setCreateTitle] = useState('')
@@ -187,6 +203,10 @@ export function WorkQueuePage() {
   const [createFindingId, setCreateFindingId] = useState('')
   const [createAgentId, setCreateAgentId] = useState('')
   const [createPolicyId, setCreatePolicyId] = useState('')
+  const [createAssigneeIdentity, setCreateAssigneeIdentity] = useState('')
+  const [createExpiresAt, setCreateExpiresAt] = useState('')
+  const [createLifecycleAction, setCreateLifecycleAction] =
+    useState<GovernanceLifecycleAction>('promote')
   const [createEvidenceSnapshotIds, setCreateEvidenceSnapshotIds] = useState<string[]>([])
   const [createError, setCreateError] = useState<string | undefined>(undefined)
 
@@ -311,6 +331,13 @@ export function WorkQueuePage() {
       ...(createFindingId.trim().length > 0 ? { findingId: createFindingId.trim() } : {}),
       ...(createAgentId.trim().length > 0 ? { agentId: createAgentId.trim() } : {}),
       ...(createPolicyId.trim().length > 0 ? { policyId: createPolicyId.trim() } : {}),
+      ...(createAssigneeIdentity.trim().length > 0
+        ? { assigneeIdentity: createAssigneeIdentity.trim() }
+        : {}),
+      ...(createKind === 'policy-exception' && createExpiresAt
+        ? { expiresAt: new Date(createExpiresAt).toISOString() }
+        : {}),
+      ...(createKind === 'lifecycle-review' ? { lifecycleAction: createLifecycleAction } : {}),
       ...(createEvidenceSnapshotIds.length > 0
         ? { evidenceSnapshotIds: createEvidenceSnapshotIds }
         : {}),
@@ -325,6 +352,8 @@ export function WorkQueuePage() {
       setCreateFindingId('')
       setCreateAgentId('')
       setCreatePolicyId('')
+      setCreateAssigneeIdentity('')
+      setCreateExpiresAt('')
       setCreateEvidenceSnapshotIds([])
       await loadQueue()
     } catch (caught: unknown) {
@@ -335,7 +364,10 @@ export function WorkQueuePage() {
     createDescription,
     createFindingId,
     createKind,
+    createLifecycleAction,
     createPolicyId,
+    createAssigneeIdentity,
+    createExpiresAt,
     createEvidenceSnapshotIds,
     createTitle,
     loadQueue,
@@ -347,13 +379,34 @@ export function WorkQueuePage() {
     async (caseRecord: GovernanceCase, operation: GovernanceCaseTransitionOp) => {
       setActionCaseId(caseRecord.id)
       try {
+        const reEvaluation = reEvaluationById[caseRecord.id]
         const detail = await governanceQueueApi.transition(caseRecord.id, {
           operation,
           ...(viewerIdentity !== undefined ? { actorIdentity: viewerIdentity } : {}),
           ...(principal?.roles[0] !== undefined ? { actorRole: principal.roles[0] } : {}),
+          ...(operation === 'pick-up' && caseRecord.assigneeIdentity !== undefined
+            ? { assigneeIdentity: caseRecord.assigneeIdentity }
+            : {}),
+          ...(operation === 're-evaluate' && caseRecord.kind === 'policy-exception'
+            ? {
+                ...(reEvaluation?.expiresAt
+                  ? { expiresAt: new Date(reEvaluation.expiresAt).toISOString() }
+                  : {}),
+                ...(reEvaluation?.evidenceSnapshotId
+                  ? { evidenceSnapshotIds: [reEvaluation.evidenceSnapshotId] }
+                  : {}),
+              }
+            : {}),
           idempotencyKey: createIdempotencyKey(`${caseRecord.id}-${operation}`),
         })
         setDetailsById((current) => ({ ...current, [caseRecord.id]: detail }))
+        if (operation === 're-evaluate') {
+          setReEvaluationById((current) => {
+            const next = { ...current }
+            delete next[caseRecord.id]
+            return next
+          })
+        }
         await loadQueue()
       } catch (caught: unknown) {
         setError(
@@ -363,7 +416,7 @@ export function WorkQueuePage() {
         setActionCaseId(undefined)
       }
     },
-    [loadQueue, principal?.roles, viewerIdentity],
+    [loadQueue, principal?.roles, reEvaluationById, viewerIdentity],
   )
 
   const summary = queuePage?.summary
@@ -492,6 +545,39 @@ export function WorkQueuePage() {
               />
             </label>
             <label>
+              <span>Assignee</span>
+              <Input
+                value={createAssigneeIdentity}
+                onChange={(_event, data) => setCreateAssigneeIdentity(data.value)}
+              />
+            </label>
+            {createKind === 'policy-exception' ? (
+              <label>
+                <span>Exception expiry</span>
+                <Input
+                  type="datetime-local"
+                  value={createExpiresAt}
+                  onChange={(_event, data) => setCreateExpiresAt(data.value)}
+                />
+              </label>
+            ) : null}
+            {createKind === 'lifecycle-review' ? (
+              <label>
+                <span>Lifecycle action</span>
+                <Select
+                  value={createLifecycleAction}
+                  onChange={(_event, data) =>
+                    setCreateLifecycleAction(data.value as GovernanceLifecycleAction)
+                  }
+                >
+                  <option value="promote">Promote</option>
+                  <option value="acknowledge-drift">Acknowledge drift</option>
+                  <option value="rollback">Rollback</option>
+                  <option value="retire">Retire</option>
+                </Select>
+              </label>
+            ) : null}
+            <label>
               <span>Evidence snapshot ID</span>
               <Input
                 value={createEvidenceSnapshotIds[0] ?? ''}
@@ -512,7 +598,16 @@ export function WorkQueuePage() {
             </Button>
             <Button
               appearance="primary"
-              disabled={createTitle.trim().length === 0 || createDescription.trim().length === 0}
+              disabled={
+                createTitle.trim().length === 0 ||
+                createDescription.trim().length === 0 ||
+                (createKind === 'policy-exception' &&
+                  (createPolicyId.trim().length === 0 ||
+                    createExpiresAt.length === 0 ||
+                    createEvidenceSnapshotIds.length === 0)) ||
+                (createKind === 'lifecycle-review' &&
+                  (createAgentId.trim().length === 0 || createEvidenceSnapshotIds.length === 0))
+              }
               onClick={() => void handleCreate()}
             >
               Save case
@@ -615,7 +710,7 @@ export function WorkQueuePage() {
               <tbody>
                 {queuePage.cases.map((caseRecord) => {
                   const overdue = computeOverdue(caseRecord.status, caseRecord.lastTransitionAt)
-                  const operations = VALID_TRANSITIONS[caseRecord.status]
+                  const operations = validTransitionsForCase(caseRecord)
                   const detail = detailsById[caseRecord.id]
                   const detailLoading = detailLoadingById[caseRecord.id] === true
                   const detailError = detailErrorById[caseRecord.id]
@@ -665,6 +760,40 @@ export function WorkQueuePage() {
                           </div>
                         </td>
                         <td>
+                          {operations.includes('re-evaluate') &&
+                          caseRecord.kind === 'policy-exception' ? (
+                            <div className="work-queue-actions">
+                              <Input
+                                type="datetime-local"
+                                aria-label={`New exception expiry for ${caseRecord.id}`}
+                                value={reEvaluationById[caseRecord.id]?.expiresAt ?? ''}
+                                onChange={(_event, data) =>
+                                  setReEvaluationById((current) => ({
+                                    ...current,
+                                    [caseRecord.id]: {
+                                      expiresAt: data.value,
+                                      evidenceSnapshotId:
+                                        current[caseRecord.id]?.evidenceSnapshotId ?? '',
+                                    },
+                                  }))
+                                }
+                              />
+                              <Input
+                                aria-label={`New evidence snapshot for ${caseRecord.id}`}
+                                placeholder="New evidence snapshot"
+                                value={reEvaluationById[caseRecord.id]?.evidenceSnapshotId ?? ''}
+                                onChange={(_event, data) =>
+                                  setReEvaluationById((current) => ({
+                                    ...current,
+                                    [caseRecord.id]: {
+                                      expiresAt: current[caseRecord.id]?.expiresAt ?? '',
+                                      evidenceSnapshotId: data.value.trim(),
+                                    },
+                                  }))
+                                }
+                              />
+                            </div>
+                          ) : null}
                           <div className="work-queue-actions">
                             {operations.map((operation) => {
                               const capability = operationCapabilityMap[operation]
@@ -673,12 +802,28 @@ export function WorkQueuePage() {
                                 operation === 'approve' &&
                                 viewerIdentity !== undefined &&
                                 caseRecord.proposerIdentity === viewerIdentity
+                              const exceptionNotExpired =
+                                operation === 'expire' &&
+                                caseRecord.kind === 'policy-exception' &&
+                                caseRecord.expiresAt !== undefined &&
+                                Date.parse(caseRecord.expiresAt) > Date.now()
+                              const reEvaluationIncomplete =
+                                operation === 're-evaluate' &&
+                                caseRecord.kind === 'policy-exception' &&
+                                (!reEvaluationById[caseRecord.id]?.expiresAt ||
+                                  !reEvaluationById[caseRecord.id]?.evidenceSnapshotId)
                               const disabledReason = selfApprovalBlocked
                                 ? 'Approval is blocked because you proposed this case.'
-                                : permission.message
+                                : exceptionNotExpired
+                                  ? `This exception remains valid until ${formatDateTime(caseRecord.expiresAt!)}.`
+                                  : reEvaluationIncomplete
+                                    ? 'Provide a new future expiry and evidence snapshot before re-evaluation.'
+                                    : permission.message
                               const disabled =
                                 !permission.can ||
                                 selfApprovalBlocked ||
+                                exceptionNotExpired ||
+                                reEvaluationIncomplete ||
                                 actionCaseId === caseRecord.id
                               const button = (
                                 <Button
@@ -741,6 +886,17 @@ export function WorkQueuePage() {
                                   <span>
                                     Last transition {formatDateTime(detail.case.lastTransitionAt)}
                                   </span>
+                                  {detail.case.expiresAt ? (
+                                    <span>
+                                      Exception expiry {formatDateTime(detail.case.expiresAt)}
+                                    </span>
+                                  ) : null}
+                                  {detail.case.lifecycleAction ? (
+                                    <span>
+                                      Lifecycle action{' '}
+                                      {humanizeOperation(detail.case.lifecycleAction)}
+                                    </span>
+                                  ) : null}
                                   {detail.persistenceNote ? (
                                     <span>{detail.persistenceNote}</span>
                                   ) : null}
@@ -761,6 +917,19 @@ export function WorkQueuePage() {
                                         <span>{transition.actorIdentity}</span>
                                         <span>{formatDateTime(transition.timestamp)}</span>
                                       </div>
+                                      <div>
+                                        <span>
+                                          {transition.authorizationContext.mode} authorization ·{' '}
+                                          {transition.authorizationContext.subject}
+                                        </span>
+                                        <span>
+                                          {transition.source.mode} evidence ·{' '}
+                                          {transition.source.referenceIds.length} references
+                                        </span>
+                                      </div>
+                                      {transition.assignedToIdentity ? (
+                                        <p>Assigned to {transition.assignedToIdentity}</p>
+                                      ) : null}
                                       {transition.reason ? <p>{transition.reason}</p> : null}
                                     </li>
                                   ))}

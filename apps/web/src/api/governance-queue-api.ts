@@ -5,6 +5,7 @@ import {
   governanceCaseKindSchema,
   governanceCaseSchema,
   governanceCaseTransitionOpSchema,
+  governanceLifecycleActionSchema,
   governanceQueuePageSchema,
   governanceQueueSummarySchema,
   type GovernanceCase,
@@ -12,6 +13,7 @@ import {
   type GovernanceCaseKind,
   type GovernanceCaseStatus,
   type GovernanceCaseTransitionOp,
+  type GovernanceLifecycleAction,
   type GovernanceQueuePage,
   type GovernanceQueueSummary,
 } from '@agent-sentinel/domain'
@@ -49,6 +51,8 @@ export interface GovernanceQueueCreateBody {
   findingId?: string
   agentId?: string
   policyId?: string
+  expiresAt?: string
+  lifecycleAction?: GovernanceLifecycleAction
   evidenceSnapshotIds?: string[]
   idempotencyKey: string
 }
@@ -57,6 +61,8 @@ export interface GovernanceQueueTransitionBody {
   operation: GovernanceCaseTransitionOp
   actorIdentity?: string
   actorRole?: string
+  assigneeIdentity?: string
+  expiresAt?: string
   reason?: string
   evidenceSnapshotIds?: string[]
   idempotencyKey: string
@@ -72,6 +78,8 @@ const createBodySchema = z.object({
   findingId: z.string().trim().min(1).optional(),
   agentId: z.string().trim().min(1).optional(),
   policyId: z.string().trim().min(1).optional(),
+  expiresAt: z.iso.datetime().optional(),
+  lifecycleAction: governanceLifecycleActionSchema.optional(),
   evidenceSnapshotIds: z.array(z.string().min(1)).optional(),
   idempotencyKey: z.string().trim().min(1),
 })
@@ -80,6 +88,8 @@ const transitionBodySchema = z.object({
   operation: governanceCaseTransitionOpSchema,
   actorIdentity: z.string().trim().min(1).optional(),
   actorRole: z.string().trim().min(1).optional(),
+  assigneeIdentity: z.string().trim().min(1).optional(),
+  expiresAt: z.iso.datetime().optional(),
   reason: z.string().trim().min(1).optional(),
   evidenceSnapshotIds: z.array(z.string().min(1)).optional(),
   idempotencyKey: z.string().trim().min(1),

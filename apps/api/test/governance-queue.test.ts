@@ -34,6 +34,11 @@ const viewerJwtConfig: AuthConfig = {
   allowedScopes: { read: ['AgentSentinel.Read'], write: ['AgentSentinel.Write'] },
 }
 
+const mockAuthConfig: AuthConfig = {
+  mode: 'mock',
+  allowedScopes: { read: [], write: [] },
+}
+
 function liveExposureRepository(): ExposureFindingRepository {
   return {
     upsert: vi.fn(),
@@ -62,6 +67,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   await Promise.all(apps.splice(0).map(async (app) => app.close()))
   delete process.env['AGENT_SENTINEL_CONNECTOR']
   delete process.env['AGENT_SENTINEL_DATA_MODE']
@@ -137,10 +143,7 @@ describe('governance queue API', () => {
   })
 
   it('supports the full deterministic lifecycle', async () => {
-    const app = await createApp(undefined, {
-      mode: 'disabled',
-      allowedScopes: { read: [], write: [] },
-    })
+    const app = await createApp(undefined, mockAuthConfig)
 
     apps.push(app)
 
@@ -285,10 +288,7 @@ describe('governance queue API', () => {
   })
 
   it('prevents self approval on pending cases', async () => {
-    const app = await createApp(undefined, {
-      mode: 'disabled',
-      allowedScopes: { read: [], write: [] },
-    })
+    const app = await createApp(undefined, mockAuthConfig)
     apps.push(app)
 
     const response = await app.inject({
@@ -443,6 +443,259 @@ describe('governance queue API', () => {
       operation: 'expire',
       fromStatus: 'in-review',
       toStatus: 'expired',
+    })
+  })
+
+  it('records an anonymous authorization context and cited source when auth is disabled', async () => {
+    const app = await createApp(undefined, {
+      mode: 'disabled',
+      allowedScopes: { read: [], write: [] },
+    })
+    apps.push(app)
+
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/governance/queue',
+      payload: {
+        kind: 'finding-review',
+        title: 'Anonymous authorization evidence',
+        description: 'Client-supplied identities are ignored when authentication is disabled.',
+        actorIdentity: 'Spoofed Operator',
+        findingId: 'finding-anonymous',
+        evidenceSnapshotIds: ['snapshot-anonymous'],
+        idempotencyKey: 'anonymous-create',
+      },
+    })
+    const created = governanceCaseSchema.parse(createResponse.json())
+    expect(created.createdByIdentity).toBe('anonymous')
+
+    const detail = governanceCaseDetailSchema.parse(
+      (
+        await app.inject({
+          method: 'GET',
+          url: `/api/governance/queue/${created.id}`,
+        })
+      ).json(),
+    )
+    expect(detail.transitions[0]).toMatchObject({
+      actorIdentity: 'anonymous',
+      authorizationContext: {
+        mode: 'disabled',
+        authenticated: false,
+        subject: 'anonymous',
+      },
+      source: {
+        type: 'governance-workflow',
+        mode: 'mock',
+      },
+    })
+    expect(detail.transitions[0]?.source.referenceIds).toEqual(
+      expect.arrayContaining([created.id, 'finding-anonymous', 'snapshot-anonymous']),
+    )
+  })
+
+  it('records explicit assignment on pick-up', async () => {
+    const app = await createApp(undefined, mockAuthConfig)
+    apps.push(app)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/governance/queue/gq-001/transitions',
+      payload: {
+        operation: 'pick-up',
+        actorIdentity: 'Morgan Coordinator',
+        actorRole: 'Analyst',
+        assigneeIdentity: 'Dana Reviewer',
+        evidenceSnapshotIds: ['assignment-snapshot'],
+        idempotencyKey: 'assign-dana',
+      },
+    })
+    const detail = governanceCaseDetailSchema.parse(response.json())
+    expect(detail.case.assigneeIdentity).toBe('Dana Reviewer')
+    expect(detail.transitions.at(-1)).toMatchObject({
+      operation: 'pick-up',
+      actorIdentity: 'Morgan Coordinator',
+      assignedToIdentity: 'Dana Reviewer',
+    })
+  })
+
+  it('supports policy exception approval, expiry, and evidence-backed re-evaluation', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-08-26T01:00:00.000Z'))
+    const app = await createApp(undefined, mockAuthConfig)
+    apps.push(app)
+
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/governance/queue',
+      payload: {
+        kind: 'policy-exception',
+        title: 'Temporary AS-POL-001 exception',
+        description: 'Time-bounded exception with compensating-control evidence.',
+        actorIdentity: 'Casey Owner',
+        actorRole: 'Analyst',
+        policyId: 'AS-POL-001',
+        expiresAt: '2026-08-27T01:00:00.000Z',
+        evidenceSnapshotIds: ['exception-request-evidence'],
+        idempotencyKey: 'exception-request',
+      },
+    })
+    const created = governanceCaseSchema.parse(createResponse.json())
+
+    for (const [operation, actorIdentity, key] of [
+      ['pick-up', 'Taylor Analyst', 'exception-pick-up'],
+      ['propose', 'Casey Owner', 'exception-propose'],
+      ['approve', 'Jordan Approver', 'exception-approve'],
+    ] as const) {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/governance/queue/${created.id}/transitions`,
+        payload: {
+          operation,
+          actorIdentity,
+          actorRole: operation === 'approve' ? 'Approver' : 'Analyst',
+          idempotencyKey: key,
+        },
+      })
+      expect(response.statusCode).toBe(200)
+    }
+
+    const earlyExpiry = await app.inject({
+      method: 'POST',
+      url: `/api/governance/queue/${created.id}/transitions`,
+      payload: {
+        operation: 'expire',
+        actorIdentity: 'Governance Scheduler',
+        actorRole: 'Administrator',
+        idempotencyKey: 'exception-expire-early',
+      },
+    })
+    expect(earlyExpiry.statusCode).toBe(409)
+    expect(earlyExpiry.json()).toMatchObject({ error: 'exception_not_expired' })
+
+    vi.setSystemTime(new Date('2026-08-27T02:00:00.000Z'))
+    const expired = await app.inject({
+      method: 'POST',
+      url: `/api/governance/queue/${created.id}/transitions`,
+      payload: {
+        operation: 'expire',
+        actorIdentity: 'Governance Scheduler',
+        actorRole: 'Administrator',
+        idempotencyKey: 'exception-expire',
+      },
+    })
+    expect(governanceCaseDetailSchema.parse(expired.json()).case.status).toBe('expired')
+
+    const reEvaluated = await app.inject({
+      method: 'POST',
+      url: `/api/governance/queue/${created.id}/transitions`,
+      payload: {
+        operation: 're-evaluate',
+        actorIdentity: 'Taylor Analyst',
+        actorRole: 'Analyst',
+        expiresAt: '2026-09-03T02:00:00.000Z',
+        evidenceSnapshotIds: ['exception-re-evaluation-evidence'],
+        idempotencyKey: 'exception-re-evaluate',
+      },
+    })
+    const detail = governanceCaseDetailSchema.parse(reEvaluated.json())
+    expect(detail.case).toMatchObject({
+      status: 'open',
+      expiresAt: '2026-09-03T02:00:00.000Z',
+    })
+    expect(detail.transitions.map((transition) => transition.operation)).toEqual([
+      'create',
+      'pick-up',
+      'propose',
+      'approve',
+      'expire',
+      're-evaluate',
+    ])
+    expect(
+      detail.transitions.every(
+        (transition) =>
+          transition.actorIdentity.length > 0 &&
+          transition.timestamp.length > 0 &&
+          transition.source.referenceIds.length > 0,
+      ),
+    ).toBe(true)
+    vi.useRealTimers()
+  })
+
+  it('supports rejection and records an approved lifecycle action as evidence', async () => {
+    const app = await createApp(undefined, mockAuthConfig)
+    apps.push(app)
+
+    const exception = governanceCaseSchema.parse(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/governance/queue',
+          payload: {
+            kind: 'policy-exception',
+            title: 'Rejected AS-POL-002 exception',
+            description: 'This request lacks sufficient compensating controls.',
+            actorIdentity: 'Casey Owner',
+            actorRole: 'Analyst',
+            policyId: 'AS-POL-002',
+            expiresAt: '2099-01-01T00:00:00.000Z',
+            evidenceSnapshotIds: ['exception-reject-evidence'],
+            idempotencyKey: 'rejected-exception-create',
+          },
+        })
+      ).json(),
+    )
+    for (const [operation, actorIdentity, key] of [
+      ['pick-up', 'Taylor Analyst', 'rejected-exception-pick-up'],
+      ['propose', 'Casey Owner', 'rejected-exception-propose'],
+    ] as const) {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/governance/queue/${exception.id}/transitions`,
+        payload: { operation, actorIdentity, actorRole: 'Analyst', idempotencyKey: key },
+      })
+      expect(response.statusCode).toBe(200)
+    }
+    const rejected = await app.inject({
+      method: 'POST',
+      url: `/api/governance/queue/${exception.id}/transitions`,
+      payload: {
+        operation: 'reject',
+        actorIdentity: 'Jordan Approver',
+        actorRole: 'Approver',
+        reason: 'Compensating controls are insufficient.',
+        idempotencyKey: 'reject-proposal',
+      },
+    })
+    expect(governanceCaseDetailSchema.parse(rejected.json()).case.status).toBe('rejected')
+
+    for (const [operation, actorIdentity, key] of [
+      ['propose', 'Taylor Analyst', 'lifecycle-propose'],
+      ['approve', 'Jordan Approver', 'lifecycle-approve'],
+      ['promote', 'Sam Administrator', 'lifecycle-promote'],
+    ] as const) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/governance/queue/gq-002/transitions',
+        payload: {
+          operation,
+          actorIdentity,
+          actorRole: operation === 'approve' ? 'Approver' : 'Administrator',
+          evidenceSnapshotIds: [`${key}-evidence`],
+          idempotencyKey: key,
+        },
+      })
+      expect(response.statusCode).toBe(200)
+    }
+
+    const detail = governanceCaseDetailSchema.parse(
+      (await app.inject({ method: 'GET', url: '/api/governance/queue/gq-002' })).json(),
+    )
+    expect(detail.case.status).toBe('closed')
+    expect(detail.transitions.at(-1)).toMatchObject({
+      operation: 'promote',
+      fromStatus: 'approved',
+      toStatus: 'closed',
     })
   })
 

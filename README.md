@@ -4,7 +4,7 @@
 
 Agent Sentinel gives an organization one explainable view of every AI agent it runs: what exists, who owns it, what it can reach, where it is exposed, whether it is governed, and whether it is still fit to operate. Every claim in the product cites typed evidence with a source, a confidence, and an observation timestamp.
 
-> **Status: pre-production engineering preview (2026-08-23).** The deployed environment runs with `AUTH_MODE=disabled` and a synthetic-only agent portfolio. See [Security warning](#security-warning) and [docs/current-status.md](docs/current-status.md).
+> **Status: pre-production engineering preview (2026-08-26).** The deployed environment runs with `AUTH_MODE=disabled` and a synthetic-only agent portfolio. See [Security warning](#security-warning) and [docs/current-status.md](docs/current-status.md).
 
 ---
 
@@ -29,7 +29,7 @@ Agent Sentinel gives an organization one explainable view of every AI agent it r
 - **Separate explainable per-agent assurance dimensions** — security, governance, lifecycle, quality, reliability, and cost are scored and explained independently, and report `unknown` rather than guessing.
 - **Cross-domain governance workflow** — one evidence set shared by security, platform, and business stakeholders.
 
-Planned, not yet built: behavioral drift baselines, universal agent adapters, and shift-left agent scanning. See [docs/roadmap.md](docs/roadmap.md).
+Implemented but not activated in the deployed environment: behavior drift analysis, measured token economics, and the Azure Monitor OTel connector. Still planned: authenticated universal-adapter ingestion and shift-left agent scanning. See [docs/roadmap.md](docs/roadmap.md).
 
 ---
 
@@ -43,6 +43,7 @@ Planned, not yet built: behavioral drift baselines, universal agent adapters, an
 | Agent assurance catalog     | `/agent-catalog`             | Employee-facing assurance overlay for discoverable agents                                  |
 | Exposure list and detail    | `/exposure`, `/exposure/:id` | Findings, attack-path graph, cited evidence, advisory narrative, remediation preview       |
 | Governance                  | `/governance`                | Policy posture with deep links into the filtered findings that produced it                 |
+| Governance work queue       | `/work-queue`                | Assignment, approval, exception, lifecycle, and immutable audit workflow                   |
 | Observability               | `/observability`             | Evidence operations: freshness, confidence, and source coverage                            |
 | Optimization                | `/optimization`              | Bounded, evidence-backed recommendations                                                   |
 | Lifecycle                   | `/lifecycle`                 | Version and release-readiness evidence without invented lineage                            |
@@ -59,7 +60,7 @@ Planned, not yet built: behavioral drift baselines, universal agent adapters, an
 flowchart LR
     subgraph Sources["Evidence sources"]
         FDRY["Microsoft Foundry<br/>(live, declared configuration)"]
-        PLAN["Agent 365 · Entra · Defender<br/>Purview · Azure Monitor/OTel<br/>(planned connectors)"]
+        PLAN["Agent 365 · Entra · Defender · Purview<br/>(planned) · Azure Monitor/OTel<br/>(implemented; activation pending)"]
     end
 
     subgraph Ingest["Ingestion"]
@@ -86,7 +87,7 @@ flowchart LR
     end
 
     FDRY --> JOBS
-    PLAN -.planned.-> JOBS
+    PLAN -.planned / configurable.-> JOBS
     JOBS --> POLICY --> COSMOS
     JOBS --> COSMOS
     DOMAIN --- POLICY
@@ -142,9 +143,9 @@ Verified baseline on 2026-08-23:
 
 | Suite                    | Result                                                  |
 | ------------------------ | ------------------------------------------------------- |
-| API unit tests           | 93 passing (8 files)                                    |
-| Web unit/component tests | 165 passing (23 files)                                  |
-| Playwright end-to-end    | 20 tests across 9 specs                                 |
+| API unit tests           | 138 passing (11 files)                                  |
+| Web unit/component tests | 196 passing (26 files)                                  |
+| Playwright end-to-end    | 23 tests across 10 specs                                |
 | Bicep                    | `az bicep build` succeeds with baseline linter warnings |
 | Web production build     | Succeeds with a Rollup chunk-size warning (>500 kB)     |
 
@@ -152,20 +153,22 @@ Verified baseline on 2026-08-23:
 
 ## Live vs mock truth table
 
-| Capability                                 | State                      | Notes                                                                                   |
-| ------------------------------------------ | -------------------------- | --------------------------------------------------------------------------------------- |
-| Microsoft Foundry agent discovery          | **Live**                   | Read-only discovery of **declared configuration** only, not runtime telemetry           |
-| Exposure findings storage                  | **Live**                   | Cosmos DB `exposure-findings`, upsert preserves `firstSeen`                             |
-| Governance posture                         | **Live**                   | Derived from the same Cosmos-backed findings                                            |
-| Jobs ingestion loop                        | **Live**                   | `apps/jobs` discovery + policy evaluation on an interval, plus Service Bus trigger      |
-| Agent portfolio                            | **Synthetic only**         | Six Microsoft Foundry validation agents on GPT-5.6 Terra; no production customer agents |
-| Terra live validation                      | **Live, operator-invoked** | `pnpm foundry:validate`; never run by CI                                                |
-| Advisory narratives (public Azure edge)    | **Mock**                   | Deterministic mock provider until corporate Entra and WAF activation                    |
-| Advisory narratives (grounded model path)  | **Live when configured**   | GPT-5.6 Terra, advisory explanation only; deterministic core stays authoritative        |
-| Agent 365 connector                        | **Not implemented**        | Catalogued as `authorization-required`                                                  |
-| Entra Agent ID, Defender, Purview, OTel    | **Planned**                | Catalogued as `planned`; no runtime evidence yet                                        |
-| Authentication in the deployed environment | **Disabled**               | `AUTH_MODE=disabled`; Entra/MSAL code foundation is complete but not activated          |
-| Write and remediation execution            | **Blocked at the edge**    | `writeEnabled=false`; WAF blocks pre-auth mutations under `/api/`                       |
+| Capability                                 | State                         | Notes                                                                                   |
+| ------------------------------------------ | ----------------------------- | --------------------------------------------------------------------------------------- |
+| Microsoft Foundry agent discovery          | **Live**                      | Read-only discovery of **declared configuration** only, not runtime telemetry           |
+| Exposure findings storage                  | **Live**                      | Cosmos DB `exposure-findings`, upsert preserves `firstSeen`                             |
+| Governance posture                         | **Live**                      | Derived from the same Cosmos-backed findings                                            |
+| Jobs ingestion loop                        | **Live**                      | `apps/jobs` discovery + policy evaluation on an interval, plus Service Bus trigger      |
+| Agent portfolio                            | **Synthetic only**            | Six Microsoft Foundry validation agents on GPT-5.6 Terra; no production customer agents |
+| Terra live validation                      | **Live, operator-invoked**    | `pnpm foundry:validate`; never run by CI                                                |
+| Advisory narratives (public Azure edge)    | **Mock**                      | Deterministic mock provider until corporate Entra and WAF activation                    |
+| Advisory narratives (grounded model path)  | **Live when configured**      | GPT-5.6 Terra, advisory explanation only; deterministic core stays authoritative        |
+| Agent 365 connector                        | **Not implemented**           | Catalogued as `authorization-required`                                                  |
+| Azure Monitor OTel                         | **Implemented, unconfigured** | Strict read-only query and mapping path; deployed runtime evidence remains `unknown`    |
+| Entra Agent ID, Defender, Purview          | **Planned**                   | Catalogued but no runtime evidence path is active                                       |
+| Governance work queue                      | **Mock/local only**           | Full in-memory workflow and audit behavior; live mode reports persistence unavailable   |
+| Authentication in the deployed environment | **Disabled**                  | `AUTH_MODE=disabled`; Entra/MSAL code foundation is complete but not activated          |
+| Write and remediation execution            | **Blocked at the edge**       | `writeEnabled=false`; WAF blocks pre-auth mutations under `/api/`                       |
 
 ---
 

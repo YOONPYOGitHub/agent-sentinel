@@ -31,6 +31,10 @@ export const governanceCaseTransitionOpSchema = z.enum([
   'reopen',
   're-evaluate',
   'expire',
+  'promote',
+  'acknowledge-drift',
+  'rollback',
+  'retire',
 ])
 export type GovernanceCaseTransitionOp = z.infer<typeof governanceCaseTransitionOpSchema>
 
@@ -48,6 +52,46 @@ export type GovernanceActorCapability = z.infer<typeof governanceActorCapability
 export const governanceCaseSourceModeSchema = z.enum(['mock', 'foundry'])
 export type GovernanceCaseSourceMode = z.infer<typeof governanceCaseSourceModeSchema>
 
+export const governanceLifecycleActionSchema = z.enum([
+  'promote',
+  'acknowledge-drift',
+  'rollback',
+  'retire',
+])
+export type GovernanceLifecycleAction = z.infer<typeof governanceLifecycleActionSchema>
+
+export const governanceAuthorizationContextSchema = z
+  .object({
+    mode: z.enum(['disabled', 'mock', 'jwt']),
+    authenticated: z.boolean(),
+    subject: z.string().trim().min(1),
+  })
+  .superRefine((authorization, context) => {
+    if (
+      authorization.mode === 'disabled' &&
+      (authorization.authenticated || authorization.subject !== 'anonymous')
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Disabled authorization must be recorded as anonymous and unauthenticated.',
+      })
+    }
+    if (authorization.mode === 'jwt' && !authorization.authenticated) {
+      context.addIssue({
+        code: 'custom',
+        message: 'JWT authorization must be recorded as authenticated.',
+      })
+    }
+  })
+export type GovernanceAuthorizationContext = z.infer<typeof governanceAuthorizationContextSchema>
+
+export const governanceEvidenceSourceSchema = z.object({
+  type: z.literal('governance-workflow'),
+  mode: governanceCaseSourceModeSchema,
+  referenceIds: z.array(z.string().trim().min(1)).min(1),
+})
+export type GovernanceEvidenceSource = z.infer<typeof governanceEvidenceSourceSchema>
+
 export const VALID_TRANSITIONS: Record<
   GovernanceCaseStatus,
   readonly GovernanceCaseTransitionOp[]
@@ -55,7 +99,7 @@ export const VALID_TRANSITIONS: Record<
   open: ['pick-up', 'expire'],
   'in-review': ['propose', 'reject-finding', 'withdraw', 'expire'],
   'pending-approval': ['approve', 'reject', 'withdraw', 'expire'],
-  approved: ['close', 'expire'],
+  approved: ['close', 'expire', 'promote', 'acknowledge-drift', 'rollback', 'retire'],
   rejected: ['reopen'],
   expired: ['re-evaluate'],
   closed: [],
@@ -73,6 +117,10 @@ export const TRANSITION_RESULT: Record<GovernanceCaseTransitionOp, GovernanceCas
   reopen: 'open',
   're-evaluate': 'open',
   expire: 'expired',
+  promote: 'closed',
+  'acknowledge-drift': 'closed',
+  rollback: 'closed',
+  retire: 'closed',
 }
 
 export const CASE_SLA_MS = 7 * 24 * 60 * 60 * 1000
@@ -105,6 +153,9 @@ export const governanceCaseTransitionSchema = z
     actorRole: z.string().trim().min(1),
     actorCapability: governanceActorCapabilitySchema,
     timestamp: z.iso.datetime(),
+    authorizationContext: governanceAuthorizationContextSchema,
+    source: governanceEvidenceSourceSchema,
+    assignedToIdentity: z.string().trim().min(1).optional(),
     reason: z.string().trim().min(1).optional(),
     evidenceSnapshotIds: z.array(z.string().min(1)),
     idempotencyKey: z.string().trim().min(1),
@@ -126,10 +177,7 @@ export const governanceCaseTransitionSchema = z
           path: ['fromStatus'],
         })
       }
-      return
-    }
-
-    if (
+    } else if (
       transition.fromStatus === null ||
       !VALID_TRANSITIONS[transition.fromStatus].includes(transition.operation)
     ) {
@@ -139,29 +187,104 @@ export const governanceCaseTransitionSchema = z
         path: ['operation'],
       })
     }
+
+    if (
+      transition.assignedToIdentity !== undefined &&
+      transition.operation !== 'create' &&
+      transition.operation !== 'pick-up'
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Only case creation and pick-up may record an assignment.',
+        path: ['assignedToIdentity'],
+      })
+    }
   })
 export type GovernanceCaseTransition = z.infer<typeof governanceCaseTransitionSchema>
 
-export const governanceCaseSchema = z.object({
-  id: z.string().min(1),
-  kind: governanceCaseKindSchema,
-  title: z.string().trim().min(1),
-  description: z.string().trim().min(1),
-  status: governanceCaseStatusSchema,
-  createdByIdentity: z.string().trim().min(1),
-  createdByRole: z.string().trim().min(1),
-  createdAt: z.iso.datetime(),
-  assigneeIdentity: z.string().trim().min(1).optional(),
-  proposerIdentity: z.string().trim().min(1).optional(),
-  lastTransitionAt: z.iso.datetime(),
-  findingId: z.string().min(1).optional(),
-  agentId: z.string().min(1).optional(),
-  policyId: z.string().min(1).optional(),
-  evidenceSnapshotIds: z.array(z.string().min(1)),
-  sourceMode: governanceCaseSourceModeSchema,
-  writeEnabledAtCreation: z.boolean(),
-})
+export const governanceCaseSchema = z
+  .object({
+    id: z.string().min(1),
+    kind: governanceCaseKindSchema,
+    title: z.string().trim().min(1),
+    description: z.string().trim().min(1),
+    status: governanceCaseStatusSchema,
+    createdByIdentity: z.string().trim().min(1),
+    createdByRole: z.string().trim().min(1),
+    createdAt: z.iso.datetime(),
+    assigneeIdentity: z.string().trim().min(1).optional(),
+    proposerIdentity: z.string().trim().min(1).optional(),
+    lastTransitionAt: z.iso.datetime(),
+    findingId: z.string().min(1).optional(),
+    agentId: z.string().min(1).optional(),
+    policyId: z.string().min(1).optional(),
+    expiresAt: z.iso.datetime().optional(),
+    lifecycleAction: governanceLifecycleActionSchema.optional(),
+    evidenceSnapshotIds: z.array(z.string().min(1)),
+    sourceMode: governanceCaseSourceModeSchema,
+    writeEnabledAtCreation: z.boolean(),
+  })
+  .superRefine((caseRecord, context) => {
+    if (caseRecord.kind === 'policy-exception') {
+      if (caseRecord.policyId === undefined) {
+        context.addIssue({
+          code: 'custom',
+          message: 'A policy exception must identify its policy.',
+          path: ['policyId'],
+        })
+      }
+      if (caseRecord.expiresAt === undefined) {
+        context.addIssue({
+          code: 'custom',
+          message: 'A policy exception must have an expiry.',
+          path: ['expiresAt'],
+        })
+      } else if (Date.parse(caseRecord.expiresAt) <= Date.parse(caseRecord.createdAt)) {
+        context.addIssue({
+          code: 'custom',
+          message: 'A policy exception must expire after it is created.',
+          path: ['expiresAt'],
+        })
+      }
+    }
+
+    if (caseRecord.kind === 'lifecycle-review') {
+      if (caseRecord.agentId === undefined) {
+        context.addIssue({
+          code: 'custom',
+          message: 'A lifecycle review must identify its agent.',
+          path: ['agentId'],
+        })
+      }
+      if (caseRecord.lifecycleAction === undefined) {
+        context.addIssue({
+          code: 'custom',
+          message: 'A lifecycle review must identify its lifecycle action.',
+          path: ['lifecycleAction'],
+        })
+      }
+    }
+  })
 export type GovernanceCase = z.infer<typeof governanceCaseSchema>
+
+export function validTransitionsForCase(
+  caseRecord: GovernanceCase,
+): readonly GovernanceCaseTransitionOp[] {
+  const operations = VALID_TRANSITIONS[caseRecord.status]
+  if (caseRecord.status !== 'approved') {
+    return operations
+  }
+
+  if (caseRecord.kind !== 'lifecycle-review') {
+    const lifecycleOperations: readonly GovernanceCaseTransitionOp[] =
+      governanceLifecycleActionSchema.options
+    return operations.filter((operation) => !lifecycleOperations.includes(operation))
+  }
+
+  return operations.filter(
+    (operation) => operation === 'expire' || operation === caseRecord.lifecycleAction,
+  )
+}
 
 export const governanceCaseDetailSchema = z.object({
   case: governanceCaseSchema,

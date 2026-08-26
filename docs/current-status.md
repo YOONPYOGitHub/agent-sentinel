@@ -1,6 +1,6 @@
 # Current status
 
-**Status date: 2026-08-25** · Branch: `feature/live-exposure`
+**Status date: 2026-08-26** · Branch: `feature/governance-phase1-completion`
 
 This is the authoritative dated ledger for the Agent Sentinel control plane. Every row states what is true today, not what is intended. Where a capability is absent, the ledger says so rather than describing it as pending success.
 
@@ -8,11 +8,12 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 
 ---
 
-## Recent delivery on `feature/live-exposure`
+## Recent delivery on `feature/governance-phase1-completion`
 
 | Commit    | Change                                             | Effect                                                                                                                                                              |
 | --------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `HEAD`    | Azure Monitor OTel runtime connector               | Restricted read-only Logs query, strict row mapping, live behavior/token-economics integration, and local contract fixtures. Deployment activation remains pending. |
+| `HEAD`    | Governance Phase 1 workflow increment              | Assignment, state guards, anonymous disabled-auth context, source-cited immutable history, bounded policy exceptions, and lifecycle evidence transitions.           |
+| `a654ab6` | Azure Monitor OTel runtime connector               | Restricted read-only Logs query, strict row mapping, live behavior/token-economics integration, and local contract fixtures. Deployment activation remains pending. |
 | `8179785` | Microsoft Entra authentication and RBAC foundation | JWT validation, four roles, per-route capability guards, SPA MSAL wiring. Not activated.                                                                            |
 | `ec43f2e` | Connector management catalog                       | Ten connectors with honest lifecycle states, capabilities, prerequisites, and readiness.                                                                            |
 | `6c12596` | Evidence-backed agent scorecards                   | Six independent assurance dimensions; live exposure drives the security dimension.                                                                                  |
@@ -40,17 +41,19 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 | Universal custom manifest adapter             | **Current, offline.** `@agent-sentinel/manifest-connector` normalizes an operator-supplied manifest into an `EstateSnapshot`. Non-authoritative, read-only, no ingestion endpoint.                                                                                                                                                                               |
 | Deterministic behavior-baseline engine        | **Current.** `@agent-sentinel/behavior-engine` implements median/MAD statistics, drift analysis, evidence coverage, and typed `DriftAnalysisResult`; mock mode uses labeled fixtures and live mode accepts only validated Azure Monitor OTel windows.                                                                                                            |
 | Token Economics foundation                    | **Current.** `analyzeTokenEconomics()` uses measured-only populations, reconciled coverage, evidence-linked MAD anomalies, and same-population cost per success. Mock fixtures cover healthy, cost-anomaly, and missing-cost scenarios; live mode accepts validated Azure Monitor OTel windows and remains `unknown` while deployment telemetry is unconfigured. |
+| Governance workflow domain and mock path      | **Current.** Valid transitions, explicit assignment, separation of duties, source/actor/timestamp audit evidence, bounded policy exceptions, and promote/drift-acknowledge/rollback/retire evidence transitions are enforced and tested. `AUTH_MODE=disabled` records an anonymous authorization context instead of trusting a supplied identity.                |
 
 ---
 
 ## In progress
 
-| Item                                         | Where it stands                                                                                                                                                                 |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unified inventory for future connectors      | Inventory renders any connector's records, but only the Foundry connector currently supplies live data.                                                                         |
-| Employee catalog entitlement personalization | The assurance overlay renders. Per-employee entitlement filtering needs an authenticated principal.                                                                             |
-| Governance work queue and lifecycle workflow | Deterministic queue state, server-side transitions, separation-of-duties, immutable history, and mock fixtures are implemented on the current branch. Live persistence remains. |
-| Repository documentation                     | This rebuild. Superseded and contradictory statements are being corrected in place.                                                                                             |
+| Item                                         | Where it stands                                                                                                                                                                                                                                  |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Unified inventory for future connectors      | Inventory renders any connector's records, but only the Foundry connector currently supplies live data.                                                                                                                                          |
+| Employee catalog entitlement personalization | The assurance overlay renders. Per-employee entitlement filtering needs an authenticated principal.                                                                                                                                              |
+| Governance live persistence                  | The complete mock/local workflow uses an in-memory append-only repository. Live mode intentionally returns `503 persistence_unavailable` for writes until a dedicated durable repository/container is implemented.                               |
+| Governance Playwright lifecycle coverage     | API integration covers approve, reject, expire, re-evaluate, assignment, evidence history, and lifecycle actions. Playwright currently covers queue rendering, filtering, assignment pickup, and audit provenance, not the full exception cycle. |
+| Repository documentation                     | This rebuild. Superseded and contradictory statements are being corrected in place.                                                                                                                                                              |
 
 ---
 
@@ -126,16 +129,20 @@ Endpoint host names, resource names, and operational commands are in [deployment
 
 ## Validation baseline
 
-Measured on 2026-08-25 on `feature/live-exposure`.
+Measured on 2026-08-26 on `feature/governance-phase1-completion` with Node 22.
 
 | Suite                         | Command                                                           | Result                                              |
 | ----------------------------- | ----------------------------------------------------------------- | --------------------------------------------------- |
 | Azure Monitor connector tests | `pnpm --filter @agent-sentinel/azure-monitor-otel-connector test` | **6 passing**, 1 file                               |
 | Behavior engine tests         | `pnpm --filter @agent-sentinel/behavior-engine test`              | **72 passing**, 3 files                             |
-| API unit tests                | `pnpm --filter @agent-sentinel/api test`                          | **133 passing**, 11 files                           |
+| API unit tests                | `pnpm --filter @agent-sentinel/api test`                          | **138 passing**, 11 files                           |
 | Manifest connector tests      | `pnpm --filter @agent-sentinel/manifest-connector test`           | **53 passing**, 1 file                              |
-| Web unit and component tests  | `pnpm --filter @agent-sentinel/web test`                          | **194 passing**, 26 files                           |
+| Web unit and component tests  | `pnpm --filter @agent-sentinel/web test`                          | **196 passing**, 26 files                           |
 | End-to-end                    | `pnpm test:e2e`                                                   | **23 tests** across 10 Playwright specs             |
+| Changed-file format check     | `pnpm exec prettier --check <changed files>`                      | **Passes**                                          |
+| Repository format check       | `pnpm format:check`                                               | **Fails on 15 pre-existing unrelated files**        |
+| Workspace lint and typecheck  | `pnpm lint`; `pnpm typecheck`                                     | **Passes**                                          |
+| Workspace build               | `pnpm build`                                                      | **16 of 16 tasks pass**                             |
 | Bicep                         | `az bicep build`                                                  | Builds, with baseline linter warnings               |
 | Web production build          | `pnpm --filter @agent-sentinel/web build`                         | Succeeds with a Rollup chunk-size warning (>500 kB) |
 

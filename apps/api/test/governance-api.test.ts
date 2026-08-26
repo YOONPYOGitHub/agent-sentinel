@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { GovernancePosture } from '@agent-sentinel/domain'
 
 import { createApp } from '../src/app.js'
+import { buildMockExposurePage } from '../src/exposure-routes.js'
 
 describe('governance API', () => {
   it('returns deterministic policy posture in mock mode', async () => {
@@ -55,6 +56,44 @@ describe('governance API', () => {
       expect(posture.summary.compliantPolicies).toBe(0)
       expect(posture.policies.every((policy) => policy.status === 'not-evaluated')).toBe(true)
       expect(posture.latestEvidenceAt).toBeUndefined()
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('recomputes posture from current finding state instead of a scoring store', async () => {
+    process.env['AGENT_SENTINEL_CONNECTOR'] = 'mock'
+    let findings = buildMockExposurePage('tenant-demo', {}).findings
+    const repository = {
+      upsert: vi.fn(),
+      findById: vi.fn(),
+      listByTenant: vi.fn().mockImplementation(() =>
+        Promise.resolve({
+          items: findings,
+          total: findings.length,
+        }),
+      ),
+      getFacets: vi.fn(),
+      resolveAbsent: vi.fn(),
+    }
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      { dataMode: 'live', exposureRepository: repository },
+    )
+    try {
+      const before: GovernancePosture = (
+        await app.inject({ method: 'GET', url: '/api/governance/posture' })
+      ).json()
+      expect(before.summary.policiesNeedingAttention).toBeGreaterThan(0)
+
+      findings = findings.map((finding) => ({ ...finding, status: 'resolved' as const }))
+      const after: GovernancePosture = (
+        await app.inject({ method: 'GET', url: '/api/governance/posture' })
+      ).json()
+      expect(after.summary.policiesNeedingAttention).toBe(0)
+      expect(after.summary.openFindings).toBe(0)
+      expect(after.policies.every((policy) => policy.status === 'not-evaluated')).toBe(true)
     } finally {
       await app.close()
     }

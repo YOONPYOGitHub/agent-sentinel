@@ -4,8 +4,8 @@ import { z } from 'zod'
 
 import {
   TRANSITION_RESULT,
-  VALID_TRANSITIONS,
   computeOverdue,
+  governanceLifecycleActionSchema,
   governanceCaseDetailSchema,
   governanceCaseKindSchema,
   governanceCaseSchema,
@@ -14,13 +14,16 @@ import {
   governanceCaseTransitionSchema,
   governanceQueuePageSchema,
   governanceQueueSummarySchema,
+  validTransitionsForCase,
   type GovernanceActorCapability,
+  type GovernanceAuthorizationContext,
   type GovernanceCase,
   type GovernanceCaseKind,
   type GovernanceCaseRepository,
   type GovernanceCaseStatus,
   type GovernanceCaseTransition,
   type GovernanceCaseTransitionOp,
+  type GovernanceLifecycleAction,
   type GovernanceQueuePage,
   type GovernanceQueueSummary,
 } from '@agent-sentinel/domain'
@@ -40,6 +43,10 @@ const transitionCapabilityMap: Record<GovernanceCaseTransitionOp, GovernanceActo
   reopen: 'proposeRemediation',
   're-evaluate': 'validateFinding',
   expire: 'configure',
+  promote: 'executeRemediation',
+  'acknowledge-drift': 'validateFinding',
+  rollback: 'executeRemediation',
+  retire: 'executeRemediation',
 }
 
 const persistenceUnavailableReason =
@@ -65,6 +72,8 @@ const createCaseBodySchema = z.object({
   findingId: z.string().trim().min(1).optional(),
   agentId: z.string().trim().min(1).optional(),
   policyId: z.string().trim().min(1).optional(),
+  expiresAt: z.iso.datetime().optional(),
+  lifecycleAction: governanceLifecycleActionSchema.optional(),
   evidenceSnapshotIds: z.array(z.string().min(1)).default([]),
   idempotencyKey: z.string().trim().min(1),
 })
@@ -73,6 +82,8 @@ const transitionBodySchema = z.object({
   operation: governanceCaseTransitionOpSchema,
   actorIdentity: z.string().trim().min(1).optional(),
   actorRole: z.string().trim().min(1).optional(),
+  assigneeIdentity: z.string().trim().min(1).optional(),
+  expiresAt: z.iso.datetime().optional(),
   reason: z.string().trim().min(1).optional(),
   evidenceSnapshotIds: z.array(z.string().min(1)).default([]),
   idempotencyKey: z.string().trim().min(1),
@@ -88,6 +99,7 @@ export interface GovernanceQueueRoutesOptions {
 interface ResolvedActor {
   identity: string
   role: string
+  authorizationContext: GovernanceAuthorizationContext
   principal?: AuthPrincipal
 }
 
@@ -208,13 +220,36 @@ function resolveActor(
           principal.subject,
       ),
       role: principal.roles[0] ?? 'Unknown',
+      authorizationContext: {
+        mode: 'jwt',
+        authenticated: true,
+        subject: principal.subject,
+      },
       principal,
     }
   }
 
+  if (authConfig.mode === 'disabled') {
+    return {
+      identity: 'anonymous',
+      role: 'Anonymous',
+      authorizationContext: {
+        mode: 'disabled',
+        authenticated: false,
+        subject: 'anonymous',
+      },
+    }
+  }
+
+  const identity = sanitizeIdentity(body.actorIdentity ?? 'Demo operator')
   return {
-    identity: sanitizeIdentity(body.actorIdentity ?? 'Demo operator'),
+    identity,
     role: body.actorRole ?? 'Demo',
+    authorizationContext: {
+      mode: 'mock',
+      authenticated: false,
+      subject: identity,
+    },
   }
 }
 
@@ -252,8 +287,7 @@ async function requireTransitionCapability(
 
 function createInitialTransition(
   caseRecord: GovernanceCase,
-  actorIdentity: string,
-  actorRole: string,
+  actor: ResolvedActor,
   capability: GovernanceActorCapability,
   idempotencyKey: string,
 ): GovernanceCaseTransition {
@@ -263,10 +297,25 @@ function createInitialTransition(
     operation: 'create',
     fromStatus: null,
     toStatus: 'open',
-    actorIdentity,
-    actorRole,
+    actorIdentity: actor.identity,
+    actorRole: actor.role,
     actorCapability: capability,
     timestamp: caseRecord.createdAt,
+    authorizationContext: actor.authorizationContext,
+    source: {
+      type: 'governance-workflow',
+      mode: caseRecord.sourceMode,
+      referenceIds: mergeIds(
+        [caseRecord.id],
+        caseRecord.evidenceSnapshotIds,
+        caseRecord.findingId ? [caseRecord.findingId] : [],
+        caseRecord.agentId ? [caseRecord.agentId] : [],
+        caseRecord.policyId ? [caseRecord.policyId] : [],
+      ),
+    },
+    ...(caseRecord.assigneeIdentity !== undefined
+      ? { assignedToIdentity: caseRecord.assigneeIdentity }
+      : {}),
     reason: 'Case created.',
     evidenceSnapshotIds: caseRecord.evidenceSnapshotIds,
     idempotencyKey,
@@ -289,6 +338,8 @@ function createSeedCase(
     findingId?: string
     agentId?: string
     policyId?: string
+    expiresAt?: string
+    lifecycleAction?: GovernanceLifecycleAction
     evidenceSnapshotIds?: string[]
   },
   sourceMode: 'mock' | 'foundry',
@@ -302,12 +353,23 @@ function createSeedCase(
   })
 }
 
-function createSeedTransition(
-  input: Omit<GovernanceCaseTransition, 'id'>,
+function buildSeedTransition(
+  input: Omit<GovernanceCaseTransition, 'id' | 'authorizationContext' | 'source'>,
+  sourceMode: 'mock' | 'foundry',
 ): GovernanceCaseTransition {
   return governanceCaseTransitionSchema.parse({
     ...input,
     id: randomUUID(),
+    authorizationContext: {
+      mode: 'mock',
+      authenticated: false,
+      subject: input.actorIdentity,
+    },
+    source: {
+      type: 'governance-workflow',
+      mode: sourceMode,
+      referenceIds: mergeIds([input.caseId], input.evidenceSnapshotIds),
+    },
   })
 }
 
@@ -315,6 +377,9 @@ export function createSeededGovernanceCaseRepository(
   sourceMode: 'mock' | 'foundry',
   writeEnabled: boolean,
 ): InMemoryGovernanceCaseRepository {
+  const createSeedTransition = (
+    input: Omit<GovernanceCaseTransition, 'id' | 'authorizationContext' | 'source'>,
+  ) => buildSeedTransition(input, sourceMode)
   const cases: GovernanceCase[] = [
     createSeedCase(
       {
@@ -350,6 +415,7 @@ export function createSeededGovernanceCaseRepository(
         lastTransitionAt: '2026-08-20T11:00:00.000Z',
         assigneeIdentity: 'Taylor Analyst',
         agentId: 'hr-policy-agent',
+        lifecycleAction: 'promote',
         evidenceSnapshotIds: ['mock-snap-002'],
       },
       sourceMode,
@@ -390,6 +456,7 @@ export function createSeededGovernanceCaseRepository(
         lastTransitionAt: '2026-08-22T07:15:00.000Z',
         proposerIdentity: 'Casey Owner',
         policyId: 'AS-POL-002',
+        expiresAt: '2026-08-25T07:15:00.000Z',
         evidenceSnapshotIds: ['mock-snap-004'],
       },
       sourceMode,
@@ -674,6 +741,26 @@ export function registerGovernanceQueueRoutes(
       const body = createCaseBodySchema.parse(request.body)
       const actor = resolveActor(options.authConfig, request.authPrincipal, body)
       const createdAt = new Date().toISOString()
+      if (
+        body.kind === 'policy-exception' &&
+        (body.expiresAt === undefined || Date.parse(body.expiresAt) <= Date.parse(createdAt))
+      ) {
+        await reply.status(422).send({
+          error: 'invalid_exception_expiry',
+          message: 'A policy exception requires an expiry later than its creation time.',
+        })
+        return
+      }
+      if (
+        (body.kind === 'policy-exception' || body.kind === 'lifecycle-review') &&
+        body.evidenceSnapshotIds.length === 0
+      ) {
+        await reply.status(422).send({
+          error: 'evidence_required',
+          message: `${body.kind} cases require at least one evidence snapshot.`,
+        })
+        return
+      }
       const caseRecord = governanceCaseSchema.parse({
         id: randomUUID(),
         kind: body.kind,
@@ -690,14 +777,15 @@ export function registerGovernanceQueueRoutes(
         ...(body.findingId !== undefined ? { findingId: body.findingId } : {}),
         ...(body.agentId !== undefined ? { agentId: body.agentId } : {}),
         ...(body.policyId !== undefined ? { policyId: body.policyId } : {}),
+        ...(body.expiresAt !== undefined ? { expiresAt: body.expiresAt } : {}),
+        ...(body.lifecycleAction !== undefined ? { lifecycleAction: body.lifecycleAction } : {}),
         evidenceSnapshotIds: body.evidenceSnapshotIds,
         sourceMode: options.mode,
         writeEnabledAtCreation: options.writeEnabled,
       })
       const firstTransition = createInitialTransition(
         caseRecord,
-        actor.identity,
-        actor.role,
+        actor,
         'proposeRemediation',
         body.idempotencyKey,
       )
@@ -746,7 +834,7 @@ export function registerGovernanceQueueRoutes(
         return
       }
 
-      const allowedOperations = VALID_TRANSITIONS[found.case.status]
+      const allowedOperations = validTransitionsForCase(found.case)
       if (!allowedOperations.includes(body.operation)) {
         await reply.status(409).send({
           error: 'invalid_transition',
@@ -776,7 +864,53 @@ export function registerGovernanceQueueRoutes(
       }
 
       const timestamp = new Date().toISOString()
+      if (
+        found.case.kind === 'policy-exception' &&
+        body.operation === 'approve' &&
+        (found.case.expiresAt === undefined ||
+          Date.parse(found.case.expiresAt) <= Date.parse(timestamp))
+      ) {
+        await reply.status(422).send({
+          error: 'invalid_exception_expiry',
+          message: 'A policy exception cannot be approved after its expiry.',
+        })
+        return
+      }
+      if (
+        found.case.kind === 'policy-exception' &&
+        body.operation === 'expire' &&
+        found.case.expiresAt !== undefined &&
+        Date.parse(found.case.expiresAt) > Date.parse(timestamp)
+      ) {
+        await reply.status(409).send({
+          error: 'exception_not_expired',
+          message: `The policy exception remains valid until ${found.case.expiresAt}.`,
+        })
+        return
+      }
+      if (
+        found.case.kind === 'policy-exception' &&
+        body.operation === 're-evaluate' &&
+        (body.expiresAt === undefined ||
+          Date.parse(body.expiresAt) <= Date.parse(timestamp) ||
+          body.evidenceSnapshotIds.length === 0)
+      ) {
+        await reply.status(422).send({
+          error: 're_evaluation_evidence_required',
+          message:
+            'Re-evaluating a policy exception requires fresh evidence and a new future expiry.',
+        })
+        return
+      }
       const nextStatus = TRANSITION_RESULT[body.operation]
+      const transitionEvidenceIds = mergeIds(
+        found.case.evidenceSnapshotIds,
+        body.evidenceSnapshotIds,
+      )
+      const assignedToIdentity =
+        body.operation === 'pick-up'
+          ? sanitizeIdentity(body.assigneeIdentity ?? actor.identity)
+          : undefined
       const transitionReason =
         body.operation === 'close' && options.writeEnabled === false
           ? body.reason === undefined
@@ -793,8 +927,21 @@ export function registerGovernanceQueueRoutes(
         actorRole: actor.role,
         actorCapability: requiredCapability,
         timestamp,
+        authorizationContext: actor.authorizationContext,
+        source: {
+          type: 'governance-workflow',
+          mode: found.case.sourceMode,
+          referenceIds: mergeIds(
+            [found.case.id],
+            transitionEvidenceIds,
+            found.case.findingId ? [found.case.findingId] : [],
+            found.case.agentId ? [found.case.agentId] : [],
+            found.case.policyId ? [found.case.policyId] : [],
+          ),
+        },
+        ...(assignedToIdentity !== undefined ? { assignedToIdentity } : {}),
         ...(transitionReason !== undefined ? { reason: transitionReason } : {}),
-        evidenceSnapshotIds: body.evidenceSnapshotIds,
+        evidenceSnapshotIds: transitionEvidenceIds,
         idempotencyKey: body.idempotencyKey,
       })
 
@@ -802,9 +949,12 @@ export function registerGovernanceQueueRoutes(
         ...found.case,
         status: nextStatus,
         lastTransitionAt: timestamp,
-        evidenceSnapshotIds: mergeIds(found.case.evidenceSnapshotIds, body.evidenceSnapshotIds),
-        ...(body.operation === 'pick-up' ? { assigneeIdentity: actor.identity } : {}),
+        evidenceSnapshotIds: transitionEvidenceIds,
+        ...(body.operation === 'pick-up' ? { assigneeIdentity: assignedToIdentity } : {}),
         ...(body.operation === 'propose' ? { proposerIdentity: actor.identity } : {}),
+        ...(body.operation === 're-evaluate' && body.expiresAt !== undefined
+          ? { expiresAt: body.expiresAt }
+          : {}),
         ...(body.operation === 'reopen' || body.operation === 're-evaluate'
           ? { assigneeIdentity: undefined }
           : {}),

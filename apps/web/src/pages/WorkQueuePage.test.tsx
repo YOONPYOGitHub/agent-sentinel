@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
@@ -166,6 +166,31 @@ describe('WorkQueuePage', () => {
     renderPage(analystAuth)
 
     expect(await screen.findByText(/Separation of duties:/i)).toBeVisible()
+  })
+
+  it('renders immutable audit provenance in case details', async () => {
+    renderPage(analystAuth)
+
+    expect(await screen.findByRole('heading', { name: 'Open governance cases' })).toBeVisible()
+    const caseRow = screen.getByText('[Mock] Approve MCP route containment plan').closest('tr')!
+    fireEvent.click(within(caseRow).getByRole('button', { name: 'Details' }))
+
+    expect((await screen.findAllByText(/mock authorization · Avery Planner/i))[0]).toBeVisible()
+    expect(screen.getAllByText(/mock evidence · 2 references/i).length).toBeGreaterThan(0)
+  })
+
+  it('collects bounded exception and lifecycle evidence fields', async () => {
+    renderPage(analystAuth)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Create case' }))
+    const createRegion = screen.getByRole('region', { name: 'Create governance case' })
+    const kind = within(createRegion).getByRole('combobox', { name: 'Kind' })
+    fireEvent.change(kind, { target: { value: 'policy-exception' } })
+    expect(within(createRegion).getByRole('textbox', { name: 'Assignee' })).toBeVisible()
+    expect(within(createRegion).getByLabelText('Exception expiry')).toBeVisible()
+
+    fireEvent.change(kind, { target: { value: 'lifecycle-review' } })
+    expect(within(createRegion).getByRole('combobox', { name: 'Lifecycle action' })).toBeVisible()
   })
 
   it('shows the live persistence unavailable banner', async () => {

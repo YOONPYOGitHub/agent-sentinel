@@ -1,6 +1,6 @@
 # Roadmap
 
-Phased delivery plan for Agent Sentinel. Last reviewed **2026-08-24** against branch `feature/live-exposure`.
+Phased delivery plan for Agent Sentinel. Last reviewed **2026-08-26** against branch `feature/governance-phase1-completion`.
 
 Every phase has an explicit definition of done. A phase is not done because its UI renders; it is done when its evidence is real, its boundaries are enforced in code, and its tests prove the behavior without model access.
 
@@ -69,12 +69,23 @@ Turn read-only governance posture into an operable workflow.
 
 **Dependencies:** none. Approval _execution_ against a real target is separately gated by Phase 3.
 
+**Implemented**
+
+- Assignment and state guards are enforced in the shared domain and API.
+- Every transition appends evidence with source references, actor, timestamp, capability, and authorization context. Repository reads return clones so callers cannot mutate stored history.
+- `AUTH_MODE=disabled` ignores caller-supplied identity and records the actor and authorization subject as `anonymous`; mock and JWT modes retain their explicit contexts.
+- Policy exceptions require policy, evidence, and expiry; approve, reject, time-checked expiry, and evidence-backed re-evaluation are covered by API tests.
+- Approved lifecycle reviews can record exactly their selected promotion, drift acknowledgement, rollback, or retirement action.
+- Governance posture is recomputed from the current finding population on each request; there is no scoring store.
+
 **Definition of done**
 
-- Every workflow transition writes an evidence record citing source, actor, and timestamp.
-- No transition is possible without an authorization context, even while `AUTH_MODE=disabled` renders that context anonymous.
-- Governance posture recomputes from findings after a transition, with no separate scoring store.
-- Unit and end-to-end coverage for approve, reject, expire, and re-evaluate.
+- [x] Every workflow transition writes an evidence record citing source, actor, and timestamp.
+- [x] No transition is possible without an authorization context, even while `AUTH_MODE=disabled` renders that context anonymous.
+- [x] Governance posture recomputes from findings after a transition, with no separate scoring store.
+- [ ] Unit and end-to-end coverage for approve, reject, expire, and re-evaluate. Unit/API integration is complete; Playwright still covers only queue/filter/pick-up/audit provenance.
+
+**Remaining:** implement durable live governance persistence. Live mode continues to report synthetic reads and reject writes rather than pretending in-memory state is durable.
 
 ---
 

@@ -32,6 +32,8 @@ test('governance work queue applies and audits a deterministic transition', asyn
   await expect(page.getByText('Pick up', { exact: true })).toBeVisible()
   await expect(page.getByText(/None\s*→\s*Open/)).toBeVisible()
   await expect(page.getByText(/Open\s*→\s*In review/)).toBeVisible()
+  await expect(page.getByText(/disabled authorization · anonymous/i)).toBeVisible()
+  await expect(page.getByText(/mock evidence · \d+ references/i).last()).toBeVisible()
 })
 
 test('exposure finding deep link prefills a governance remediation case', async ({ page }) => {

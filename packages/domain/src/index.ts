@@ -351,6 +351,9 @@ export {
   governanceCaseTransitionOpSchema,
   governanceActorCapabilitySchema,
   governanceCaseSourceModeSchema,
+  governanceLifecycleActionSchema,
+  governanceAuthorizationContextSchema,
+  governanceEvidenceSourceSchema,
   governanceCaseTransitionSchema,
   governanceCaseSchema,
   governanceCaseDetailSchema,
@@ -360,10 +363,12 @@ export {
   TRANSITION_RESULT,
   CASE_SLA_MS,
   computeOverdue,
+  validTransitionsForCase,
 } from './governance-queue.js'
 
 export type {
   GovernanceActorCapability,
+  GovernanceAuthorizationContext,
   GovernanceCase,
   GovernanceCaseDetail,
   GovernanceCaseKind,
@@ -371,6 +376,8 @@ export type {
   GovernanceCaseStatus,
   GovernanceCaseTransition,
   GovernanceCaseTransitionOp,
+  GovernanceEvidenceSource,
+  GovernanceLifecycleAction,
   GovernanceQueuePage,
   GovernanceQueueSummary,
 } from './governance-queue.js'
