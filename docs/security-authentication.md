@@ -21,8 +21,8 @@ sanitized principal and never exposes raw tokens or the complete claim set.
 ## Activation checklist
 
 - [x] Service Tree record created under the confirmed owning hierarchy
-- [ ] Separate API and SPA app registrations created
-- [ ] API read/write scopes and four app roles configured
+- [x] Separate API and SPA app registrations created
+- [x] API read/write scopes and four app roles configured
 - [ ] Front Door HTTPS callback and logout URIs registered
 - [ ] Least-privilege permissions reviewed and consented
 - [ ] Runtime configuration populated through the secret path
