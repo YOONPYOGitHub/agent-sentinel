@@ -1,6 +1,10 @@
 export { CosmosSnapshotRepository } from './cosmos-snapshot-repository.js'
 export { CosmosFindingRepository } from './cosmos-finding-repository.js'
 export { CosmosExposureFindingRepository } from './cosmos-exposure-finding-repository.js'
+export {
+  CosmosGovernanceCaseRepository,
+  type CosmosGovernanceCaseRepositoryOptions,
+} from './cosmos-governance-case-repository.js'
 export { PgFindingRepository } from './pg-finding-repository.js'
 export { PgValidationRunRepository } from './pg-validation-run-repository.js'
 export {

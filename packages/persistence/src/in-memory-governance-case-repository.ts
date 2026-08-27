@@ -105,11 +105,15 @@ export class InMemoryGovernanceCaseRepository implements GovernanceCaseRepositor
           .toLocaleLowerCase()
         return haystack.includes(search)
       })
-      .sort((left, right) => right.lastTransitionAt.localeCompare(left.lastTransitionAt))
+      .sort(
+        (left, right) =>
+          right.lastTransitionAt.localeCompare(left.lastTransitionAt) ||
+          left.id.localeCompare(right.id),
+      )
 
     const total = filtered.length
     const page = filters.page ?? 1
-    const pageSize = filters.pageSize ?? 50
+    const pageSize = Math.min(filters.pageSize ?? 50, 200)
     const start = Math.max(0, (page - 1) * pageSize)
     const items = filtered
       .slice(start, start + pageSize)

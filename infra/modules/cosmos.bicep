@@ -49,6 +49,7 @@ var containerNames = [
   'evidence'
   'graph-nodes'
   'graph-edges'
+  'governance-cases'
 ]
 
 resource containers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = [for containerName in containerNames: {

@@ -14,6 +14,7 @@ import type {
 } from '@agent-sentinel/domain'
 import {
   CosmosExposureFindingRepository,
+  CosmosGovernanceCaseRepository,
   CosmosSnapshotRepository,
 } from '@agent-sentinel/persistence'
 
@@ -79,20 +80,32 @@ function defaultWriteEnabled(mode: 'mock' | 'live', authConfig: AuthConfig): boo
   return enabled
 }
 
-function buildLiveRepositories(): {
+export function buildLiveRepositories(clientOverride?: CosmosClient): {
   exposureRepository: ExposureFindingRepository
   snapshotRepository: SnapshotRepository
+  governanceCaseRepository: GovernanceCaseRepository
 } {
   const endpoint = process.env['COSMOS_ENDPOINT']?.trim()
-  if (!endpoint) throw new Error('COSMOS_ENDPOINT is required when AGENT_SENTINEL_DATA_MODE=live.')
+  if (!clientOverride && !endpoint)
+    throw new Error('COSMOS_ENDPOINT is required when AGENT_SENTINEL_DATA_MODE=live.')
   const databaseId =
     process.env['COSMOS_DATABASE']?.trim() ||
     process.env['COSMOS_DATABASE_ID']?.trim() ||
     'agent-sentinel-db'
-  const client = new CosmosClient({ endpoint, aadCredentials: new DefaultAzureCredential() })
+  const governanceContainerId = process.env['COSMOS_GOVERNANCE_CONTAINER']?.trim()
+  if (!governanceContainerId)
+    throw new Error('COSMOS_GOVERNANCE_CONTAINER is required when AGENT_SENTINEL_DATA_MODE=live.')
+  const client =
+    clientOverride ??
+    new CosmosClient({ endpoint: endpoint!, aadCredentials: new DefaultAzureCredential() })
   return {
     exposureRepository: new CosmosExposureFindingRepository(client, databaseId),
     snapshotRepository: new CosmosSnapshotRepository(client, databaseId),
+    governanceCaseRepository: new CosmosGovernanceCaseRepository(client, {
+      tenantId: defaultTenantId(),
+      databaseId,
+      containerId: governanceContainerId,
+    }),
   }
 }
 
@@ -280,7 +293,7 @@ export async function createApp(
     options.governanceCaseRepository ??
     (resolvedDataMode === 'mock'
       ? createSeededGovernanceCaseRepository(exposureMode, writeEnabled)
-      : undefined)
+      : liveRepositories?.governanceCaseRepository)
   const advisoryService = options.advisoryService ?? createAdvisoryService()
   registerExposureRoutes(app, {
     mode: exposureMode,

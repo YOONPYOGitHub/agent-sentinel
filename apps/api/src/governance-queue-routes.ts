@@ -19,6 +19,7 @@ import {
   type GovernanceAuthorizationContext,
   type GovernanceCase,
   type GovernanceCaseKind,
+  type GovernanceCaseListFilters,
   type GovernanceCaseRepository,
   type GovernanceCaseStatus,
   type GovernanceCaseTransition,
@@ -51,8 +52,7 @@ const transitionCapabilityMap: Record<GovernanceCaseTransitionOp, GovernanceActo
 
 const persistenceUnavailableReason =
   'Live persistence unavailable – workflow state requires a dedicated Cosmos container. Cases shown are synthetic.'
-const closeWriteDisabledNote =
-  'Execution is disabled. The case can be closed with a record note; no platform changes are made.'
+const writeDisabledReason = 'Governance mutations are disabled by AGENT_SENTINEL_WRITE_ENABLED.'
 const listQuerySchema = z.object({
   status: governanceCaseStatusSchema.optional(),
   kind: governanceCaseKindSchema.optional(),
@@ -191,6 +191,21 @@ function buildPage(
     total,
     summary: buildSummary(summaryCases, sourceMode, persistenceAvailable, persistenceNote),
   })
+}
+
+async function listMatchingCases(
+  repository: GovernanceCaseRepository,
+  filters: GovernanceCaseListFilters = {},
+): Promise<GovernanceCase[]> {
+  const pageSize = 200
+  const first = await repository.listAll({ ...filters, page: 1, pageSize })
+  const items = [...first.items]
+  for (let page = 2; items.length < first.total; page += 1) {
+    const next = await repository.listAll({ ...filters, page, pageSize })
+    if (next.items.length === 0) break
+    items.push(...next.items)
+  }
+  return items
 }
 
 function buildDetail(
@@ -676,16 +691,12 @@ export function registerGovernanceQueueRoutes(
       const filters = parseFilters(request)
       const [result, summaryResult] = await Promise.all([
         readRepository.listAll(filters),
-        readRepository.listAll({
-          ...filters,
-          page: 1,
-          pageSize: Number.MAX_SAFE_INTEGER,
-        }),
+        listMatchingCases(readRepository, filters),
       ])
       return buildPage(
         result.items,
         result.total,
-        summaryResult.items,
+        summaryResult,
         options.mode,
         persistenceAvailable,
         persistenceNote,
@@ -697,8 +708,8 @@ export function registerGovernanceQueueRoutes(
     '/api/governance/queue/summary',
     { preHandler: requireCapability(options.authConfig, 'read') },
     async () => {
-      const result = await readRepository.listAll({ page: 1, pageSize: Number.MAX_SAFE_INTEGER })
-      return buildSummary(result.items, options.mode, persistenceAvailable, persistenceNote)
+      const cases = await listMatchingCases(readRepository)
+      return buildSummary(cases, options.mode, persistenceAvailable, persistenceNote)
     },
   )
 
@@ -734,6 +745,13 @@ export function registerGovernanceQueueRoutes(
         await reply.status(503).send({
           error: 'persistence_unavailable',
           message: persistenceUnavailableReason,
+        })
+        return
+      }
+      if (!options.writeEnabled) {
+        await reply.status(403).send({
+          error: 'read_only_mode',
+          message: writeDisabledReason,
         })
         return
       }
@@ -810,6 +828,13 @@ export function registerGovernanceQueueRoutes(
         await reply.status(503).send({
           error: 'persistence_unavailable',
           message: persistenceUnavailableReason,
+        })
+        return
+      }
+      if (!options.writeEnabled) {
+        await reply.status(403).send({
+          error: 'read_only_mode',
+          message: writeDisabledReason,
         })
         return
       }
@@ -911,12 +936,6 @@ export function registerGovernanceQueueRoutes(
         body.operation === 'pick-up'
           ? sanitizeIdentity(body.assigneeIdentity ?? actor.identity)
           : undefined
-      const transitionReason =
-        body.operation === 'close' && options.writeEnabled === false
-          ? body.reason === undefined
-            ? closeWriteDisabledNote
-            : `${body.reason} ${closeWriteDisabledNote}`
-          : body.reason
       const transition = governanceCaseTransitionSchema.parse({
         id: randomUUID(),
         caseId: found.case.id,
@@ -940,7 +959,7 @@ export function registerGovernanceQueueRoutes(
           ),
         },
         ...(assignedToIdentity !== undefined ? { assignedToIdentity } : {}),
-        ...(transitionReason !== undefined ? { reason: transitionReason } : {}),
+        ...(body.reason !== undefined ? { reason: body.reason } : {}),
         evidenceSnapshotIds: transitionEvidenceIds,
         idempotencyKey: body.idempotencyKey,
       })
@@ -979,13 +998,7 @@ export function registerGovernanceQueueRoutes(
         })
         return
       }
-      return buildDetail(
-        applied.case,
-        applied.transitions,
-        body.operation === 'close' && options.writeEnabled === false
-          ? closeWriteDisabledNote
-          : undefined,
-      )
+      return buildDetail(applied.case, applied.transitions)
     },
   )
 }

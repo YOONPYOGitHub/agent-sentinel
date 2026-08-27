@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { CosmosClient } from '@azure/cosmos'
 
 const jose = vi.hoisted(() => ({
   createRemoteJWKSet: vi.fn(() => ({ mocked: 'jwks' })),
@@ -21,9 +22,11 @@ import {
   governanceQueuePageSchema,
   governanceQueueSummarySchema,
 } from '@agent-sentinel/domain'
+import { CosmosGovernanceCaseRepository } from '@agent-sentinel/persistence'
 
-import { createApp } from '../src/app.js'
+import { buildLiveRepositories, createApp } from '../src/app.js'
 import type { AuthConfig } from '../src/auth.js'
+import { createSeededGovernanceCaseRepository } from '../src/governance-queue-routes.js'
 
 const apps: Awaited<ReturnType<typeof createApp>>[] = []
 
@@ -69,6 +72,8 @@ beforeEach(() => {
   process.env['AGENT_SENTINEL_CONNECTOR'] = 'mock'
   delete process.env['AGENT_SENTINEL_DATA_MODE']
   delete process.env['AGENT_SENTINEL_WRITE_ENABLED']
+  delete process.env['AGENT_SENTINEL_TENANT_ID']
+  delete process.env['COSMOS_GOVERNANCE_CONTAINER']
   jose.createRemoteJWKSet.mockClear()
   jose.jwtVerify.mockReset()
 })
@@ -79,6 +84,8 @@ afterEach(async () => {
   delete process.env['AGENT_SENTINEL_CONNECTOR']
   delete process.env['AGENT_SENTINEL_DATA_MODE']
   delete process.env['AGENT_SENTINEL_WRITE_ENABLED']
+  delete process.env['AGENT_SENTINEL_TENANT_ID']
+  delete process.env['COSMOS_GOVERNANCE_CONTAINER']
 })
 
 describe('governance queue API', () => {
@@ -751,5 +758,80 @@ describe('governance queue API', () => {
     })
     expect(transitionResponse.statusCode).toBe(503)
     expect(transitionResponse.json()).toMatchObject({ error: 'persistence_unavailable' })
+  })
+
+  it('wires the tenant-bound Cosmos repository in the live repository factory', () => {
+    process.env['AGENT_SENTINEL_TENANT_ID'] = 'tenant-live'
+    process.env['COSMOS_GOVERNANCE_CONTAINER'] = 'governance-test'
+    const container = {}
+    const containerMock = vi.fn(() => container)
+    const database = { container: containerMock }
+    const databaseMock = vi.fn(() => database)
+    const client = { database: databaseMock } as unknown as CosmosClient
+
+    const repositories = buildLiveRepositories(client)
+
+    expect(repositories.governanceCaseRepository).toBeInstanceOf(CosmosGovernanceCaseRepository)
+    expect(databaseMock).toHaveBeenCalledWith('agent-sentinel-db')
+    expect(containerMock).toHaveBeenCalledWith('governance-test')
+  })
+
+  it('fails closed when live governance container configuration is absent', () => {
+    const client = {
+      database: vi.fn(() => ({ container: vi.fn(() => ({})) })),
+    } as unknown as CosmosClient
+
+    expect(() => buildLiveRepositories(client)).toThrow('COSMOS_GOVERNANCE_CONTAINER is required')
+  })
+
+  it('keeps live governance mutations blocked when persistence is available but writes are off', async () => {
+    process.env['AGENT_SENTINEL_WRITE_ENABLED'] = 'false'
+    const governanceCaseRepository = createSeededGovernanceCaseRepository('foundry', false)
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        exposureRepository: liveExposureRepository(),
+        snapshotRepository: liveSnapshotRepository(),
+        governanceCaseRepository,
+        runtimeTelemetryConnector: null,
+      },
+    )
+    apps.push(app)
+
+    const listResponse = await app.inject({ method: 'GET', url: '/api/governance/queue' })
+    expect(governanceQueuePageSchema.parse(listResponse.json()).summary.persistenceAvailable).toBe(
+      true,
+    )
+
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/governance/queue',
+      payload: {
+        kind: 'finding-review',
+        title: 'Blocked live write',
+        description: 'Persistence must not bypass the global write switch.',
+        actorIdentity: 'Pat Analyst',
+        actorRole: 'Analyst',
+        idempotencyKey: 'blocked-live-create',
+      },
+    })
+    expect(createResponse.statusCode).toBe(403)
+    expect(createResponse.json()).toMatchObject({ error: 'read_only_mode' })
+
+    const transitionResponse = await app.inject({
+      method: 'POST',
+      url: '/api/governance/queue/gq-001/transitions',
+      payload: {
+        operation: 'pick-up',
+        actorIdentity: 'Pat Analyst',
+        actorRole: 'Analyst',
+        idempotencyKey: 'blocked-live-transition',
+      },
+    })
+    expect(transitionResponse.statusCode).toBe(403)
+    expect(transitionResponse.json()).toMatchObject({ error: 'read_only_mode' })
+    expect((await governanceCaseRepository.findById('gq-001'))?.case.status).toBe('open')
   })
 })

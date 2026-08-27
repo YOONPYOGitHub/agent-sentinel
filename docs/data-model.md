@@ -38,13 +38,14 @@ Represents a point-in-time view of an agent estate.
 
 ### Cosmos DB (agent-sentinel-db)
 
-| Container   | Partition Key | Purpose                |
-| ----------- | ------------- | ---------------------- |
-| snapshots   | /tenantId     | EstateSnapshot history |
-| findings    | /tenantId     | Finding records        |
-| evidence    | /tenantId     | Evidence items         |
-| graph-nodes | /tenantId     | GraphNode adjacency    |
-| graph-edges | /tenantId     | GraphEdge adjacency    |
+| Container        | Partition Key | Purpose                                      |
+| ---------------- | ------------- | -------------------------------------------- |
+| snapshots        | /tenantId     | EstateSnapshot history                       |
+| findings         | /tenantId     | Finding records                              |
+| evidence         | /tenantId     | Evidence items                               |
+| graph-nodes      | /tenantId     | GraphNode adjacency                          |
+| graph-edges      | /tenantId     | GraphEdge adjacency                          |
+| governance-cases | /tenantId     | Cases, immutable transitions, and retry keys |
 
 ### PostgreSQL (pg-as-260814)
 
@@ -117,7 +118,27 @@ The allowed transition operations are deterministic and enforced server-side:
 - `expired` → `re-evaluate`
 - `closed` → none
 
-Live mode currently has no dedicated Cosmos container for this queue, so live reads are soft-boundary synthetic responses and live writes remain unavailable.
+Live mode stores the queue in the dedicated `governance-cases` Cosmos container. A
+repository instance is bound to one configured tenant and every point read, query,
+and transactional batch supplies that `/tenantId` partition key.
+
+The container uses three document envelopes:
+
+- `governance-case`: `id=case:<caseId>`, `tenantId`, monotonic `version`,
+  normalized `searchText`, and the current `case`.
+- `governance-case-transition`: `id=transition:<transitionId>`, `tenantId`,
+  `caseId`, append `sequence`, and the immutable `transition`, including its
+  evidence snapshot references and authorization context.
+- `governance-case-idempotency`: a SHA-256-derived id scoped to case creation or
+  one case's transitions, plus `caseId` and `transitionId`. These documents are
+  create-only retry/conflict guards and do not contain the raw key.
+
+Creation atomically creates all three relevant documents. A state transition
+atomically replaces the current case with `If-Match` on its Cosmos ETag and creates
+the transition and idempotency documents. A stale writer returns a state conflict;
+history is never replaced or deleted. List pages are capped at 200 and ordered by
+`lastTransitionAt` descending, then case id ascending. Transition history is ordered
+by append sequence ascending, then transition id ascending.
 
 ## Manifest Envelope (packages/connector-sdk)
 
