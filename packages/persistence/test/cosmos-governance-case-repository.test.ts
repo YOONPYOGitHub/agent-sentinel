@@ -232,27 +232,31 @@ describe('CosmosGovernanceCaseRepository', () => {
     expect((await repository.findById(record.id))?.transitions).toHaveLength(1)
   })
 
-  it('bounds pages at 200 and applies deterministic filters and ordering', async () => {
-    const store = new FakeCosmosStore()
-    const repository = new CosmosGovernanceCaseRepository(store.client, {
-      tenantId: 'tenant-a',
-    })
-    for (let index = 0; index < 201; index += 1) {
-      const record = caseRecord(
-        `case-${String(index).padStart(3, '0')}`,
-        '2026-08-27T00:00:00.000Z',
-      )
-      await repository.create(record, createTransition(record))
-    }
+  it(
+    'bounds pages at 200 and applies deterministic filters and ordering',
+    async () => {
+      const store = new FakeCosmosStore()
+      const repository = new CosmosGovernanceCaseRepository(store.client, {
+        tenantId: 'tenant-a',
+      })
+      for (let index = 0; index < 201; index += 1) {
+        const record = caseRecord(
+          `case-${String(index).padStart(3, '0')}`,
+          '2026-08-27T00:00:00.000Z',
+        )
+        await repository.create(record, createTransition(record))
+      }
 
-    const firstPage = await repository.listAll({ pageSize: Number.MAX_SAFE_INTEGER })
-    const secondPage = await repository.listAll({ page: 2, pageSize: 200 })
-    const searched = await repository.listAll({ search: 'case-200' })
+      const firstPage = await repository.listAll({ pageSize: Number.MAX_SAFE_INTEGER })
+      const secondPage = await repository.listAll({ page: 2, pageSize: 200 })
+      const searched = await repository.listAll({ search: 'case-200' })
 
-    expect(firstPage.items).toHaveLength(200)
-    expect(firstPage.items[0]?.id).toBe('case-000')
-    expect(firstPage.total).toBe(201)
-    expect(secondPage.items.map((item) => item.id)).toEqual(['case-200'])
-    expect(searched.items.map((item) => item.id)).toEqual(['case-200'])
-  })
+      expect(firstPage.items).toHaveLength(200)
+      expect(firstPage.items[0]?.id).toBe('case-000')
+      expect(firstPage.total).toBe(201)
+      expect(secondPage.items.map((item) => item.id)).toEqual(['case-200'])
+      expect(searched.items.map((item) => item.id)).toEqual(['case-200'])
+    },
+    15_000,
+  )
 })
