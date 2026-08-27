@@ -166,6 +166,15 @@ function validateAudience(value: string): string {
   return value
 }
 
+function tokenAudience(applicationIdUri: string): string {
+  const apiClientId = applicationIdUri.match(
+    /^api:\/\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i,
+  )?.[1]
+
+  // Entra v2 access tokens identify APIs by client ID even when scopes use api://{client-id}.
+  return apiClientId ?? applicationIdUri
+}
+
 function validateRedirectUri(value: string, name: string): string {
   let parsed: URL
   try {
@@ -418,7 +427,7 @@ export function createAuthMiddleware(config: AuthConfig) {
     try {
       const verified = await jwtVerify(match[1], jwks, {
         issuer: config.issuer,
-        audience: config.audience,
+        audience: tokenAudience(config.audience),
         algorithms: ['RS256'],
       })
       payload = verified.payload

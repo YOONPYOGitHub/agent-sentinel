@@ -14,7 +14,7 @@ const apps: Awaited<ReturnType<typeof createApp>>[] = []
 const jwtConfig = {
   mode: 'jwt' as const,
   tenantId: 'tenant-id',
-  audience: 'api://agent-sentinel',
+  audience: 'api://11111111-1111-4111-8111-111111111111',
   issuer: 'https://login.microsoftonline.com/tenant-id/v2.0',
   jwksUri: 'https://login.microsoftonline.com/tenant-id/discovery/v2.0/keys',
   allowedScopes: {
@@ -25,7 +25,7 @@ const jwtConfig = {
     tenantId: 'tenant-id',
     clientId: 'spa-client-id',
     authority: 'https://login.microsoftonline.com/tenant-id',
-    scopes: ['api://agent-sentinel/Sentinel.Read'],
+    scopes: ['api://11111111-1111-4111-8111-111111111111/Sentinel.Read'],
     redirectUri: 'https://sentinel.example/auth/callback',
     postLogoutRedirectUri: 'https://sentinel.example/',
   },
@@ -145,7 +145,7 @@ describe('JWT middleware', () => {
       expect.anything(),
       expect.objectContaining({
         issuer: 'https://login.microsoftonline.com/tenant-id/v2.0',
-        audience: 'api://agent-sentinel',
+        audience: '11111111-1111-4111-8111-111111111111',
         algorithms: ['RS256'],
       }),
     )
