@@ -124,7 +124,7 @@ jobs:
           docker run --rm \
             --workdir /app/apps/api \
             "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-api:${{ steps.set-tag.outputs.imageTag }}" \
-            node -e "Promise.all([import('@agent-sentinel/azure-monitor-otel-connector'), import('@agent-sentinel/behavior-engine')])"
+            node -e "Promise.all([import('@agent-sentinel/azure-monitor-otel-connector'), import('@agent-sentinel/behavior-engine'), import('@agent-sentinel/entra-identity-connector')])"
           docker push "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-api:${{ steps.set-tag.outputs.imageTag }}"
 
       - name: Build and push jobs image
@@ -133,6 +133,10 @@ jobs:
             -f apps/jobs/Containerfile \
             -t "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-jobs:${{ steps.set-tag.outputs.imageTag }}" \
             .
+          docker run --rm \
+            --workdir /app/apps/jobs \
+            "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-jobs:${{ steps.set-tag.outputs.imageTag }}" \
+            node -e "import('@agent-sentinel/entra-identity-connector')"
           docker push "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-jobs:${{ steps.set-tag.outputs.imageTag }}"
 
       - name: Verify images in ACR

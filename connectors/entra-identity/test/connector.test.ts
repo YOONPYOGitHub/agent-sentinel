@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 
+import type { AgentConnector } from '@agent-sentinel/connector-sdk'
 import type { AccessToken, TokenCredential } from '@azure/core-auth'
 import type { EstateSnapshot } from '@agent-sentinel/domain'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -9,6 +10,7 @@ import {
   EntraGraphClient,
   EntraIdentityConnector,
   createEntraIdentityConnector,
+  createOptionalEntraEnrichmentConnector,
   enrichSnapshotWithEntra,
   entraIdentityConnectorConfigSchema,
   mapEntraInventoryToSnapshot,
@@ -73,6 +75,29 @@ function baseSnapshot(metadata: Record<string, string>): EstateSnapshot {
         summary: 'Declared configuration.',
       },
     ],
+  }
+}
+
+function baseConnector(): AgentConnector {
+  return {
+    descriptor: {
+      id: 'base',
+      name: 'base',
+      apiVersion: 'v1',
+      releaseStatus: 'ga',
+      capabilities: ['discovery'],
+      requiredPermissions: [],
+      blindSpots: [],
+    },
+    testConnection: () =>
+      Promise.resolve({
+        ok: true,
+        checkedAt: '2026-08-27T08:00:00.000Z',
+        message: 'ok',
+      }),
+    discover: () =>
+      Promise.resolve(baseSnapshot({ servicePrincipalId: '22222222-2222-4222-8222-222222222222' })),
+    getEvidence: () => Promise.reject(new Error('not used')),
   }
 }
 
@@ -403,36 +428,58 @@ describe('optional preview capability', () => {
 })
 describe('composite enrichment connector', () => {
   it('preserves base discovery and reports explicit Entra health', async () => {
-    const base = {
-      descriptor: {
-        id: 'base',
-        name: 'base',
-        apiVersion: 'v1',
-        releaseStatus: 'ga' as const,
-        capabilities: ['discovery' as const],
-        requiredPermissions: [],
-        blindSpots: [],
-      },
-      testConnection: () =>
-        Promise.resolve({
-          ok: true,
-          checkedAt: '2026-08-27T08:00:00.000Z',
-          message: 'ok',
-        }),
-      discover: () =>
-        Promise.resolve(
-          baseSnapshot({ servicePrincipalId: '22222222-2222-4222-8222-222222222222' }),
-        ),
-      getEvidence: () => Promise.reject(new Error('not used')),
-    }
     const entra = new EntraIdentityConnector(config, new Credential(), {
       fetcher: vi.fn<typeof fetch>().mockResolvedValue(response('service-principals-page-2.json')),
     })
-    const composite = new EntraEnrichmentConnector(base, entra)
+    const composite = new EntraEnrichmentConnector(baseConnector(), entra)
     const snapshot = await composite.discover()
     expect(snapshot.nodes.some((node) => node.kind === 'agent')).toBe(true)
     expect(snapshot.nodes.some((node) => node.kind === 'identity')).toBe(true)
     expect(snapshot.edges.some((edge) => edge.relationship === 'RUNS_AS')).toBe(true)
     expect(composite.getHealth().entra.stableInventory.status).toBe('available')
+  })
+
+  it('fails closed on invalid activation configuration without blocking base discovery', async () => {
+    const composite = createOptionalEntraEnrichmentConnector(baseConnector(), {
+      ENTRA_CONNECTOR_ENABLED: 'not-a-boolean',
+    })
+    await expect(composite.discover()).resolves.toMatchObject({ tenantId })
+    await expect(composite.testConnection()).resolves.toMatchObject({ ok: true })
+    expect(composite.getConnectorHealth()).toMatchObject({
+      overall: 'degraded',
+      partial: true,
+      sources: [
+        { id: 'base', readiness: 'ready' },
+        {
+          id: 'microsoft-entra-service-principals',
+          enabled: true,
+          configured: false,
+          readiness: 'degraded',
+          reason: 'invalid-configuration',
+        },
+      ],
+    })
+  })
+
+  it('does not report enabled optional capabilities ready before they are queried', async () => {
+    const entra = new EntraIdentityConnector(
+      { ...config, capabilities: { ...config.capabilities, owners: true } },
+      new Credential(),
+      {
+        fetcher: vi
+          .fn<typeof fetch>()
+          .mockResolvedValue(response('service-principals-page-2.json')),
+      },
+    )
+    const composite = new EntraEnrichmentConnector(baseConnector(), entra)
+    await expect(composite.testConnection()).resolves.toMatchObject({ ok: true })
+    expect(composite.getConnectorHealth()).toMatchObject({
+      overall: 'degraded',
+      partial: true,
+      sources: [
+        { id: 'base', readiness: 'ready' },
+        { id: 'microsoft-entra-service-principals', readiness: 'degraded' },
+      ],
+    })
   })
 })

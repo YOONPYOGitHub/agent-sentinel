@@ -11,6 +11,27 @@ export interface ConnectionTestResult {
   message: string
 }
 
+export type ConnectorReadiness =
+  'ready' | 'degraded' | 'unavailable' | 'disabled' | 'authorization-required'
+
+export interface ConnectorSourceHealth {
+  readonly id: string
+  readonly name: string
+  readonly role: 'discovery' | 'enrichment'
+  readonly enabled: boolean
+  readonly configured: boolean
+  readonly readiness: ConnectorReadiness
+  readonly checkedAt?: string
+  /** Stable, sanitized reason code. Never contains provider response data. */
+  readonly reason?: string
+}
+
+export interface ConnectorHealthReport {
+  readonly overall: 'ready' | 'degraded' | 'unavailable'
+  readonly partial: boolean
+  readonly sources: readonly ConnectorSourceHealth[]
+}
+
 export interface ConnectorDescriptor {
   id: string
   name: string
@@ -32,6 +53,7 @@ export interface AgentConnector {
   testConnection(): Promise<ConnectionTestResult>
   discover(): Promise<EstateSnapshot>
   getEvidence(evidenceId: string): Promise<Evidence>
+  getConnectorHealth?(): ConnectorHealthReport
   execute?(
     remediation: Remediation,
     approval: ApprovalContext,
@@ -159,6 +181,7 @@ export interface ConnectorsCollectionResponse {
     readonly projectEndpoint?: string
   }
   readonly catalog: readonly CatalogConnectorEntry[]
+  readonly health?: ConnectorHealthReport
 }
 
 // ─── Universal Custom Manifest Adapter contract ──────────────────────────────

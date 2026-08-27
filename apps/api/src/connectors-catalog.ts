@@ -1,6 +1,7 @@
 import type {
   CatalogConnectorEntry,
   ConnectorsCollectionResponse,
+  ConnectorHealthReport,
 } from '@agent-sentinel/connector-sdk'
 
 /**
@@ -149,14 +150,24 @@ export function buildConnectorsCollection(
     writeEnabled?: boolean
     projectEndpoint?: string
     runtimeTelemetryConfigured?: boolean
+    connectorHealth?: ConnectorHealthReport
   },
 ): ConnectorsCollectionResponse {
   const connectionOk = opts.connectionOk !== false
   const foundryLifecycle =
     mode === 'foundry' && !connectionOk ? 'unavailable' : foundryStateForMode(mode)
+  const entraHealth = opts.connectorHealth?.sources.find(
+    (source) => source.id === 'microsoft-entra-service-principals',
+  )
   const catalog: CatalogConnectorEntry[] = BASE_CATALOG.map((entry) => {
     if (entry.id === 'azure-ai-foundry') {
       return { ...entry, lifecycleState: foundryLifecycle }
+    }
+    if (entry.id === 'entra-agent-id' && entraHealth?.enabled === true) {
+      return {
+        ...entry,
+        lifecycleState: entraHealth.readiness === 'ready' ? 'connected' : 'unavailable',
+      }
     }
     if (entry.id === 'azure-monitor-otel' && opts.runtimeTelemetryConfigured === true) {
       return { ...entry, lifecycleState: 'connected' }
@@ -174,6 +185,7 @@ export function buildConnectorsCollection(
       ...(opts.projectEndpoint !== undefined ? { projectEndpoint: opts.projectEndpoint } : {}),
     },
     catalog,
+    ...(opts.connectorHealth ? { health: opts.connectorHealth } : {}),
   }
 }
 

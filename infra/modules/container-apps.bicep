@@ -74,6 +74,20 @@ param foundryTenantId string = ''
 @description('Foundry environment label (empty when data mode is mock).')
 param foundryEnvironment string = 'validation'
 
+@description('Enable optional Microsoft Entra identity enrichment. Disabled by default.')
+param entraConnectorEnabled bool = false
+param entraConnectorTenantId string = ''
+param entraConnectorEnvironment string = ''
+param entraConnectorGraphBaseUrl string = 'https://graph.microsoft.com'
+param entraConnectorOwnersEnabled bool = false
+param entraConnectorAppRolesEnabled bool = false
+param entraConnectorAgentIdentityPreview bool = false
+param entraConnectorMaxPages string = '20'
+param entraConnectorMaxItems string = '1000'
+param entraConnectorRequestTimeoutMs string = '15000'
+param entraConnectorMaxRetries string = '2'
+param entraConnectorMaxRetryAfterMs string = '30000'
+
 @description('Cosmos database id backing exposure findings and snapshots.')
 param cosmosDatabase string = 'agent-sentinel-db'
 
@@ -137,6 +151,18 @@ var env = [
   { name: 'FOUNDRY_TENANT_ID',                    value: foundryTenantId }
   { name: 'AZURE_TENANT_ID',                      value: foundryTenantId }
   { name: 'FOUNDRY_ENVIRONMENT',                  value: foundryEnvironment }
+  { name: 'ENTRA_CONNECTOR_ENABLED',              value: string(entraConnectorEnabled) }
+  { name: 'ENTRA_CONNECTOR_TENANT_ID',            value: entraConnectorTenantId }
+  { name: 'ENTRA_CONNECTOR_ENVIRONMENT',          value: entraConnectorEnvironment }
+  { name: 'ENTRA_CONNECTOR_GRAPH_BASE_URL',       value: entraConnectorGraphBaseUrl }
+  { name: 'ENTRA_CONNECTOR_OWNERS_ENABLED',        value: string(entraConnectorOwnersEnabled) }
+  { name: 'ENTRA_CONNECTOR_APP_ROLES_ENABLED',     value: string(entraConnectorAppRolesEnabled) }
+  { name: 'ENTRA_CONNECTOR_AGENT_IDENTITY_PREVIEW', value: string(entraConnectorAgentIdentityPreview) }
+  { name: 'ENTRA_CONNECTOR_MAX_PAGES',             value: entraConnectorMaxPages }
+  { name: 'ENTRA_CONNECTOR_MAX_ITEMS',             value: entraConnectorMaxItems }
+  { name: 'ENTRA_CONNECTOR_REQUEST_TIMEOUT_MS',    value: entraConnectorRequestTimeoutMs }
+  { name: 'ENTRA_CONNECTOR_MAX_RETRIES',           value: entraConnectorMaxRetries }
+  { name: 'ENTRA_CONNECTOR_MAX_RETRY_AFTER_MS',    value: entraConnectorMaxRetryAfterMs }
   { name: 'AGENT_SENTINEL_TENANT_ID',             value: foundryTenantId }
   { name: 'COSMOS_DATABASE',                      value: cosmosDatabase }
   { name: 'COSMOS_GOVERNANCE_CONTAINER',          value: 'governance-cases' }

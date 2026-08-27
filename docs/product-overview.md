@@ -65,14 +65,14 @@ The ingestion loop in `apps/jobs` runs at startup and then every `DISCOVERY_INTE
 
 ```mermaid
 flowchart LR
-    S["Estate snapshot"] --> P["policy-engine<br/>AS-POL-001..004"]
+    S["Estate snapshot"] --> P["policy-engine<br/>AS-POL-001..003"]
     P --> F["Exposure findings<br/>(Cosmos, firstSeen preserved)"]
     F --> G["graph-engine<br/>attack path + blast radius"]
     G --> D["Exposure detail<br/>graph · cited evidence"]
     D --> V["Bounded validation<br/>theoretical → validated / not reproduced"]
     D --> R["Remediation preview<br/>what-if impact"]
     R --> A["Approval + audited execution"]
-    A -.blocked by AUTH_MODE=disabled + WAF.-> A
+    A -.blocked by writeEnabled=false + WAF.-> A
 ```
 
 Deterministic policies currently shipped:
@@ -82,7 +82,10 @@ Deterministic policies currently shipped:
 | `AS-POL-001` | Unapproved external transfer or send            | critical |
 | `AS-POL-002` | Overprivileged employee lookup without approval | high     |
 | `AS-POL-003` | Mutation tool without approval                  | high     |
-| `AS-POL-004` | Sensitive data requires controlled egress       | critical |
+
+The live ingestion and shift-left exposure catalog contains `AS-POL-001..003`. `AS-POL-004` is a
+legacy attack-path `Finding` evaluator used only by the process-local demo state; it is not persisted
+as an `ExposureFinding` and must not be counted as live policy coverage.
 
 Findings carry `validationStatus` of `theoretical`, `validated`, or `mitigated`, and a `sourceMode` of `mock`, `foundry`, or non-authoritative `manifest` so provenance is never ambiguous.
 

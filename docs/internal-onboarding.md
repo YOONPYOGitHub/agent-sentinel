@@ -58,9 +58,45 @@ Use a dedicated Microsoft 365 group rather than a personal address.
 - Project members added with least privilege
 - Alias entered in Service Tree without the `@microsoft.com` suffix
 
-The current alias is represented in repository documentation as
-`<feature-alias>@microsoft.com`. Resolve the real value in the approved
-corporate directory.
+The verified private group is:
+
+- Display name: `Agent Sentinel Hackathon`
+- Primary SMTP address: `agent-sentinel-hackathon@microsoft.com`
+
+Use this group for the IcM service email and the default Triage, Incident
+Manager, and Executive Incident Manager team email fields. Membership and
+ownership remain authoritative in the Microsoft 365 directory; do not copy the
+member list into Git.
+
+## Compliance and IcM onboarding status
+
+The TrIP Digital Asset onboarding metadata was completed in Compliance Coach
+on 2026-08-26. The submitted classification records Agent Sentinel as an
+in-development, confidential, web-facing custom service and web API for
+internal Microsoft employees. It handles Microsoft business data, employee
+operational-directory data, and access-control data. It does not declare
+customer data, model-training data, or regulated sensitive data.
+
+S360 currently reports two in-SLA Service Tree hygiene actions, both due
+2026-09-20:
+
+- Associate an IcM on-call team and tenant with the Service Tree service.
+- Configure the Security emergency-broadcast settings after IcM association.
+
+IcM onboarding uses the following repeatable configuration:
+
+- Service Tree service: `Agent Sentinel`
+- Service category: `MCAPS`
+- CEN override: `No configuration`
+- Service and team email: the verified private group above
+- Default teams: Triage, Incident Manager, and Executive Incident Manager
+- Team membership: at least two active IcM contacts
+- Default rotation: weekly, beginning Monday at 10:00 AM Pacific time
+
+The two continuity contacts are maintained in IcM and Service Tree rather than
+listed here. Each contact must maintain their own required phone fields in the
+IcM profile. Never collect or record those phone numbers in chat, email, Git,
+or project documentation.
 
 ## Permission and approval process
 
@@ -102,10 +138,10 @@ Create a separate single-tenant SPA app:
 
 Activation:
 
-1. Populate tenant, API audience, client, scope, and role settings through the
-   deployment secret path.
-2. Validate sign-in and all four roles before changing the write posture.
-3. Deploy `AUTH_MODE=jwt`.
+1. Preserve tenant, API audience, client, scope, and role settings through the
+   approved deployment path.
+2. Keep the deployed `AUTH_MODE=jwt`, writes-false switch, and WAF block.
+3. Validate sign-in and all four roles before changing the write posture.
 4. Confirm anonymous requests return `401` and insufficient roles return `403`.
 5. Validate an authorized write path.
 6. Only then narrow the pre-auth mutation WAF rule.
@@ -133,11 +169,13 @@ corporate identity registration, not for product development.
 Do not commit:
 
 - Personal email addresses or correspondence
+- Personal phone numbers or IcM contact details
 - Service Tree, tenant, subscription, or app registration identifiers
 - Access tokens, secrets, certificates, or full token claims
 - Screenshots containing corporate directory details
 - Approval ticket identifiers
 
 Store generated identifiers in approved deployment configuration or corporate
-systems. Keep only sanitized completion state and placeholders in this
-repository.
+systems. A non-personal private group address may be recorded when it is the
+stable operational alias required by this runbook. Keep personal identities,
+membership, and contact methods in the approved corporate systems.

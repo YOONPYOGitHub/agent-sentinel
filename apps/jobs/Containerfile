@@ -9,6 +9,7 @@ COPY packages/messaging/package.json packages/messaging/
 COPY packages/persistence/package.json packages/persistence/
 COPY packages/policy-engine/package.json packages/policy-engine/
 COPY connectors/foundry/package.json connectors/foundry/
+COPY connectors/entra-identity/package.json connectors/entra-identity/
 COPY connectors/mock/package.json connectors/mock/
 COPY apps/jobs/package.json apps/jobs/
 RUN pnpm install --frozen-lockfile
@@ -23,6 +24,7 @@ RUN pnpm --filter @agent-sentinel/messaging build
 RUN pnpm --filter @agent-sentinel/persistence build
 RUN pnpm --filter @agent-sentinel/policy-engine build
 RUN pnpm --filter @agent-sentinel/foundry-connector build
+RUN pnpm --filter @agent-sentinel/entra-identity-connector build
 RUN pnpm --filter @agent-sentinel/mock-connector build
 RUN pnpm --filter @agent-sentinel/jobs build
 
@@ -46,6 +48,8 @@ COPY --from=builder /workspace/packages/policy-engine/dist ./packages/policy-eng
 COPY --from=builder /workspace/packages/policy-engine/package.json ./packages/policy-engine/
 COPY --from=builder /workspace/connectors/foundry/dist ./connectors/foundry/dist/
 COPY --from=builder /workspace/connectors/foundry/package.json ./connectors/foundry/
+COPY --from=builder /workspace/connectors/entra-identity/dist ./connectors/entra-identity/dist/
+COPY --from=builder /workspace/connectors/entra-identity/package.json ./connectors/entra-identity/
 COPY --from=builder /workspace/connectors/mock/dist ./connectors/mock/dist/
 COPY --from=builder /workspace/connectors/mock/package.json ./connectors/mock/
 RUN pnpm install --frozen-lockfile --prod

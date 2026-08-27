@@ -83,7 +83,7 @@ Represents a single declared-configuration policy violation surfaced by the Expo
 - `validationStatus` (theoretical|validated|mitigated)
 - `tenantId`, `snapshotId`
 
-Cosmos DB container: `exposure-findings` (partition key `/tenantId`, upsert preserves `firstSeen`).
+Cosmos DB container: `findings` (partition key `/tenantId`, upsert preserves `firstSeen`).
 
 ### GovernanceCase
 

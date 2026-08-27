@@ -49,8 +49,12 @@ export function mapEntraInventoryToSnapshot(
   const evidence: Evidence[] = []
   const nodesByObjectId = new Map<string, GraphNode>()
 
-  for (const principal of inventory.servicePrincipals) {
-    const principalOwners = inventory.owners.get(principal.id) ?? []
+  for (const principal of [...inventory.servicePrincipals].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  )) {
+    const principalOwners = [...(inventory.owners.get(principal.id) ?? [])].sort((left, right) =>
+      left.id.localeCompare(right.id),
+    )
     const evidenceId = principalEvidenceId(principal.id)
     const node: GraphNode = {
       id: principalNodeId(principal.id),
@@ -103,10 +107,14 @@ export function mapEntraInventoryToSnapshot(
     })
   }
 
-  for (const [principalId, assignments] of inventory.appRoleAssignments) {
+  for (const [principalId, assignments] of [...inventory.appRoleAssignments.entries()].sort(
+    ([left], [right]) => left.localeCompare(right),
+  )) {
     const source = nodesByObjectId.get(principalId.toLowerCase())
     if (source === undefined) continue
-    for (const assignment of assignments) {
+    for (const assignment of [...assignments].sort((left, right) =>
+      left.id.localeCompare(right.id),
+    )) {
       const assignmentEvidenceId = `entra-app-role-evidence-${assignment.id}`
       let target = nodesByObjectId.get(assignment.resourceId.toLowerCase())
       if (target === undefined) {
@@ -152,7 +160,9 @@ export function mapEntraInventoryToSnapshot(
     }
   }
 
-  for (const preview of inventory.agentIdentitiesPreview) {
+  for (const preview of [...inventory.agentIdentitiesPreview].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  )) {
     const previewEvidenceId = `entra-agent-identity-preview-evidence-${preview.id}`
     let node = nodesByObjectId.get(preview.id.toLowerCase())
     evidence.push({
@@ -231,9 +241,18 @@ export function enrichSnapshotWithEntra(
     throw new Error('Cannot compose connector snapshots from different environments.')
   }
 
-  const identityNodes = identities.nodes.map((node) => ({
+  const distinctById = <T extends { id: string }>(items: readonly T[]): T[] => {
+    const sorted = [...items].sort(
+      (left, right) =>
+        left.id.localeCompare(right.id) ||
+        JSON.stringify(left).localeCompare(JSON.stringify(right)),
+    )
+    return sorted.filter((item, index) => index === 0 || sorted[index - 1]?.id !== item.id)
+  }
+  const distinctStrings = (items: readonly string[]): string[] => [...new Set(items)].sort()
+  const identityNodes = distinctById(identities.nodes).map((node) => ({
     ...node,
-    evidenceIds: [...node.evidenceIds],
+    evidenceIds: distinctStrings(node.evidenceIds),
     metadata: { ...node.metadata },
   }))
   const byDirectoryId = new Map<string, GraphNode[]>()
@@ -247,9 +266,9 @@ export function enrichSnapshotWithEntra(
       byApplicationId.set(applicationId, [...(byApplicationId.get(applicationId) ?? []), node])
   }
 
-  const baseNodes = base.nodes.map((node) => ({
+  const baseNodes = distinctById(base.nodes).map((node) => ({
     ...node,
-    evidenceIds: [...node.evidenceIds],
+    evidenceIds: distinctStrings(node.evidenceIds),
     metadata: { ...node.metadata },
   }))
   const correlationEdges: GraphEdge[] = []
@@ -279,21 +298,26 @@ export function enrichSnapshotWithEntra(
     agent.metadata['entraCorrelationStatus'] = 'correlated-explicit-id'
     agent.metadata['entraIdentityNodeId'] = identity.id
     identity.metadata['correlationStatus'] = 'correlated-explicit-id'
-    identity.metadata['correlatedAgentIds'] = [
+    identity.metadata['correlatedAgentIds'] = distinctStrings([
       ...(identity.metadata['correlatedAgentIds']?.split(',').filter(Boolean) ?? []),
       agent.id,
-    ].join(',')
+    ]).join(',')
     correlationEdges.push({
       id: `entra-correlation-${agent.id}-${identity.id}`,
       from: agent.id,
       to: identity.id,
       relationship: 'RUNS_AS',
-      evidenceIds: [...new Set([...agent.evidenceIds, ...identity.evidenceIds])],
+      evidenceIds: distinctStrings([...agent.evidenceIds, ...identity.evidenceIds]),
       active: true,
       removable: false,
     })
   }
 
+  const nodes = distinctById([...baseNodes, ...identityNodes])
+  const edges = distinctById([...base.edges, ...identities.edges, ...correlationEdges]).map(
+    (edge) => ({ ...edge, evidenceIds: distinctStrings(edge.evidenceIds) }),
+  )
+  const evidence = distinctById([...base.evidence, ...identities.evidence])
   return assertEstateSnapshot({
     tenantId: base.tenantId,
     environment: base.environment,
@@ -301,8 +325,8 @@ export function enrichSnapshotWithEntra(
       new Date(base.generatedAt).getTime() >= new Date(identities.generatedAt).getTime()
         ? base.generatedAt
         : identities.generatedAt,
-    nodes: [...baseNodes, ...identityNodes],
-    edges: [...base.edges, ...identities.edges, ...correlationEdges],
-    evidence: [...base.evidence, ...identities.evidence],
+    nodes,
+    edges,
+    evidence,
   })
 }

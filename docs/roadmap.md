@@ -1,6 +1,6 @@
 # Roadmap
 
-Phased delivery plan for Agent Sentinel. Last reviewed **2026-08-26** against branch `feature/governance-phase1-completion`.
+Phased delivery plan for Agent Sentinel. Last reviewed **2026-08-27** against branch `feature/governance-phase1-completion`.
 
 Every phase has an explicit definition of done. A phase is not done because its UI renders; it is done when its evidence is real, its boundaries are enforced in code, and its tests prove the behavior without model access.
 
@@ -56,7 +56,7 @@ Delivered the deterministic core, the full navigation surface, live Microsoft Fo
 
 ---
 
-## Phase 1 — Governance work queue and lifecycle workflow · **In progress** · _independent_
+## Phase 1 — Governance work queue and lifecycle workflow · **Complete** · _independent_
 
 Turn read-only governance posture into an operable workflow.
 
@@ -83,19 +83,19 @@ Turn read-only governance posture into an operable workflow.
 - [x] Every workflow transition writes an evidence record citing source, actor, and timestamp.
 - [x] No transition is possible without an authorization context, even while `AUTH_MODE=disabled` renders that context anonymous.
 - [x] Governance posture recomputes from findings after a transition, with no separate scoring store.
-- [ ] Unit and end-to-end coverage for approve, reject, expire, and re-evaluate. Unit/API integration is complete; Playwright still covers only queue/filter/pick-up/audit provenance.
+- [x] Unit and end-to-end coverage for approve, reject, expire, and re-evaluate.
 
-**Remaining:** implement durable live governance persistence. Live mode continues to report synthetic reads and reject writes rather than pretending in-memory state is durable.
+Durable live governance cases and append-only transition history are persisted in Cosmos. Public writes remain independently blocked by the product write switch and WAF.
 
 ---
 
 ## Phase 2 — Corporate identity activation · **In progress** · _approval required_
 
-**Current condition:** the single-tenant API and SPA registrations exist. The API exposes the read
-and admin-only write delegated scopes plus all four app roles, and the SPA requests the two API
-permissions. Redirect/logout URIs, tenant consent, role assignments, and deployed JWT configuration
-remain intentionally unset. OneRAI and service onboarding proceed independently and do not block
-local implementation.
+**Current condition:** the single-tenant API and SPA registrations exist, the Front Door HTTPS
+origin is registered, and read-only JWT mode is deployed. Employee popup sign-in, logout,
+anonymous `401`, Viewer mutation `403`, and `/api/auth/me` have been validated in production.
+Analyst, Approver, Administrator, write-scope, and public mutation validation remain pending.
+OneRAI and service onboarding proceed independently and do not block local implementation.
 
 **Scope**
 
@@ -107,10 +107,10 @@ local implementation.
 
 **Definition of done**
 
-- A real employee signs in through the SPA and receives a token whose audience and tenant validate at the API.
+- [x] A real employee signs in through the SPA and receives a token whose audience and tenant validate at the API.
 - Each of the four roles resolves to exactly its documented capability set, verified against a live token.
-- Anonymous access to non-public routes returns `401`; an under-privileged token returns `403`.
-- `/api/auth/me` returns a sanitized principal with no raw token or full claim set.
+- [x] Anonymous access to non-public routes returns `401`; an under-privileged token returns `403`.
+- [x] `/api/auth/me` returns a sanitized principal with no raw token or full claim set.
 - The activation checklist in [security-authentication.md](security-authentication.md#activation-checklist) is fully signed off.
 
 ---
@@ -156,15 +156,15 @@ The connector and engine bridge are implemented. Deployment prerequisites and th
 
 ## Phase 5 — Additional evidence connectors · _partly Service Tree-dependent_
 
-| Connector                                   | Catalogued state         | Gate                                                     |
-| ------------------------------------------- | ------------------------ | -------------------------------------------------------- |
-| Microsoft Agent 365 (`m365-agent-registry`) | `authorization-required` | Supported management API plus tenant admin authorization |
-| Microsoft Entra Agent ID and entitlements   | `planned`                | Entra activation, then directory read permission         |
-| Microsoft Purview                           | `planned`                | Tenant authorization                                     |
-| Microsoft Defender for Cloud Apps           | `planned`                | Tenant authorization                                     |
-| Microsoft Copilot Studio                    | `planned`                | Power Platform environment access                        |
-| Microsoft 365 and SharePoint agents         | `planned`                | Tenant authorization                                     |
-| Microsoft Teams distribution                | `planned`                | Tenant authorization                                     |
+| Connector                                   | Catalogued state         | Gate                                                                          |
+| ------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------- |
+| Microsoft Agent 365 (`m365-agent-registry`) | `authorization-required` | Supported management API plus tenant admin authorization                      |
+| Microsoft Entra identity and entitlements   | `authorization-required` | Connector implemented; tenant-admin Graph consent and live validation pending |
+| Microsoft Purview                           | `planned`                | Tenant authorization                                                          |
+| Microsoft Defender for Cloud Apps           | `planned`                | Tenant authorization                                                          |
+| Microsoft Copilot Studio                    | `planned`                | Power Platform environment access                                             |
+| Microsoft 365 and SharePoint agents         | `planned`                | Tenant authorization                                                          |
+| Microsoft Teams distribution                | `planned`                | Tenant authorization                                                          |
 
 **Definition of done, per connector**
 
@@ -175,7 +175,7 @@ The connector and engine bridge are implemented. Deployment prerequisites and th
 
 ---
 
-## Phase 6 — Employee entitlement personalization · **Blocked** · _depends on Phases 2 and 5_
+## Phase 6 — Employee entitlement personalization · **Blocked** · _depends on Phase 5_
 
 **Scope:** filter the agent assurance catalog to what the signed-in employee is actually entitled to use, using Entra entitlement evidence.
 
@@ -262,12 +262,12 @@ Deliberately sequenced after the governance lifecycle workflow so that pre-publi
 
 Not a numbered phase; it constrains several of them.
 
-| Item                                 | State                                                                                                  |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| Application Gateway HTTP listener    | Works, but HTTP on port 80 only, no custom domain or TLS. Management-automated and may stop.           |
-| Front Door endpoint                  | **Active**, routes web and API over HTTPS, and is the candidate SPA redirect target.                   |
-| Custom domain and TLS                | Required before a final SPA redirect URI and front-channel logout URL can be registered. See `RB-013`. |
-| Runner and deployment RBAC           | The runner identity holds `AcrPush` only; automated platform deploy and what-if lack permission.       |
-| Surgical Container App image updates | Currently manual. Automating them requires additional role assignment on the resource group.           |
+| Item                                 | State                                                                                                     |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| Application Gateway HTTP listener    | Works, but HTTP on port 80 only, no custom domain or TLS. Management-automated and may stop.              |
+| Front Door endpoint                  | **Active**, routes web and API over HTTPS, and is the registered SPA redirect/logout origin.              |
+| Custom domain and TLS                | Optional production hardening beyond the active registered Front Door default HTTPS origin. See `RB-013`. |
+| Runner and deployment RBAC           | The runner identity holds `AcrPush` only; automated platform deploy and what-if lack permission.          |
+| Surgical Container App image updates | Currently manual. Automating them requires additional role assignment on the resource group.              |
 
 Full detail: [known-issues.md](known-issues.md) and [deployment.md](deployment.md).

@@ -73,6 +73,10 @@ export class DemoService {
     return this.connector.testConnection()
   }
 
+  getConnectorHealth() {
+    return this.connector.getConnectorHealth?.()
+  }
+
   async validateFinding(findingId: string): Promise<AgentSentinelState> {
     const state = await this.getState()
     const finding = state.findings.find((candidate) => candidate.id === findingId)

@@ -2,13 +2,7 @@ import { DefaultAzureCredential } from '@azure/identity'
 import { ServiceBusClient } from '@azure/service-bus'
 import { CosmosClient } from '@azure/cosmos'
 
-import type { AgentConnector } from '@agent-sentinel/connector-sdk'
-import type {
-  ExposureFindingRepository,
-  SnapshotRepository,
-} from '@agent-sentinel/domain'
-import { FoundryAgentConnector, foundryConnectorConfigSchema } from '@agent-sentinel/foundry-connector'
-import { MockAgentConnector } from '@agent-sentinel/mock-connector'
+import type { ExposureFindingRepository, SnapshotRepository } from '@agent-sentinel/domain'
 import { InMemoryDeduplicator, domainEventSchema, withIdempotency } from '@agent-sentinel/messaging'
 import {
   CosmosExposureFindingRepository,
@@ -17,6 +11,7 @@ import {
   InMemorySnapshotRepository,
 } from '@agent-sentinel/persistence'
 
+import { buildConnector } from './connector-factory.js'
 import { IngestionService, defaultLogger } from './ingestion-service.js'
 import { initTelemetry } from './telemetry.js'
 
@@ -49,16 +44,6 @@ function required(name: string): string {
   return value
 }
 
-function buildConnector(mode: 'mock' | 'foundry'): AgentConnector {
-  if (mode === 'mock') return new MockAgentConnector()
-  const config = foundryConnectorConfigSchema.parse({
-    projectEndpoint: required('FOUNDRY_PROJECT_ENDPOINT'),
-    tenantId: required('FOUNDRY_TENANT_ID'),
-    environment: required('FOUNDRY_ENVIRONMENT'),
-  })
-  return new FoundryAgentConnector(config, new DefaultAzureCredential())
-}
-
 function buildRepositories(mode: 'mock' | 'foundry'): {
   snapshots: SnapshotRepository
   exposures: ExposureFindingRepository
@@ -70,7 +55,10 @@ function buildRepositories(mode: 'mock' | 'foundry'): {
     }
   }
   const endpoint = required('COSMOS_ENDPOINT')
-  const databaseId = process.env['COSMOS_DATABASE']?.trim() || process.env['COSMOS_DATABASE_ID']?.trim() || 'agent-sentinel-db'
+  const databaseId =
+    process.env['COSMOS_DATABASE']?.trim() ||
+    process.env['COSMOS_DATABASE_ID']?.trim() ||
+    'agent-sentinel-db'
   const client = new CosmosClient({ endpoint, aadCredentials: new DefaultAzureCredential() })
   return {
     snapshots: new CosmosSnapshotRepository(client, databaseId),
@@ -100,7 +88,7 @@ async function main(): Promise<void> {
     process.env['DISCOVERY_INTERVAL_MS']?.trim() || String(DEFAULT_INTERVAL_MS),
     10,
   )
-  const connector = buildConnector(connectorMode)
+  const connector = buildConnector(connectorMode, process.env)
   const { snapshots, exposures } = buildRepositories(connectorMode)
   const service = new IngestionService(connector, snapshots, exposures, {
     tenantId,

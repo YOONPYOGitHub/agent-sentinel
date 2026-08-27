@@ -4,6 +4,8 @@ import type {
   ConnectionTestResult,
   ConnectorCapability,
   ConnectorDescriptor,
+  ConnectorHealthReport,
+  ConnectorReadiness,
 } from '@agent-sentinel/connector-sdk'
 import type { EstateSnapshot, Evidence, Remediation } from '@agent-sentinel/domain'
 import type { TokenCredential } from '@azure/core-auth'
@@ -184,8 +186,15 @@ export class EntraIdentityConnector implements AgentConnector {
 }
 
 export interface EntraEnrichmentHealth {
-  base: ConnectionTestResult | { ok: false; checkedAt: string; message: string }
+  base: ConnectionTestResult
   entra: EntraConnectorHealth
+  composition: { status: 'disabled' | 'available' | 'degraded'; reason?: string }
+}
+
+export interface EntraEnrichmentConnectorOptions {
+  enabled?: boolean
+  configured?: boolean
+  configurationReason?: 'invalid-configuration' | 'tenant-mismatch' | 'environment-mismatch'
 }
 
 export class EntraEnrichmentConnector implements AgentConnector {
@@ -196,54 +205,166 @@ export class EntraEnrichmentConnector implements AgentConnector {
     checkedAt: new Date(0).toISOString(),
     message: 'Base connector has not been tested.',
   }
+  private readonly entra: EntraIdentityConnector | undefined
+  private readonly enabled: boolean
+  private readonly configured: boolean
+  private composition: EntraEnrichmentHealth['composition']
 
   constructor(
     private readonly base: AgentConnector,
-    private readonly entra: EntraIdentityConnector,
+    entra?: EntraIdentityConnector,
+    options: EntraEnrichmentConnectorOptions = {},
   ) {
+    this.entra = entra
+    this.enabled = options.enabled ?? entra !== undefined
+    this.configured = options.configured ?? entra !== undefined
+    this.composition = this.enabled
+      ? options.configurationReason
+        ? { status: 'degraded', reason: options.configurationReason }
+        : { status: 'degraded', reason: 'not-queried' }
+      : { status: 'disabled' }
     this.descriptor = {
       ...base.descriptor,
-      id: `${base.descriptor.id}+entra-identity`,
-      name: `${base.descriptor.name} with Microsoft Entra identity enrichment`,
       capabilities: [
         ...new Set<ConnectorCapability>([...base.descriptor.capabilities, 'discovery', 'evidence']),
       ],
       requiredPermissions: [
         ...new Set([
           ...base.descriptor.requiredPermissions,
-          ...entra.descriptor.requiredPermissions,
+          ...(entra?.descriptor.requiredPermissions ?? []),
         ]),
       ],
-      blindSpots: [...base.descriptor.blindSpots, ...entra.descriptor.blindSpots],
+      blindSpots: [
+        ...base.descriptor.blindSpots,
+        ...(entra?.descriptor.blindSpots ?? [
+          'Microsoft Entra enrichment is disabled or not configured.',
+        ]),
+      ],
     }
   }
 
   async testConnection(): Promise<ConnectionTestResult> {
     const [base, entra] = await Promise.all([
       this.base.testConnection(),
-      this.entra.testConnection(),
+      this.enabled && this.entra ? this.entra.testConnection() : Promise.resolve(undefined),
     ])
     this.baseHealth = base
+    if (entra?.ok === true) this.composition = { status: 'available' }
+    else if (entra !== undefined) this.composition = { status: 'degraded', reason: 'unavailable' }
     return {
-      ok: base.ok && entra.ok,
+      ok: base.ok,
       checkedAt: new Date().toISOString(),
-      message:
-        base.ok && entra.ok
-          ? 'Base discovery and Microsoft Entra stable inventory are reachable.'
-          : 'One or more explicitly configured discovery sources are unavailable.',
+      message: base.ok
+        ? 'Primary discovery source is reachable.'
+        : 'Primary discovery source is unavailable.',
     }
   }
 
   async discover(): Promise<EstateSnapshot> {
     const base = await this.base.discover()
-    const identities = await this.entra.discover()
-    const snapshot = enrichSnapshotWithEntra(base, identities)
+    this.baseHealth = {
+      ok: true,
+      checkedAt: new Date().toISOString(),
+      message: 'Primary discovery completed.',
+    }
+    if (!this.enabled || !this.entra) {
+      this.evidenceById = new Map(base.evidence.map((item) => [item.id, item]))
+      return base
+    }
+
+    let snapshot: EstateSnapshot
+    try {
+      const identities = await this.entra.discover()
+      snapshot = enrichSnapshotWithEntra(base, identities)
+      this.composition = { status: 'available' }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ''
+      this.composition = {
+        status: 'degraded',
+        reason: message.includes('different Microsoft Entra tenants')
+          ? 'tenant-mismatch'
+          : message.includes('different environments')
+            ? 'environment-mismatch'
+            : safeFailureReason(error),
+      }
+      this.evidenceById = new Map(base.evidence.map((item) => [item.id, item]))
+      return base
+    }
     this.evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]))
     return snapshot
   }
 
   getHealth(): EntraEnrichmentHealth {
-    return { base: structuredClone(this.baseHealth), entra: this.entra.getHealth() }
+    return {
+      base: structuredClone(this.baseHealth),
+      entra: this.entra?.getHealth() ?? {
+        stableInventory: {
+          status: 'unavailable',
+          reason: this.composition.reason ?? 'not-configured',
+        },
+        owners: { status: 'disabled' },
+        appRoleAssignments: { status: 'disabled' },
+        agentIdentityPreview: { status: 'disabled' },
+      },
+      composition: structuredClone(this.composition),
+    }
+  }
+
+  getConnectorHealth(): ConnectorHealthReport {
+    const entraHealth = this.getHealth().entra
+    const baseReady = this.baseHealth.ok
+    const optionalCapabilitiesReady = [
+      entraHealth.owners,
+      entraHealth.appRoleAssignments,
+      entraHealth.agentIdentityPreview,
+    ].every((capability) => capability.status === 'disabled' || capability.status === 'available')
+    const entraReady =
+      this.enabled &&
+      this.entra !== undefined &&
+      entraHealth.stableInventory.status === 'available' &&
+      this.composition.status === 'available' &&
+      optionalCapabilitiesReady
+    const entraReadiness: ConnectorReadiness = !this.enabled
+      ? this.configured
+        ? 'disabled'
+        : 'authorization-required'
+      : entraReady
+        ? 'ready'
+        : 'degraded'
+    const reason =
+      entraReadiness === 'degraded'
+        ? (this.composition.reason ??
+          entraHealth.stableInventory.reason ??
+          entraHealth.owners.reason ??
+          entraHealth.appRoleAssignments.reason ??
+          entraHealth.agentIdentityPreview.reason ??
+          'unavailable')
+        : undefined
+    return {
+      overall: !baseReady ? 'unavailable' : this.enabled && !entraReady ? 'degraded' : 'ready',
+      partial: baseReady && this.enabled && !entraReady,
+      sources: [
+        {
+          id: this.base.descriptor.id,
+          name: this.base.descriptor.name,
+          role: 'discovery',
+          enabled: true,
+          configured: true,
+          readiness: baseReady ? 'ready' : 'unavailable',
+          checkedAt: this.baseHealth.checkedAt,
+          ...(!baseReady ? { reason: 'unavailable' } : {}),
+        },
+        {
+          id: 'microsoft-entra-service-principals',
+          name: 'Microsoft Entra service principals',
+          role: 'enrichment',
+          enabled: this.enabled,
+          configured: this.configured,
+          readiness: entraReadiness,
+          ...(reason ? { reason } : {}),
+        },
+      ],
+    }
   }
 
   getEvidence(evidenceId: string): Promise<Evidence> {
@@ -290,6 +411,61 @@ export function createEntraIdentityConnector(
     credential ?? new DefaultAzureCredential({ tenantId: config.tenantId }),
     options,
   )
+}
+
+export interface OptionalEntraEnrichmentOptions {
+  credential?: TokenCredential
+  client?: EntraGraphClientOptions
+  expectedTenantId?: string
+  expectedEnvironment?: string
+}
+
+export function createOptionalEntraEnrichmentConnector(
+  base: AgentConnector,
+  environment: NodeJS.ProcessEnv = process.env,
+  options: OptionalEntraEnrichmentOptions = {},
+): EntraEnrichmentConnector {
+  let enabled = false
+  try {
+    enabled = envBoolean(environment, 'ENTRA_CONNECTOR_ENABLED')
+  } catch {
+    return new EntraEnrichmentConnector(base, undefined, {
+      enabled: true,
+      configured: false,
+      configurationReason: 'invalid-configuration',
+    })
+  }
+  const tenantId = environment['ENTRA_CONNECTOR_TENANT_ID']?.trim() ?? ''
+  const connectorEnvironment = environment['ENTRA_CONNECTOR_ENVIRONMENT']?.trim() ?? ''
+  const configured = tenantId.length > 0 && connectorEnvironment.length > 0
+  if (!enabled) return new EntraEnrichmentConnector(base, undefined, { enabled, configured })
+  if (
+    options.expectedTenantId &&
+    tenantId.toLowerCase() !== options.expectedTenantId.toLowerCase()
+  ) {
+    return new EntraEnrichmentConnector(base, undefined, {
+      enabled,
+      configured,
+      configurationReason: 'tenant-mismatch',
+    })
+  }
+  if (options.expectedEnvironment && connectorEnvironment !== options.expectedEnvironment) {
+    return new EntraEnrichmentConnector(base, undefined, {
+      enabled,
+      configured,
+      configurationReason: 'environment-mismatch',
+    })
+  }
+  try {
+    const entra = createEntraIdentityConnector(environment, options.credential, options.client)
+    return new EntraEnrichmentConnector(base, entra, { enabled, configured: true })
+  } catch {
+    return new EntraEnrichmentConnector(base, undefined, {
+      enabled,
+      configured,
+      configurationReason: 'invalid-configuration',
+    })
+  }
 }
 
 export {

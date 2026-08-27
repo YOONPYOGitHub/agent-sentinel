@@ -2,14 +2,15 @@
 
 ## Current posture
 
-The API and SPA authentication foundation is implemented but deliberately inactive. The deployed
-configuration remains `AUTH_MODE=disabled`, `AGENT_SENTINEL_WRITE_ENABLED=false`, and the
+The API and SPA authentication foundation is active for read-only employee access. The deployed
+configuration uses `AUTH_MODE=jwt`, `AGENT_SENTINEL_WRITE_ENABLED=false`, and the
 `BlockApiMutationPreAuth` WAF rule still blocks every non-`GET`/`HEAD`/`OPTIONS` request under
 `/api/`.
 
-The single-tenant API and SPA app registrations now exist. The API exposes the delegated read and
-write scopes and the four app roles below. The SPA requests those API permissions, but no redirect
-or logout URI, tenant consent, role assignment, or runtime activation has been applied.
+The single-tenant API and SPA app registrations exist. The active Front Door HTTPS origin is
+registered for popup sign-in and same-origin logout. A real employee Viewer session validates at
+the API; anonymous access returns `401`, Viewer mutation returns `403`, and `/api/auth/me` returns
+only the sanitized principal. Broader role and write-scope validation have not been applied.
 
 ## Roles
 
@@ -47,36 +48,26 @@ The API publishes these public SPA values at `/api/auth/config`. The SPA rejects
 whose redirect origin differs from the origin serving the application. Silent token-renewal errors
 are not converted into anonymous requests.
 
-## Temporary redirect-host decision
+## Redirect-host decision
 
-The repository does **not** establish a safe deployed HTTPS redirect URI today:
-
-- Azure Front Door has a default HTTPS hostname in the template, but repository deployment records
-  say its private-link origin provisioning is `NotStarted` and it is not routing traffic.
-- The active Application Gateway endpoint is HTTP-only. It is not an acceptable production SPA
-  redirect URI.
-
-Do not register the Front Door hostname merely because the resource emits one. It is eligible as a
-temporary development redirect only after read-only Azure checks show the endpoint enabled, both
-routes linked to the default domain, private-link/origin provisioning successful, origin health
-healthy, and an unauthenticated HTTPS SPA smoke test succeeds. Otherwise provision an approved
-HTTPS custom domain first. Keep redirect parameters empty until one condition is evidenced.
+The active Azure Front Door default HTTPS origin routes both the SPA and API, passed the required
+read-only health/smoke checks, and is the registered SPA redirect and same-origin logout origin. The
+Application Gateway endpoint remains HTTP-only and is not an acceptable authentication origin. A
+custom domain remains production hardening work, but is not a prerequisite for the current bounded
+read-only JWT validation.
 
 ## Staged activation
 
 Each stage is a separate approved change. Stop and roll back on any mismatch.
 
-1. **Establish the HTTPS origin.** Record evidence for the Front Door prerequisites above or finish
-   the custom-domain/TLS path. Register that exact SPA redirect URI and same-origin logout URI.
-2. **Approve identity grants.** Review delegated permissions, grant the required tenant consent,
-   and assign one least-privilege test principal/group per app role. Do not assign broad groups by
-   default.
-3. **Activate authentication only.** Deploy the typed values with `AUTH_MODE=jwt` while retaining
-   `AGENT_SENTINEL_WRITE_ENABLED=false` and the WAF mutation block. Verify employee login,
-   anonymous `401`, Viewer `403`, and the four read-only capability boundaries.
-4. **Validate a private write.** On an approved private endpoint, set the write switch only for the
+1. **Read-only activation — complete.** The HTTPS origin, redirect/logout registration, read scope,
+   Viewer session, `AUTH_MODE=jwt`, anonymous `401`, Viewer `403`, and sanitized principal are live.
+2. **Complete role validation.** Assign least-privilege test principals/groups for Analyst,
+   Approver, and Administrator and verify every documented capability boundary. Do not assign
+   broad groups by default.
+3. **Validate a private write.** On an approved private endpoint, set the write switch only for the
    bounded test and run an authenticated, reversible write. The public WAF block remains intact.
-5. **Narrow the WAF.** Only after the private test passes, approve the smallest path/method change.
+4. **Narrow the WAF.** Only after the private test passes, approve the smallest path/method change.
    Repeat the full validator through the public HTTPS edge and prove anonymous mutation is still
    denied. Never treat WAF as JWT validation; API authorization remains authoritative.
 
@@ -108,10 +99,11 @@ mutation endpoint or resource identifier.
 - [x] Typed fail-closed API, SPA, deployment, and validation configuration prepared locally
 - [x] Approved HTTPS redirect and logout origin evidenced
 - [x] Redirect and logout URIs registered
-- [ ] Least-privilege delegated permissions reviewed and consented
+- [x] Read-only delegated permission reviewed and usable by the validation principal
 - [ ] Test principals/groups assigned to all four roles
-- [ ] `AUTH_MODE=jwt` deployed with writes disabled and WAF unchanged
-- [ ] Live employee sign-in, `401`, `403`, and four role boundaries validated
+- [x] `AUTH_MODE=jwt` deployed with writes disabled and WAF unchanged
+- [x] Live employee sign-in, logout, anonymous `401`, Viewer `403`, and `/api/auth/me` validated
+- [ ] Analyst, Approver, Administrator, and all four role boundaries validated with live tokens
 - [ ] Private authenticated write smoke test passed
 - [ ] WAF rule narrowly changed and public anonymous denial revalidated
 

@@ -6,7 +6,15 @@
 - Access to RG `rg-agent-sentinel` in `koreacentral`
 - Contributor + RBAC Administrator role on the RG
 
-## Infrastructure Deployment
+## Current deployment safety
+
+The checked-in full `platform.bicep` desired state is drifted from the live resource group. The latest
+what-if proposed 54 unrelated modifications. **Do not run a full Bicep deployment** until that drift
+is reconciled and separately reviewed. Images `web/api/jobs:acbb483` were verified in ACR by CI run
+`33047446078`; the live ACA revision remains `8179785` because the surgical update was interrupted.
+Use only a reviewed, surgical Container Apps revision/image/config update for the next auth stage.
+
+## Infrastructure Deployment (reference only while drift is unresolved)
 
 ### Phase A ? Foundation (Network, Identity, Observability, KV, ACR)
 
@@ -34,9 +42,9 @@ After ACR is provisioned and images are pushed. The platform.bicep deploys:
 - Container Apps (API with internal ingress, web with VNet-accessible ingress, jobs with no ingress)
 - Application Gateway WAF v2 (`appgw-as-260814`) as the public edge
 
-### Phase E ? Front Door (Inactive)
+### Phase E ? Front Door (Active)
 
-`fd-as-260814` is retained in the template but not routing production traffic.
+`fd-as-260814` routes both the web and API over its default HTTPS hostname.
 See [Architecture: Azure Front Door Status](architecture.md#azure-front-door-status).
 
 ## Container Image Build and Push
@@ -115,29 +123,26 @@ echo "API FQDN: ${API_FQDN}"
 ## Authentication deployment stages
 
 Identity activation is configuration-driven; do not edit Container Apps directly in the portal.
-The Bicep defaults and checked-in development parameters keep `authMode = 'disabled'` and
-`agentSentinelWriteEnabled = false`. JWT activation requires the following parameter values from an
-approved deployment input:
+The Bicep defaults and checked-in development parameters remain fail-closed at
+`authMode = 'disabled'` and `agentSentinelWriteEnabled = false`. The live environment was activated
+through a reviewed surgical revision with JWT values while the drifted full template remains
+blocked. Any reconciled deployment requires the following approved inputs:
 
 - `authTenantId`, `authAudience`, and optional explicit `authIssuer` / `authJwksUri`
 - `authSpaClientId`, `authSpaScopes`, `authSpaRedirectUri`, and
   `authSpaPostLogoutRedirectUri`
 - exact `authReadScopes` and `authWriteScopes`
 
-The Front Door output is not currently an approved redirect origin. Its private-link deployment is
-recorded as `NotStarted`, while the active Application Gateway is HTTP-only. Before using the Front
-Door default HTTPS hostname even temporarily, use read-only queries to verify endpoint and route
-enablement, successful private-link/origin provisioning, and healthy origins, then complete a real
-HTTPS SPA smoke test. If any check fails, leave the redirect parameters empty until an approved
-custom HTTPS domain exists.
+The active Front Door default HTTPS hostname passed the required route, origin-health, and SPA/API
+smoke checks and is registered as the exact SPA redirect/logout origin. The Application Gateway is
+still HTTP-only and must not be used for authentication. A custom domain is separate hardening.
 
 Deployment order:
 
-1. Register the evidenced exact redirect/logout URLs and complete approved consent/role assignment.
-2. Run Bicep what-if with `authMode = 'jwt'`, all typed auth values populated,
-   `agentSentinelWriteEnabled = false`, and the WAF template unchanged.
-3. Deploy and run the read phase in [security-authentication.md](security-authentication.md).
-4. After approval, enable writes only for a private authenticated reversible test.
+1. Preserve the deployed JWT values, exact redirect/logout registration, write-disabled switch, and WAF block.
+2. Reconcile the live values into a reviewed deployment input without applying unrelated what-if changes.
+3. Run the read phase in [security-authentication.md](security-authentication.md) after every revision.
+4. After separate approval, enable writes only for a private authenticated reversible test.
 5. Narrow the WAF separately, then run the complete public-edge validation and anonymous denial
    test.
 
@@ -154,8 +159,8 @@ Apps revision. See RB-011 and RB-012 in [runbooks.md](runbooks.md).
 
 ## TLS / Custom Domain Next Steps
 
-The current public endpoint (`http://<pip-appgw-as-260814-ip>`) is **HTTP-only**.
-To enable HTTPS:
+The active Front Door default hostname already provides HTTPS and is the registered bounded auth
+origin. The App Gateway endpoint remains HTTP-only. For an approved custom production domain:
 
 1. Register a domain or use an existing one
 2. Create a PFX/PEM certificate and store in Key Vault
@@ -165,4 +170,4 @@ To enable HTTPS:
 6. Add an HTTP ? HTTPS redirect rule
 7. Update NSG to allow port 443 inbound on the `appgw` subnet
 
-Until then, the HTTP endpoint is suitable for development/smoke-testing only.
+Until then, use Front Door HTTPS for the application; the HTTP App Gateway endpoint remains suitable only for bounded diagnostics.

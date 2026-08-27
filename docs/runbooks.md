@@ -176,20 +176,16 @@ Rollback order is WAF block, writes false, last known-good Container Apps revisi
 ## RB-012: Auth Activation and Live Validation
 
 The API and SPA registrations exist, including delegated read/write scopes and the four exact app
-roles. Redirect/logout registration, consent, role assignment, and deployment remain pending and
-require approval. OneRAI and service onboarding are independent and do not block this engineering
-sequence.
+roles. The active Front Door HTTPS redirect/logout origin and read-only JWT deployment are live.
+Employee login, logout, anonymous `401`, Viewer `403`, and `/api/auth/me` are validated. Remaining
+role assignments and every write-path change require separate approval. OneRAI and service
+onboarding are independent and do not block this engineering sequence.
 
-1. Establish an approved HTTPS origin. The retained Front Door default hostname is not eligible
-   while its origin/private-link provisioning remains `NotStarted`; the active Application Gateway
-   is HTTP-only.
-2. Register the exact SPA redirect and same-origin logout URLs. Review and grant only the required
-   delegated consent, then assign isolated test principals/groups to Viewer, Analyst, Approver, and
-   Administrator.
-3. Populate the typed Bicep parameters documented in `deployment.md`. Keep `authMode = 'disabled'`
-   in source; activation is an approved parameter override. Keep writes false and RB-011 intact.
-4. Deploy JWT mode. Confirm `/api/auth/config` contains the expected public tenant, client, scope,
-   and redirect values without secrets.
+1. Revalidate the registered Front Door HTTPS origin; the Application Gateway remains HTTP-only.
+2. Preserve the deployed JWT configuration, writes-false switch, and RB-011 WAF block.
+3. Assign isolated test principals/groups to Analyst, Approver, and Administrator.
+4. Confirm `/api/auth/config` contains the expected public tenant, client, scope, and redirect
+   values without secrets.
 5. Supply short-lived role tokens as process environment variables and run
    `pnpm auth:validate-live`. It validates anonymous `401`, insufficient-role `403`, sanitized
    principals, and every read-only capability probe.
@@ -201,19 +197,19 @@ Git, logs, screenshots, or reports. Record only pass/fail status and correlation
 
 ## RB-013: HTTPS Origin and App Registration
 
-The repository currently proves neither a healthy Front Door route nor an HTTPS Application
-Gateway listener. Do not register an inferred hostname.
+The active Front Door HTTPS route and exact registered redirect/logout URLs are evidenced. The
+Application Gateway remains HTTP-only and must not be used as an authentication origin.
 
-A Front Door default hostname may be used temporarily only after read-only inspection confirms:
+Revalidate the Front Door default hostname with read-only inspection before each auth activation:
 
 - endpoint enabled and default-domain linkage enabled;
 - API and web routes enabled with expected patterns;
 - private-link/origin provisioning successful and origin health healthy;
 - HTTPS root and `/api/auth/config` smoke tests reach this deployment.
 
-If any item is absent, use an approved custom domain/TLS implementation instead. Then:
+If any item regresses, stop activation and restore the last known-good revision. Then:
 
-1. Register the exact HTTPS SPA redirect URI and same-origin logout URL.
+1. Confirm the exact HTTPS SPA redirect URI and same-origin logout URL remain registered.
 2. Set those exact values in `authSpaRedirectUri` and `authSpaPostLogoutRedirectUri`.
 3. Add the origin to CORS only if the SPA and API are intentionally cross-origin.
 4. Validate login, logout, token tenant/audience, certificate renewal, and RB-011 behavior.

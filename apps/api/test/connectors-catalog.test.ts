@@ -118,6 +118,45 @@ describe('buildConnectorsCollection', () => {
     expect(entra?.prerequisiteNote).toContain('Application.Read.All')
   })
 
+  it('maps measured Entra health without hiding partial readiness', () => {
+    const health = {
+      overall: 'degraded' as const,
+      partial: true,
+      sources: [
+        {
+          id: 'microsoft-entra-service-principals',
+          name: 'Microsoft Entra service principals',
+          role: 'enrichment' as const,
+          enabled: true,
+          configured: true,
+          readiness: 'degraded' as const,
+          reason: 'unavailable',
+        },
+      ],
+    }
+    const degraded = buildConnectorsCollection('foundry', {
+      connectorId: 'foundry-connector',
+      connectorHealth: health,
+    })
+    expect(degraded.health).toEqual(health)
+    expect(degraded.catalog.find((entry) => entry.id === 'entra-agent-id')?.lifecycleState).toBe(
+      'unavailable',
+    )
+
+    const ready = buildConnectorsCollection('foundry', {
+      connectorId: 'foundry-connector',
+      connectorHealth: {
+        ...health,
+        overall: 'ready',
+        partial: false,
+        sources: [{ ...health.sources[0]!, readiness: 'ready' }],
+      },
+    })
+    expect(ready.catalog.find((entry) => entry.id === 'entra-agent-id')?.lifecycleState).toBe(
+      'connected',
+    )
+  })
+
   it('custom manifest adapter is configurable but never a source of truth', () => {
     const result = buildConnectorsCollection('mock', { connectorId: 'mock-agent-estate' })
     const manifest = result.catalog.find((e) => e.id === 'custom-manifest-adapter')

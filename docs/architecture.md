@@ -179,6 +179,6 @@ The token economics analysis engine (`@agent-sentinel/behavior-engine`) reuses t
 
 ## Next Steps
 
-1. **Custom domain + TLS (Immediate priority):** Obtain a domain name, provision a TLS certificate in Key Vault, configure an HTTPS listener on App Gateway, and update the HTTP listener to redirect to HTTPS. Until this is done, the public endpoint is HTTP-only.
-2. **Front Door investigation:** Open a Microsoft support case for `fd-as-260814` `deploymentStatus: NotStarted` for ACA private-link origins in `koreacentral`. If resolved, migrate production traffic back to Front Door (global CDN + DDoS).
-3. **HTTPS-only policy:** After TLS is configured, add an App Gateway rewrite rule to enforce HTTPS.
+1. **Read-only JWT activation (Immediate priority):** Use the active Front Door HTTPS origin and a reviewed surgical ACA revision update; keep writes false and the WAF mutation block unchanged.
+2. **Reconcile infrastructure drift:** The full Bicep what-if currently includes 54 unrelated modifications and must not be applied until reviewed against live state.
+3. **Custom domain hardening:** Add an approved custom domain/TLS policy when required; the active Front Door default HTTPS origin is sufficient for the current bounded auth validation.

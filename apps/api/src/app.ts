@@ -225,16 +225,16 @@ export async function createApp(
   app.get('/api/demo/state', async () => service.getState())
   app.get('/api/connector/status', async () => service.getConnectorStatus())
   app.get('/api/connectors', async () => {
-    const [status, connection] = await Promise.all([
-      service.getConnectorStatus(),
-      service.testConnectorConnection(),
-    ])
+    const connection = await service.testConnectorConnection()
+    const status = await service.getConnectorStatus()
+    const connectorHealth = service.getConnectorHealth()
     return buildConnectorsCollection(status.mode, {
       connectorId: status.connectorId,
       connectionOk: connection.ok,
       ...(status.writeEnabled !== undefined ? { writeEnabled: status.writeEnabled } : {}),
       ...(status.projectEndpoint !== undefined ? { projectEndpoint: status.projectEndpoint } : {}),
       runtimeTelemetryConfigured: runtimeTelemetryConnector !== undefined,
+      ...(connectorHealth ? { connectorHealth } : {}),
     })
   })
   app.post(

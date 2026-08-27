@@ -27,6 +27,26 @@ param foundryTenantId string = ''
 @description('Foundry environment label for live mode.')
 param foundryEnvironment string = 'validation'
 
+@description('Enable optional Microsoft Entra identity enrichment. Keep false until tenant-admin consent is complete.')
+param entraConnectorEnabled bool = false
+@description('Microsoft Entra tenant ID for identity enrichment. Empty while disabled.')
+param entraConnectorTenantId string = ''
+@description('Environment boundary for Entra identity enrichment. Must exactly match Foundry.')
+param entraConnectorEnvironment string = ''
+@description('Microsoft Graph resource base. Restricted by connector validation to the public Graph host.')
+param entraConnectorGraphBaseUrl string = 'https://graph.microsoft.com'
+@description('Enable bounded service-principal owner enrichment.')
+param entraConnectorOwnersEnabled bool = false
+@description('Enable bounded service-principal app-role assignment enrichment.')
+param entraConnectorAppRolesEnabled bool = false
+@description('Enable optional beta Agent Identity classification. Requires separate permission review.')
+param entraConnectorAgentIdentityPreview bool = false
+param entraConnectorMaxPages string = '20'
+param entraConnectorMaxItems string = '1000'
+param entraConnectorRequestTimeoutMs string = '15000'
+param entraConnectorMaxRetries string = '2'
+param entraConnectorMaxRetryAfterMs string = '30000'
+
 @description('Cosmos database id backing exposure findings.')
 param cosmosDatabase string = 'agent-sentinel-db'
 
@@ -201,6 +221,18 @@ module containerApps './modules/container-apps.bicep' = {
     advisoryMode: 'mock'
     foundryTenantId: foundryTenantId
     foundryEnvironment: foundryEnvironment
+    entraConnectorEnabled: entraConnectorEnabled
+    entraConnectorTenantId: entraConnectorTenantId
+    entraConnectorEnvironment: entraConnectorEnvironment
+    entraConnectorGraphBaseUrl: entraConnectorGraphBaseUrl
+    entraConnectorOwnersEnabled: entraConnectorOwnersEnabled
+    entraConnectorAppRolesEnabled: entraConnectorAppRolesEnabled
+    entraConnectorAgentIdentityPreview: entraConnectorAgentIdentityPreview
+    entraConnectorMaxPages: entraConnectorMaxPages
+    entraConnectorMaxItems: entraConnectorMaxItems
+    entraConnectorRequestTimeoutMs: entraConnectorRequestTimeoutMs
+    entraConnectorMaxRetries: entraConnectorMaxRetries
+    entraConnectorMaxRetryAfterMs: entraConnectorMaxRetryAfterMs
     cosmosDatabase: cosmosDatabase
     discoveryIntervalMs: discoveryIntervalMs
     authMode: authMode

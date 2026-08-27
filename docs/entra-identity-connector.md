@@ -2,7 +2,8 @@
 
 `@agent-sentinel/entra-identity-connector` is a read-only, authorization-gated
 foundation. It does not share configuration or consent with `AUTH_*` user
-sign-in and is not activated in the deployed environment.
+sign-in. It is wired into API and jobs images but remains disabled in the
+deployed environment.
 
 ## Supported live boundary
 
@@ -41,12 +42,13 @@ for 429/500/502/503/504 responses carrying a bounded `Retry-After`.
 ## Configuration
 
 See `.env.example`. `ENTRA_CONNECTOR_ENABLED` is reserved as the activation
-gate. The connector and `EntraEnrichmentConnector` composition are complete,
-but API/jobs activation remains deliberately unwired until connector-specific
-health can be exposed without making a healthy Foundry source appear failed
-when an optional Entra source is awaiting consent. There is no mock fallback.
+gate. API `GET /api/connectors` exposes per-source readiness without marking a
+healthy Foundry source failed when optional Entra enrichment is awaiting
+consent. Jobs report partial success when primary discovery succeeds but Entra
+does not; partial snapshots and finding reconciliation are not persisted, so a
+transient Graph failure cannot erase the last complete state. There is no mock
+fallback.
 
 Next, obtain tenant-admin consent for `Application.Read.All`, configure the
-tenant/environment values, expose composite source health in API/jobs, then
-enable and validate v1.0 inventory. Separately review
-`AgentIdentity.Read.All` before enabling beta enrichment.
+tenant/environment values, then enable and validate bounded v1.0 inventory.
+Separately review `AgentIdentity.Read.All` before enabling beta enrichment.

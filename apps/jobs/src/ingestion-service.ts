@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import type { AgentConnector } from '@agent-sentinel/connector-sdk'
+import type { AgentConnector, ConnectorHealthReport } from '@agent-sentinel/connector-sdk'
 import type {
   EstateSnapshot,
   ExposureFinding,
@@ -25,6 +25,9 @@ export interface Logger {
 
 export interface IngestionResult {
   correlationId: string
+  outcome: 'succeeded' | 'partially-succeeded'
+  persisted: boolean
+  connectorHealth?: ConnectorHealthReport
   snapshot: EstateSnapshot
   snapshotId: string
   findings: ExposureFinding[]
@@ -59,14 +62,13 @@ export class IngestionService {
     logger.info('ingestion.start', { correlationId, sourceMode: this.options.sourceMode })
 
     const discovered = await this.connector.discover()
-    const snapshot: EstateSnapshot = {
-      ...discovered,
-      tenantId: this.options.tenantId,
+    if (discovered.tenantId.toLowerCase() !== this.options.tenantId.toLowerCase()) {
+      throw new Error('Discovered snapshot tenant does not match the configured ingestion tenant.')
     }
+    const snapshot: EstateSnapshot = discovered
+    const connectorHealth = this.connector.getConnectorHealth?.()
+    const outcome = connectorHealth?.partial === true ? 'partially-succeeded' : 'succeeded'
     const snapshotId = snapshotIdFor(snapshot)
-    await this.snapshots.save(snapshot)
-    logger.info('ingestion.snapshot.saved', { correlationId, snapshotId })
-
     const evaluated = evaluateAllExposurePolicies(snapshot)
     const findings: ExposureFinding[] = evaluated.map((finding) => ({
       ...finding,
@@ -74,6 +76,33 @@ export class IngestionService {
       tenantId: this.options.tenantId,
       snapshotId,
     }))
+
+    if (outcome === 'partially-succeeded') {
+      const sources = connectorHealth?.sources
+        .filter((source) => source.readiness !== 'ready' && source.readiness !== 'disabled')
+        .map((source) => source.id)
+      logger.warn('ingestion.enrichment.degraded', { correlationId, sources })
+      logger.info('ingestion.partial.complete', {
+        correlationId,
+        snapshotId,
+        total: findings.length,
+        persisted: false,
+      })
+      return {
+        correlationId,
+        outcome,
+        persisted: false,
+        ...(connectorHealth ? { connectorHealth } : {}),
+        snapshot,
+        snapshotId,
+        findings,
+        newFindings: [],
+        resolvedFindings: [],
+      }
+    }
+
+    await this.snapshots.save(snapshot)
+    logger.info('ingestion.snapshot.saved', { correlationId, snapshotId })
 
     const newFindings: ExposureFinding[] = []
     for (const finding of findings) {
@@ -94,6 +123,9 @@ export class IngestionService {
 
     return {
       correlationId,
+      outcome,
+      persisted: true,
+      ...(connectorHealth ? { connectorHealth } : {}),
       snapshot,
       snapshotId,
       findings,
