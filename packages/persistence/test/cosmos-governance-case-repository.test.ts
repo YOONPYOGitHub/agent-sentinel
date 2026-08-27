@@ -256,6 +256,13 @@ describe('CosmosGovernanceCaseRepository', () => {
       expect(firstPage.total).toBe(201)
       expect(secondPage.items.map((item) => item.id)).toEqual(['case-200'])
       expect(searched.items.map((item) => item.id)).toEqual(['case-200'])
+      expect(store.queries.map((query) => query.query)).toContain(
+        'SELECT * FROM c WHERE c.documentType = @documentType ORDER BY c["case"]["lastTransitionAt"] DESC, c["case"]["id"] ASC OFFSET @offset LIMIT @pageSize',
+      )
+      expect(
+        store.queries.every((query) => !query.query.includes('c.case.')),
+        'reserved case property must use Cosmos bracket notation',
+      ).toBe(true)
     },
     15_000,
   )

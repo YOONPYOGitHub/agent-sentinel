@@ -203,15 +203,15 @@ export class CosmosGovernanceCaseRepository implements GovernanceCaseRepository 
     const parameters: SqlParameter[] = [{ name: '@documentType', value: CASE_DOCUMENT_TYPE }]
     const clauses = ['c.documentType = @documentType']
     if (filters.status !== undefined) {
-      clauses.push('c.case.status = @status')
+      clauses.push('c["case"]["status"] = @status')
       parameters.push({ name: '@status', value: filters.status })
     }
     if (filters.kind !== undefined) {
-      clauses.push('c.case.kind = @kind')
+      clauses.push('c["case"]["kind"] = @kind')
       parameters.push({ name: '@kind', value: filters.kind })
     }
     if (filters.assignee !== undefined) {
-      clauses.push('c.case.assigneeIdentity = @assignee')
+      clauses.push('c["case"]["assigneeIdentity"] = @assignee')
       parameters.push({ name: '@assignee', value: filters.assignee })
     }
     const normalizedSearch = filters.search?.trim().toLocaleLowerCase()
@@ -228,7 +228,7 @@ export class CosmosGovernanceCaseRepository implements GovernanceCaseRepository 
       this.container.items
         .query<GovernanceCaseDocument>(
           {
-            query: `SELECT * FROM c WHERE ${where} ORDER BY c.case.lastTransitionAt DESC, c.case.id ASC OFFSET @offset LIMIT @pageSize`,
+            query: `SELECT * FROM c WHERE ${where} ORDER BY c["case"]["lastTransitionAt"] DESC, c["case"]["id"] ASC OFFSET @offset LIMIT @pageSize`,
             parameters: [
               ...parameters,
               { name: '@offset', value: offset },

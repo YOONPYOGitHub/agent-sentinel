@@ -18,6 +18,7 @@ function notFound(): Error & { code: number } {
 export class FakeCosmosStore {
   private documents = new Map<string, StoredDocument>()
   private etagSequence = 0
+  readonly queries: SqlQuerySpec[] = []
 
   readonly client = {
     database: () => ({
@@ -93,6 +94,7 @@ export class FakeCosmosStore {
   }
 
   private query(query: SqlQuerySpec, partitionKey: string): unknown[] {
+    this.queries.push(clone(query))
     const parameters = new Map(
       (query.parameters ?? []).map((parameter) => [parameter.name, parameter.value]),
     )
