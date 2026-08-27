@@ -66,6 +66,7 @@ export function OverviewPage() {
   const { state, connectorStatus, operation, error, clearError, load, run } = useDemoState()
   const { principal } = useAuth()
   const writeEnabled = connectorStatus?.writeEnabled !== false
+  const liveFoundry = connectorStatus?.mode === 'foundry'
 
   // Permission hooks ? auth-gated in JWT mode; no-op in disabled mode
   const canValidate = usePermission('validateFinding')
@@ -149,8 +150,8 @@ export function OverviewPage() {
   }, [])
 
   useEffect(() => {
-    if (finding === undefined) void loadLiveExposure()
-  }, [finding, loadLiveExposure])
+    if (liveFoundry || finding === undefined) void loadLiveExposure()
+  }, [finding, liveFoundry, loadLiveExposure])
 
   const primaryAction = useMemo(() => {
     if (finding === undefined) return undefined
@@ -213,7 +214,7 @@ export function OverviewPage() {
     )
   }
 
-  if (finding === undefined || pathSnapshot === undefined) {
+  if (liveFoundry || finding === undefined || pathSnapshot === undefined) {
     return (
       <LiveEstateOverview
         state={state}
@@ -576,7 +577,7 @@ function LiveEstateOverview({
         <div className="inline-error" role="alert">
           <AlertRegular />
           <span>
-            Foundry refresh failed: {providerError} · Showing the last-known discovery snapshot.
+            Persisted read-model refresh failed: {providerError} · Showing the last-known snapshot.
           </span>
         </div>
       ) : null}

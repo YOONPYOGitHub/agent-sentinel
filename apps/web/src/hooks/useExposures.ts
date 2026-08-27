@@ -4,8 +4,7 @@ import { exposureApi } from '../api/exposure-api'
 import type { ExposureLoadState } from '../scorecard'
 
 /**
- * Fetches all exposure findings once. Pass a \
-esetKey\ (e.g. agentId) to
+ * Fetches all exposure findings once. Pass a resetKey (e.g. agentId) to
  * reset to 'loading' and discard any in-flight request when the key changes.
  */
 export function useExposures(resetKey?: string): ExposureFinding[] | ExposureLoadState {

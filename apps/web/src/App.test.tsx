@@ -95,6 +95,14 @@ describe('application routing', () => {
     expect(screen.queryByText('Agent estate is unavailable')).not.toBeInTheDocument()
   })
 
+  it('uses persisted exposure posture instead of the legacy demo workflow in live mode', async () => {
+    await renderRoute('/overview')
+
+    expect(await screen.findByText('Foundry declared configuration is connected')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Run safe validation' })).not.toBeInTheDocument()
+    expect(exposureApi.list).toHaveBeenCalled()
+  })
+
   it('renders the inventory and direct detail routes', async () => {
     await renderRoute('/agent-inventory')
     expect(await screen.findByText('3 of 3 agents')).toBeVisible()
@@ -226,9 +234,9 @@ describe('application routing', () => {
 
   it('shows read-only mode and disables mutations when writes are blocked', async () => {
     vi.mocked(connectorApi.getConnectorStatus).mockResolvedValue({
-      source: 'foundry',
-      connectorId: 'azure-ai-foundry-agent-service',
-      mode: 'foundry',
+      source: 'mock',
+      connectorId: 'mock-agent-estate',
+      mode: 'mock',
       writeEnabled: false,
     })
     await renderRoute('/overview')

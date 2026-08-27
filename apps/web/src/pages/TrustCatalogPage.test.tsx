@@ -1,14 +1,23 @@
+/* eslint-disable @typescript-eslint/unbound-method */
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
+import { exposureApi } from '../api/exposure-api'
 import { DemoStateContext, type DemoStateValue } from '../hooks/DemoStateContext'
-import { testState } from '../test-fixture'
+import { salesExposureFinding, testState } from '../test-fixture'
 import { TrustCatalogPage } from './TrustCatalogPage'
 
+vi.mock('../api/exposure-api')
+
 afterEach(cleanup)
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  vi.mocked(exposureApi.listAll).mockResolvedValue([])
+})
 
 function renderPage() {
   const value: DemoStateValue = {
@@ -81,5 +90,27 @@ describe('TrustCatalogPage', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('dialog', { name: 'HR SharePoint MCP' })).not.toBeInTheDocument()
     await waitFor(() => expect(trigger).toHaveFocus())
+  })
+
+  it('counts persisted exposure findings instead of legacy demo findings', async () => {
+    vi.mocked(exposureApi.listAll)
+      .mockResolvedValueOnce([salesExposureFinding])
+      .mockResolvedValueOnce([])
+    renderPage()
+
+    const salesCard = screen
+      .getByRole('heading', { name: 'Sales Research Agent' })
+      .closest('article')
+    expect(salesCard).not.toBeNull()
+    const trigger = screen
+      .getAllByRole('button', { name: 'View trust evidence' })
+      .find((button) => salesCard?.contains(button))!
+    await waitFor(() => expect(exposureApi.listAll).toHaveBeenCalledTimes(2))
+    fireEvent.click(trigger)
+
+    const dialog = screen.getByRole('dialog', { name: 'Sales Research Agent' })
+    const knownFindings = within(dialog).getByText('Known findings').closest('div')
+    if (knownFindings === null) throw new Error('Known findings detail was not rendered.')
+    expect(within(knownFindings).getByText('1')).toBeVisible()
   })
 })

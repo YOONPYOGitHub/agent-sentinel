@@ -179,6 +179,6 @@ The token economics analysis engine (`@agent-sentinel/behavior-engine`) reuses t
 
 ## Next Steps
 
-1. **Unify finding projections:** Exposure and governance use persisted `ExposureFinding` records while the overview still derives its legacy attack-path `Finding` summary from the same persisted snapshot.
+1. **Activate Entra identity evidence:** Complete tenant-admin consent and bounded v1.0 inventory validation before enabling the connector.
 2. **Reconcile infrastructure drift:** The full Bicep what-if includes unrelated modifications and must not be applied until reviewed against live state.
 3. **Custom domain hardening:** Add an approved custom domain/TLS policy when required; the active Front Door default HTTPS origin is sufficient for the current bounded auth validation.

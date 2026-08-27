@@ -17,10 +17,17 @@ import {
 } from 'react'
 import { Link } from 'react-router-dom'
 
-import type { AgentSentinelState, GraphNode, NodeKind } from '@agent-sentinel/domain'
+import type {
+  AgentSentinelState,
+  ExposureFinding,
+  GraphNode,
+  NodeKind,
+} from '@agent-sentinel/domain'
 
 import { PageHeading } from '../components/PageHeading'
 import { useDemoState } from '../hooks/useDemoState'
+import { useExposures } from '../hooks/useExposures'
+import type { ExposureLoadState } from '../scorecard'
 
 type CatalogKind = Extract<NodeKind, 'agent' | 'mcp' | 'tool'>
 type CatalogTrust = NonNullable<GraphNode['trust']> | 'unknown'
@@ -36,7 +43,7 @@ interface CatalogItem {
   averageConfidence: number
   freshness: string
   dependentAgents: GraphNode[]
-  knownFindings: number
+  knownFindings: number | undefined
 }
 
 function findDependentAgents(nodeId: string, state: AgentSentinelState): GraphNode[] {
@@ -64,7 +71,10 @@ function catalogStatus(node: GraphNode): string {
   return node.metadata.catalog ?? 'Not provided by source'
 }
 
-function buildCatalog(state: AgentSentinelState): CatalogItem[] {
+function buildCatalog(
+  state: AgentSentinelState,
+  exposures: ExposureFinding[] | ExposureLoadState,
+): CatalogItem[] {
   const evidenceById = new Map(state.snapshot.evidence.map((item) => [item.id, item]))
   return state.snapshot.nodes
     .filter(
@@ -96,8 +106,12 @@ function buildCatalog(state: AgentSentinelState): CatalogItem[] {
               ? 'recent'
               : 'unavailable',
         dependentAgents: findDependentAgents(node.id, state),
-        knownFindings: state.findings.filter((finding) => finding.path.nodeIds.includes(node.id))
-          .length,
+        knownFindings: Array.isArray(exposures)
+          ? exposures.filter(
+              (finding) =>
+                finding.affectedAgentId === node.id || finding.affectedNodeIds.includes(node.id),
+            ).length
+          : undefined,
       }
     })
     .sort((left, right) => left.node.name.localeCompare(right.node.name))
@@ -111,13 +125,14 @@ function iconFor(kind: CatalogKind) {
 
 export function TrustCatalogPage() {
   const { state } = useDemoState()
+  const exposures = useExposures()
   const [query, setQuery] = useState('')
   const [kind, setKind] = useState<CatalogKind | ''>('')
   const [trust, setTrust] = useState<CatalogTrust | ''>('')
   const [selectedId, setSelectedId] = useState<string>()
   const drawerRef = useRef<HTMLElement>(null)
   const previousFocus = useRef<HTMLElement | null>(null)
-  const catalog = useMemo(() => (state ? buildCatalog(state) : []), [state])
+  const catalog = useMemo(() => (state ? buildCatalog(state, exposures) : []), [exposures, state])
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase()
     return catalog.filter((item) => {
@@ -390,7 +405,14 @@ export function TrustCatalogPage() {
                 label="Evidence sources"
                 value={selected.evidenceSources.join(', ') || 'No evidence source available'}
               />
-              <CatalogDetail label="Known findings" value={String(selected.knownFindings)} />
+              <CatalogDetail
+                label="Known findings"
+                value={
+                  selected.knownFindings === undefined
+                    ? 'Unavailable'
+                    : String(selected.knownFindings)
+                }
+              />
             </dl>
             <section>
               <h3>Dependent agents</h3>
