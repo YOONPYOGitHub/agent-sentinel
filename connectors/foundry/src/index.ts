@@ -140,6 +140,27 @@ function trust(agent: FoundryAgentDefinition): 'trusted' | 'conditional' | 'untr
   return 'trusted'
 }
 
+const identityMetadataKeys = [
+  'entraServicePrincipalId',
+  'servicePrincipalId',
+  'entraAgentIdentityId',
+  'agentIdentityId',
+  'entraAppId',
+  'appId',
+  'entraClientId',
+  'clientId',
+] as const
+const entraIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function explicitIdentityMetadata(metadata: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    identityMetadataKeys.flatMap((key) => {
+      const value = metadata[key]
+      return value !== undefined && entraIdPattern.test(value) ? [[key, value]] : []
+    }),
+  )
+}
+
 export function mapAgentToSnapshot(
   agents: FoundryAgentDefinition[],
   apiVersion: string,
@@ -172,6 +193,7 @@ export function mapAgentToSnapshot(
         lifecycle: metadata.lifecycle ?? 'active',
         approvalRequired: metadata.approvalRequired ?? 'false',
         apiVersion,
+        ...explicitIdentityMetadata(metadata),
       },
     })
     for (const tool of agent.tools ?? []) {

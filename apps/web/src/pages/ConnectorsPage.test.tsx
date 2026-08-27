@@ -47,7 +47,7 @@ const mockCollection: ConnectorsCollection = {
       id: 'entra-agent-id',
       name: 'Microsoft Entra Agent ID & Entitlements',
       description: 'Agent-level identity principals and OAuth entitlement evidence.',
-      lifecycleState: 'planned',
+      lifecycleState: 'authorization-required',
       capabilities: ['identity', 'entitlement'],
       sourceOfTruth: true,
       ownershipModel: 'consumes',
@@ -169,7 +169,7 @@ describe('ConnectorsPage', () => {
     const entraCard = screen.getByRole('article', {
       name: 'Microsoft Entra Agent ID & Entitlements',
     })
-    expect(entraCard).toHaveTextContent('Planned')
+    expect(entraCard).toHaveTextContent('Authorization required')
   })
 
   it('shows foundry active connector with project endpoint', async () => {
@@ -215,14 +215,13 @@ describe('ConnectorsPage', () => {
     expect(foundryCard).not.toHaveTextContent('Runtime telemetry')
   })
 
-  it('planned connectors show planned notice, not a dead action button', async () => {
+  it('authorization-gated Entra connector shows its prerequisite without a dead action', async () => {
     renderPage()
     await screen.findByRole('heading', { name: 'Data connectors' })
     const entraCard = screen.getByRole('article', {
       name: 'Microsoft Entra Agent ID & Entitlements',
     })
-    expect(entraCard).toHaveTextContent('Planned - not yet available')
-    // No functional button in planned cards
+    expect(entraCard).toHaveTextContent('Authorization & API availability required')
     expect(entraCard.querySelector('button')).toBeNull()
   })
 

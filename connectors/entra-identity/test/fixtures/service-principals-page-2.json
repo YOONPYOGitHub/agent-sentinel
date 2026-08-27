@@ -1,0 +1,13 @@
+{
+  "value": [
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "appId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "displayName": "Uncorrelated Worker",
+      "servicePrincipalType": "ManagedIdentity",
+      "accountEnabled": true,
+      "appOwnerOrganizationId": "99999999-9999-4999-8999-999999999999",
+      "tags": []
+    }
+  ]
+}

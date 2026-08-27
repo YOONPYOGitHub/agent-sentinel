@@ -54,6 +54,25 @@ describe('Foundry connector', () => {
     expect(snapshot.nodes.find((n) => n.id === 'foundry-agent-a2')?.trust).toBe('conditional')
     expect(snapshot.evidence[0]?.summary).toContain('Declared configuration')
   })
+  it('preserves only valid explicit Entra identity identifiers for correlation', () => {
+    const snapshot = mapAgentToSnapshot(
+      [
+        {
+          ...approvalAgent,
+          metadata: {
+            servicePrincipalId: '11111111-1111-4111-8111-111111111111',
+            clientId: 'not-an-authoritative-identifier',
+          },
+        },
+      ],
+      'v1',
+      config,
+    )
+    expect(snapshot.nodes[0]?.metadata['servicePrincipalId']).toBe(
+      '11111111-1111-4111-8111-111111111111',
+    )
+    expect(snapshot.nodes[0]?.metadata['clientId']).toBeUndefined()
+  })
   it('handles data pagination', async () => {
     const fetcher = vi
       .fn<typeof fetch>()

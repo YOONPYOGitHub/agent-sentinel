@@ -38,13 +38,13 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     id: 'entra-agent-id',
     name: 'Microsoft Entra Agent ID & Entitlements',
     description:
-      'Provides authoritative agent identity principals and entitlement evidence from Microsoft Entra ID. This is separate from the Entra sign-in used for Agent Sentinel users.',
-    lifecycleState: 'planned',
+      'Reads authoritative Microsoft Entra service-principal inventory from Microsoft Graph v1.0, with bounded optional owner and app-role enrichment. Preview Agent Identity classification is separately gated and disabled by default.',
+    lifecycleState: 'authorization-required',
     capabilities: ['identity', 'entitlement'],
     sourceOfTruth: true,
     ownershipModel: 'consumes',
     prerequisiteNote:
-      'Agent Sentinel uses Microsoft Entra ID for user sign-in authentication. This connector is separate: it reads agent service principals and entitlement assignments to enrich exposure and governance evidence.',
+      'Implemented read-only foundation. Requires ENTRA_CONNECTOR_TENANT_ID, ENTRA_CONNECTOR_ENVIRONMENT, DefaultAzureCredential, and tenant-admin consent for Application.Read.All. AgentIdentity.Read.All is separate and required only when the explicitly preview-gated beta enrichment is enabled. This is independent of user sign-in.',
     unlocksScorecard: ['security', 'governance'],
   },
   {

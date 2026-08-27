@@ -109,12 +109,13 @@ describe('buildConnectorsCollection', () => {
     ).toBe('connected')
   })
 
-  it('Entra Agent ID is planned and distinct from Foundry auth', () => {
+  it('Entra inventory is implemented, authorization-required, and distinct from Foundry auth', () => {
     const result = buildConnectorsCollection('mock', { connectorId: 'mock-agent-estate' })
     const entra = result.catalog.find((e) => e.id === 'entra-agent-id')
-    expect(entra?.lifecycleState).toBe('planned')
+    expect(entra?.lifecycleState).toBe('authorization-required')
     expect(entra?.capabilities).toContain('identity')
     expect(entra?.capabilities).toContain('entitlement')
+    expect(entra?.prerequisiteNote).toContain('Application.Read.All')
   })
 
   it('custom manifest adapter is configurable but never a source of truth', () => {

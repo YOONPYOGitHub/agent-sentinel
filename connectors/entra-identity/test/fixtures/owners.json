@@ -1,0 +1,10 @@
+{
+  "value": [
+    {
+      "@odata.type": "#microsoft.graph.user",
+      "id": "12121212-1212-4121-8121-121212121212",
+      "displayName": "Identity Owner",
+      "userPrincipalName": "owner@example.invalid"
+    }
+  ]
+}
