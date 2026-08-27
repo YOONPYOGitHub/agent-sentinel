@@ -200,10 +200,11 @@ The connector and engine bridge are implemented. Deployment prerequisites and th
 - Offline validation CLI: `pnpm manifest:validate`.
 - Authenticated Administrator-only ingestion API, immutable `manifest-ingestions` Cosmos versions, deterministic content-hash retries, and unique `(manifestId, producedAt)` versions.
 - Jobs composition of the latest manifest version per estate tenant/environment. Adapter failures cannot block authoritative Foundry snapshot persistence, and manifest-derived findings retain `sourceMode=manifest`.
+- The dedicated container and API/jobs images are deployed with live writes disabled. Anonymous ingestion returns `401`; no manifest has been admitted.
 
 **Remaining**
 
-- Deploy the dedicated container and images. Live API ingestion remains disabled until the authenticated write gate and public edge are separately approved.
+- Activate live API ingestion only after the Administrator role, write scope, deployment write gate, and exact public-edge mutation path are separately approved and validated.
 - Correlation of adapter claims against first-party connectors so overlapping evidence is reconciled rather than duplicated.
 - Independent verification of `runtime_observed` manifest claims, which depends on Phase 4.
 

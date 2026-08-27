@@ -62,7 +62,7 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 | Employee catalog entitlement personalization | The assurance overlay renders. Per-employee entitlement filtering needs an authenticated principal.                                                                                                                                 |
 | Entra identity enrichment                    | Read-only Graph inventory, deterministic Foundry correlation, composite health, API/jobs wiring, packaging, and disabled-by-default IaC are implemented. Tenant-admin consent and live activation remain separate approved changes. |
 | Live role coverage                           | Employee login and Viewer boundaries are validated. Analyst, Approver, Administrator, and write-scope live-token validation remain pending before any public write-path change.                                                     |
-| Manifest ingestion activation                | Code and IaC are prepared. Provision the dedicated container and deploy images, but keep API ingestion blocked until Administrator/write/public-edge validation is separately approved.                                             |
+| Manifest ingestion activation                | The dedicated container and API/jobs images are deployed. The endpoint remains blocked by writes-false; activation requires Administrator, write-scope, and exact public-edge mutation validation.                                  |
 | Repository documentation                     | This rebuild. Superseded and contradictory statements are being corrected in place.                                                                                                                                                 |
 
 ---
@@ -121,6 +121,7 @@ These boundaries are what keep the product honest. They are enforced in code, no
 | Container Apps            | `web` (external within the internal ACA environment), `api` (environment-internal only), `jobs` (no ingress). Reviewed surgical revisions are active.            |
 | ACA environment           | Internal, VNet-integrated, private.                                                                                                                              |
 | Data services             | Cosmos DB, PostgreSQL Flexible Server, Azure AI Search, Service Bus — all behind private endpoints or a delegated subnet.                                        |
+| Manifest persistence      | Cosmos `manifest-ingestions` exists with `/tenantId` partitioning and unique `(manifestId, envelope.producedAt)` versions. No live manifest has been admitted.   |
 | Platform services         | Key Vault, Azure Container Registry (public network access disabled), Application Insights.                                                                      |
 | Public edge — App Gateway | **Active.** WAF v2 in Prevention mode, HTTP on port 80 only, no custom domain or TLS. Management-automated and may stop.                                         |
 | Public edge — Front Door  | **Active.** Routes web and API over HTTPS and is the registered SPA redirect and logout origin.                                                                  |
