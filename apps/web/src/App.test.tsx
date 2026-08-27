@@ -232,7 +232,10 @@ describe('application routing', () => {
       writeEnabled: false,
     })
     await renderRoute('/overview')
-    expect(await screen.findByText(/Read-only mode active/i)).toBeVisible()
+    expect(
+      await screen.findByText(/Write operations are blocked by deployment policy/i),
+    ).toBeVisible()
+    expect(screen.queryByText(/auth not yet configured/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Reset' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Run safe validation' })).toBeDisabled()
   })

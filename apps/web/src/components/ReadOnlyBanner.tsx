@@ -8,8 +8,8 @@ export function ReadOnlyBanner({ writeEnabled }: WriteCapability) {
   return (
     <MessageBar icon={<LockClosedRegular />} intent="warning">
       <MessageBarBody>
-        Write operations are blocked — auth not yet configured. Read-only mode active. Mutation
-        actions (reset, validate, approve, execute) are unavailable until Entra auth is set up.
+        Write operations are blocked by deployment policy. Read-only mode active. Mutation actions
+        (reset, validate, approve, execute) are unavailable.
       </MessageBarBody>
     </MessageBar>
   )
