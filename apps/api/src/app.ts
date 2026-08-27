@@ -5,7 +5,10 @@ import { z } from 'zod'
 import { CosmosClient } from '@azure/cosmos'
 import { DefaultAzureCredential } from '@azure/identity'
 import { createAzureMonitorOtelConnector } from '@agent-sentinel/azure-monitor-otel-connector'
-import type { RuntimeTelemetryConnector } from '@agent-sentinel/connector-sdk'
+import type {
+  ManifestIngestionRepository,
+  RuntimeTelemetryConnector,
+} from '@agent-sentinel/connector-sdk'
 
 import type {
   ExposureFindingRepository,
@@ -15,7 +18,9 @@ import type {
 import {
   CosmosExposureFindingRepository,
   CosmosGovernanceCaseRepository,
+  CosmosManifestIngestionRepository,
   CosmosSnapshotRepository,
+  InMemoryManifestIngestionRepository,
 } from '@agent-sentinel/persistence'
 
 import {
@@ -42,6 +47,7 @@ import {
 import { buildConnectorsCollection } from './connectors-catalog.js'
 import { registerBehaviorRoutes } from './behavior-routes.js'
 import { registerTokenEconomicsRoutes } from './token-economics-routes.js'
+import { registerManifestIngestionRoutes } from './manifest-ingestion-routes.js'
 
 const approvalSchema = z.object({
   approvedBy: z.string().trim().min(2).max(100),
@@ -108,6 +114,7 @@ export function buildLiveRepositories(clientOverride?: CosmosClient): {
   exposureRepository: ExposureFindingRepository
   snapshotRepository: SnapshotRepository
   governanceCaseRepository: GovernanceCaseRepository
+  manifestIngestionRepository: ManifestIngestionRepository
 } {
   const endpoint = process.env['COSMOS_ENDPOINT']?.trim()
   if (!clientOverride && !endpoint)
@@ -130,6 +137,12 @@ export function buildLiveRepositories(clientOverride?: CosmosClient): {
       databaseId,
       containerId: governanceContainerId,
     }),
+    manifestIngestionRepository: new CosmosManifestIngestionRepository(client, {
+      tenantId: defaultTenantId(),
+      databaseId,
+      containerId:
+        process.env['COSMOS_MANIFEST_INGESTIONS_CONTAINER']?.trim() || 'manifest-ingestions',
+    }),
   }
 }
 
@@ -137,6 +150,7 @@ export interface CreateAppOptions {
   exposureRepository?: ExposureFindingRepository
   snapshotRepository?: SnapshotRepository
   governanceCaseRepository?: GovernanceCaseRepository
+  manifestIngestionRepository?: ManifestIngestionRepository
   advisoryService?: AdvisoryService
   dataMode?: 'mock' | 'live'
   /** `null` explicitly keeps live telemetry unconfigured, including in tests. */
@@ -186,6 +200,12 @@ export async function createApp(
     (resolvedDataMode === 'mock'
       ? createSeededGovernanceCaseRepository(exposureMode, writeEnabled)
       : liveRepositories?.governanceCaseRepository)
+  const manifestIngestionRepository =
+    options.manifestIngestionRepository ??
+    liveRepositories?.manifestIngestionRepository ??
+    (resolvedDataMode === 'mock'
+      ? new InMemoryManifestIngestionRepository(defaultTenantId())
+      : undefined)
   const defaultService =
     service === undefined
       ? configuredService(
@@ -362,6 +382,14 @@ export async function createApp(
     mode: exposureMode,
     defaultTenantId: defaultTenantId(),
     ...(runtimeTelemetryConnector !== undefined ? { runtimeTelemetryConnector } : {}),
+  })
+  const manifestEnvironmentId = process.env['FOUNDRY_ENVIRONMENT']?.trim()
+  registerManifestIngestionRoutes(app, {
+    authConfig,
+    writeEnabled,
+    ...(manifestIngestionRepository ? { repository: manifestIngestionRepository } : {}),
+    tenantId: defaultTenantId(),
+    ...(manifestEnvironmentId ? { environmentId: manifestEnvironmentId } : {}),
   })
 
   app.setErrorHandler((error, _request, reply) => {

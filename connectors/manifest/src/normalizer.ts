@@ -281,3 +281,51 @@ export function normalizeManifest(
 
   return { snapshot, provenance: manifestProvenance(envelope), hash: computeManifestHash(envelope) }
 }
+
+export function mergeManifestSnapshots(
+  base: EstateSnapshot,
+  manifestSnapshots: readonly EstateSnapshot[],
+): EstateSnapshot {
+  const ids = new Set<string>()
+  const requireUnique = (id: string, kind: string): void => {
+    if (ids.has(id)) throw new Error(`Manifest ${kind} id collides with the estate graph: ${id}`)
+    ids.add(id)
+  }
+
+  for (const node of base.nodes) requireUnique(node.id, 'node')
+  for (const edge of base.edges) requireUnique(edge.id, 'edge')
+  for (const item of base.evidence) requireUnique(item.id, 'evidence')
+
+  const nodes = [...base.nodes]
+  const edges = [...base.edges]
+  const evidence = [...base.evidence]
+  for (const snapshot of manifestSnapshots) {
+    if (snapshot.tenantId !== base.tenantId) {
+      throw new Error('Manifest snapshot tenant does not match the primary estate snapshot.')
+    }
+    if (snapshot.environment !== base.environment) {
+      throw new Error('Manifest snapshot environment does not match the primary estate snapshot.')
+    }
+    for (const node of snapshot.nodes) {
+      requireUnique(node.id, 'node')
+      nodes.push(node)
+    }
+    for (const edge of snapshot.edges) {
+      requireUnique(edge.id, 'edge')
+      edges.push(edge)
+    }
+    for (const item of snapshot.evidence) {
+      requireUnique(item.id, 'evidence')
+      evidence.push(item)
+    }
+  }
+
+  return assertEstateSnapshot({
+    tenantId: base.tenantId,
+    environment: base.environment,
+    generatedAt: base.generatedAt,
+    nodes,
+    edges,
+    evidence,
+  })
+}

@@ -35,6 +35,7 @@ export class FakeCosmosStore {
       },
     }),
     items: {
+      create: (resource: StoredDocument) => this.create(resource),
       batch: (operations: OperationInput[], partitionKey: string) =>
         Promise.resolve(this.batch(operations, partitionKey)),
       query: <T>(query: SqlQuerySpec, options: { partitionKey: string }) => ({
@@ -53,6 +54,26 @@ export class FakeCosmosStore {
   private nextEtag(): string {
     this.etagSequence += 1
     return `etag-${this.etagSequence}`
+  }
+
+  private create(resource: StoredDocument) {
+    const key = this.key(resource.tenantId, resource.id)
+    const versionConflict =
+      resource.documentType === 'manifest-ingestion' &&
+      [...this.documents.values()].some(
+        (document) =>
+          document.tenantId === resource.tenantId &&
+          document.documentType === resource.documentType &&
+          document.manifestId === resource.manifestId &&
+          (document.envelope as { producedAt?: string }).producedAt ===
+            (resource.envelope as { producedAt?: string }).producedAt,
+      )
+    if (this.documents.has(key) || versionConflict) {
+      return Promise.reject(Object.assign(new Error('Conflict'), { code: 409 }))
+    }
+    const stored = { ...clone(resource), _etag: this.nextEtag() }
+    this.documents.set(key, stored)
+    return Promise.resolve({ resource: clone(stored), statusCode: 201 })
   }
 
   private batch(operations: OperationInput[], partitionKey: string) {
@@ -114,6 +135,24 @@ export class FakeCosmosStore {
           return leftTransition.id.localeCompare(rightTransition.id)
         })
       return clone(documents)
+    }
+
+    if (documentType === 'manifest-ingestion') {
+      documents = documents.filter(
+        (document) => document.environmentId === parameters.get('@environmentId'),
+      )
+      if (query.query.startsWith('SELECT DISTINCT VALUE c.manifestId')) {
+        return [...new Set(documents.map((document) => document.manifestId))]
+      }
+      documents = documents.filter(
+        (document) => document.manifestId === parameters.get('@manifestId'),
+      )
+      documents.sort((left, right) =>
+        String((right.envelope as { producedAt?: string }).producedAt).localeCompare(
+          String((left.envelope as { producedAt?: string }).producedAt),
+        ),
+      )
+      return clone(documents.slice(0, 1))
     }
 
     documents = documents.filter((document) => {

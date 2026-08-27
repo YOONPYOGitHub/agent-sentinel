@@ -83,6 +83,9 @@ importers:
       '@agent-sentinel/graph-engine':
         specifier: workspace:*
         version: link:../../packages/graph-engine
+      '@agent-sentinel/manifest-connector':
+        specifier: workspace:*
+        version: link:../../connectors/manifest
       '@agent-sentinel/mock-connector':
         specifier: workspace:*
         version: link:../../connectors/mock
@@ -147,6 +150,9 @@ importers:
       '@agent-sentinel/foundry-connector':
         specifier: workspace:*
         version: link:../../connectors/foundry
+      '@agent-sentinel/manifest-connector':
+        specifier: workspace:*
+        version: link:../../connectors/manifest
       '@agent-sentinel/messaging':
         specifier: workspace:*
         version: link:../../packages/messaging
@@ -367,6 +373,9 @@ importers:
 
   packages/persistence:
     dependencies:
+      '@agent-sentinel/connector-sdk':
+        specifier: workspace:*
+        version: link:../connector-sdk
       '@agent-sentinel/domain':
         specifier: workspace:*
         version: link:../domain

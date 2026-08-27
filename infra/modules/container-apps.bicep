@@ -166,6 +166,7 @@ var env = [
   { name: 'AGENT_SENTINEL_TENANT_ID',             value: foundryTenantId }
   { name: 'COSMOS_DATABASE',                      value: cosmosDatabase }
   { name: 'COSMOS_GOVERNANCE_CONTAINER',          value: 'governance-cases' }
+  { name: 'COSMOS_MANIFEST_INGESTIONS_CONTAINER', value: 'manifest-ingestions' }
   { name: 'DISCOVERY_INTERVAL_MS',                value: discoveryIntervalMs }
   { name: 'AGENT_SENTINEL_CONNECTOR',             value: agentSentinelDataMode == 'live' ? 'foundry' : 'mock' }
   { name: 'AZURE_CLIENT_ID',                       value: uamiClientId }

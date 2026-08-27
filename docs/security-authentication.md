@@ -71,6 +71,11 @@ Each stage is a separate approved change. Stop and roll back on any mismatch.
    Repeat the full validator through the public HTTPS edge and prove anonymous mutation is still
    denied. Never treat WAF as JWT validation; API authorization remains authoritative.
 
+The custom manifest ingestion endpoint is independently gated by JWT mode, the Administrator
+`configure` capability, and `AGENT_SENTINEL_WRITE_ENABLED=true`. Its manifest tenant/environment
+come from server estate configuration, never request fields or token claims. The token tenant
+authenticates the caller and can legitimately differ from the Azure estate tenant.
+
 ## Repeatable live validation
 
 The validator does not acquire, persist, or print tokens. Supply short-lived tokens and the tested

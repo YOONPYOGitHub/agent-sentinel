@@ -88,10 +88,12 @@ Invariants specific to the adapter, on top of the shared invariants above:
   rejected before any read; only absolute local paths are accepted.
 - The adapter cannot act. There is no `execute()` and an `execute` action depth is
   rejected at load time.
-- Tenant and environment must match the connector configuration, enforced below
-  the UI.
-- Ingestion is operator-initiated. There is no unauthenticated ingestion endpoint;
-  an authenticated ingestion API remains future work.
+- Tenant and environment must match the server-controlled estate boundary,
+  enforced below the UI and again by persistence.
+- API ingestion requires JWT Administrator `configure` plus the deployment write
+  gate. There is no unauthenticated ingestion endpoint.
+- Immutable content-hash versions are stored separately and jobs composes only
+  the latest version per manifest as non-authoritative evidence.
 
 ```bash
 pnpm manifest:validate -- /absolute/path/to/manifest.json

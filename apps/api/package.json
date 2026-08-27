@@ -18,6 +18,7 @@
     "@agent-sentinel/domain": "workspace:*",
     "@agent-sentinel/foundry-connector": "workspace:*",
     "@agent-sentinel/graph-engine": "workspace:*",
+    "@agent-sentinel/manifest-connector": "workspace:*",
     "@agent-sentinel/mock-connector": "workspace:*",
     "@agent-sentinel/persistence": "workspace:*",
     "@agent-sentinel/policy-engine": "workspace:*",

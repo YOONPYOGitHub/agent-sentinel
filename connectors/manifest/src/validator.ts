@@ -77,6 +77,27 @@ export function acceptManifest(
       `Manifest environmentId ${envelope.environmentId ?? '(absent)'} does not match the configured environment ${config.environmentId}.`,
     )
 
+  if (config.environmentId !== undefined) {
+    const declarations = [
+      ['agents', envelope.agents],
+      ['tools', envelope.tools],
+      ['identities', envelope.identities],
+      ['dataSources', envelope.dataSources],
+      ['mcpDependencies', envelope.mcpDependencies ?? []],
+    ] as const
+    for (const [kind, entries] of declarations) {
+      const mismatchIndex = entries.findIndex(
+        (entry) => entry.environment !== undefined && entry.environment !== config.environmentId,
+      )
+      if (mismatchIndex >= 0) {
+        return fail(
+          `${kind}.${mismatchIndex}.environment`,
+          `Entity environment does not match the configured environment ${config.environmentId}.`,
+        )
+      }
+    }
+  }
+
   return { ok: true, accepted: { envelope, hash: computeManifestHash(envelope) } }
 }
 

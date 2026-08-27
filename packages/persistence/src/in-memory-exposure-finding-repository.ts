@@ -78,12 +78,18 @@ export class InMemoryExposureFindingRepository implements ExposureFindingReposit
     return Promise.resolve(facets)
   }
 
-  resolveAbsent(tenantId: string, presentIds: readonly string[]): Promise<ExposureFinding[]> {
+  resolveAbsent(
+    tenantId: string,
+    presentIds: readonly string[],
+    sourceModes?: readonly ExposureFinding['sourceMode'][],
+  ): Promise<ExposureFinding[]> {
     const presentSet = new Set(presentIds)
+    const sourceModeSet = sourceModes === undefined ? undefined : new Set(sourceModes)
     const resolved: ExposureFinding[] = []
     const now = new Date().toISOString()
     for (const finding of this.findings.values()) {
       if (finding.tenantId !== tenantId) continue
+      if (sourceModeSet !== undefined && !sourceModeSet.has(finding.sourceMode)) continue
       if (presentSet.has(finding.id)) continue
       if (finding.status === 'resolved' || finding.status === 'mitigated') continue
       const updated: ExposureFinding = {

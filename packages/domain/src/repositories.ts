@@ -59,7 +59,11 @@ export interface ExposureFindingRepository {
     filters?: ExposureFindingListFilters,
   ): Promise<{ items: ExposureFinding[]; total: number }>
   getFacets(tenantId: string): Promise<ExposureFindingFacets>
-  resolveAbsent(tenantId: string, presentIds: readonly string[]): Promise<ExposureFinding[]>
+  resolveAbsent(
+    tenantId: string,
+    presentIds: readonly string[],
+    sourceModes?: readonly ExposureFinding['sourceMode'][],
+  ): Promise<ExposureFinding[]>
 }
 
 export interface GovernanceCaseListFilters {

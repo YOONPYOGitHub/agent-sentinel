@@ -19,6 +19,7 @@ import {
   validateManifest,
   type ManifestEnvelope,
 } from '@agent-sentinel/connector-sdk'
+import type { EstateSnapshot } from '@agent-sentinel/domain'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import {
@@ -27,6 +28,7 @@ import {
   effectiveEvidence,
   ManifestConnector,
   ManifestFileLoadError,
+  mergeManifestSnapshots,
   normalizeManifest,
 } from '../src/index.js'
 
@@ -189,6 +191,29 @@ describe('manifest normalization', () => {
   it('exposes no execute method', () => {
     expect((connector(baseManifest()) as { execute?: unknown }).execute).toBeUndefined()
   })
+
+  it('merges a manifest snapshot without changing the primary snapshot boundary', async () => {
+    const manifestSnapshot = await connector(baseManifest()).discover()
+    const primary: EstateSnapshot = {
+      tenantId: TENANT,
+      environment: ENVIRONMENT,
+      generatedAt: '2026-08-28T00:00:00.000Z',
+      nodes: [],
+      edges: [],
+      evidence: [],
+    }
+    const merged = mergeManifestSnapshots(primary, [manifestSnapshot])
+    expect(merged.generatedAt).toBe(primary.generatedAt)
+    expect(merged.nodes).toHaveLength(manifestSnapshot.nodes.length)
+    expect(merged.nodes.every((node) => node.metadata['sourceOfTruth'] === 'false')).toBe(true)
+  })
+
+  it('rejects identifier collisions during estate composition', async () => {
+    const manifestSnapshot = await connector(baseManifest()).discover()
+    expect(() => mergeManifestSnapshots(manifestSnapshot, [manifestSnapshot])).toThrow(
+      'collides with the estate graph',
+    )
+  })
 })
 
 // ─── Schema version ──────────────────────────────────────────────────────────
@@ -239,6 +264,19 @@ describe('tenant and environment isolation', () => {
     expect(errorText(withPatch((manifest) => delete manifest['environmentId']))).toContain(
       '(absent)',
     )
+  })
+
+  it('rejects entity-level environment labels outside the configured boundary', () => {
+    expect(
+      errorText(
+        withPatch((manifest) => {
+          const agents = manifest['agents'] as Array<Record<string, unknown>>
+          const agent = agents[0]
+          if (agent === undefined) throw new Error('Fixture agent is missing.')
+          agent['environment'] = 'staging'
+        }),
+      ),
+    ).toContain('Entity environment does not match the configured environment')
   })
 })
 

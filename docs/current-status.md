@@ -1,6 +1,6 @@
 # Current status
 
-**Status date: 2026-08-27** · Branch: `feature/governance-phase1-completion`
+**Status date: 2026-08-28** · Branch: `feature/authenticated-manifest-ingestion`
 
 This is the authoritative dated ledger for the Agent Sentinel control plane. Every row states what is true today, not what is intended. Where a capability is absent, the ledger says so rather than describing it as pending success.
 
@@ -46,7 +46,7 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 | Entra authentication and RBAC              | **Live, read-only.** Strict API tenant/audience/issuer/JWKS/scope validation and MSAL employee login are deployed. Anonymous access returns `401`; Viewer mutation returns `403`; `/api/auth/me` returns a sanitized principal. Broader live role validation remains pending.                                                                                    |
 | Azure deployment                           | **Live.** Container Apps `web`, `api`, and `jobs` run on a private ACA environment behind Front Door. Web uses the verified logout fix; API uses JWT mode; jobs remains non-interactive.                                                                                                                                                                         |
 | Corporate Service Tree registration        | **Complete.** Registered under the confirmed `MCAPS > GES Asia > Korea` hierarchy with two administrators.                                                                                                                                                                                                                                                       |
-| Universal custom manifest adapter          | **Current, offline.** `@agent-sentinel/manifest-connector` normalizes an operator-supplied manifest into an `EstateSnapshot`. Non-authoritative, read-only, no ingestion endpoint.                                                                                                                                                                               |
+| Universal custom manifest adapter          | **Implementation complete, activation pending.** Strict offline input remains available. The authenticated Administrator-only API, dedicated immutable Cosmos repository, hash idempotency, and jobs composition are implemented. Live ingestion stays blocked by writes-false and the public mutation posture.                                                  |
 | Deterministic behavior-baseline engine     | **Current.** `@agent-sentinel/behavior-engine` implements median/MAD statistics, drift analysis, evidence coverage, and typed `DriftAnalysisResult`; mock mode uses labeled fixtures and live mode accepts only validated Azure Monitor OTel windows.                                                                                                            |
 | Token Economics foundation                 | **Current.** `analyzeTokenEconomics()` uses measured-only populations, reconciled coverage, evidence-linked MAD anomalies, and same-population cost per success. Mock fixtures cover healthy, cost-anomaly, and missing-cost scenarios; live mode accepts validated Azure Monitor OTel windows and remains `unknown` while deployment telemetry is unconfigured. |
 | Governance workflow and durable repository | **Current.** Valid transitions, explicit assignment, separation of duties, source/actor/timestamp audit evidence, bounded policy exceptions, and promote/drift-acknowledge/rollback/retire evidence transitions are enforced, Cosmos-backed, and covered through API and Playwright lifecycle tests.                                                             |
@@ -62,6 +62,7 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 | Employee catalog entitlement personalization | The assurance overlay renders. Per-employee entitlement filtering needs an authenticated principal.                                                                                                                                 |
 | Entra identity enrichment                    | Read-only Graph inventory, deterministic Foundry correlation, composite health, API/jobs wiring, packaging, and disabled-by-default IaC are implemented. Tenant-admin consent and live activation remain separate approved changes. |
 | Live role coverage                           | Employee login and Viewer boundaries are validated. Analyst, Approver, Administrator, and write-scope live-token validation remain pending before any public write-path change.                                                     |
+| Manifest ingestion activation                | Code and IaC are prepared. Provision the dedicated container and deploy images, but keep API ingestion blocked until Administrator/write/public-edge validation is separately approved.                                             |
 | Repository documentation                     | This rebuild. Superseded and contradictory statements are being corrected in place.                                                                                                                                                 |
 
 ---
@@ -84,7 +85,7 @@ Corporate onboarding is tracked separately in [internal-onboarding.md](internal-
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Behavior baseline and drift activation | The read-only `azure-monitor-otel` connector and engine integration are implemented; deployment still needs instrumented spans, workspace configuration, and query permission. |
 | Real token economics activation        | Measured token/cost mapping is implemented. Deployment remains `unknown` until the provider prerequisites are injected; no cost is estimated.                                  |
-| Universal adapters                     | The custom manifest adapter is implemented and offline-only. The authenticated ingestion API is not implemented.                                                               |
+| Universal adapters                     | Ingestion and composition are implemented. First-party correlation and independent verification of claimed runtime evidence remain.                                            |
 | Business-value evidence                | Requires runtime telemetry plus outcome sources.                                                                                                                               |
 
 ---
@@ -93,21 +94,23 @@ Corporate onboarding is tracked separately in [internal-onboarding.md](internal-
 
 These boundaries are what keep the product honest. They are enforced in code, not only in documentation.
 
-| Boundary                                                                                              | Enforcement                                                                                            |
-| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Foundry evidence is **declared configuration**, never observed runtime behavior.                      | Connector label plus explicit blind-spot reporting on `GET /api/connectors`.                           |
-| The connector never infers tools, relationships, owners, or health that Foundry did not return.       | Schema validation; a malformed response fails rather than degrading to a guess.                        |
-| A degraded connector reports degraded health; it is never replaced with mock success.                 | Connector health path in `apps/api`.                                                                   |
-| Live product surfaces read one jobs-persisted estate snapshot for the configured tenant/environment.  | Live `/api/demo/state` uses `SnapshotRepository.findLatest`; absent state returns `503`.               |
-| Unconfigured or failed live runtime telemetry reports typed `unknown`; it never falls back to mock.   | Runtime route integration plus scorecard validation; mock cost posture is explicitly synthetic.        |
-| Missing evidence lowers confidence and never implies safety.                                          | Product invariant, see [CONTEXT.md](CONTEXT.md).                                                       |
-| The advisory model explains evidence; it never establishes security truth or authorizes an action.    | Grounding check plus schema validation; ungrounded output is rejected.                                 |
-| Live mode is read-only for demo routes.                                                               | Non-`GET` requests to `/api/demo/*` return `403 read_only_mode` in live mode.                          |
-| Remediation execution requires the `executeRemediation` capability, which only `Administrator` holds. | Per-route capability guards in `apps/api/src/auth.ts`.                                                 |
-| The estate is synthetic. No production customer agents exist in the environment.                      | Six-agent manifest owned by `@agent-sentinel/scenarios`; deployment tagged `synthetic`.                |
-| Manifest adapter claims are non-authoritative and never outrank a first-party connector.              | `sourceOfTruth: false` is a constant; declared confidence is capped at 0.7, default 0.4.               |
-| The manifest adapter performs no network I/O and exposes no ingestion endpoint.                       | Paths containing `://` or a leading `//` are rejected before any read; only absolute local paths load. |
-| The manifest adapter cannot act on the estate.                                                        | `ManifestConnector` has no `execute()`; an `execute` action depth is rejected at load time.            |
+| Boundary                                                                                              | Enforcement                                                                                                                      |
+| ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Foundry evidence is **declared configuration**, never observed runtime behavior.                      | Connector label plus explicit blind-spot reporting on `GET /api/connectors`.                                                     |
+| The connector never infers tools, relationships, owners, or health that Foundry did not return.       | Schema validation; a malformed response fails rather than degrading to a guess.                                                  |
+| A degraded connector reports degraded health; it is never replaced with mock success.                 | Connector health path in `apps/api`.                                                                                             |
+| Live product surfaces read one jobs-persisted estate snapshot for the configured tenant/environment.  | Live `/api/demo/state` uses `SnapshotRepository.findLatest`; absent state returns `503`.                                         |
+| Unconfigured or failed live runtime telemetry reports typed `unknown`; it never falls back to mock.   | Runtime route integration plus scorecard validation; mock cost posture is explicitly synthetic.                                  |
+| Missing evidence lowers confidence and never implies safety.                                          | Product invariant, see [CONTEXT.md](CONTEXT.md).                                                                                 |
+| The advisory model explains evidence; it never establishes security truth or authorizes an action.    | Grounding check plus schema validation; ungrounded output is rejected.                                                           |
+| Live mode is read-only for demo routes.                                                               | Non-`GET` requests to `/api/demo/*` return `403 read_only_mode` in live mode.                                                    |
+| Remediation execution requires the `executeRemediation` capability, which only `Administrator` holds. | Per-route capability guards in `apps/api/src/auth.ts`.                                                                           |
+| The estate is synthetic. No production customer agents exist in the environment.                      | Six-agent manifest owned by `@agent-sentinel/scenarios`; deployment tagged `synthetic`.                                          |
+| Manifest adapter claims are non-authoritative and never outrank a first-party connector.              | `sourceOfTruth: false` is a constant; declared confidence is capped at 0.7, default 0.4.                                         |
+| The manifest adapter performs no network I/O; API input is inline JSON only.                          | Local paths reject URL forms before reads; API acceptance never dereferences manifest values.                                    |
+| The manifest adapter cannot act on the estate.                                                        | `ManifestConnector` has no `execute()`; an `execute` action depth is rejected at load time.                                      |
+| Manifest ingestion cannot cross the server-configured estate tenant or environment.                   | Acceptance binds the envelope and entity environments to server configuration; repository partitioning repeats the tenant check. |
+| A non-authoritative manifest outage cannot stop authoritative discovery.                              | Jobs degrades manifest composition and persists the complete Foundry snapshot without adapter data.                              |
 
 ---
 

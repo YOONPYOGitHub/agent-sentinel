@@ -1,10 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { AgentConnector, ConnectorHealthReport } from '@agent-sentinel/connector-sdk'
+import type {
+  AgentConnector,
+  ConnectorHealthReport,
+  ManifestIngestionRecord,
+  ManifestIngestionRepository,
+} from '@agent-sentinel/connector-sdk'
 import type { EstateSnapshot } from '@agent-sentinel/domain'
 import { FOUNDRY_API_VERSION, mapAgentToSnapshot } from '@agent-sentinel/foundry-connector'
+import { ManifestConnector } from '@agent-sentinel/manifest-connector'
 import {
   InMemoryExposureFindingRepository,
+  InMemoryManifestIngestionRepository,
   InMemorySnapshotRepository,
 } from '@agent-sentinel/persistence'
 import { foundryManifest } from '@agent-sentinel/scenarios'
@@ -54,6 +61,62 @@ function fullSnapshot(): EstateSnapshot {
     FOUNDRY_API_VERSION,
     { tenantId: 'tenant-demo', environment: 'validation' },
   )
+}
+
+async function manifestRecord(): Promise<ManifestIngestionRecord> {
+  const connector = new ManifestConnector({
+    tenantId: 'tenant-demo',
+    environmentId: 'validation',
+    manifestContent: {
+      schemaVersion: '1.0',
+      manifestId: 'partner-agents',
+      tenantId: 'tenant-demo',
+      environmentId: 'validation',
+      producedAt: '2026-08-28T00:00:00.000Z',
+      producer: { name: 'Partner Registry' },
+      capabilities: {
+        supportsDiscovery: true,
+        evidenceDepth: 'shallow',
+        supportsRuntimeTelemetry: false,
+        supportsActions: 'none',
+      },
+      agents: [
+        {
+          id: 'partner-agent',
+          displayName: 'Partner Mutation Agent',
+          approvalRequired: false,
+        },
+      ],
+      tools: [{ id: 'send', displayName: 'send_message', toolType: 'action' }],
+      identities: [],
+      dataSources: [],
+      mcpDependencies: [],
+      edges: [
+        {
+          from: { kind: 'agent', id: 'partner-agent' },
+          to: { kind: 'tool', id: 'send' },
+          relationship: 'CAN_CALL',
+        },
+      ],
+      evidence: [],
+      metadata: {},
+    },
+  })
+  const [envelope, manifestHash, snapshot] = await Promise.all([
+    connector.getEnvelope(),
+    connector.getManifestHash(),
+    connector.discover(),
+  ])
+  return {
+    tenantId: 'tenant-demo',
+    environmentId: 'validation',
+    manifestId: envelope.manifestId,
+    manifestHash,
+    ingestedAt: '2026-08-28T00:05:00.000Z',
+    ingestedBySubject: 'administrator-subject',
+    envelope,
+    snapshot,
+  }
 }
 
 describe('IngestionService', () => {
@@ -193,5 +256,80 @@ describe('IngestionService', () => {
 
     await expect(service.run()).rejects.toThrow('does not match the configured ingestion tenant')
     expect(await snapshots.list('tenant-demo')).toHaveLength(0)
+  })
+
+  it('merges latest non-authoritative manifests and preserves finding provenance', async () => {
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const manifestIngestions = new InMemoryManifestIngestionRepository('tenant-demo')
+    await manifestIngestions.save(await manifestRecord())
+    const service = new IngestionService(makeConnector(fullSnapshot()), snapshots, exposures, {
+      tenantId: 'tenant-demo',
+      sourceMode: 'foundry',
+      manifestIngestions,
+    })
+
+    const result = await service.run()
+    expect(
+      result.snapshot.nodes.find((node) => node.name === 'Partner Mutation Agent'),
+    ).toMatchObject({
+      trust: 'conditional',
+      metadata: {
+        source: 'custom-manifest-adapter',
+        sourceOfTruth: 'false',
+      },
+    })
+    expect(
+      result.findings.find((finding) => finding.affectedAgentName === 'Partner Mutation Agent'),
+    ).toMatchObject({
+      policyId: 'AS-POL-003',
+      sourceMode: 'manifest',
+    })
+  })
+
+  it('preserves authoritative ingestion when manifest persistence is unavailable', async () => {
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const availableManifests = new InMemoryManifestIngestionRepository('tenant-demo')
+    await availableManifests.save(await manifestRecord())
+    const initialService = new IngestionService(
+      makeConnector(fullSnapshot()),
+      snapshots,
+      exposures,
+      {
+        tenantId: 'tenant-demo',
+        sourceMode: 'foundry',
+        manifestIngestions: availableManifests,
+      },
+    )
+    const initial = await initialService.run()
+    const manifestFinding = initial.findings.find((finding) => finding.sourceMode === 'manifest')
+    if (manifestFinding === undefined) throw new Error('Manifest finding was not generated.')
+
+    const manifestIngestions: ManifestIngestionRepository = {
+      save: () => Promise.reject(new Error('not used')),
+      listLatest: () => Promise.reject(new Error('Cosmos unavailable')),
+    }
+    const service = new IngestionService(makeConnector(fullSnapshot()), snapshots, exposures, {
+      tenantId: 'tenant-demo',
+      sourceMode: 'foundry',
+      manifestIngestions,
+    })
+
+    const result = await service.run()
+    expect(result).toMatchObject({
+      outcome: 'partially-succeeded',
+      persisted: true,
+      manifestIngestion: {
+        status: 'degraded',
+        count: 0,
+        reason: 'repository-unavailable',
+      },
+    })
+    expect(await snapshots.list('tenant-demo')).toHaveLength(2)
+    await expect(exposures.findById(manifestFinding.id, 'tenant-demo')).resolves.toMatchObject({
+      status: 'open',
+      sourceMode: 'manifest',
+    })
   })
 })

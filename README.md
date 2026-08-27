@@ -29,7 +29,7 @@ Agent Sentinel gives an organization one explainable view of every AI agent it r
 - **Separate explainable per-agent assurance dimensions** — security, governance, lifecycle, quality, reliability, and cost are scored and explained independently, and report `unknown` rather than guessing.
 - **Cross-domain governance workflow** — one evidence set shared by security, platform, and business stakeholders.
 
-Implemented but not activated in the deployed environment: Microsoft Entra identity enrichment, behavior drift analysis, measured token economics, and the Azure Monitor OTel connector. The offline shift-left scanner is available for local and CI publish gates. Authenticated universal-adapter ingestion remains planned. See [docs/roadmap.md](docs/roadmap.md).
+Implemented but not activated in the deployed environment: authenticated custom-manifest ingestion, Microsoft Entra identity enrichment, behavior drift analysis, measured token economics, and the Azure Monitor OTel connector. The offline shift-left scanner is available for local and CI publish gates. See [docs/roadmap.md](docs/roadmap.md).
 
 ---
 

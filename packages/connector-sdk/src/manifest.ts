@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import { relationshipSchema, type Relationship } from '@agent-sentinel/domain'
+import { estateSnapshotSchema, relationshipSchema, type Relationship } from '@agent-sentinel/domain'
 import { z } from 'zod'
 
 // ─── Schema version ──────────────────────────────────────────────────────────
@@ -86,7 +86,9 @@ export function stableId(source: string, localId: string): string {
 const localIdSchema = z.string().min(1).max(MANIFEST_LIMITS.maxIdLength)
 const displayNameSchema = z.string().min(1).max(MANIFEST_LIMITS.maxNameLength)
 const textSchema = z.string().min(1).max(MANIFEST_LIMITS.maxTextLength)
-const isoTimestampSchema = z.iso.datetime({ offset: true })
+const isoTimestampSchema = z.iso
+  .datetime({ offset: true })
+  .transform((value) => new Date(value).toISOString())
 const trustSchema = z.enum(['trusted', 'conditional', 'untrusted'])
 const sensitivitySchema = z.enum(['public', 'internal', 'confidential', 'highly-confidential'])
 
@@ -481,6 +483,64 @@ function canonicalJson(value: unknown): string {
 /** SHA-256 over a key-sorted canonical rendering. Stable across key ordering. */
 export function computeManifestHash(envelope: ManifestEnvelope): string {
   return createHash('sha256').update(canonicalJson(envelope)).digest('hex')
+}
+
+export const manifestIngestionRecordSchema = z
+  .strictObject({
+    tenantId: z.string().min(1).max(MANIFEST_LIMITS.maxIdLength),
+    environmentId: z.string().min(1).max(128),
+    manifestId: z.string().min(1).max(MANIFEST_LIMITS.maxIdLength),
+    manifestHash: z.string().regex(/^[a-f0-9]{64}$/),
+    ingestedAt: z.iso.datetime(),
+    ingestedBySubject: z.string().min(1).max(MANIFEST_LIMITS.maxIdLength),
+    envelope: manifestEnvelopeSchema,
+    snapshot: estateSnapshotSchema,
+  })
+  .superRefine((record, context) => {
+    if (
+      record.envelope.tenantId !== record.tenantId ||
+      record.snapshot.tenantId !== record.tenantId
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['tenantId'],
+        message: 'Manifest ingestion tenant boundaries do not match.',
+      })
+    }
+    if (
+      record.envelope.environmentId !== record.environmentId ||
+      record.snapshot.environment !== record.environmentId
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['environmentId'],
+        message: 'Manifest ingestion environment boundaries do not match.',
+      })
+    }
+    if (record.envelope.manifestId !== record.manifestId) {
+      context.addIssue({
+        code: 'custom',
+        path: ['manifestId'],
+        message: 'Manifest ingestion identifiers do not match.',
+      })
+    }
+    if (computeManifestHash(record.envelope) !== record.manifestHash) {
+      context.addIssue({
+        code: 'custom',
+        path: ['manifestHash'],
+        message: 'Manifest ingestion hash does not match the accepted envelope.',
+      })
+    }
+  })
+
+export type ManifestIngestionRecord = z.infer<typeof manifestIngestionRecordSchema>
+
+export interface ManifestIngestionRepository {
+  save(record: ManifestIngestionRecord): Promise<{
+    record: ManifestIngestionRecord
+    created: boolean
+  }>
+  listLatest(environmentId: string, limit?: number): Promise<ManifestIngestionRecord[]>
 }
 
 /** Provenance descriptor derived from a validated envelope. Never authoritative. */

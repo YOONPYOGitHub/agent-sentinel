@@ -65,6 +65,30 @@ resource containers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containe
   }
 }]
 
+resource manifestIngestionsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
+  parent: database
+  name: 'manifest-ingestions'
+  properties: {
+    resource: {
+      id: 'manifest-ingestions'
+      partitionKey: {
+        paths: ['/tenantId']
+        kind: 'Hash'
+      }
+      uniqueKeyPolicy: {
+        uniqueKeys: [
+          {
+            paths: [
+              '/manifestId'
+              '/envelope/producedAt'
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
+
 resource governanceContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
   parent: database
   name: 'governance-cases'

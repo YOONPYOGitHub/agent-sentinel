@@ -11,6 +11,7 @@ COPY packages/persistence/package.json packages/persistence/
 COPY packages/scenarios/package.json packages/scenarios/
 COPY connectors/foundry/package.json connectors/foundry/
 COPY connectors/entra-identity/package.json connectors/entra-identity/
+COPY connectors/manifest/package.json connectors/manifest/
 COPY connectors/mock/package.json connectors/mock/
 COPY connectors/azure-monitor-otel/package.json connectors/azure-monitor-otel/
 COPY apps/api/package.json apps/api/
@@ -29,6 +30,7 @@ RUN pnpm --filter @agent-sentinel/persistence build
 RUN pnpm --filter @agent-sentinel/scenarios build
 RUN pnpm --filter @agent-sentinel/foundry-connector build
 RUN pnpm --filter @agent-sentinel/entra-identity-connector build
+RUN pnpm --filter @agent-sentinel/manifest-connector build
 RUN pnpm --filter @agent-sentinel/mock-connector build
 RUN pnpm --filter @agent-sentinel/azure-monitor-otel-connector build
 RUN pnpm --filter @agent-sentinel/api build
@@ -58,6 +60,8 @@ COPY --from=builder /workspace/connectors/foundry/dist ./connectors/foundry/dist
 COPY --from=builder /workspace/connectors/foundry/package.json ./connectors/foundry/
 COPY --from=builder /workspace/connectors/entra-identity/dist ./connectors/entra-identity/dist/
 COPY --from=builder /workspace/connectors/entra-identity/package.json ./connectors/entra-identity/
+COPY --from=builder /workspace/connectors/manifest/dist ./connectors/manifest/dist/
+COPY --from=builder /workspace/connectors/manifest/package.json ./connectors/manifest/
 COPY --from=builder /workspace/connectors/mock/dist ./connectors/mock/dist/
 COPY --from=builder /workspace/connectors/mock/package.json ./connectors/mock/
 COPY --from=builder /workspace/connectors/azure-monitor-otel/dist ./connectors/azure-monitor-otel/dist/

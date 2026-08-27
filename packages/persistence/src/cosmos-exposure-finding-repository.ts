@@ -120,7 +120,11 @@ export class CosmosExposureFindingRepository implements ExposureFindingRepositor
     return facets
   }
 
-  async resolveAbsent(tenantId: string, presentIds: readonly string[]): Promise<ExposureFinding[]> {
+  async resolveAbsent(
+    tenantId: string,
+    presentIds: readonly string[],
+    sourceModes?: readonly ExposureFinding['sourceMode'][],
+  ): Promise<ExposureFinding[]> {
     const { resources } = await this.container.items
       .query<ExposureFinding>(
         {
@@ -132,9 +136,11 @@ export class CosmosExposureFindingRepository implements ExposureFindingRepositor
       )
       .fetchAll()
     const presentSet = new Set(presentIds)
+    const sourceModeSet = sourceModes === undefined ? undefined : new Set(sourceModes)
     const now = new Date().toISOString()
     const resolved: ExposureFinding[] = []
     for (const finding of resources) {
+      if (sourceModeSet !== undefined && !sourceModeSet.has(finding.sourceMode)) continue
       if (presentSet.has(finding.id)) continue
       const updated: ExposureFinding = { ...finding, status: 'resolved', lastSeen: now }
       await this.container.item(finding.id, tenantId).replace(updated)

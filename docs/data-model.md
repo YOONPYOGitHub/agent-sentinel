@@ -178,6 +178,19 @@ All object schemas are `.strict()`; unknown keys fail validation.
 
 Attached to every normalized snapshot: `producer`, `sourceObjectIds`, `observedAt`, `confidence`, `freshness` (ISO 8601 duration), `isNonAuthoritative: true`, `sourceOfTruth: false`. The last two are constants — manifest input can never assert authority.
 
+### ManifestIngestionRecord
+
+Immutable accepted version stored in Cosmos `manifest-ingestions`, partitioned by `/tenantId`:
+
+- server-controlled estate `tenantId` and `environmentId`
+- `manifestId`, canonical SHA-256 `manifestHash`, producer `producedAt`
+- server `ingestedAt` and sanitized authenticated `ingestedBySubject`
+- validated `ManifestEnvelope` and normalized non-authoritative `EstateSnapshot`
+
+The hash is the retry idempotency key. `(manifestId, envelope.producedAt)` is unique, so two
+different payloads cannot claim the same producer version timestamp. Jobs lists distinct manifest
+ids and reads only each newest producer version before composition.
+
 ### Bounds
 
 | Bound                   | Limit |

@@ -70,6 +70,18 @@ describe('InMemoryExposureFindingRepository', () => {
     expect(remaining?.status).toBe('resolved')
   })
 
+  it('preserves findings from sources excluded from reconciliation', async () => {
+    const repo = new InMemoryExposureFindingRepository()
+    await repo.upsert(makeFinding({ id: 'foundry-gone' }))
+    await repo.upsert(makeFinding({ id: 'manifest-active', sourceMode: 'manifest' }))
+    const resolved = await repo.resolveAbsent('tenant-demo', [], ['foundry'])
+    expect(resolved.map((finding) => finding.id)).toEqual(['foundry-gone'])
+    await expect(repo.findById('manifest-active', 'tenant-demo')).resolves.toMatchObject({
+      status: 'open',
+      sourceMode: 'manifest',
+    })
+  })
+
   it('isolates identical finding ids by tenant and aggregates all facets', async () => {
     const repo = new InMemoryExposureFindingRepository()
     await repo.upsert(makeFinding({ id: 'shared', tenantId: 'tenant-a' }))

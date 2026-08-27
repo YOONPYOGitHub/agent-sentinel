@@ -31,6 +31,11 @@ az deployment group create \
 
 Same command ? Bicep is idempotent for Incremental mode.
 
+Cosmos includes the dedicated `manifest-ingestions` container with `/tenantId` partitioning and a
+unique key across `/manifestId` plus `/envelope/producedAt`. Set
+`COSMOS_MANIFEST_INGESTIONS_CONTAINER=manifest-ingestions` on API and jobs. Provision this container
+before deploying a jobs image that lists authenticated manifest versions.
+
 ### Phase C ? Foundry Embedding
 
 Add text-embedding-3-large deployment (only this module touches AIServices).

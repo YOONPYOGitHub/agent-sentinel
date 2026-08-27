@@ -31,13 +31,13 @@ flowchart TD
     ADAPT["Universal adapter contract<br/>(independent, manifest adapter shipped)"]
 ```
 
-| Track                            | Gate                                                   | Can start today? |
-| -------------------------------- | ------------------------------------------------------ | ---------------- |
-| Identity, write, and remediation | API and SPA app registration                           | **Yes**          |
-| Runtime telemetry and economics  | None — connector implementation work                   | **Yes**          |
-| Governance workflow              | None                                                   | **Yes**          |
-| Universal adapters               | None — manifest adapter shipped; ingestion API remains | **Yes**          |
-| Public edge hardening            | Domain ownership, not Service Tree                     | **Yes**          |
+| Track                            | Gate                                                  | Can start today?  |
+| -------------------------------- | ----------------------------------------------------- | ----------------- |
+| Identity, write, and remediation | API and SPA app registration                          | **Yes**           |
+| Runtime telemetry and economics  | None — connector implementation work                  | **Yes**           |
+| Governance workflow              | None                                                  | **Yes**           |
+| Universal adapters               | Authenticated write activation for live API ingestion | **Code work yes** |
+| Public edge hardening            | Domain ownership, not Service Tree                    | **Yes**           |
 
 ---
 
@@ -198,10 +198,12 @@ The connector and engine bridge are implemented. Deployment prerequisites and th
 - Adapter-sourced evidence is visibly distinguished from first-party connector evidence: `sourceOfTruth: false`, `isNonAuthoritative: true`, default confidence 0.4, capped at 0.7 unless the manifest declares deep runtime telemetry.
 - Tenant and environment isolation plus deterministic SHA-256 manifest hashing for ingestion idempotency.
 - Offline validation CLI: `pnpm manifest:validate`.
+- Authenticated Administrator-only ingestion API, immutable `manifest-ingestions` Cosmos versions, deterministic content-hash retries, and unique `(manifestId, producedAt)` versions.
+- Jobs composition of the latest manifest version per estate tenant/environment. Adapter failures cannot block authoritative Foundry snapshot persistence, and manifest-derived findings retain `sourceMode=manifest`.
 
 **Remaining**
 
-- Authenticated ingestion endpoint with tenant isolation and idempotency. Manifests are currently operator-supplied inline or from an absolute local path; there is no ingestion API, and an unauthenticated one will not be added.
+- Deploy the dedicated container and images. Live API ingestion remains disabled until the authenticated write gate and public edge are separately approved.
 - Correlation of adapter claims against first-party connectors so overlapping evidence is reconciled rather than duplicated.
 - Independent verification of `runtime_observed` manifest claims, which depends on Phase 4.
 

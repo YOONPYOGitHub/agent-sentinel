@@ -36,7 +36,12 @@ export {
 } from './validator.js'
 export type { AcceptedManifest, ManifestAcceptanceResult } from './validator.js'
 
-export { ADAPTER_SOURCE_ID, effectiveEvidence, normalizeManifest } from './normalizer.js'
+export {
+  ADAPTER_SOURCE_ID,
+  effectiveEvidence,
+  mergeManifestSnapshots,
+  normalizeManifest,
+} from './normalizer.js'
 export type {
   EffectiveEvidence,
   NormalizedManifest,

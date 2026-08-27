@@ -121,7 +121,7 @@ The API container is never directly addressable from the public internet or from
 - **@agent-sentinel/policy-engine** ? Policy evaluation
 - **@agent-sentinel/connector-sdk** ? Connector base abstractions and the versioned manifest envelope contract
 - **@agent-sentinel/scenarios** ? Scenario fixtures
-- **@agent-sentinel/manifest-connector** ? Offline, read-only custom manifest adapter
+- **@agent-sentinel/manifest-connector** ? Read-only custom manifest validation, normalization, and non-authoritative estate composition
 - **@agent-sentinel/azure-monitor-otel-connector** - Read-only Azure Monitor Logs query adapter that strictly maps OTel `AppRequests` rows into tenant/agent/environment/time-bound `ObservationWindow` objects. It performs no ingestion or Azure resource mutation.
 - **@agent-sentinel/behavior-engine** - Deterministic behavior-baseline, drift, and measured-only token economics engine (median/MAD statistics, tool-sequence drift, reconciled coverage, evidence-linked cost anomalies). Depends on `@agent-sentinel/domain`. No network I/O, pricing lookup, or LLM.
 - **@agent-sentinel/tools** ? Offline developer CLIs (manifest validation)
@@ -131,20 +131,23 @@ The API container is never directly addressable from the public internet or from
 The custom manifest adapter ingests agent inventory that no first-party connector covers. It is deliberately the weakest-privilege connector in the system:
 
 ```
-operator manifest (inline object or absolute local file)
+operator manifest (authenticated API, inline object, or absolute local file)
   -> file-loader        path safety, size cap, regular-file check; no network, no URLs
   -> validator          schema version, strict Zod, action depth, tenant, environment
   -> normalizer         EstateSnapshot + SourceProvenance (sourceOfTruth: false)
+  -> manifest-ingestions immutable Cosmos versions, hash idempotency
+  -> jobs               latest version per manifest + Foundry snapshot composition
   -> existing graph/policy pipeline
 ```
 
 Boundaries that hold by construction:
 
-- **No ingress.** There is no ingestion endpoint. The adapter reads a caller-supplied object or a local file the operator already controls; there is no unauthenticated ingestion path.
+- **Authenticated ingress only.** `POST /api/manifests/ingestions` requires JWT mode, Administrator `configure`, and the deployment write gate. There is no unauthenticated ingestion path.
 - **No egress.** Any path containing `://` or a leading `//` is rejected before I/O, so the adapter cannot be steered into an SSRF fetch.
 - **No action.** `ManifestConnector` implements discovery and evidence only. It has no `execute()`, and a manifest declaring `supportsActions: 'execute'` is rejected.
 - **No authority.** Provenance is pinned to `sourceOfTruth: false` and `isNonAuthoritative: true`. Declared claims are capped at confidence 0.7 (default 0.4) and only rise when the manifest declares deep runtime telemetry.
-- **Tenant-scoped.** The envelope's `tenantId`, and `environmentId` when configured, must match the connector configuration or the load fails closed.
+- **Estate-scoped.** The envelope and every entity environment must match server-controlled estate tenant/environment values. The authenticated token tenant establishes caller identity and may differ from the Azure estate tenant.
+- **Availability isolation.** Manifest repository or composition failure degrades only the optional source; jobs still persists the authoritative Foundry snapshot.
 
 ## Security
 

@@ -19,6 +19,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agent-sentinel/connector-sdk": "workspace:*",
     "@agent-sentinel/domain": "workspace:*",
     "@azure/cosmos": "^4.4.0",
     "@azure/identity": "^4.11.1",
