@@ -75,81 +75,218 @@ export interface AuthPrincipal {
 
 /** Public SPA configuration — safe to expose to the browser; contains no secrets. */
 export interface SpaAuthConfig {
-  /** SPA application client ID */
+  /** Entra tenant configured for this single-tenant SPA. */
+  tenantId: string
+  /** SPA application client ID. */
   clientId: string
-  /** Full authority URL e.g. https://login.microsoftonline.com/{tenantId} */
+  /** Full authority URL, e.g. https://login.microsoftonline.com/{tenantId}. */
   authority: string
-  /** OAuth2 scopes the SPA should request when acquiring API tokens */
+  /** OAuth2 scopes the SPA requests when acquiring API tokens. */
   scopes: string[]
+  /** Exact registered SPA redirect URI. */
+  redirectUri: string
+  /** Exact post-logout destination; must share the redirect URI origin. */
+  postLogoutRedirectUri: string
 }
 
-export interface AuthConfig {
-  mode: 'disabled' | 'mock' | 'jwt'
-  tenantId?: string
-  audience?: string
-  allowedScopes?: {
+interface InactiveAuthConfig {
+  mode: 'disabled' | 'mock'
+  allowedScopes?: { read: string[]; write: string[] }
+}
+
+export interface JwtAuthConfig {
+  mode: 'jwt'
+  tenantId: string
+  audience: string
+  issuer: string
+  jwksUri: string
+  allowedScopes: {
     read: string[]
     write: string[]
   }
-  /**
-   * SPA public config. Present only when mode === 'jwt' and AUTH_CLIENT_ID is set.
-   * All fields are safe to expose in the public /api/auth/config response.
-   */
-  spaConfig?: SpaAuthConfig
+  /** Public SPA settings. All fields are safe to expose through /api/auth/config. */
+  spaConfig: SpaAuthConfig
 }
+
+export type AuthConfig = InactiveAuthConfig | JwtAuthConfig
 
 const defaultScopes = {
   read: ['AgentSentinel.Read'],
   write: ['AgentSentinel.Write'],
 }
 
-function envList(value: string | undefined, fallback: string[]): string[] {
-  if (value === undefined) return fallback
+function optionalEnvironment(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const value = env[name]?.trim()
+  return value === undefined || value.length === 0 ? undefined : value
+}
+
+function requiredEnvironment(env: NodeJS.ProcessEnv, name: string): string {
+  const value = optionalEnvironment(env, name)
+  if (value === undefined) throw new Error(`${name} is required when AUTH_MODE is jwt.`)
   return value
-    .split(',')
+}
+
+function envList(value: string | undefined, fallback: readonly string[]): string[] {
+  const items = (value === undefined ? fallback : value.split(','))
     .map((item) => item.trim())
     .filter((item) => item.length > 0)
+  if (items.length === 0)
+    throw new Error('Configured authentication scope lists must not be empty.')
+  if (new Set(items).size !== items.length)
+    throw new Error('Configured authentication scope lists must not contain duplicates.')
+  return items
+}
+
+function validateIdentifier(value: string, name: string): string {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value))
+    throw new Error(`${name} must be a UUID.`)
+  return value
+}
+
+function validateAudience(value: string): string {
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    throw new Error('AUTH_AUDIENCE must be an absolute application ID URI.')
+  }
+  if (
+    (parsed.protocol !== 'api:' && parsed.protocol !== 'https:') ||
+    parsed.username !== '' ||
+    parsed.password !== '' ||
+    parsed.port !== '' ||
+    parsed.search !== '' ||
+    parsed.hash !== '' ||
+    value.endsWith('/')
+  ) {
+    throw new Error(
+      'AUTH_AUDIENCE must be an absolute api:// or https:// application ID URI without query, fragment, or trailing slash.',
+    )
+  }
+  return value
+}
+
+function validateRedirectUri(value: string, name: string): string {
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    throw new Error(`${name} must be an absolute URL.`)
+  }
+  const localHttp = parsed.protocol === 'http:' && parsed.hostname === 'localhost'
+  if (
+    (parsed.protocol !== 'https:' && !localHttp) ||
+    parsed.username !== '' ||
+    parsed.password !== '' ||
+    parsed.search !== '' ||
+    parsed.hash !== ''
+  ) {
+    throw new Error(
+      `${name} must use HTTPS (or http://localhost for local development) and contain no credentials, query, or fragment.`,
+    )
+  }
+  return parsed.toString()
+}
+
+function qualifiedSpaScopes(
+  value: string | undefined,
+  audience: string,
+  allowed: { read: string[]; write: string[] },
+): string[] {
+  const scopes = envList(value, [`${audience}/${allowed.read[0] ?? ''}`])
+  const allowedQualified = new Set(
+    [...allowed.read, ...allowed.write].map((scope) => `${audience}/${scope}`),
+  )
+  if (scopes.some((scope) => !allowedQualified.has(scope)))
+    throw new Error(
+      'AUTH_SPA_SCOPES may contain only fully qualified configured API read/write scopes.',
+    )
+  return scopes
+}
+
+function configuredEndpoint(value: string | undefined, fallback: string, name: string): string {
+  const candidate = value ?? fallback
+  let parsed: URL
+  try {
+    parsed = new URL(candidate)
+  } catch {
+    throw new Error(`${name} must be an absolute HTTPS URL.`)
+  }
+  if (
+    parsed.protocol !== 'https:' ||
+    parsed.username !== '' ||
+    parsed.password !== '' ||
+    parsed.port !== '' ||
+    parsed.search !== '' ||
+    parsed.hash !== ''
+  )
+    throw new Error(
+      `${name} must be an absolute HTTPS URL without credentials, query, or fragment.`,
+    )
+  return candidate
 }
 
 export function buildAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig {
   const mode = (env['AUTH_MODE'] ?? 'disabled').trim()
-  if (mode !== 'disabled' && mode !== 'mock' && mode !== 'jwt') {
+  if (mode !== 'disabled' && mode !== 'mock' && mode !== 'jwt')
     throw new Error('AUTH_MODE must be disabled, mock, or jwt.')
-  }
+  if (mode !== 'jwt') return { mode }
 
-  const tenantId = env['AUTH_TENANT_ID']?.trim()
-  const audience = env['AUTH_AUDIENCE']?.trim()
-  const clientId = env['AUTH_CLIENT_ID']?.trim()
-  const rawScopes = env['AUTH_SCOPES']?.trim()
-
-  if (mode === 'jwt' && (!tenantId || tenantId.length === 0)) {
-    throw new Error('AUTH_TENANT_ID is required when AUTH_MODE is jwt.')
+  const tenantId = validateIdentifier(requiredEnvironment(env, 'AUTH_TENANT_ID'), 'AUTH_TENANT_ID')
+  const audience = validateAudience(requiredEnvironment(env, 'AUTH_AUDIENCE'))
+  const clientId = validateIdentifier(
+    requiredEnvironment(env, 'AUTH_SPA_CLIENT_ID'),
+    'AUTH_SPA_CLIENT_ID',
+  )
+  const authority = `https://login.microsoftonline.com/${tenantId}`
+  const issuer = configuredEndpoint(
+    optionalEnvironment(env, 'AUTH_ISSUER'),
+    `${authority}/v2.0`,
+    'AUTH_ISSUER',
+  )
+  const jwksUri = configuredEndpoint(
+    optionalEnvironment(env, 'AUTH_JWKS_URI'),
+    `${authority}/discovery/v2.0/keys`,
+    'AUTH_JWKS_URI',
+  )
+  const allowedScopes = {
+    read: envList(env['AUTH_READ_SCOPES'], defaultScopes.read),
+    write: envList(env['AUTH_WRITE_SCOPES'], defaultScopes.write),
   }
-  if (mode === 'jwt' && (!audience || audience.length === 0)) {
-    throw new Error('AUTH_AUDIENCE is required when AUTH_MODE is jwt.')
-  }
-
-  let spaConfig: SpaAuthConfig | undefined
-  if (mode === 'jwt' && tenantId && clientId && clientId.length > 0) {
-    const authority = 'https://login.microsoftonline.com/' + tenantId
-    const spaScopes = rawScopes
-      ? rawScopes
-          .split(',')
-          .map((s) => s.trim())
-          .filter((s) => s.length > 0)
-      : [audience + '/AgentSentinel.Read']
-    spaConfig = { clientId, authority, scopes: spaScopes }
-  }
+  if (allowedScopes.read.some((scope) => allowedScopes.write.includes(scope)))
+    throw new Error('AUTH_READ_SCOPES and AUTH_WRITE_SCOPES must not overlap.')
+  const redirectUri = validateRedirectUri(
+    requiredEnvironment(env, 'AUTH_SPA_REDIRECT_URI'),
+    'AUTH_SPA_REDIRECT_URI',
+  )
+  const postLogoutRedirectUri = validateRedirectUri(
+    requiredEnvironment(env, 'AUTH_SPA_POST_LOGOUT_REDIRECT_URI'),
+    'AUTH_SPA_POST_LOGOUT_REDIRECT_URI',
+  )
+  if (new URL(redirectUri).origin !== new URL(postLogoutRedirectUri).origin)
+    throw new Error(
+      'AUTH_SPA_REDIRECT_URI and AUTH_SPA_POST_LOGOUT_REDIRECT_URI must share an origin.',
+    )
 
   return {
     mode,
-    ...(tenantId ? { tenantId } : {}),
-    ...(audience ? { audience } : {}),
-    allowedScopes: {
-      read: envList(env['AUTH_READ_SCOPES'], defaultScopes.read),
-      write: envList(env['AUTH_WRITE_SCOPES'], defaultScopes.write),
+    tenantId,
+    audience,
+    issuer,
+    jwksUri,
+    allowedScopes,
+    spaConfig: {
+      tenantId,
+      clientId,
+      authority,
+      scopes: qualifiedSpaScopes(
+        optionalEnvironment(env, 'AUTH_SPA_SCOPES'),
+        audience,
+        allowedScopes,
+      ),
+      redirectUri,
+      postLogoutRedirectUri,
     },
-    ...(spaConfig !== undefined ? { spaConfig } : {}),
   }
 }
 
@@ -164,7 +301,7 @@ function isSentinelRole(value: unknown): value is SentinelRole {
  *
  * Sources (in order):
  * 1. `roles` claim: AgentSentinel.Viewer/Analyst/Approver/Administrator app-role strings.
- *    Plain role names (without prefix) are also accepted.
+ *    Only exact prefixed app-role values are accepted.
  * 2. `scp` claim: only explicitly configured read/write scopes.
  *    Defaults preserve AgentSentinel.Read/Write compatibility, while environment
  *    overrides can revoke those defaults.
@@ -184,8 +321,9 @@ function resolveRoles(
       ? [payload['roles']]
       : []
 
-  for (const r of rawRoles) {
-    const stripped = r.startsWith('AgentSentinel.') ? r.slice('AgentSentinel.'.length) : r
+  for (const role of rawRoles) {
+    if (!role.startsWith('AgentSentinel.')) continue
+    const stripped = role.slice('AgentSentinel.'.length)
     if (isSentinelRole(stripped)) granted.add(stripped)
   }
 
@@ -264,22 +402,7 @@ function isPublicRoute(request: FastifyRequest): boolean {
 // ─── Auth middleware ──────────────────────────────────────────────────────────
 
 export function createAuthMiddleware(config: AuthConfig) {
-  const scopes = config.allowedScopes ?? defaultScopes
-  const tenantId = config.tenantId
-  const audience = config.audience
-
-  if (config.mode === 'jwt' && (!tenantId || !audience)) {
-    throw new Error('JWT auth requires tenantId and audience.')
-  }
-
-  const jwtTenantId = tenantId ?? ''
-  const jwtAudience = audience ?? ''
-  const jwks =
-    config.mode === 'jwt'
-      ? createRemoteJWKSet(
-          new URL('https://login.microsoftonline.com/' + jwtTenantId + '/discovery/v2.0/keys'),
-        )
-      : undefined
+  const jwks = config.mode === 'jwt' ? createRemoteJWKSet(new URL(config.jwksUri)) : undefined
 
   return async function authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     if (config.mode !== 'jwt' || isPublicRoute(request)) return
@@ -291,30 +414,43 @@ export function createAuthMiddleware(config: AuthConfig) {
       return
     }
 
+    let payload: Record<string, unknown>
     try {
       const verified = await jwtVerify(match[1], jwks, {
-        issuer: 'https://login.microsoftonline.com/' + jwtTenantId + '/v2.0',
-        audience: jwtAudience,
+        issuer: config.issuer,
+        audience: config.audience,
         algorithms: ['RS256'],
       })
-      const payload = verified.payload as Record<string, unknown>
-      const principal = sanitizePrincipal(payload, scopes)
-      if (principal.tenantId !== jwtTenantId) {
-        throw new Error('The token tenant does not match the configured tenant.')
-      }
-
-      // Every authenticated non-public route requires at least read capability.
-      if (!principal.capabilities.has('read')) {
-        await reply.status(403).send({
-          error: 'forbidden',
-          message: 'The token does not grant the required permission.',
-        })
-        return
-      }
-      request.authPrincipal = principal
+      payload = verified.payload
     } catch {
-      await reply.status(401).send({ error: 'unauthorized', message: 'Bearer token is invalid.' })
+      await reply.status(401).send({ error: 'unauthorized', message: 'Access token is invalid.' })
+      return
     }
+
+    let principal: AuthPrincipal
+    try {
+      principal = sanitizePrincipal(payload, config.allowedScopes)
+    } catch {
+      await reply
+        .status(401)
+        .send({ error: 'unauthorized', message: 'Access token claims are invalid.' })
+      return
+    }
+    if (principal.tenantId !== config.tenantId) {
+      await reply
+        .status(401)
+        .send({ error: 'unauthorized', message: 'Access token tenant is invalid.' })
+      return
+    }
+
+    if (!principal.capabilities.has('read')) {
+      await reply.status(403).send({
+        error: 'forbidden',
+        message: 'The token does not grant the required permission.',
+      })
+      return
+    }
+    request.authPrincipal = principal
   }
 }
 

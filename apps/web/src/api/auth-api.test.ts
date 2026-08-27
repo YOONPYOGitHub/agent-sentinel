@@ -21,9 +21,12 @@ describe('authApi', () => {
         new Response(
           JSON.stringify({
             enabled: true,
-            clientId: 'spa-client',
-            authority: 'https://login.microsoftonline.com/tenant-id',
+            tenantId: '11111111-1111-4111-8111-111111111111',
+            clientId: '22222222-2222-4222-8222-222222222222',
+            authority: 'https://login.microsoftonline.com/11111111-1111-4111-8111-111111111111',
             scopes: ['api://agent-sentinel/AgentSentinel.Read'],
+            redirectUri: 'https://sentinel.example/auth/callback',
+            postLogoutRedirectUri: 'https://sentinel.example/',
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
@@ -33,7 +36,7 @@ describe('authApi', () => {
     await expect(authApi.getConfig()).resolves.toEqual({ enabled: false })
     await expect(authApi.getConfig()).resolves.toMatchObject({
       enabled: true,
-      clientId: 'spa-client',
+      clientId: '22222222-2222-4222-8222-222222222222',
     })
   })
 

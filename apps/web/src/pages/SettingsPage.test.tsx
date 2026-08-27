@@ -72,7 +72,14 @@ describe('SettingsPage', () => {
   it('shows configured-but-not-signed-in state truthfully', () => {
     const configuredCtx: AuthContextValue = {
       isConfigured: true,
-      spaConfig: { clientId: 'c', authority: 'https://login.microsoftonline.com/t', scopes: [] },
+      spaConfig: {
+        tenantId: '11111111-1111-4111-8111-111111111111',
+        clientId: '22222222-2222-4222-8222-222222222222',
+        authority: 'https://login.microsoftonline.com/11111111-1111-4111-8111-111111111111',
+        scopes: ['api://agent-sentinel/AgentSentinel.Read'],
+        redirectUri: 'https://sentinel.example/auth/callback',
+        postLogoutRedirectUri: 'https://sentinel.example/',
+      },
       isLoading: false,
       isSignedIn: false,
       principal: null,
@@ -113,7 +120,14 @@ describe('SettingsPage', () => {
   it('shows signed-in principal truthfully', () => {
     const signedInCtx: AuthContextValue = {
       isConfigured: true,
-      spaConfig: { clientId: 'c', authority: 'https://login.microsoftonline.com/t', scopes: [] },
+      spaConfig: {
+        tenantId: '11111111-1111-4111-8111-111111111111',
+        clientId: '22222222-2222-4222-8222-222222222222',
+        authority: 'https://login.microsoftonline.com/11111111-1111-4111-8111-111111111111',
+        scopes: ['api://agent-sentinel/AgentSentinel.Read'],
+        redirectUri: 'https://sentinel.example/auth/callback',
+        postLogoutRedirectUri: 'https://sentinel.example/',
+      },
       isLoading: false,
       isSignedIn: true,
       principal: {

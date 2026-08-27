@@ -154,36 +154,69 @@ az deployment group create --mode Incremental \
 
 ## RB-011: Security Gate WAF
 
-BlockApiMutationPreAuth is a temporary WAF safety gate. It blocks non-GET/HEAD/OPTIONS requests
-under /api/ until Microsoft Entra authentication and authorization have been validated in the
-runtime. Keep the rule at priority 1 and in Prevention mode during this phase. Remove or narrow it
-only after the JWT write-scope tests, App Gateway path tests, and an authorized remediation smoke
-test pass; confirm anonymous mutation remains denied before closing the change.
+`BlockApiMutationPreAuth` is a temporary WAF safety gate. It blocks non-`GET`/`HEAD`/`OPTIONS`
+requests under `/api/`. Keep it at priority 1 and in Prevention mode while authentication is
+disabled and during read-only JWT validation.
 
-## RB-012: Auth Architecture and Pending Steps
+The WAF cannot authenticate an Entra access token, so do not describe removal as an
+"authenticated WAF allowance." API JWT authorization is authoritative. Before changing the rule:
 
-The API supports disabled, mock, and jwt authentication modes. Production must use jwt
-with AUTH_TENANT_ID, AUTH_AUDIENCE, AUTH_READ_SCOPES, and AUTH_WRITE_SCOPES. JWT mode uses
-the tenant v2 JWKS endpoint, validates issuer/audience/RS256, and accepts delegated scopes (`scp`)
-or app roles (`roles`). Health and connector-status routes remain public.
+1. Deploy and validate JWT mode with `AGENT_SENTINEL_WRITE_ENABLED=false`.
+2. Prove anonymous `401`, insufficient-role `403`, and all four role boundaries using read-only
+   capability probes.
+3. Enable the write switch only on an approved private validation path and complete one bounded,
+   reversible authenticated write.
+4. Obtain approval for an exact path/method WAF change; retain blocks for every other mutation.
+5. Run the write-phase validator through the public HTTPS edge and separately prove an anonymous
+   request to the allowed mutation path remains `401` at the API.
 
-Pending production steps:
+Rollback order is WAF block, writes false, last known-good Container Apps revision. Never leave
+`AUTH_MODE=disabled` behind a mutation-capable public edge.
 
-1. Create the Entra API app registration and expose read/write scopes or app roles.
-2. Create the web app registration, configure redirect URIs, and grant API permissions.
-3. Configure the Container Apps environment variables and approved CORS origins.
-4. Add browser token acquisition and Bearer forwarding, then validate least-privilege roles.
-5. Complete the RB-011 gate-removal checks before enabling write operations at the edge.
+## RB-012: Auth Activation and Live Validation
 
-## RB-013: Custom Domain, TLS, and App Registration
+The API and SPA registrations exist, including delegated read/write scopes and the four exact app
+roles. Redirect/logout registration, consent, role assignment, and deployment remain pending and
+require approval. OneRAI and service onboarding are independent and do not block this engineering
+sequence.
 
-1. Add and verify the production DNS name.
-2. Import or issue its certificate in Key Vault and grant the Application Gateway identity access.
-3. Configure the HTTPS listener, SNI hostname, certificate reference, and HTTP-to-HTTPS redirect.
-4. Add the final HTTPS origin to CORS_ORIGIN.
-5. Add the exact HTTPS redirect URI and front-channel logout URL to the web Entra app registration.
-6. Update API identifier/audience settings if the custom URI is used, and obtain admin consent.
-7. Validate certificate renewal, TLS policy, login/logout, token audience, CORS, and WAF behavior.
+1. Establish an approved HTTPS origin. The retained Front Door default hostname is not eligible
+   while its origin/private-link provisioning remains `NotStarted`; the active Application Gateway
+   is HTTP-only.
+2. Register the exact SPA redirect and same-origin logout URLs. Review and grant only the required
+   delegated consent, then assign isolated test principals/groups to Viewer, Analyst, Approver, and
+   Administrator.
+3. Populate the typed Bicep parameters documented in `deployment.md`. Keep `authMode = 'disabled'`
+   in source; activation is an approved parameter override. Keep writes false and RB-011 intact.
+4. Deploy JWT mode. Confirm `/api/auth/config` contains the expected public tenant, client, scope,
+   and redirect values without secrets.
+5. Supply short-lived role tokens as process environment variables and run
+   `pnpm auth:validate-live`. It validates anonymous `401`, insufficient-role `403`, sanitized
+   principals, and every read-only capability probe.
+6. Follow RB-011 for private write validation and the separate WAF change. Run the validator with
+   `AUTH_VALIDATION_PHASE=write` only against the explicitly approved mutation target.
+
+The validator never acquires, stores, or prints tokens. Do not place token values in shell history,
+Git, logs, screenshots, or reports. Record only pass/fail status and correlation IDs.
+
+## RB-013: HTTPS Origin and App Registration
+
+The repository currently proves neither a healthy Front Door route nor an HTTPS Application
+Gateway listener. Do not register an inferred hostname.
+
+A Front Door default hostname may be used temporarily only after read-only inspection confirms:
+
+- endpoint enabled and default-domain linkage enabled;
+- API and web routes enabled with expected patterns;
+- private-link/origin provisioning successful and origin health healthy;
+- HTTPS root and `/api/auth/config` smoke tests reach this deployment.
+
+If any item is absent, use an approved custom domain/TLS implementation instead. Then:
+
+1. Register the exact HTTPS SPA redirect URI and same-origin logout URL.
+2. Set those exact values in `authSpaRedirectUri` and `authSpaPostLogoutRedirectUri`.
+3. Add the origin to CORS only if the SPA and API are intentionally cross-origin.
+4. Validate login, logout, token tenant/audience, certificate renewal, and RB-011 behavior.
 
 ## RB-014: Private CI Build Runner
 

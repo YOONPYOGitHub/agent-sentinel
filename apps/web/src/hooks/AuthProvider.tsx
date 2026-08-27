@@ -76,12 +76,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (msal === null || account === null) return null
     const scopes = configuredScopes.current
     const request: SilentRequest = { account, scopes }
-    try {
-      const result = await msal.acquireTokenSilent(request)
-      return result.accessToken
-    } catch {
-      return null
-    }
+    const result = await msal.acquireTokenSilent(request)
+    return result.accessToken
   }, [])
 
   const signIn = useCallback(async () => {
@@ -116,14 +112,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const account = accountRef.current
     if (msal === null) return
     try {
-      await msal.logoutPopup(account !== null ? { account } : undefined)
+      await msal.logoutPopup({
+        ...(account !== null ? { account } : {}),
+        ...(spaConfig !== null ? { postLogoutRedirectUri: spaConfig.postLogoutRedirectUri } : {}),
+      })
     } finally {
       accountRef.current = null
       setIsSignedIn(false)
       setPrincipal(null)
       setTokenProvider(undefined)
     }
-  }, [])
+  }, [spaConfig])
 
   useEffect(() => {
     let cancelled = false
@@ -146,9 +145,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (cancelled) return
 
         const spa: SpaAuthConfig = {
+          tenantId: config.tenantId,
           clientId: config.clientId,
           authority: config.authority,
           scopes: config.scopes,
+          redirectUri: config.redirectUri,
+          postLogoutRedirectUri: config.postLogoutRedirectUri,
+        }
+        if (
+          new URL(spa.redirectUri).origin !== window.location.origin ||
+          new URL(spa.postLogoutRedirectUri).origin !== window.location.origin
+        ) {
+          throw new Error(
+            'Authentication redirect configuration does not match this application origin.',
+          )
         }
         configuredScopes.current = config.scopes
 
@@ -156,7 +166,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           auth: {
             clientId: spa.clientId,
             authority: spa.authority,
-            redirectUri: window.location.origin,
+            redirectUri: spa.redirectUri,
+            postLogoutRedirectUri: spa.postLogoutRedirectUri,
           },
           cache: { cacheLocation: BrowserCacheLocation.SessionStorage },
         })
@@ -184,11 +195,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               if (!cancelled) setPrincipal(p)
             }
           } catch {
-            // Silent token acquisition failed; user needs to sign in again
             accountRef.current = null
             setPrincipal(null)
             setIsSignedIn(false)
             setTokenProvider(undefined)
+            setAuthError('The previous session could not be restored. Sign in again.')
           }
         }
       } catch (err: unknown) {

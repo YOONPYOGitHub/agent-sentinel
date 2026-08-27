@@ -66,9 +66,12 @@ describe('AuthProvider', () => {
   it('reports configured but unsigned when no cached account exists', async () => {
     vi.mocked(authApi.getConfig).mockResolvedValue({
       enabled: true,
-      clientId: 'spa-client',
-      authority: 'https://login.microsoftonline.com/tenant-id',
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      clientId: '22222222-2222-4222-8222-222222222222',
+      authority: 'https://login.microsoftonline.com/11111111-1111-4111-8111-111111111111',
       scopes: ['api://agent-sentinel/AgentSentinel.Read'],
+      redirectUri: 'http://localhost:3000/auth/callback',
+      postLogoutRedirectUri: 'http://localhost:3000/',
     })
     render(
       <AuthProvider>
@@ -85,9 +88,12 @@ describe('AuthProvider', () => {
   it('loads a sanitized principal for a cached signed-in account', async () => {
     vi.mocked(authApi.getConfig).mockResolvedValue({
       enabled: true,
-      clientId: 'spa-client',
-      authority: 'https://login.microsoftonline.com/tenant-id',
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      clientId: '22222222-2222-4222-8222-222222222222',
+      authority: 'https://login.microsoftonline.com/11111111-1111-4111-8111-111111111111',
       scopes: ['api://agent-sentinel/AgentSentinel.Read'],
+      redirectUri: 'http://localhost:3000/auth/callback',
+      postLogoutRedirectUri: 'http://localhost:3000/',
     })
     msal.getAllAccounts.mockReturnValue([{ homeAccountId: 'home' }])
     msal.acquireTokenSilent.mockResolvedValue({ accessToken: 'access-token' })
@@ -115,6 +121,26 @@ describe('AuthProvider', () => {
 
     expect(await screen.findByText('Alice Analyst')).toBeVisible()
     expect(screen.getByTestId('signed-in')).toHaveTextContent('true')
+  })
+
+  it('fails closed when configured redirects target another origin', async () => {
+    vi.mocked(authApi.getConfig).mockResolvedValue({
+      enabled: true,
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      clientId: '22222222-2222-4222-8222-222222222222',
+      authority: 'https://login.microsoftonline.com/11111111-1111-4111-8111-111111111111',
+      scopes: ['api://agent-sentinel/AgentSentinel.Read'],
+      redirectUri: 'https://other.example/auth/callback',
+      postLogoutRedirectUri: 'https://other.example/',
+    })
+    render(
+      <AuthProvider>
+        <AuthState />
+      </AuthProvider>,
+    )
+
+    expect(await screen.findByText(/does not match this application origin/i)).toBeVisible()
+    expect(screen.getByTestId('configured')).toHaveTextContent('false')
   })
 
   it('surfaces configuration failures instead of falling back to anonymous mode', async () => {

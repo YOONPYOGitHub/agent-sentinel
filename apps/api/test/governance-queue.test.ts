@@ -31,13 +31,20 @@ const viewerJwtConfig: AuthConfig = {
   mode: 'jwt',
   tenantId: 'tenant-id',
   audience: 'api://agent-sentinel',
+  issuer: 'https://login.microsoftonline.com/tenant-id/v2.0',
+  jwksUri: 'https://login.microsoftonline.com/tenant-id/discovery/v2.0/keys',
   allowedScopes: { read: ['AgentSentinel.Read'], write: ['AgentSentinel.Write'] },
+  spaConfig: {
+    tenantId: 'tenant-id',
+    clientId: 'spa-client-id',
+    authority: 'https://login.microsoftonline.com/tenant-id',
+    scopes: ['api://agent-sentinel/AgentSentinel.Read'],
+    redirectUri: 'https://sentinel.example/auth/callback',
+    postLogoutRedirectUri: 'https://sentinel.example/',
+  },
 }
 
-const mockAuthConfig: AuthConfig = {
-  mode: 'mock',
-  allowedScopes: { read: [], write: [] },
-}
+const mockAuthConfig: AuthConfig = { mode: 'mock' }
 
 function liveExposureRepository(): ExposureFindingRepository {
   return {

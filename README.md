@@ -170,22 +170,23 @@ Verified baseline on 2026-08-23:
 
 ## Live vs mock truth table
 
-| Capability                                 | State                         | Notes                                                                                   |
-| ------------------------------------------ | ----------------------------- | --------------------------------------------------------------------------------------- |
-| Microsoft Foundry agent discovery          | **Live**                      | Read-only discovery of **declared configuration** only, not runtime telemetry           |
-| Exposure findings storage                  | **Live**                      | Cosmos DB `exposure-findings`, upsert preserves `firstSeen`                             |
-| Governance posture                         | **Live**                      | Derived from the same Cosmos-backed findings                                            |
-| Jobs ingestion loop                        | **Live**                      | `apps/jobs` discovery + policy evaluation on an interval, plus Service Bus trigger      |
-| Agent portfolio                            | **Synthetic only**            | Six Microsoft Foundry validation agents on GPT-5.6 Terra; no production customer agents |
-| Terra live validation                      | **Live, operator-invoked**    | `pnpm foundry:validate`; never run by CI                                                |
-| Advisory narratives (public Azure edge)    | **Mock**                      | Deterministic mock provider until corporate Entra and WAF activation                    |
-| Advisory narratives (grounded model path)  | **Live when configured**      | GPT-5.6 Terra, advisory explanation only; deterministic core stays authoritative        |
-| Agent 365 connector                        | **Not implemented**           | Catalogued as `authorization-required`                                                  |
-| Azure Monitor OTel                         | **Implemented, unconfigured** | Strict read-only query and mapping path; deployed runtime evidence remains `unknown`    |
-| Entra Agent ID, Defender, Purview          | **Planned**                   | Catalogued but no runtime evidence path is active                                       |
-| Governance work queue                      | **Mock/local only**           | Full in-memory workflow and audit behavior; live mode reports persistence unavailable   |
-| Authentication in the deployed environment | **Disabled**                  | `AUTH_MODE=disabled`; Entra/MSAL code foundation is complete but not activated          |
-| Write and remediation execution            | **Blocked at the edge**       | `writeEnabled=false`; WAF blocks pre-auth mutations under `/api/`                       |
+| Capability                                                                                          | State                         | Notes                                                                                   |
+| --------------------------------------------------------------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------- |
+| Microsoft Foundry agent discovery                                                                   | **Live**                      | Read-only discovery of **declared configuration** only, not runtime telemetry           |
+| Exposure findings storage                                                                           | **Live**                      | Cosmos DB `exposure-findings`, upsert preserves `firstSeen`                             |
+| Governance posture                                                                                  | **Live**                      | Derived from the same Cosmos-backed findings                                            |
+| Jobs ingestion loop                                                                                 | **Live**                      | `apps/jobs` discovery + policy evaluation on an interval, plus Service Bus trigger      |
+| Agent portfolio                                                                                     | **Synthetic only**            | Six Microsoft Foundry validation agents on GPT-5.6 Terra; no production customer agents |
+| Terra live validation                                                                               | **Live, operator-invoked**    | `pnpm foundry:validate`; never run by CI                                                |
+| pnpm auth:validate-live # Operator-supplied short-lived tokens; see docs/security-authentication.md |
+| Advisory narratives (public Azure edge)                                                             | **Mock**                      | Deterministic mock provider until corporate Entra and WAF activation                    |
+| Advisory narratives (grounded model path)                                                           | **Live when configured**      | GPT-5.6 Terra, advisory explanation only; deterministic core stays authoritative        |
+| Agent 365 connector                                                                                 | **Not implemented**           | Catalogued as `authorization-required`                                                  |
+| Azure Monitor OTel                                                                                  | **Implemented, unconfigured** | Strict read-only query and mapping path; deployed runtime evidence remains `unknown`    |
+| Entra Agent ID, Defender, Purview                                                                   | **Planned**                   | Catalogued but no runtime evidence path is active                                       |
+| Governance work queue                                                                               | **Mock/local only**           | Full in-memory workflow and audit behavior; live mode reports persistence unavailable   |
+| Authentication in the deployed environment                                                          | **Disabled**                  | `AUTH_MODE=disabled`; Entra/MSAL code foundation is complete but not activated          |
+| Write and remediation execution                                                                     | **Blocked at the edge**       | `writeEnabled=false`; WAF blocks pre-auth mutations under `/api/`                       |
 
 ---
 

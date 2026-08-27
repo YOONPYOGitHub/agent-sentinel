@@ -15,9 +15,19 @@ const jwtConfig = {
   mode: 'jwt' as const,
   tenantId: 'tenant-id',
   audience: 'api://agent-sentinel',
+  issuer: 'https://login.microsoftonline.com/tenant-id/v2.0',
+  jwksUri: 'https://login.microsoftonline.com/tenant-id/discovery/v2.0/keys',
   allowedScopes: {
     read: ['Sentinel.Read'],
     write: ['Sentinel.Write'],
+  },
+  spaConfig: {
+    tenantId: 'tenant-id',
+    clientId: 'spa-client-id',
+    authority: 'https://login.microsoftonline.com/tenant-id',
+    scopes: ['api://agent-sentinel/Sentinel.Read'],
+    redirectUri: 'https://sentinel.example/auth/callback',
+    postLogoutRedirectUri: 'https://sentinel.example/',
   },
 }
 
@@ -30,30 +40,85 @@ beforeEach(() => {
 afterEach(async () => {
   await Promise.all(apps.splice(0).map(async (app) => app.close()))
   delete process.env['AGENT_SENTINEL_CONNECTOR']
+  delete process.env['AGENT_SENTINEL_WRITE_ENABLED']
 })
 
 describe('buildAuthConfig', () => {
-  it('rejects missing or whitespace-only JWT tenant and audience values', () => {
-    expect(() => buildAuthConfig({ AUTH_MODE: ' jwt ', AUTH_TENANT_ID: '   ' })).toThrow(
+  const completeJwtEnv = {
+    AUTH_MODE: 'jwt',
+    AUTH_TENANT_ID: '11111111-1111-4111-8111-111111111111',
+    AUTH_AUDIENCE: 'api://11111111-1111-4111-8111-111111111111',
+    AUTH_SPA_CLIENT_ID: '22222222-2222-4222-8222-222222222222',
+    AUTH_SPA_REDIRECT_URI: 'https://sentinel.example/auth/callback',
+    AUTH_SPA_POST_LOGOUT_REDIRECT_URI: 'https://sentinel.example/',
+  }
+
+  it('requires every JWT and SPA trust-boundary value', () => {
+    for (const name of [
       'AUTH_TENANT_ID',
-    )
-    expect(() =>
-      buildAuthConfig({ AUTH_MODE: 'jwt', AUTH_TENANT_ID: 'tenant-id', AUTH_AUDIENCE: '  ' }),
-    ).toThrow('AUTH_AUDIENCE')
+      'AUTH_AUDIENCE',
+      'AUTH_SPA_CLIENT_ID',
+      'AUTH_SPA_REDIRECT_URI',
+      'AUTH_SPA_POST_LOGOUT_REDIRECT_URI',
+    ]) {
+      expect(() => buildAuthConfig({ ...completeJwtEnv, [name]: ' ' })).toThrow(name)
+    }
   })
 
-  it('trims JWT mode, tenant, and audience values', () => {
-    expect(
-      buildAuthConfig({
-        AUTH_MODE: ' jwt ',
-        AUTH_TENANT_ID: ' tenant-id ',
-        AUTH_AUDIENCE: ' api://agent-sentinel ',
-      }),
-    ).toMatchObject({
+  it('builds explicit issuer, JWKS, scope, and redirect configuration', () => {
+    expect(buildAuthConfig(completeJwtEnv)).toEqual({
       mode: 'jwt',
-      tenantId: 'tenant-id',
-      audience: 'api://agent-sentinel',
+      tenantId: completeJwtEnv.AUTH_TENANT_ID,
+      audience: completeJwtEnv.AUTH_AUDIENCE,
+      issuer: `https://login.microsoftonline.com/${completeJwtEnv.AUTH_TENANT_ID}/v2.0`,
+      jwksUri: `https://login.microsoftonline.com/${completeJwtEnv.AUTH_TENANT_ID}/discovery/v2.0/keys`,
+      allowedScopes: {
+        read: ['AgentSentinel.Read'],
+        write: ['AgentSentinel.Write'],
+      },
+      spaConfig: {
+        tenantId: completeJwtEnv.AUTH_TENANT_ID,
+        clientId: completeJwtEnv.AUTH_SPA_CLIENT_ID,
+        authority: `https://login.microsoftonline.com/${completeJwtEnv.AUTH_TENANT_ID}`,
+        scopes: [`${completeJwtEnv.AUTH_AUDIENCE}/AgentSentinel.Read`],
+        redirectUri: completeJwtEnv.AUTH_SPA_REDIRECT_URI,
+        postLogoutRedirectUri: completeJwtEnv.AUTH_SPA_POST_LOGOUT_REDIRECT_URI,
+      },
     })
+  })
+
+  it('rejects malformed identifiers, endpoints, redirect origins, and scope lists', () => {
+    expect(() => buildAuthConfig({ ...completeJwtEnv, AUTH_TENANT_ID: 'tenant-id' })).toThrow(
+      /UUID/,
+    )
+    expect(() =>
+      buildAuthConfig({ ...completeJwtEnv, AUTH_ISSUER: 'http://issuer.invalid' }),
+    ).toThrow(/HTTPS/)
+    expect(() =>
+      buildAuthConfig({
+        ...completeJwtEnv,
+        AUTH_SPA_POST_LOGOUT_REDIRECT_URI: 'https://other.example/',
+      }),
+    ).toThrow(/share an origin/)
+    expect(() =>
+      buildAuthConfig({ ...completeJwtEnv, AUTH_SPA_SCOPES: 'api://other/AgentSentinel.Read' }),
+    ).toThrow(/fully qualified/)
+    expect(() =>
+      buildAuthConfig({ ...completeJwtEnv, AUTH_READ_SCOPES: 'Same', AUTH_WRITE_SCOPES: 'Same' }),
+    ).toThrow(/must not overlap/)
+  })
+})
+
+describe('write configuration safety', () => {
+  it('rejects live writes unless JWT authentication is active', async () => {
+    process.env['AGENT_SENTINEL_WRITE_ENABLED'] = 'true'
+    await expect(
+      createApp(
+        undefined,
+        { mode: 'disabled' },
+        { dataMode: 'live', runtimeTelemetryConnector: null },
+      ),
+    ).rejects.toThrow('Live writes require AUTH_MODE=jwt')
   })
 })
 

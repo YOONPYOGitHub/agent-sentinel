@@ -112,6 +112,38 @@ echo "API FQDN: ${API_FQDN}"
 # If external:false, FQDN should contain .internal. and resolve to internal IP only
 ```
 
+## Authentication deployment stages
+
+Identity activation is configuration-driven; do not edit Container Apps directly in the portal.
+The Bicep defaults and checked-in development parameters keep `authMode = 'disabled'` and
+`agentSentinelWriteEnabled = false`. JWT activation requires the following parameter values from an
+approved deployment input:
+
+- `authTenantId`, `authAudience`, and optional explicit `authIssuer` / `authJwksUri`
+- `authSpaClientId`, `authSpaScopes`, `authSpaRedirectUri`, and
+  `authSpaPostLogoutRedirectUri`
+- exact `authReadScopes` and `authWriteScopes`
+
+The Front Door output is not currently an approved redirect origin. Its private-link deployment is
+recorded as `NotStarted`, while the active Application Gateway is HTTP-only. Before using the Front
+Door default HTTPS hostname even temporarily, use read-only queries to verify endpoint and route
+enablement, successful private-link/origin provisioning, and healthy origins, then complete a real
+HTTPS SPA smoke test. If any check fails, leave the redirect parameters empty until an approved
+custom HTTPS domain exists.
+
+Deployment order:
+
+1. Register the evidenced exact redirect/logout URLs and complete approved consent/role assignment.
+2. Run Bicep what-if with `authMode = 'jwt'`, all typed auth values populated,
+   `agentSentinelWriteEnabled = false`, and the WAF template unchanged.
+3. Deploy and run the read phase in [security-authentication.md](security-authentication.md).
+4. After approval, enable writes only for a private authenticated reversible test.
+5. Narrow the WAF separately, then run the complete public-edge validation and anonymous denial
+   test.
+
+Rollback restores the mutation block first, then writes false, then the last known-good Container
+Apps revision. See RB-011 and RB-012 in [runbooks.md](runbooks.md).
+
 ## Never Deploy If
 
 - What-if shows Delete/Modify on existing AIServices account, project, or model deployments

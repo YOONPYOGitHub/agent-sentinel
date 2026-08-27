@@ -14,40 +14,30 @@ import { createApp } from '../src/app.js'
 // Auth configuration
 
 describe('buildAuthConfig SPA fields', () => {
-  it('includes spaConfig when AUTH_CLIENT_ID is set in jwt mode', () => {
-    const config = buildAuthConfig({
-      AUTH_MODE: 'jwt',
-      AUTH_TENANT_ID: 'tenant-abc',
-      AUTH_AUDIENCE: 'api://agent-sentinel',
-      AUTH_CLIENT_ID: 'client-123',
-    })
-    expect(config.spaConfig).toEqual({
-      clientId: 'client-123',
-      authority: 'https://login.microsoftonline.com/tenant-abc',
-      scopes: ['api://agent-sentinel/AgentSentinel.Read'],
-    })
-  })
+  const env = {
+    AUTH_MODE: 'jwt',
+    AUTH_TENANT_ID: '11111111-1111-4111-8111-111111111111',
+    AUTH_AUDIENCE: 'api://11111111-1111-4111-8111-111111111111',
+    AUTH_SPA_CLIENT_ID: '22222222-2222-4222-8222-222222222222',
+    AUTH_SPA_REDIRECT_URI: 'https://sentinel.example/auth/callback',
+    AUTH_SPA_POST_LOGOUT_REDIRECT_URI: 'https://sentinel.example/',
+  }
 
-  it('omits spaConfig when AUTH_CLIENT_ID is absent', () => {
+  it('uses explicitly configured issuer, JWKS, and SPA scopes', () => {
     const config = buildAuthConfig({
-      AUTH_MODE: 'jwt',
-      AUTH_TENANT_ID: 'tenant-abc',
-      AUTH_AUDIENCE: 'api://agent-sentinel',
+      ...env,
+      AUTH_ISSUER: 'https://issuer.example/v2.0',
+      AUTH_JWKS_URI: 'https://issuer.example/keys',
+      AUTH_SPA_SCOPES:
+        'api://11111111-1111-4111-8111-111111111111/AgentSentinel.Read, api://11111111-1111-4111-8111-111111111111/AgentSentinel.Write',
     })
-    expect(config.spaConfig).toBeUndefined()
-  })
-
-  it('uses AUTH_SCOPES when provided', () => {
-    const config = buildAuthConfig({
-      AUTH_MODE: 'jwt',
-      AUTH_TENANT_ID: 'tenant-abc',
-      AUTH_AUDIENCE: 'api://sentinel',
-      AUTH_CLIENT_ID: 'client-xyz',
-      AUTH_SCOPES: 'api://sentinel/AgentSentinel.Read, api://sentinel/AgentSentinel.Write',
-    })
-    expect(config.spaConfig?.scopes).toEqual([
-      'api://sentinel/AgentSentinel.Read',
-      'api://sentinel/AgentSentinel.Write',
+    expect(config.mode).toBe('jwt')
+    if (config.mode !== 'jwt') return
+    expect(config.issuer).toBe('https://issuer.example/v2.0')
+    expect(config.jwksUri).toBe('https://issuer.example/keys')
+    expect(config.spaConfig.scopes).toEqual([
+      'api://11111111-1111-4111-8111-111111111111/AgentSentinel.Read',
+      'api://11111111-1111-4111-8111-111111111111/AgentSentinel.Write',
     ])
   })
 })
@@ -104,11 +94,10 @@ describe('sanitizePrincipal', () => {
     }
   })
 
-  it('plain role name without prefix is accepted', () => {
+  it('rejects plain role names without the registered prefix', () => {
     const p = sanitizePrincipal({ sub: 's', tid: 't', roles: 'Approver' }, defaultScopes)
-    expect(p.roles).toContain('Approver')
-    expect(p.capabilities.has('approveRemediation')).toBe(true)
-    expect(p.capabilities.has('executeRemediation')).toBe(false)
+    expect(p.roles).toHaveLength(0)
+    expect(p.capabilities.size).toBe(0)
   })
 
   it('unrecognized claims produce empty roles and capabilities', () => {
@@ -121,11 +110,11 @@ describe('sanitizePrincipal', () => {
   })
 
   it('rejects principals without required subject or tenant claims', () => {
-    expect(() => sanitizePrincipal({ tid: 'tenant-id', roles: ['Viewer'] }, defaultScopes)).toThrow(
-      /subject or tenant/,
-    )
     expect(() =>
-      sanitizePrincipal({ sub: 'subject-id', roles: ['Viewer'] }, defaultScopes),
+      sanitizePrincipal({ tid: 'tenant-id', roles: ['AgentSentinel.Viewer'] }, defaultScopes),
+    ).toThrow(/subject or tenant/)
+    expect(() =>
+      sanitizePrincipal({ sub: 'subject-id', roles: ['AgentSentinel.Viewer'] }, defaultScopes),
     ).toThrow(/subject or tenant/)
   })
 
@@ -193,13 +182,22 @@ describe('sanitizePrincipal', () => {
 
 describe('role hierarchy', () => {
   it('Viewer has only read capability', () => {
-    const p = sanitizePrincipal({ sub: 's', tid: 't', roles: ['Viewer'] }, defaultScopes)
+    const p = sanitizePrincipal(
+      { sub: 's', tid: 't', roles: ['AgentSentinel.Viewer'] },
+      defaultScopes,
+    )
     expect([...p.capabilities]).toEqual(['read'])
   })
 
   it('Analyst capabilities are a strict superset of Viewer', () => {
-    const viewer = sanitizePrincipal({ sub: 's', tid: 't', roles: ['Viewer'] }, defaultScopes)
-    const analyst = sanitizePrincipal({ sub: 's', tid: 't', roles: ['Analyst'] }, defaultScopes)
+    const viewer = sanitizePrincipal(
+      { sub: 's', tid: 't', roles: ['AgentSentinel.Viewer'] },
+      defaultScopes,
+    )
+    const analyst = sanitizePrincipal(
+      { sub: 's', tid: 't', roles: ['AgentSentinel.Analyst'] },
+      defaultScopes,
+    )
     for (const cap of viewer.capabilities) {
       expect(analyst.capabilities.has(cap)).toBe(true)
     }
@@ -207,7 +205,10 @@ describe('role hierarchy', () => {
   })
 
   it('Approver inherits Analyst and adds approveRemediation', () => {
-    const p = sanitizePrincipal({ sub: 's', tid: 't', roles: ['Approver'] }, defaultScopes)
+    const p = sanitizePrincipal(
+      { sub: 's', tid: 't', roles: ['AgentSentinel.Approver'] },
+      defaultScopes,
+    )
     expect(p.capabilities.has('approveRemediation')).toBe(true)
     expect(p.capabilities.has('executeRemediation')).toBe(false)
   })
@@ -219,7 +220,17 @@ const jwtConfig: AuthConfig = {
   mode: 'jwt',
   tenantId: 'tenant-id',
   audience: 'api://agent-sentinel',
+  issuer: 'https://login.microsoftonline.com/tenant-id/v2.0',
+  jwksUri: 'https://login.microsoftonline.com/tenant-id/discovery/v2.0/keys',
   allowedScopes: { read: ['AgentSentinel.Read'], write: ['AgentSentinel.Write'] },
+  spaConfig: {
+    tenantId: 'tenant-id',
+    clientId: 'client-123',
+    authority: 'https://login.microsoftonline.com/tenant-id',
+    scopes: ['api://agent-sentinel/AgentSentinel.Read'],
+    redirectUri: 'https://sentinel.example/auth/callback',
+    postLogoutRedirectUri: 'https://sentinel.example/',
+  },
 }
 
 const apps: Awaited<ReturnType<typeof createApp>>[] = []
@@ -248,9 +259,12 @@ describe('GET /api/auth/config', () => {
     const config: AuthConfig = {
       ...jwtConfig,
       spaConfig: {
+        tenantId: 'tenant-id',
         clientId: 'client-123',
         authority: 'https://login.microsoftonline.com/tenant-id',
         scopes: ['api://agent-sentinel/AgentSentinel.Read'],
+        redirectUri: 'https://sentinel.example/auth/callback',
+        postLogoutRedirectUri: 'https://sentinel.example/',
       },
     }
     const app = await createApp(undefined, config)
@@ -265,9 +279,12 @@ describe('GET /api/auth/config', () => {
     const config: AuthConfig = {
       ...jwtConfig,
       spaConfig: {
+        tenantId: 'tenant-id',
         clientId: 'client-123',
         authority: 'https://login.microsoftonline.com/tenant-id',
         scopes: ['api://agent-sentinel/AgentSentinel.Read'],
+        redirectUri: 'https://sentinel.example/auth/callback',
+        postLogoutRedirectUri: 'https://sentinel.example/',
       },
     }
     const app = await createApp(undefined, config)
@@ -278,12 +295,16 @@ describe('GET /api/auth/config', () => {
     expect(r.json()).toMatchObject({ enabled: true })
   })
 
-  it('fails closed when JWT mode lacks SPA client configuration', async () => {
+  it('returns the exact configured redirect behavior', async () => {
     const app = await createApp(undefined, jwtConfig)
     apps.push(app)
     const r = await app.inject({ method: 'GET', url: '/api/auth/config' })
-    expect(r.statusCode).toBe(503)
-    expect(r.json()).toMatchObject({ error: 'auth_configuration_incomplete' })
+    expect(r.statusCode).toBe(200)
+    expect(r.json()).toMatchObject({
+      tenantId: 'tenant-id',
+      redirectUri: 'https://sentinel.example/auth/callback',
+      postLogoutRedirectUri: 'https://sentinel.example/',
+    })
   })
 })
 
@@ -346,6 +367,39 @@ describe('GET /api/auth/me', () => {
 })
 
 describe('capability boundaries', () => {
+  it('exposes read-only probes for the exact four app-role boundaries', async () => {
+    const expected: Record<string, string[]> = {
+      Viewer: ['read'],
+      Analyst: ['read', 'validateFinding', 'generateAdvisory', 'proposeRemediation'],
+      Approver: [
+        'read',
+        'validateFinding',
+        'generateAdvisory',
+        'proposeRemediation',
+        'approveRemediation',
+      ],
+      Administrator: [...CAPABILITIES],
+    }
+    const app = await createApp(undefined, jwtConfig)
+    apps.push(app)
+
+    for (const [role, allowed] of Object.entries(expected)) {
+      jose.jwtVerify.mockResolvedValue({
+        payload: { sub: role.toLowerCase(), tid: 'tenant-id', roles: [`AgentSentinel.${role}`] },
+      })
+      for (const capability of CAPABILITIES) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/api/auth/capabilities/${capability}`,
+          headers: { authorization: ['Bearer', 'valid-token'].join(' ') },
+        })
+        expect(response.statusCode, `${role}/${capability}: ${response.body}`).toBe(
+          allowed.includes(capability) ? 200 : 403,
+        )
+      }
+    }
+  })
+
   it('requires authentication for connector catalog metadata', async () => {
     const app = await createApp(undefined, jwtConfig)
     apps.push(app)

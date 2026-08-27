@@ -36,7 +36,7 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 | Agent inventory and assurance catalog         | **Current.** Populated from live Foundry discovery; other platforms are absent, not empty-but-clean.                                                                                                                                                                                                                                                             |
 | Live evidence-backed scorecards               | **Current.** Security, governance, and lifecycle derive from connected evidence. Cost / Efficiency derives only from a validated, fully measured Token Economics report; it remains `unknown` in the deployed live environment. Quality and reliability remain `unknown`.                                                                                        |
 | Connector management catalog                  | **Current.** Foundry, Azure Monitor OTel, and the offline custom manifest adapter are `available-to-configure`; one connector is `authorization-required`; six are `planned`.                                                                                                                                                                                    |
-| Entra authentication and RBAC code foundation | **Current code, not activated.** `AUTH_MODE=disabled` is deployed.                                                                                                                                                                                                                                                                                               |
+| Entra authentication and RBAC code foundation | **Current code, not activated.** Strict API tenant/audience/issuer/JWKS/scope configuration, exact app roles, explicit SPA redirect behavior, read-only capability probes, and a token-driven live validator are prepared. `AUTH_MODE=disabled` is deployed.                                                                                                     |
 | Azure deployment, revision 11 on `8179785`    | **Live.** Container Apps `web`, `api`, `jobs` on a private ACA environment, with authentication disabled.                                                                                                                                                                                                                                                        |
 | Corporate Service Tree registration           | **Complete.** Registered under the confirmed `MCAPS > GES Asia > Korea` hierarchy with two administrators.                                                                                                                                                                                                                                                       |
 | Universal custom manifest adapter             | **Current, offline.** `@agent-sentinel/manifest-connector` normalizes an operator-supplied manifest into an `EstateSnapshot`. Non-authoritative, read-only, no ingestion endpoint.                                                                                                                                                                               |
@@ -61,13 +61,13 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 
 ## Blocked
 
-| Item                                                                         | Blocking condition                                                                                                      | Unblocks when                                                                                                                         |
-| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Corporate Microsoft Entra activation                                         | The Service Tree record exists, but IcM onboarding is blocked by SFI trusted-identity and contact-profile requirements. | Supply two SC-ALT or ME service-admin identities, complete required IcM contact phone fields, onboard to IcM, then allow propagation. |
-| Real employee login                                                          | Depends on the corporate app registrations above.                                                                       | Entra activation completes.                                                                                                           |
-| Terra authenticated `POST`                                                   | The `BlockApiMutationPreAuth` WAF rule blocks every non-`GET`/`HEAD`/`OPTIONS` request under `/api/` pre-auth.          | Authenticated write scopes are validated, then the rule is narrowed.                                                                  |
-| WAF rule narrowing                                                           | Must not be relaxed while `AUTH_MODE=disabled`, or anonymous mutation becomes possible.                                 | JWT write-scope tests and an authorized remediation smoke test pass.                                                                  |
-| Employee entitlement personalization                                         | Requires an authenticated principal and Entra entitlement evidence.                                                     | Entra activation plus the `entra-agent-id` connector.                                                                                 |
+| Item                                                                         | Blocking condition                                                                                             | Unblocks when                                                                                                     |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Corporate Microsoft Entra activation                                         | App registrations exist; redirect/logout URIs, consent, role assignments, and deployment require approval.     | Evidence an HTTPS origin, register exact URLs, approve grants/assignments, and deploy JWT mode with writes false. |
+| Real employee login                                                          | Runtime JWT and SPA configuration remains deliberately inactive.                                               | Complete the staged identity activation in `docs/security-authentication.md`.                                     |
+| Terra authenticated `POST`                                                   | The `BlockApiMutationPreAuth` WAF rule blocks every non-`GET`/`HEAD`/`OPTIONS` request under `/api/` pre-auth. | Authenticated write scopes are validated, then the rule is narrowed.                                              |
+| WAF rule narrowing                                                           | Must not be relaxed while `AUTH_MODE=disabled`, or anonymous mutation becomes possible.                        | JWT write-scope tests and an authorized remediation smoke test pass.                                              |
+| Employee entitlement personalization                                         | Requires an authenticated principal and Entra entitlement evidence.                                            | Entra activation plus the `entra-agent-id` connector.                                                             |
 | The Service Tree record was created on 2026-08-23. Generated identifiers,    |
 | requester identity, contact details, and correspondence are deliberately not |
 | stored in this repository. See                                               |
@@ -130,21 +130,22 @@ Endpoint host names, resource names, and operational commands are in [deployment
 
 ## Validation baseline
 
-Measured on 2026-08-26 on `feature/governance-phase1-completion` with Node 22.
+Measured on 2026-08-27 on `feature/governance-phase1-completion` with Node 22.
 
 | Suite                         | Command                                                           | Result                                              |
 | ----------------------------- | ----------------------------------------------------------------- | --------------------------------------------------- |
 | Azure Monitor connector tests | `pnpm --filter @agent-sentinel/azure-monitor-otel-connector test` | **6 passing**, 1 file                               |
 | Behavior engine tests         | `pnpm --filter @agent-sentinel/behavior-engine test`              | **72 passing**, 3 files                             |
-| API unit tests                | `pnpm --filter @agent-sentinel/api test`                          | **138 passing**, 11 files                           |
+| API unit tests                | `pnpm --filter @agent-sentinel/api test`                          | **139 passing**, 11 files                           |
 | Manifest connector tests      | `pnpm --filter @agent-sentinel/manifest-connector test`           | **53 passing**, 1 file                              |
 | Shift-left scanner tests      | `pnpm --filter @agent-sentinel/shift-left-scanner test`           | **6 passing**, 1 file                               |
-| Web unit and component tests  | `pnpm --filter @agent-sentinel/web test`                          | **196 passing**, 26 files                           |
+| Web unit and component tests  | `pnpm --filter @agent-sentinel/web test`                          | **197 passing**, 26 files                           |
 | End-to-end                    | `pnpm test:e2e`                                                   | **23 tests** across 10 Playwright specs             |
 | Changed-file format check     | `pnpm exec prettier --check <changed files>`                      | **Passes**                                          |
-| Repository format check       | `pnpm format:check`                                               | **Fails on 15 pre-existing unrelated files**        |
+| Repository format check       | `pnpm format:check`                                               | **Fails on 14 pre-existing unrelated files**        |
 | Workspace lint and typecheck  | `pnpm lint`; `pnpm typecheck`                                     | **32 of 32 tasks pass** for each                    |
-| Workspace tests               | `pnpm test`                                                       | **533 passing**, 60 files; 1 test skipped           |
+| Auth live-validator tests     | `pnpm --filter @agent-sentinel/scripts test`                      | **20 passing**, 4 files                             |
+| Workspace tests               | `pnpm test`                                                       | **539 passing**, 61 files; 1 test skipped           |
 | Workspace build               | `pnpm build`                                                      | **17 of 17 tasks pass**                             |
 | Bicep                         | `az bicep build`                                                  | Builds, with baseline linter warnings               |
 | Web production build          | `pnpm --filter @agent-sentinel/web build`                         | Succeeds with a Rollup chunk-size warning (>500 kB) |
@@ -155,11 +156,11 @@ Measured on 2026-08-26 on `feature/governance-phase1-completion` with Node 22.
 
 In dependency order. Each condition gates everything below it in its own track.
 
-1. **Entra app registrations created** (API app with read and write scopes, SPA app with redirect URIs) → `AUTH_MODE=jwt` can be configured.
-2. **`AUTH_MODE=jwt` deployed with real employee login validated** → per-employee entitlement personalization and owner-scoped views become meaningful.
-3. **JWT write-scope tests plus an authorized remediation smoke test pass** → the `BlockApiMutationPreAuth` WAF rule can be narrowed, unblocking Terra authenticated `POST` and remediation execution.
-4. **Custom domain and TLS on the public edge** → the HTTP-only Application Gateway listener stops being the constraint and the SPA redirect URI can be finalized.
+1. **Approved HTTPS origin evidenced** (healthy Front Door default route, or custom domain/TLS) → exact SPA redirect and logout URIs can be registered.
+2. **Consent and four least-privilege role assignments approved** → `AUTH_MODE=jwt` can be deployed while writes and the WAF gate remain unchanged.
+3. **Real employee login plus read-phase live validation pass** → per-employee entitlement personalization and owner-scoped views become meaningful.
+4. **Private authenticated write smoke test passes** → the `BlockApiMutationPreAuth` WAF rule can be narrowly changed, followed by public-edge write and anonymous-denial validation.
 5. **Instrumented spans, Azure Monitor workspace settings, and least-privilege Logs query access are injected** → the implemented connector starts supplying real `ObservationWindow` objects; quality, reliability, and cost dimensions become evidence-backed instead of `unknown`.
 
-Tracks 1–4 are identity- or edge-dependent. Track 5 is a deployment prerequisite
+Tracks 1–4 are identity- or edge-dependent; OneRAI onboarding is independent. Track 5 is a deployment prerequisite
 and can proceed in parallel. See [roadmap.md](roadmap.md).

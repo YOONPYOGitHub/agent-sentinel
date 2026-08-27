@@ -19,6 +19,7 @@ import {
 
 import {
   buildAuthConfig,
+  CAPABILITIES,
   createAuthMiddleware,
   requireCapability,
   type AuthConfig,
@@ -68,9 +69,14 @@ function defaultTenantId(): string {
   )
 }
 
-function defaultWriteEnabled(mode: 'mock' | 'live'): boolean {
-  const configuredWriteMode = process.env['AGENT_SENTINEL_WRITE_ENABLED']?.trim().toLowerCase()
-  return configuredWriteMode === 'true' || (configuredWriteMode === undefined && mode === 'mock')
+function defaultWriteEnabled(mode: 'mock' | 'live', authConfig: AuthConfig): boolean {
+  const configured = process.env['AGENT_SENTINEL_WRITE_ENABLED']?.trim().toLowerCase()
+  if (configured !== undefined && configured !== 'true' && configured !== 'false')
+    throw new Error('AGENT_SENTINEL_WRITE_ENABLED must be true or false.')
+  const enabled = configured === 'true' || (configured === undefined && mode === 'mock')
+  if (enabled && mode === 'live' && authConfig.mode !== 'jwt')
+    throw new Error('Live writes require AUTH_MODE=jwt.')
+  return enabled
 }
 
 function buildLiveRepositories(): {
@@ -146,22 +152,18 @@ export async function createApp(
   })
 
   // Public SPA authentication configuration.
-  app.get('/api/auth/config', async (_request, reply) => {
+  app.get('/api/auth/config', () => {
     if (authConfig.mode !== 'jwt') {
       return { enabled: false }
     }
-    if (authConfig.spaConfig === undefined) {
-      await reply.status(503).send({
-        error: 'auth_configuration_incomplete',
-        message: 'JWT authentication is enabled but the SPA client ID is not configured.',
-      })
-      return
-    }
     return {
       enabled: true,
+      tenantId: authConfig.spaConfig.tenantId,
       clientId: authConfig.spaConfig.clientId,
       authority: authConfig.spaConfig.authority,
       scopes: authConfig.spaConfig.scopes,
+      redirectUri: authConfig.spaConfig.redirectUri,
+      postLogoutRedirectUri: authConfig.spaConfig.postLogoutRedirectUri,
     }
   })
 
@@ -190,6 +192,16 @@ export async function createApp(
       capabilities: [...principal.capabilities],
     }
   })
+
+  if (authConfig.mode === 'jwt') {
+    for (const capability of CAPABILITIES) {
+      app.get(
+        `/api/auth/capabilities/${capability}`,
+        { preHandler: requireCapability(authConfig, capability) },
+        () => ({ capability, allowed: true }),
+      )
+    }
+  }
 
   app.get('/health', () => ({
     status: 'ok',
@@ -255,7 +267,7 @@ export async function createApp(
   )
 
   const exposureMode: 'mock' | 'foundry' = resolvedDataMode === 'live' ? 'foundry' : 'mock'
-  const writeEnabled = defaultWriteEnabled(resolvedDataMode)
+  const writeEnabled = defaultWriteEnabled(resolvedDataMode, authConfig)
   const liveRepositories =
     resolvedDataMode === 'live' &&
     options.exposureRepository === undefined &&

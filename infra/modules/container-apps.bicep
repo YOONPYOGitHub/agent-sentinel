@@ -19,6 +19,9 @@ param appInsightsConnectionString string
 @allowed(['mock','live'])
 param agentSentinelDataMode string = 'mock'
 
+@description('Global write switch. Keep false until JWT authorization and the private write smoke test pass.')
+param agentSentinelWriteEnabled bool = false
+
 @description('Azure AI Foundry project endpoint (empty when data mode is mock).')
 param foundryProjectEndpoint string = ''
 
@@ -41,11 +44,23 @@ param authTenantId string = ''
 @description('API audience / application ID URI. Required when authMode is jwt.')
 param authAudience string = ''
 
-@description('SPA client ID (public config, no secret). Optional; enables /api/auth/config SPA initialization.')
-param authClientId string = ''
+@description('Expected Entra v2 token issuer. Empty derives the tenant-specific Microsoft identity platform issuer.')
+param authIssuer string = ''
 
-@description('Comma-separated OAuth scopes the SPA requests. Defaults to {authAudience}/AgentSentinel.Read.')
-param authScopes string = ''
+@description('Entra JWKS endpoint. Empty derives the tenant-specific Microsoft identity platform discovery endpoint.')
+param authJwksUri string = ''
+
+@description('SPA client ID (public config, no secret). Required when authMode is jwt.')
+param authSpaClientId string = ''
+
+@description('Comma-separated fully qualified API scopes requested by the SPA. Empty requests the configured read scope.')
+param authSpaScopes string = ''
+
+@description('Exact registered SPA redirect URI. Required when authMode is jwt.')
+param authSpaRedirectUri string = ''
+
+@description('Exact post-logout redirect URI on the same origin. Required when authMode is jwt.')
+param authSpaPostLogoutRedirectUri string = ''
 
 @description('Comma-separated delegated scopes that grant read access.')
 param authReadScopes string = 'AgentSentinel.Read'
@@ -113,7 +128,7 @@ var env = [
   { name: 'SEARCH_ENDPOINT',                       value: searchEndpoint }
   { name: 'SB_FQDN',                               value: sbFqdn }
   { name: 'SERVICE_BUS_FQDN',                      value: sbFqdn }
-  { name: 'AGENT_SENTINEL_WRITE_ENABLED',          value: 'false' }
+  { name: 'AGENT_SENTINEL_WRITE_ENABLED',          value: string(agentSentinelWriteEnabled) }
   { name: 'AGENT_SENTINEL_DATA_MODE',             value: agentSentinelDataMode }
   { name: 'FOUNDRY_PROJECT_ENDPOINT',             value: foundryProjectEndpoint }
   { name: 'AGENT_SENTINEL_ADVISORY_ENDPOINT',     value: advisoryEndpoint }
@@ -131,8 +146,12 @@ var env = [
   { name: 'AUTH_MODE',                             value: authMode }
   { name: 'AUTH_TENANT_ID',                        value: authTenantId }
   { name: 'AUTH_AUDIENCE',                         value: authAudience }
-  { name: 'AUTH_CLIENT_ID',                        value: authClientId }
-  { name: 'AUTH_SCOPES',                           value: authScopes }
+  { name: 'AUTH_ISSUER',                           value: authIssuer }
+  { name: 'AUTH_JWKS_URI',                         value: authJwksUri }
+  { name: 'AUTH_SPA_CLIENT_ID',                    value: authSpaClientId }
+  { name: 'AUTH_SPA_SCOPES',                       value: authSpaScopes }
+  { name: 'AUTH_SPA_REDIRECT_URI',                 value: authSpaRedirectUri }
+  { name: 'AUTH_SPA_POST_LOGOUT_REDIRECT_URI',     value: authSpaPostLogoutRedirectUri }
   { name: 'AUTH_READ_SCOPES',                      value: authReadScopes }
   { name: 'AUTH_WRITE_SCOPES',                     value: authWriteScopes }
 ]

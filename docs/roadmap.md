@@ -89,21 +89,20 @@ Turn read-only governance posture into an operable workflow.
 
 ---
 
-## Phase 2 — Corporate identity activation · **Blocked** · _IcM onboarding required_
+## Phase 2 — Corporate identity activation · **In progress** · _approval required_
 
-**Current condition:** the Agent Sentinel Service Tree record was created on
-2026-08-23 under the confirmed owning hierarchy, but it does not yet have a
-valid IcM node. IcM onboarding requires two SFI trusted service-admin identities
-(SC-ALT or ME) and complete phone fields for on-call contacts. Microsoft Entra
-rejects the service management reference until onboarding and propagation
-complete.
+**Current condition:** the single-tenant API and SPA registrations exist. The API exposes the read
+and admin-only write delegated scopes plus all four app roles, and the SPA requests the two API
+permissions. Redirect/logout URIs, tenant consent, role assignments, and deployed JWT configuration
+remain intentionally unset. OneRAI and service onboarding proceed independently and do not block
+local implementation.
 
 **Scope**
 
 - API app registration exposing read and write scopes, plus `AgentSentinel.Viewer` / `.Analyst` / `.Approver` / `.Administrator` app roles.
-- SPA app registration with redirect URI and front-channel logout URL.
-- `AUTH_MODE=jwt` with tenant, audience, and scope configuration in the Container Apps environment.
-- Approved CORS origins matching the final HTTPS edge.
+- SPA app registration with an evidenced HTTPS redirect URI and same-origin logout URL.
+- Typed tenant, audience, issuer, JWKS, scope, SPA, and redirect configuration, activated with `AUTH_MODE=jwt`.
+- Approved CORS origins only when the SPA and API are intentionally cross-origin.
 - Least-privilege role assignment validated against real principals.
 
 **Definition of done**
