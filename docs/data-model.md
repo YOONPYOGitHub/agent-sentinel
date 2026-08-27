@@ -78,7 +78,7 @@ Represents a single declared-configuration policy violation surfaced by the Expo
 - `declaredTools`, `affectedNodeIds`, `affectedEdgeIds`, `evidenceIds`, `evidenceTypes`
 - `blastRadiusCount`, `blastRadiusNodeIds`
 - `firstSeen`, `lastSeen` (ISO 8601 datetimes; `firstSeen` preserved on upsert)
-- `sourceMode` (mock|foundry) — provenance of the underlying snapshot
+- `sourceMode` (mock|foundry|manifest) — provenance of the underlying snapshot; manifest findings remain non-authoritative
 - `validationStatus` (theoretical|validated|mitigated)
 - `tenantId`, `snapshotId`
 

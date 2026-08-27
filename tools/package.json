@@ -5,13 +5,15 @@
   "type": "module",
   "scripts": {
     "validate-manifest": "tsx validate-manifest.ts",
+    "scan-manifest": "tsx scan-manifest.ts",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit",
     "lint": "eslint ."
   },
   "dependencies": {
     "@agent-sentinel/connector-sdk": "workspace:*",
-    "@agent-sentinel/manifest-connector": "workspace:*"
+    "@agent-sentinel/manifest-connector": "workspace:*",
+    "@agent-sentinel/shift-left-scanner": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.18.1",

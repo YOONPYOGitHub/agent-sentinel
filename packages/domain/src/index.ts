@@ -225,7 +225,7 @@ export const exposureFindingSchema = z.object({
   blastRadiusNodeIds: z.array(z.string().min(1)),
   firstSeen: z.iso.datetime(),
   lastSeen: z.iso.datetime(),
-  sourceMode: z.enum(['mock', 'foundry']),
+  sourceMode: z.enum(['mock', 'foundry', 'manifest']),
   validationStatus: z.enum(['theoretical', 'validated', 'mitigated']),
   tenantId: z.string().min(1),
   snapshotId: z.string().min(1),

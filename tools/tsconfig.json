@@ -5,7 +5,8 @@
     "noEmit": true,
     "paths": {
       "@agent-sentinel/connector-sdk": ["packages/connector-sdk/src/index.ts"],
-      "@agent-sentinel/manifest-connector": ["connectors/manifest/src/index.ts"]
+      "@agent-sentinel/manifest-connector": ["connectors/manifest/src/index.ts"],
+      "@agent-sentinel/shift-left-scanner": ["packages/shift-left-scanner/src/index.ts"]
     },
     "rootDir": "..",
     "types": ["node", "vitest/globals"]

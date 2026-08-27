@@ -84,7 +84,7 @@ Deterministic policies currently shipped:
 | `AS-POL-003` | Mutation tool without approval                  | high     |
 | `AS-POL-004` | Sensitive data requires controlled egress       | critical |
 
-Findings carry `validationStatus` of `theoretical`, `validated`, or `mitigated`, and a `sourceMode` of `mock` or `foundry` so provenance is never ambiguous.
+Findings carry `validationStatus` of `theoretical`, `validated`, or `mitigated`, and a `sourceMode` of `mock`, `foundry`, or non-authoritative `manifest` so provenance is never ambiguous.
 
 ### 3. Govern and assure
 

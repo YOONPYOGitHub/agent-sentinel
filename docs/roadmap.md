@@ -237,17 +237,25 @@ The connector and engine bridge are implemented. Deployment prerequisites and th
 
 ---
 
-## Phase 10 — Shift-left scanning · _depends on Phase 1_
+## Phase 10 — Shift-left scanning · **Complete**
 
 **Scope:** evaluate an agent definition against the same deterministic policy engine before publication, in CI or at the platform's publish gate.
 
 Deliberately sequenced after the governance lifecycle workflow so that pre-publication and post-deployment evaluation share exactly one policy definition. Building it earlier would fork policy semantics.
 
+**Delivered 2026-08-26**
+
+- `@agent-sentinel/shift-left-scanner` accepts an untrusted manifest through the existing fail-closed manifest acceptance and normalization pipeline, then invokes the existing `evaluateAllExposurePolicies()` runtime entry point.
+- Every catalog policy returns a deterministic `pass`, `warn`, or `block`. Critical findings block; other severities warn. The report embeds unchanged `ExposureFinding` records and resolves every cited ID to the existing `Evidence` shape.
+- Manifest tenant and optional environment bindings are rechecked even for already typed envelopes. Provenance remains `sourceOfTruth: false` and `isNonAuthoritative: true`; no data is ingested and no HTTP endpoint was added.
+- `pnpm manifest:scan` emits deterministic JSON by default, offers an explainable text view, supports `--fail-on warn`, and uses CI-safe exit codes `0` accepted, `1` policy gate failed, `2` invalid input, and `3` unexpected failure.
+- The manifest contract now carries optional `approvalRequired` on agent definitions so pre-publication evaluation supplies the exact metadata consumed by the shared runtime policy engine rather than inventing scanner-only semantics.
+
 **Definition of done**
 
-- One policy definition is shared by pre-publication and post-deployment evaluation, with no duplicated rule logic.
-- A scan produces the same finding shape as runtime evaluation, including cited evidence.
-- A blocking result is explainable to the agent author without security expertise.
+- One policy definition is shared by pre-publication and post-deployment evaluation, with no duplicated rule logic. ✅
+- A scan produces the same finding shape as runtime evaluation, including cited evidence. ✅
+- A blocking result is explainable to the agent author without security expertise. ✅
 
 ---
 

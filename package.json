@@ -20,6 +20,7 @@
     "foundry:cleanup": "pnpm --filter @agent-sentinel/scripts cleanup-agents",
     "foundry:validate": "pnpm --filter @agent-sentinel/scripts validate-live",
     "manifest:validate": "pnpm --filter @agent-sentinel/tools validate-manifest",
+    "manifest:scan": "pnpm --filter @agent-sentinel/tools scan-manifest",
     "validate": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {

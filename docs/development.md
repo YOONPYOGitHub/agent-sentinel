@@ -47,6 +47,9 @@ pnpm --filter @agent-sentinel/manifest-connector test
 pnpm manifest:validate -- /absolute/path/to/manifest.json \
   --tenant contoso-ai-lab \
   --environment production
+pnpm manifest:scan /absolute/path/to/manifest.json \
+  --tenant contoso-ai-lab \
+  --environment production
 ```
 
 The validator CLI (`tools/validate-manifest.ts`) is offline: it requires the
@@ -55,6 +58,12 @@ same strict validation as the connector, and prints the
 normalized entity counts plus the deterministic SHA-256 manifest hash used for
 ingestion idempotency. A worked example lives at
 `connectors/manifest/examples/sample-manifest.json`.
+
+The scanner CLI is also offline. It uses the same strict acceptance and
+normalization path, then the same deterministic policy-engine entry point used
+after runtime discovery. JSON is the default for CI; add `--format text` for an
+author explanation or `--fail-on warn` for a stricter gate. Exit codes are `0`
+accepted, `1` policy gate failed, `2` invalid input, and `3` unexpected failure.
 
 When changing the envelope:
 

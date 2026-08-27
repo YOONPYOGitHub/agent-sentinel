@@ -29,7 +29,7 @@ Agent Sentinel gives an organization one explainable view of every AI agent it r
 - **Separate explainable per-agent assurance dimensions** — security, governance, lifecycle, quality, reliability, and cost are scored and explained independently, and report `unknown` rather than guessing.
 - **Cross-domain governance workflow** — one evidence set shared by security, platform, and business stakeholders.
 
-Implemented but not activated in the deployed environment: behavior drift analysis, measured token economics, and the Azure Monitor OTel connector. Still planned: authenticated universal-adapter ingestion and shift-left agent scanning. See [docs/roadmap.md](docs/roadmap.md).
+Implemented but not activated in the deployed environment: behavior drift analysis, measured token economics, and the Azure Monitor OTel connector. The offline shift-left scanner is available for local and CI publish gates. Authenticated universal-adapter ingestion remains planned. See [docs/roadmap.md](docs/roadmap.md).
 
 ---
 
@@ -51,6 +51,22 @@ Implemented but not activated in the deployed environment: behavior drift analys
 | Connectors                  | `/connectors`                | Connector catalog, readiness, capabilities, permissions, and measured connection health    |
 | Settings                    | `/settings`                  | Landing page and density preferences                                                       |
 | Global search and app shell | `Ctrl` + `K`                 | Cross-surface search and navigation shell                                                  |
+
+The Entra-independent publish gate is a local CLI rather than an HTTP surface:
+
+```bash
+pnpm manifest:scan tools/fixtures/shift-left-block.json \
+  --tenant tenant-ci --environment production --format text
+```
+
+It strictly validates and normalizes the manifest, then calls the same
+`evaluateAllExposurePolicies()` function used by runtime ingestion. JSON is the
+default deterministic format. Exit `0` means accepted (pass, or warn unless
+`--fail-on warn` is set), `1` means the policy gate blocked publication, `2`
+means invalid input, and `3` means an unexpected scanner failure. Findings keep
+the domain `ExposureFinding` shape and include the cited domain `Evidence`
+records. Manifest evidence remains explicitly non-authoritative and is never
+ingested or exposed through an unauthenticated endpoint.
 
 ---
 
@@ -135,6 +151,7 @@ pnpm typecheck     # tsc project references, no emit
 pnpm test          # Vitest unit and component suites
 pnpm build         # turbo build for all packages and apps
 pnpm test:e2e      # Playwright end-to-end suite (starts api + web)
+pnpm manifest:scan <manifest.json> --tenant <id>  # Offline pre-publication policy gate
 pnpm format:check  # Prettier
 pnpm validate      # format:check + lint + typecheck + test + build
 ```

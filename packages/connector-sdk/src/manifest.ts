@@ -169,6 +169,7 @@ export const agentDeclarationSchema = z.strictObject({
   platform: displayNameSchema.optional(),
   version: z.string().min(1).max(64).optional(),
   model: displayNameSchema.optional(),
+  approvalRequired: z.boolean().optional(),
 })
 export type AgentDeclaration = z.infer<typeof agentDeclarationSchema>
 

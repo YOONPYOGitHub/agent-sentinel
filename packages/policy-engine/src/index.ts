@@ -160,7 +160,11 @@ function buildExposureFinding(input: ExposureBuildInput): ExposureFinding {
     blastRadiusNodeIds: blastRadius.map((node) => node.id),
     firstSeen: snapshot.generatedAt,
     lastSeen: snapshot.generatedAt,
-    sourceMode: 'foundry',
+    sourceMode:
+      agentNode?.metadata['isNonAuthoritative'] === 'true' &&
+      agentNode.metadata['sourceOfTruth'] === 'false'
+        ? 'manifest'
+        : 'foundry',
     validationStatus: 'theoretical',
     tenantId: snapshot.tenantId,
     snapshotId: `${snapshot.tenantId}-${snapshot.environment}-${snapshot.generatedAt}`,

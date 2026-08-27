@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "1.0",
+  "manifestId": "ci-agent-definition",
+  "tenantId": "tenant-ci",
+  "environmentId": "production",
+  "producedAt": "2026-08-26T00:00:00.000Z",
+  "producer": {
+    "name": "CI agent definition"
+  },
+  "capabilities": {
+    "supportsDiscovery": true,
+    "evidenceDepth": "shallow",
+    "supportsRuntimeTelemetry": false,
+    "supportsActions": "none"
+  },
+  "agents": [
+    {
+      "id": "release-agent",
+      "displayName": "Release Agent",
+      "description": "Pre-publication agent definition.",
+      "environment": "production",
+      "owner": "Agent Platform"
+    }
+  ],
+  "tools": [
+    {
+      "id": "external-transfer",
+      "displayName": "external_transfer",
+      "description": "Transfers records to an external destination.",
+      "environment": "production",
+      "toolType": "action",
+      "trust": "untrusted"
+    }
+  ],
+  "identities": [],
+  "dataSources": [],
+  "edges": [
+    {
+      "from": {
+        "kind": "agent",
+        "id": "release-agent"
+      },
+      "to": {
+        "kind": "tool",
+        "id": "external-transfer"
+      },
+      "relationship": "CAN_CALL"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "release-agent-config",
+      "subjectId": "release-agent",
+      "evidenceType": "declared_configuration",
+      "confidence": 0.6,
+      "observedAt": "2026-08-26T00:00:00.000Z",
+      "claims": {
+        "approvalRequired": "false"
+      }
+    }
+  ]
+}

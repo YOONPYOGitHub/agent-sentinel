@@ -399,6 +399,21 @@ importers:
         specifier: ^4.1.5
         version: 4.4.3
 
+  packages/shift-left-scanner:
+    dependencies:
+      '@agent-sentinel/connector-sdk':
+        specifier: workspace:*
+        version: link:../connector-sdk
+      '@agent-sentinel/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@agent-sentinel/manifest-connector':
+        specifier: workspace:*
+        version: link:../../connectors/manifest
+      '@agent-sentinel/policy-engine':
+        specifier: workspace:*
+        version: link:../policy-engine
+
   scripts:
     dependencies:
       '@agent-sentinel/foundry-connector':
@@ -435,6 +450,9 @@ importers:
       '@agent-sentinel/manifest-connector':
         specifier: workspace:*
         version: link:../connectors/manifest
+      '@agent-sentinel/shift-left-scanner':
+        specifier: workspace:*
+        version: link:../packages/shift-left-scanner
     devDependencies:
       '@types/node':
         specifier: ^22.18.1

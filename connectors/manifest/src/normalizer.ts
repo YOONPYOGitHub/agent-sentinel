@@ -127,10 +127,11 @@ function typeMetadata(declaration: Declaration): Record<string, string> {
   const extra: Record<string, string> = { entityKind: declaration.kind }
   switch (declaration.kind) {
     case 'agent': {
-      const { platform, version, model } = declaration.value
+      const { platform, version, model, approvalRequired } = declaration.value
       if (platform !== undefined) extra['platform'] = platform
       if (version !== undefined) extra['version'] = version
       if (model !== undefined) extra['model'] = model
+      if (approvalRequired !== undefined) extra['approvalRequired'] = String(approvalRequired)
       return extra
     }
     case 'tool': {

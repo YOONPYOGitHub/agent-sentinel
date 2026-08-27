@@ -25,6 +25,7 @@
       "platform": "Contoso Agent Runtime",
       "version": "9",
       "model": "in-house-llm-medium",
+      "approvalRequired": true,
       "trust": "conditional",
       "observedAt": "2026-08-20T08:55:00.000Z"
     },

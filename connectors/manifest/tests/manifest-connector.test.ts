@@ -790,6 +790,11 @@ describe('published artefacts', () => {
     }).discover()
     expect(snapshot.nodes.filter((node) => node.kind === 'agent')).toHaveLength(2)
     expect(snapshot.edges).toHaveLength(4)
+    expect(
+      snapshot.nodes.find((node) => node.id.endsWith('invoice-triage-agent'))?.metadata[
+        'approvalRequired'
+      ],
+    ).toBe('true')
   })
 
   it('keeps the JSON Schema in parity with the Zod contract', async () => {

@@ -12,7 +12,8 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 
 | Commit    | Change                                             | Effect                                                                                                                                                              |
 | --------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `HEAD`    | Governance Phase 1 workflow increment              | Assignment, state guards, anonymous disabled-auth context, source-cited immutable history, bounded policy exceptions, and lifecycle evidence transitions.           |
+| `HEAD`    | Phase 10 shift-left scanner                        | Offline local/CI publish gate reusing manifest acceptance, normalization, runtime policies, domain findings, and cited evidence.                                    |
+| `5fc9415` | Governance Phase 1 workflow increment              | Assignment, state guards, anonymous disabled-auth context, source-cited immutable history, bounded policy exceptions, and lifecycle evidence transitions.           |
 | `a654ab6` | Azure Monitor OTel runtime connector               | Restricted read-only Logs query, strict row mapping, live behavior/token-economics integration, and local contract fixtures. Deployment activation remains pending. |
 | `8179785` | Microsoft Entra authentication and RBAC foundation | JWT validation, four roles, per-route capability guards, SPA MSAL wiring. Not activated.                                                                            |
 | `ec43f2e` | Connector management catalog                       | Ten connectors with honest lifecycle states, capabilities, prerequisites, and readiness.                                                                            |
@@ -42,6 +43,7 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 | Deterministic behavior-baseline engine        | **Current.** `@agent-sentinel/behavior-engine` implements median/MAD statistics, drift analysis, evidence coverage, and typed `DriftAnalysisResult`; mock mode uses labeled fixtures and live mode accepts only validated Azure Monitor OTel windows.                                                                                                            |
 | Token Economics foundation                    | **Current.** `analyzeTokenEconomics()` uses measured-only populations, reconciled coverage, evidence-linked MAD anomalies, and same-population cost per success. Mock fixtures cover healthy, cost-anomaly, and missing-cost scenarios; live mode accepts validated Azure Monitor OTel windows and remains `unknown` while deployment telemetry is unconfigured. |
 | Governance workflow domain and mock path      | **Current.** Valid transitions, explicit assignment, separation of duties, source/actor/timestamp audit evidence, bounded policy exceptions, and promote/drift-acknowledge/rollback/retire evidence transitions are enforced and tested. `AUTH_MODE=disabled` records an anonymous authorization context instead of trusting a supplied identity.                |
+| Phase 10 shift-left scanner                   | **Current, offline.** `@agent-sentinel/shift-left-scanner` and `pnpm manifest:scan` evaluate validated manifests with the unchanged runtime policy catalog and finding/evidence shapes. Deterministic pass/warn/block output and CI exit codes are available without Entra, ingestion, deployment, or network access.                                            |
 
 ---
 
@@ -81,7 +83,6 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 | Real token economics activation        | Measured token/cost mapping is implemented. Deployment remains `unknown` until the provider prerequisites are injected; no cost is estimated.                                  |
 | Universal adapters                     | The custom manifest adapter is implemented and offline-only. The authenticated ingestion API is not implemented.                                                               |
 | Business-value evidence                | Requires runtime telemetry plus outcome sources.                                                                                                                               |
-| Shift-left scanner                     | Deliberately sequenced after the governance lifecycle workflow so it reuses one policy definition.                                                                             |
 
 ---
 
@@ -137,12 +138,14 @@ Measured on 2026-08-26 on `feature/governance-phase1-completion` with Node 22.
 | Behavior engine tests         | `pnpm --filter @agent-sentinel/behavior-engine test`              | **72 passing**, 3 files                             |
 | API unit tests                | `pnpm --filter @agent-sentinel/api test`                          | **138 passing**, 11 files                           |
 | Manifest connector tests      | `pnpm --filter @agent-sentinel/manifest-connector test`           | **53 passing**, 1 file                              |
+| Shift-left scanner tests      | `pnpm --filter @agent-sentinel/shift-left-scanner test`           | **6 passing**, 1 file                               |
 | Web unit and component tests  | `pnpm --filter @agent-sentinel/web test`                          | **196 passing**, 26 files                           |
 | End-to-end                    | `pnpm test:e2e`                                                   | **23 tests** across 10 Playwright specs             |
 | Changed-file format check     | `pnpm exec prettier --check <changed files>`                      | **Passes**                                          |
 | Repository format check       | `pnpm format:check`                                               | **Fails on 15 pre-existing unrelated files**        |
-| Workspace lint and typecheck  | `pnpm lint`; `pnpm typecheck`                                     | **Passes**                                          |
-| Workspace build               | `pnpm build`                                                      | **16 of 16 tasks pass**                             |
+| Workspace lint and typecheck  | `pnpm lint`; `pnpm typecheck`                                     | **32 of 32 tasks pass** for each                    |
+| Workspace tests               | `pnpm test`                                                       | **533 passing**, 60 files; 1 test skipped           |
+| Workspace build               | `pnpm build`                                                      | **17 of 17 tasks pass**                             |
 | Bicep                         | `az bicep build`                                                  | Builds, with baseline linter warnings               |
 | Web production build          | `pnpm --filter @agent-sentinel/web build`                         | Succeeds with a Rollup chunk-size warning (>500 kB) |
 

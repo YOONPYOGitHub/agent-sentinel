@@ -160,7 +160,8 @@
       "properties": {
         "platform": { "$ref": "#/$defs/displayName" },
         "version": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "model": { "$ref": "#/$defs/displayName" }
+        "model": { "$ref": "#/$defs/displayName" },
+        "approvalRequired": { "type": "boolean" }
       }
     },
     "toolDeclaration": {
