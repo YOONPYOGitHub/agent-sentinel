@@ -106,8 +106,8 @@ mutation endpoint or resource identifier.
 - [x] Separate API and SPA app registrations created
 - [x] API read/write scopes and four exact app roles created
 - [x] Typed fail-closed API, SPA, deployment, and validation configuration prepared locally
-- [ ] Approved HTTPS redirect and logout origin evidenced
-- [ ] Redirect and logout URIs registered
+- [x] Approved HTTPS redirect and logout origin evidenced
+- [x] Redirect and logout URIs registered
 - [ ] Least-privilege delegated permissions reviewed and consented
 - [ ] Test principals/groups assigned to all four roles
 - [ ] `AUTH_MODE=jwt` deployed with writes disabled and WAF unchanged
