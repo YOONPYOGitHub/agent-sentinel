@@ -132,6 +132,7 @@ export interface RuntimeTelemetryConnector {
 /** Lifecycle state of a connector from Agent Sentinel's perspective. */
 export type ConnectorLifecycleState =
   | 'connected'
+  | 'degraded'
   | 'available-to-configure'
   | 'authorization-required'
   | 'planned'

@@ -170,23 +170,23 @@ Verified baseline on 2026-08-23:
 
 ## Live vs mock truth table
 
-| Capability                                 | State                                | Notes                                                                                               |
-| ------------------------------------------ | ------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| Microsoft Foundry agent discovery          | **Live**                             | Read-only discovery of **declared configuration** only, not runtime telemetry                       |
-| Exposure findings storage                  | **Live**                             | Cosmos DB `findings`, upsert preserves `firstSeen`                                                  |
-| Governance posture                         | **Live**                             | Derived from the same Cosmos-backed findings                                                        |
-| Jobs ingestion loop                        | **Live**                             | `apps/jobs` discovery + policy evaluation on an interval, plus Service Bus trigger                  |
-| Agent portfolio                            | **Synthetic only**                   | Six Microsoft Foundry validation agents on GPT-5.6 Terra; no production customer agents             |
-| Terra live validation                      | **Live, operator-invoked**           | `pnpm foundry:validate`; never run by CI                                                            |
-| Advisory narratives (public Azure edge)    | **Mock**                             | Deterministic mock provider until corporate Entra and WAF activation                                |
-| Advisory narratives (grounded model path)  | **Live when configured**             | GPT-5.6 Terra, advisory explanation only; deterministic core stays authoritative                    |
-| Agent 365 connector                        | **Not implemented**                  | Catalogued as `authorization-required`                                                              |
-| Azure Monitor OTel                         | **Implemented, unconfigured**        | Strict read-only query and mapping path; deployed runtime evidence remains `unknown`                |
-| Entra identity enrichment                  | **Implemented, unconfigured**        | Read-only service-principal inventory and Foundry composition; tenant-admin consent remains pending |
-| Defender and Purview                       | **Planned**                          | Catalogued but no runtime evidence path is active                                                   |
-| Governance work queue                      | **Live persistence, writes blocked** | Cosmos-backed cases and audit history; public mutation remains disabled                             |
-| Authentication in the deployed environment | **Enabled, read-only**               | `AUTH_MODE=jwt`; employee login, anonymous `401`, Viewer `403`, and `/api/auth/me` validated        |
-| Write and remediation execution            | **Blocked at the edge**              | `writeEnabled=false`; WAF blocks pre-auth mutations under `/api/`                                   |
+| Capability                                 | State                                | Notes                                                                                                |
+| ------------------------------------------ | ------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| Microsoft Foundry agent discovery          | **Live, one source configured**      | Multi-tenant/project aggregation is implemented; the current deployment still has one primary source |
+| Exposure findings storage                  | **Live**                             | Cosmos DB `findings`, upsert preserves `firstSeen`                                                   |
+| Governance posture                         | **Live**                             | Derived from the same Cosmos-backed findings                                                         |
+| Jobs ingestion loop                        | **Live**                             | `apps/jobs` discovery + policy evaluation on an interval, plus Service Bus trigger                   |
+| Agent portfolio                            | **Synthetic only**                   | Six Microsoft Foundry validation agents on GPT-5.6 Terra; no production customer agents              |
+| Terra live validation                      | **Live, operator-invoked**           | `pnpm foundry:validate`; never run by CI                                                             |
+| Advisory narratives (public Azure edge)    | **Mock**                             | Deterministic mock provider until corporate Entra and WAF activation                                 |
+| Advisory narratives (grounded model path)  | **Live when configured**             | GPT-5.6 Terra, advisory explanation only; deterministic core stays authoritative                     |
+| Agent 365 connector                        | **Not implemented**                  | Catalogued as `authorization-required`                                                               |
+| Azure Monitor OTel                         | **Implemented, unconfigured**        | Strict read-only query and mapping path; deployed runtime evidence remains `unknown`                 |
+| Entra identity enrichment                  | **Implemented, unconfigured**        | Read-only service-principal inventory and Foundry composition; tenant-admin consent remains pending  |
+| Defender and Purview                       | **Planned**                          | Catalogued but no runtime evidence path is active                                                    |
+| Governance work queue                      | **Live persistence, writes blocked** | Cosmos-backed cases and audit history; public mutation remains disabled                              |
+| Authentication in the deployed environment | **Enabled, read-only**               | `AUTH_MODE=jwt`; employee login, anonymous `401`, Viewer `403`, and `/api/auth/me` validated         |
+| Write and remediation execution            | **Blocked at the edge**              | `writeEnabled=false`; WAF blocks pre-auth mutations under `/api/`                                    |
 
 ---
 
@@ -219,6 +219,6 @@ No credentials, tokens, or connection strings are stored in this repository. All
 
 ## Current maturity
 
-Agent Sentinel is an **engineering preview**. The full navigation surface is implemented and covered by unit, component, and end-to-end tests. Live evidence today comes from exactly one source — Microsoft Foundry declared configuration — persisted in Cosmos DB and evaluated by deterministic policies. Everything that depends on runtime telemetry, cross-plane identity, data classification, or authenticated employee context is either explicitly labelled as planned or reported as `unknown` rather than estimated.
+Agent Sentinel is an **engineering preview**. The full navigation surface is implemented and covered by unit, component, and end-to-end tests. Multi-tenant/project Foundry aggregation is implemented with per-source provenance and health, while the deployed portfolio currently contains one Foundry source. Everything that depends on unactivated telemetry, identity, classification, or additional tenant authorization is explicitly labelled or reported as `unknown`.
 
 The next maturity gates are tenant-authorized Entra identity enrichment, complete role and write-path validation, a unified Cosmos-backed read model, and runtime telemetry activation. They are tracked in [docs/roadmap.md](docs/roadmap.md) and [docs/known-issues.md](docs/known-issues.md).

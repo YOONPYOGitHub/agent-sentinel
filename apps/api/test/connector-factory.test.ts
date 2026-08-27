@@ -39,7 +39,7 @@ describe('connector selection', () => {
 
     expect(result.connector.getConnectorHealth?.()).toMatchObject({
       sources: [
-        { id: 'azure-ai-foundry-agent-service' },
+        { id: 'foundry:primary' },
         {
           id: 'microsoft-entra-service-principals',
           enabled: true,
@@ -48,5 +48,78 @@ describe('connector selection', () => {
         },
       ],
     })
+  })
+
+  it('builds multiple Foundry sources under one estate boundary', () => {
+    const credential = { getToken: () => Promise.resolve(null) }
+    const result = createConfiguredConnector(
+      {
+        AGENT_SENTINEL_CONNECTOR: 'foundry',
+        AGENT_SENTINEL_TENANT_ID: 'estate-tenant',
+        AGENT_SENTINEL_ENVIRONMENT: 'portfolio',
+        FOUNDRY_ENVIRONMENT: 'portfolio',
+        FOUNDRY_SOURCES_JSON: JSON.stringify([
+          {
+            id: 'project-a',
+            name: 'Project A',
+            projectEndpoint: 'https://a.services.ai.azure.com/api/projects/a',
+            tenantId: 'tenant-a',
+            environment: 'production',
+          },
+          {
+            id: 'project-b',
+            name: 'Project B',
+            projectEndpoint: 'https://b.services.ai.azure.com/api/projects/b',
+            tenantId: 'tenant-b',
+            environment: 'validation',
+          },
+        ]),
+      },
+      { credentialFactory: () => credential },
+    )
+
+    expect(result).toMatchObject({
+      mode: 'foundry',
+      tenantId: 'estate-tenant',
+      environment: 'portfolio',
+      sourceCount: 2,
+    })
+    expect(result.projectEndpoint).toBeUndefined()
+    expect(result.connector.getConnectorHealth?.().sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'foundry:project-a' }),
+        expect.objectContaining({ id: 'foundry:project-b' }),
+      ]),
+    )
+  })
+
+  it('rejects one Entra source across multiple Foundry tenants', () => {
+    expect(() =>
+      createConfiguredConnector(
+        {
+          AGENT_SENTINEL_CONNECTOR: 'foundry',
+          AGENT_SENTINEL_TENANT_ID: 'estate-tenant',
+          FOUNDRY_ENVIRONMENT: 'portfolio',
+          FOUNDRY_SOURCES_JSON: JSON.stringify([
+            {
+              id: 'project-a',
+              name: 'Project A',
+              projectEndpoint: 'https://a.services.ai.azure.com/api/projects/a',
+              tenantId: 'tenant-a',
+              environment: 'production',
+            },
+            {
+              id: 'project-b',
+              name: 'Project B',
+              projectEndpoint: 'https://b.services.ai.azure.com/api/projects/b',
+              tenantId: 'tenant-b',
+              environment: 'production',
+            },
+          ]),
+          ENTRA_CONNECTOR_ENABLED: 'true',
+        },
+        { credentialFactory: () => ({ getToken: () => Promise.resolve(null) }) },
+      ),
+    ).toThrow('requires one Foundry tenant matching the estate tenant')
   })
 })

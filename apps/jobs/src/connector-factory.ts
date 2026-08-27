@@ -4,21 +4,17 @@ import {
   type EntraGraphClientOptions,
 } from '@agent-sentinel/entra-identity-connector'
 import {
-  FoundryAgentConnector,
-  foundryConnectorConfigSchema,
+  MultiFoundryConnector,
+  createFoundrySourceCredential,
+  parseFoundryPortfolioConfig,
+  type FoundryCredentialFactory,
 } from '@agent-sentinel/foundry-connector'
 import { MockAgentConnector } from '@agent-sentinel/mock-connector'
 import type { TokenCredential } from '@azure/core-auth'
-import { DefaultAzureCredential } from '@azure/identity'
-
-function required(environment: NodeJS.ProcessEnv, name: string): string {
-  const value = environment[name]?.trim()
-  if (!value) throw new Error(`${name} is required`)
-  return value
-}
 
 export interface JobsConnectorOptions {
   credential?: TokenCredential
+  credentialFactory?: FoundryCredentialFactory
   entraClient?: EntraGraphClientOptions
 }
 
@@ -28,17 +24,25 @@ export function buildConnector(
   options: JobsConnectorOptions = {},
 ): AgentConnector {
   if (mode === 'mock') return new MockAgentConnector()
-  const config = foundryConnectorConfigSchema.parse({
-    projectEndpoint: required(environment, 'FOUNDRY_PROJECT_ENDPOINT'),
-    tenantId: required(environment, 'FOUNDRY_TENANT_ID'),
-    environment: required(environment, 'FOUNDRY_ENVIRONMENT'),
-  })
-  const credential = options.credential ?? new DefaultAzureCredential({ tenantId: config.tenantId })
-  const foundry = new FoundryAgentConnector(config, credential)
+  const config = parseFoundryPortfolioConfig(environment)
+  const credentialFactory =
+    options.credentialFactory ??
+    ((source) => options.credential ?? createFoundrySourceCredential(source))
+  const foundry = new MultiFoundryConnector(config, credentialFactory)
+  const sourceTenantIds = new Set(config.sources.map((source) => source.tenantId.toLowerCase()))
+  if (
+    environment['ENTRA_CONNECTOR_ENABLED']?.trim().toLowerCase() === 'true' &&
+    (sourceTenantIds.size > 1 || !sourceTenantIds.has(config.estateTenantId.toLowerCase()))
+  ) {
+    throw new Error(
+      'A single Entra enrichment source requires one Foundry tenant matching the estate tenant.',
+    )
+  }
+  const primarySource = config.sources[0]!
   return createOptionalEntraEnrichmentConnector(foundry, environment, {
-    credential,
+    credential: credentialFactory(primarySource),
     ...(options.entraClient !== undefined ? { client: options.entraClient } : {}),
-    expectedTenantId: config.tenantId,
-    expectedEnvironment: config.environment,
+    expectedTenantId: primarySource.tenantId,
+    expectedEnvironment: config.estateEnvironment,
   })
 }

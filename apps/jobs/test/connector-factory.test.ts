@@ -28,7 +28,7 @@ describe('jobs connector selection', () => {
     expect(connector.descriptor.id).toBe('azure-ai-foundry-agent-service')
     expect(connector.getConnectorHealth?.()).toMatchObject({
       sources: [
-        { id: 'azure-ai-foundry-agent-service' },
+        { id: 'foundry:primary' },
         {
           id: 'microsoft-entra-service-principals',
           enabled: true,
@@ -37,5 +37,40 @@ describe('jobs connector selection', () => {
         },
       ],
     })
+  })
+
+  it('exposes health for every configured Foundry source', () => {
+    const connector = buildConnector(
+      'foundry',
+      {
+        AGENT_SENTINEL_TENANT_ID: 'estate',
+        FOUNDRY_ENVIRONMENT: 'portfolio',
+        FOUNDRY_SOURCES_JSON: JSON.stringify([
+          {
+            id: 'project-a',
+            name: 'Project A',
+            projectEndpoint: 'https://a.services.ai.azure.com/api/projects/a',
+            tenantId: 'tenant-a',
+            environment: 'production',
+          },
+          {
+            id: 'project-b',
+            name: 'Project B',
+            projectEndpoint: 'https://b.services.ai.azure.com/api/projects/b',
+            tenantId: 'tenant-b',
+            environment: 'validation',
+          },
+        ]),
+      },
+      {
+        credentialFactory: () => ({ getToken: () => Promise.resolve(null) }),
+      },
+    )
+
+    expect(connector.getConnectorHealth?.().sources.map((source) => source.id)).toEqual([
+      'foundry:project-a',
+      'foundry:project-b',
+      'microsoft-entra-service-principals',
+    ])
   })
 })

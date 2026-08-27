@@ -74,6 +74,15 @@ param foundryTenantId string = ''
 @description('Foundry environment label (empty when data mode is mock).')
 param foundryEnvironment string = 'validation'
 
+@description('Optional JSON array of multiple Foundry tenant/project source definitions.')
+param foundrySourcesJson string = ''
+
+@description('Stable aggregate estate tenant. Empty preserves the legacy Foundry tenant boundary.')
+param agentSentinelTenantId string = ''
+
+@description('Stable aggregate estate environment.')
+param agentSentinelEnvironment string = ''
+
 @description('Enable optional Microsoft Entra identity enrichment. Disabled by default.')
 param entraConnectorEnabled bool = false
 param entraConnectorTenantId string = ''
@@ -151,6 +160,8 @@ var env = [
   { name: 'FOUNDRY_TENANT_ID',                    value: foundryTenantId }
   { name: 'AZURE_TENANT_ID',                      value: foundryTenantId }
   { name: 'FOUNDRY_ENVIRONMENT',                  value: foundryEnvironment }
+  { name: 'FOUNDRY_SOURCES_JSON',                 value: foundrySourcesJson }
+  { name: 'AGENT_SENTINEL_ENVIRONMENT',           value: empty(agentSentinelEnvironment) ? foundryEnvironment : agentSentinelEnvironment }
   { name: 'ENTRA_CONNECTOR_ENABLED',              value: string(entraConnectorEnabled) }
   { name: 'ENTRA_CONNECTOR_TENANT_ID',            value: entraConnectorTenantId }
   { name: 'ENTRA_CONNECTOR_ENVIRONMENT',          value: entraConnectorEnvironment }
@@ -163,7 +174,7 @@ var env = [
   { name: 'ENTRA_CONNECTOR_REQUEST_TIMEOUT_MS',    value: entraConnectorRequestTimeoutMs }
   { name: 'ENTRA_CONNECTOR_MAX_RETRIES',           value: entraConnectorMaxRetries }
   { name: 'ENTRA_CONNECTOR_MAX_RETRY_AFTER_MS',    value: entraConnectorMaxRetryAfterMs }
-  { name: 'AGENT_SENTINEL_TENANT_ID',             value: foundryTenantId }
+  { name: 'AGENT_SENTINEL_TENANT_ID',             value: empty(agentSentinelTenantId) ? foundryTenantId : agentSentinelTenantId }
   { name: 'COSMOS_DATABASE',                      value: cosmosDatabase }
   { name: 'COSMOS_GOVERNANCE_CONTAINER',          value: 'governance-cases' }
   { name: 'COSMOS_MANIFEST_INGESTIONS_CONTAINER', value: 'manifest-ingestions' }

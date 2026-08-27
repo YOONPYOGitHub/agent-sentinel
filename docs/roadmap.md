@@ -1,6 +1,6 @@
 # Roadmap
 
-Phased delivery plan for Agent Sentinel. Last reviewed **2026-08-27** against branch `feature/governance-phase1-completion`.
+Phased delivery plan for Agent Sentinel. Last reviewed **2026-08-28** against branch `feature/multi-foundry-connectors`.
 
 Every phase has an explicit definition of done. A phase is not done because its UI renders; it is done when its evidence is real, its boundaries are enforced in code, and its tests prove the behavior without model access.
 
@@ -9,6 +9,11 @@ Every phase has an explicit definition of done. A phase is not done because its 
 ## Two independent tracks
 
 Work splits into a track that cannot move until corporate identity is available, and a track that can move today. Confusing the two is the single most common planning error on this project.
+
+All live connectors now target one shared multi-source contract: independently
+authorized source instances, stable estate isolation, source-scoped provenance,
+per-source health, deterministic aggregation, and no promotion of incomplete
+authoritative snapshots.
 
 ```mermaid
 flowchart TD
@@ -155,6 +160,12 @@ The connector and engine bridge are implemented. Deployment prerequisites and th
 ---
 
 ## Phase 5 — Additional evidence connectors · _partly Service Tree-dependent_
+
+**Multi-source prerequisite — implemented:** Foundry now accepts multiple
+tenant/project source definitions and exposes the aggregation, identity,
+provenance, and degradation behavior that subsequent live connectors reuse.
+The deployment still has one Foundry source until additional target projects
+and cross-tenant federation are approved.
 
 | Connector                                   | Catalogued state         | Gate                                                                          |
 | ------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------- |

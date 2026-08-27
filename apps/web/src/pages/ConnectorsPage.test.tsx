@@ -83,6 +83,37 @@ const foundryCollection: ConnectorsCollection = {
   ],
 }
 
+const degradedFoundryCollection: ConnectorsCollection = {
+  ...foundryCollection,
+  active: { ...foundryCollection.active, lifecycleState: 'degraded' },
+  catalog: foundryCollection.catalog.map((entry) =>
+    entry.id === 'azure-ai-foundry' ? { ...entry, lifecycleState: 'degraded' } : entry,
+  ),
+  health: {
+    overall: 'degraded',
+    partial: true,
+    sources: [
+      {
+        id: 'project-a',
+        name: 'Project A',
+        role: 'discovery',
+        enabled: true,
+        configured: true,
+        readiness: 'ready',
+      },
+      {
+        id: 'project-b',
+        name: 'Project B',
+        role: 'discovery',
+        enabled: true,
+        configured: true,
+        readiness: 'unavailable',
+        reason: 'authentication-or-access',
+      },
+    ],
+  },
+}
+
 function renderPage() {
   render(
     <MemoryRouter>
@@ -139,6 +170,16 @@ describe('ConnectorsPage', () => {
     await screen.findByRole('heading', { name: 'Data connectors' })
     const foundryCard = screen.getByRole('article', { name: 'Azure AI Foundry' })
     expect(foundryCard).toHaveTextContent('Connected')
+  })
+
+  it('shows degraded aggregate state and each Foundry source health', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue(degradedFoundryCollection)
+    renderPage()
+    await screen.findByRole('heading', { name: 'Data connectors' })
+    expect(screen.getByText('Degraded · partial')).toBeVisible()
+    expect(screen.getByText('Project A')).toBeVisible()
+    expect(screen.getByText('Project B')).toBeVisible()
+    expect(screen.getByText('unavailable · authentication-or-access')).toBeVisible()
   })
 
   it('Agent 365 shows authorization required, not connected', async () => {

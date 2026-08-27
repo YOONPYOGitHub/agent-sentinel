@@ -9,6 +9,7 @@ export const evidenceSchema = z.object({
   confidence: z.number().min(0).max(1),
   uri: z.url().optional(),
   summary: z.string().min(1),
+  metadata: z.record(z.string(), z.string()).optional(),
 })
 
 export type Evidence = z.infer<typeof evidenceSchema>

@@ -3,8 +3,10 @@ import type { Remediation } from '@agent-sentinel/domain'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   FoundryAgentConnector,
+  MultiFoundryConnector,
   foundryAgentPageSchema,
   foundryConnectorConfigSchema,
+  parseFoundryPortfolioConfig,
   mapAgentToSnapshot,
 } from '../src/index.js'
 class Credential implements TokenCredential {
@@ -44,6 +46,61 @@ describe('Foundry connector', () => {
     expect(foundryConnectorConfigSchema.parse(config)).toEqual(config)
     expect(() =>
       foundryConnectorConfigSchema.parse({ ...config, projectEndpoint: 'bad' }),
+    ).toThrow()
+  })
+  it('preserves legacy environment configuration as one primary source', () => {
+    expect(
+      parseFoundryPortfolioConfig({
+        FOUNDRY_PROJECT_ENDPOINT: config.projectEndpoint,
+        FOUNDRY_TENANT_ID: config.tenantId,
+        FOUNDRY_ENVIRONMENT: config.environment,
+      }),
+    ).toMatchObject({
+      estateTenantId: 'tenant',
+      estateEnvironment: 'validation',
+      sources: [{ id: 'primary', tenantId: 'tenant' }],
+    })
+  })
+  it('parses multiple unique tenant and project sources', () => {
+    const portfolio = parseFoundryPortfolioConfig({
+      AGENT_SENTINEL_TENANT_ID: 'estate',
+      AGENT_SENTINEL_ENVIRONMENT: 'portfolio',
+      FOUNDRY_ENVIRONMENT: 'fallback',
+      FOUNDRY_SOURCES_JSON: JSON.stringify([
+        {
+          id: 'tenant-a-project',
+          name: 'Tenant A project',
+          projectEndpoint: 'https://a.services.ai.azure.com/api/projects/project-a',
+          tenantId: 'tenant-a',
+          environment: 'production',
+        },
+        {
+          id: 'tenant-b-project',
+          name: 'Tenant B project',
+          projectEndpoint: 'https://b.services.ai.azure.com/api/projects/project-b',
+          tenantId: 'tenant-b',
+          environment: 'validation',
+        },
+      ]),
+    })
+    expect(portfolio.sources).toHaveLength(2)
+    expect(portfolio.estateTenantId).toBe('estate')
+    expect(portfolio.estateEnvironment).toBe('portfolio')
+  })
+  it('rejects duplicate source ids and project endpoints', () => {
+    const source = {
+      id: 'duplicate',
+      name: 'Duplicate',
+      projectEndpoint: 'https://a.services.ai.azure.com/api/projects/project-a',
+      tenantId: 'tenant-a',
+      environment: 'production',
+    }
+    expect(() =>
+      parseFoundryPortfolioConfig({
+        AGENT_SENTINEL_TENANT_ID: 'estate',
+        FOUNDRY_ENVIRONMENT: 'portfolio',
+        FOUNDRY_SOURCES_JSON: JSON.stringify([source, source]),
+      }),
     ).toThrow()
   })
   it('maps tools, trust and declared evidence', () => {
@@ -120,5 +177,147 @@ describe('Foundry connector', () => {
         reason: 'test',
       }),
     ).rejects.toThrow('Live remediation not supported for Foundry connector')
+  })
+})
+
+describe('multi-Foundry connector', () => {
+  const portfolio = {
+    estateTenantId: 'estate',
+    estateEnvironment: 'portfolio',
+    sources: [
+      {
+        id: 'tenant-a-project',
+        name: 'Tenant A project',
+        projectEndpoint: 'https://a.services.ai.azure.com/api/projects/project-a',
+        tenantId: 'tenant-a',
+        environment: 'production',
+      },
+      {
+        id: 'tenant-b-project',
+        name: 'Tenant B project',
+        projectEndpoint: 'https://b.services.ai.azure.com/api/projects/project-b',
+        tenantId: 'tenant-b',
+        environment: 'validation',
+      },
+    ],
+  }
+
+  it('aggregates colliding provider ids with source provenance and estate isolation', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) => {
+        const url = new URL(input instanceof Request ? input.url : input.toString())
+        return Promise.resolve(
+          Response.json({
+            data: [
+              {
+                ...externalAgent,
+                name: url.hostname.startsWith('a.') ? 'Tenant A agent' : 'Tenant B agent',
+              },
+            ],
+            has_more: false,
+          }),
+        )
+      }),
+    )
+    const credentialTenants: string[] = []
+    const connector = new MultiFoundryConnector(portfolio, (source) => {
+      credentialTenants.push(source.tenantId)
+      return new Credential()
+    })
+
+    const snapshot = await connector.discover()
+    expect(credentialTenants).toEqual(['tenant-a', 'tenant-b'])
+    expect(snapshot).toMatchObject({
+      tenantId: 'estate',
+      environment: 'portfolio',
+    })
+    const agents = snapshot.nodes.filter((node) => node.kind === 'agent')
+    expect(agents).toHaveLength(2)
+    expect(new Set(agents.map((agent) => agent.id)).size).toBe(2)
+    expect(agents.map((agent) => agent.metadata['sourceTenantId']).sort()).toEqual([
+      'tenant-a',
+      'tenant-b',
+    ])
+    expect(snapshot.evidence[0]?.metadata).toMatchObject({
+      sourceConnectorId: 'tenant-a-project',
+      sourceTenantId: 'tenant-a',
+      sourceProjectId: 'project-a',
+      sourceEnvironment: 'production',
+    })
+    expect(connector.getConnectorHealth()).toMatchObject({
+      overall: 'ready',
+      partial: false,
+      sources: [
+        { id: 'foundry:tenant-a-project', readiness: 'ready' },
+        { id: 'foundry:tenant-b-project', readiness: 'ready' },
+      ],
+    })
+  })
+
+  it('reports partial discovery without claiming all configured sources', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) => {
+        const url = new URL(input instanceof Request ? input.url : input.toString())
+        return Promise.resolve(
+          url.hostname.startsWith('a.')
+            ? Response.json({ data: [externalAgent], has_more: false })
+            : Response.json({ error: { message: 'Forbidden' } }, { status: 403 }),
+        )
+      }),
+    )
+    const connector = new MultiFoundryConnector(portfolio, () => new Credential())
+    const snapshot = await connector.discover()
+    expect(snapshot.nodes.filter((node) => node.kind === 'agent')).toHaveLength(1)
+    expect(connector.getConnectorHealth()).toMatchObject({
+      overall: 'degraded',
+      partial: true,
+      sources: [
+        { id: 'foundry:tenant-a-project', readiness: 'ready' },
+        { id: 'foundry:tenant-b-project', readiness: 'unavailable' },
+      ],
+    })
+  })
+
+  it('preserves legacy ids for the primary source during migration', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(Response.json({ data: [externalAgent], has_more: false })),
+    )
+    const connector = new MultiFoundryConnector(
+      {
+        estateTenantId: 'tenant-a',
+        estateEnvironment: 'production',
+        sources: [
+          {
+            id: 'primary',
+            name: 'Current project',
+            projectEndpoint: 'https://a.services.ai.azure.com/api/projects/project-a',
+            tenantId: 'tenant-a',
+            environment: 'production',
+          },
+        ],
+      },
+      () => new Credential(),
+    )
+    const snapshot = await connector.discover()
+    expect(snapshot.nodes.some((node) => node.id === 'foundry-agent-a1')).toBe(true)
+    expect(snapshot.nodes[0]?.metadata['sourceConnectorId']).toBe('primary')
+  })
+
+  it('fails when no configured source completes discovery', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(Response.json({ error: { message: 'Forbidden' } }, { status: 403 })),
+    )
+    const connector = new MultiFoundryConnector(portfolio, () => new Credential())
+    await expect(connector.discover()).rejects.toThrow(
+      'No configured Foundry source completed discovery',
+    )
   })
 })

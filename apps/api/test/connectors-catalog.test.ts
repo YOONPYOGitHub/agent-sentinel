@@ -138,6 +138,7 @@ describe('buildConnectorsCollection', () => {
       connectorId: 'foundry-connector',
       connectorHealth: health,
     })
+
     expect(degraded.health).toEqual(health)
     expect(degraded.catalog.find((entry) => entry.id === 'entra-agent-id')?.lifecycleState).toBe(
       'unavailable',
@@ -154,6 +155,40 @@ describe('buildConnectorsCollection', () => {
     })
     expect(ready.catalog.find((entry) => entry.id === 'entra-agent-id')?.lifecycleState).toBe(
       'connected',
+    )
+  })
+
+  it('reports partially reachable Foundry sources as degraded', () => {
+    const result = buildConnectorsCollection('foundry', {
+      connectorId: 'azure-ai-foundry-agent-service',
+      connectionOk: false,
+      connectorHealth: {
+        overall: 'degraded',
+        partial: true,
+        sources: [
+          {
+            id: 'project-a',
+            name: 'Project A',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+          },
+          {
+            id: 'project-b',
+            name: 'Project B',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'unavailable',
+            reason: 'authentication-or-access',
+          },
+        ],
+      },
+    })
+    expect(result.active.lifecycleState).toBe('degraded')
+    expect(result.catalog.find((entry) => entry.id === 'azure-ai-foundry')?.lifecycleState).toBe(
+      'degraded',
     )
   })
 

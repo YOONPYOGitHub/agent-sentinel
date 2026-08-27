@@ -19,7 +19,7 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     sourceOfTruth: true,
     ownershipModel: 'consumes',
     prerequisiteNote:
-      'Requires FOUNDRY_PROJECT_ENDPOINT, FOUNDRY_TENANT_ID, and FOUNDRY_ENVIRONMENT. Uses DefaultAzureCredential (az login or managed identity).',
+      'Supports one or more tenant/project sources. Legacy FOUNDRY_PROJECT_ENDPOINT settings remain valid; FOUNDRY_SOURCES_JSON adds sources with independent default or secretless federated-app credentials.',
     unlocksScorecard: ['security', 'governance', 'lifecycle'],
   },
   {
@@ -154,10 +154,27 @@ export function buildConnectorsCollection(
   },
 ): ConnectorsCollectionResponse {
   const connectionOk = opts.connectionOk !== false
+  const discoverySources = opts.connectorHealth?.sources.filter(
+    (source) => source.role === 'discovery',
+  )
+  const readyDiscoverySources =
+    discoverySources?.filter((source) => source.readiness === 'ready').length ?? 0
   const foundryLifecycle =
-    mode === 'foundry' && !connectionOk ? 'unavailable' : foundryStateForMode(mode)
+    mode !== 'foundry'
+      ? foundryStateForMode(mode)
+      : discoverySources !== undefined &&
+          discoverySources.length > 0 &&
+          readyDiscoverySources < discoverySources.length &&
+          readyDiscoverySources > 0
+        ? 'degraded'
+        : !connectionOk ||
+            (discoverySources !== undefined &&
+              discoverySources.length > 0 &&
+              readyDiscoverySources === 0)
+          ? 'unavailable'
+          : 'connected'
   const entraHealth = opts.connectorHealth?.sources.find(
-    (source) => source.id === 'microsoft-entra-service-principals',
+    (source) => source.role === 'enrichment' && source.id === 'microsoft-entra-service-principals',
   )
   const catalog: CatalogConnectorEntry[] = BASE_CATALOG.map((entry) => {
     if (entry.id === 'azure-ai-foundry') {
@@ -180,7 +197,12 @@ export function buildConnectorsCollection(
       id: opts.connectorId,
       mode,
       source: mode,
-      lifecycleState: connectionOk ? 'connected' : 'unavailable',
+      lifecycleState:
+        opts.connectorHealth?.overall === 'degraded'
+          ? 'degraded'
+          : connectionOk
+            ? 'connected'
+            : 'unavailable',
       ...(opts.writeEnabled !== undefined ? { writeEnabled: opts.writeEnabled } : {}),
       ...(opts.projectEndpoint !== undefined ? { projectEndpoint: opts.projectEndpoint } : {}),
     },

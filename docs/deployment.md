@@ -36,6 +36,13 @@ unique key across `/manifestId` plus `/envelope/producedAt`. Set
 `COSMOS_MANIFEST_INGESTIONS_CONTAINER=manifest-ingestions` on API and jobs. Provision this container
 before deploying a jobs image that lists authenticated manifest versions.
 
+For multi-project Foundry discovery, set `agentSentinelTenantId` and
+`agentSentinelEnvironment` as stable aggregate persistence boundaries and pass
+`foundrySourcesJson`. Keep the existing project as source id `primary` to
+preserve current identifiers. Each cross-tenant source needs a target-tenant
+app registration with workload identity federation and project-scoped
+`Azure AI User`; no client secret is stored in Container Apps.
+
 ### Phase C ? Foundry Embedding
 
 Add text-embedding-3-large deployment (only this module touches AIServices).

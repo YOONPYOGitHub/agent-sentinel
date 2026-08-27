@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 export const connectorLifecycleStateSchema = z.enum([
   'connected',
+  'degraded',
   'available-to-configure',
   'authorization-required',
   'planned',
@@ -34,6 +35,17 @@ const catalogEntrySchema = z.object({
   settingsPath: z.string().optional(),
 })
 
+const connectorSourceHealthSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  role: z.enum(['discovery', 'enrichment']),
+  enabled: z.boolean(),
+  configured: z.boolean(),
+  readiness: z.enum(['ready', 'degraded', 'unavailable', 'disabled', 'authorization-required']),
+  checkedAt: z.iso.datetime().optional(),
+  reason: z.string().optional(),
+})
+
 const connectorsCollectionSchema = z.object({
   active: z.object({
     id: z.string().min(1),
@@ -44,6 +56,13 @@ const connectorsCollectionSchema = z.object({
     projectEndpoint: z.url().optional(),
   }),
   catalog: z.array(catalogEntrySchema),
+  health: z
+    .object({
+      overall: z.enum(['ready', 'degraded', 'unavailable']),
+      partial: z.boolean(),
+      sources: z.array(connectorSourceHealthSchema),
+    })
+    .optional(),
 })
 
 export type ConnectorLifecycleState = z.infer<typeof connectorLifecycleStateSchema>

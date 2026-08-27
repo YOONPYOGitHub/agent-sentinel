@@ -27,6 +27,15 @@ param foundryTenantId string = ''
 @description('Foundry environment label for live mode.')
 param foundryEnvironment string = 'validation'
 
+@description('Optional JSON array of multiple Foundry tenant/project source definitions. Empty preserves the legacy single-project settings.')
+param foundrySourcesJson string = ''
+
+@description('Stable Agent Sentinel estate tenant used for aggregate persistence. Empty uses foundryTenantId for backward compatibility.')
+param agentSentinelTenantId string = ''
+
+@description('Stable Agent Sentinel estate environment used for aggregate persistence.')
+param agentSentinelEnvironment string = ''
+
 @description('Enable optional Microsoft Entra identity enrichment. Keep false until tenant-admin consent is complete.')
 param entraConnectorEnabled bool = false
 @description('Microsoft Entra tenant ID for identity enrichment. Empty while disabled.')
@@ -221,6 +230,9 @@ module containerApps './modules/container-apps.bicep' = {
     advisoryMode: 'mock'
     foundryTenantId: foundryTenantId
     foundryEnvironment: foundryEnvironment
+    foundrySourcesJson: foundrySourcesJson
+    agentSentinelTenantId: agentSentinelTenantId
+    agentSentinelEnvironment: agentSentinelEnvironment
     entraConnectorEnabled: entraConnectorEnabled
     entraConnectorTenantId: entraConnectorTenantId
     entraConnectorEnvironment: entraConnectorEnvironment

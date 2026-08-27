@@ -53,6 +53,48 @@ describe('connectorsApi', () => {
     expect(result.catalog[0]?.id).toBe('azure-ai-foundry')
   })
 
+  it('preserves per-source health and degraded lifecycle state', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            ...validResponse,
+            active: { ...validResponse.active, lifecycleState: 'degraded' },
+            health: {
+              overall: 'degraded',
+              partial: true,
+              sources: [
+                {
+                  id: 'project-a',
+                  name: 'Project A',
+                  role: 'discovery',
+                  enabled: true,
+                  configured: true,
+                  readiness: 'ready',
+                },
+                {
+                  id: 'project-b',
+                  name: 'Project B',
+                  role: 'discovery',
+                  enabled: true,
+                  configured: true,
+                  readiness: 'unavailable',
+                  reason: 'authentication-or-access',
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    )
+
+    const result = await connectorsApi.listConnectors()
+    expect(result.active.lifecycleState).toBe('degraded')
+    expect(result.health?.sources).toHaveLength(2)
+  })
+
   it('rejects an invalid lifecycle state', async () => {
     vi.stubGlobal(
       'fetch',

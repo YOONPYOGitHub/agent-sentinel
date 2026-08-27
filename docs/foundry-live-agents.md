@@ -49,8 +49,8 @@ an unrelated agent eligible for deletion.
 
 ## API selection and connector health
 
-The API defaults to the mock connector. Select Foundry by setting all four
-values before starting the API:
+The API defaults to the mock connector. The legacy single-project settings
+remain supported:
 
 ```bash
 export AGENT_SENTINEL_CONNECTOR=foundry
@@ -69,6 +69,50 @@ The connector validates Foundry responses, safely follows same-collection
 `nextLink` and body/header continuation tokens, and maps each source object to
 evidence and an estate agent. It does not infer tools, relationships, owners,
 or health that Foundry did not return.
+
+### Multiple tenants and projects
+
+Set a stable aggregate estate boundary and provide a JSON source array:
+
+```bash
+export AGENT_SENTINEL_CONNECTOR=foundry
+export AGENT_SENTINEL_TENANT_ID='<stable-estate-id>'
+export AGENT_SENTINEL_ENVIRONMENT='portfolio'
+export FOUNDRY_ENVIRONMENT='portfolio'
+export FOUNDRY_SOURCES_JSON='[
+  {
+    "id": "primary",
+    "name": "Current Foundry project",
+    "projectEndpoint": "https://<account-a>.services.ai.azure.com/api/projects/<project-a>",
+    "tenantId": "<tenant-a>",
+    "environment": "production"
+  },
+  {
+    "id": "tenant-b-project",
+    "name": "Tenant B validation",
+    "projectEndpoint": "https://<account-b>.services.ai.azure.com/api/projects/<project-b>",
+    "tenantId": "<tenant-b>",
+    "environment": "validation",
+    "credential": {
+      "mode": "federated-app",
+      "clientId": "<app-client-id-in-tenant-b>",
+      "managedIdentityClientId": "<optional-source-uami-client-id>"
+    }
+  }
+]'
+```
+
+Use source id `primary` for the existing project to preserve its node and
+finding identifiers. Additional sources are namespaced by source id. Every
+node records `sourceConnectorId`, source tenant, project, and environment.
+
+Same-tenant sources can use the default managed identity/developer credential.
+Cross-tenant sources use secretless workload identity federation: create an app
+in the target tenant, configure a federated identity credential that trusts the
+Agent Sentinel managed identity assertion, and grant that app `Azure AI User`
+on the target project. A source without authorization reports unavailable; if
+any configured discovery source fails, the aggregate reports degraded and jobs
+does not promote the incomplete snapshot.
 
 ## Live validation
 

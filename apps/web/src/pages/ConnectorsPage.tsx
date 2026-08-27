@@ -49,6 +49,8 @@ function lifecycleColor(state: CatalogEntry['lifecycleState'] | 'connected'): Li
   switch (state) {
     case 'connected':
       return 'success'
+    case 'degraded':
+      return 'warning'
     case 'available-to-configure':
       return 'informative'
     case 'authorization-required':
@@ -65,6 +67,8 @@ function lifecycleLabel(state: CatalogEntry['lifecycleState'] | 'connected'): st
   switch (state) {
     case 'connected':
       return 'Connected'
+    case 'degraded':
+      return 'Degraded'
     case 'available-to-configure':
       return 'Available to configure'
     case 'authorization-required':
@@ -85,6 +89,13 @@ function LifecycleIcon({ state }: { state: CatalogEntry['lifecycleState'] | 'con
         <CheckmarkCircleRegular
           aria-hidden="true"
           className="connector-state-icon connector-state-icon--connected"
+        />
+      )
+    case 'degraded':
+      return (
+        <AlertRegular
+          aria-hidden="true"
+          className="connector-state-icon connector-state-icon--auth-required"
         />
       )
     case 'available-to-configure':
@@ -121,9 +132,16 @@ function LifecycleIcon({ state }: { state: CatalogEntry['lifecycleState'] | 'con
 
 // ??? Active connector panel ???????????????????????????????????????????????????
 
-function ActiveConnectorPanel({ active }: { active: ConnectorsCollection['active'] }) {
+function ActiveConnectorPanel({
+  active,
+  health,
+}: {
+  active: ConnectorsCollection['active']
+  health: ConnectorsCollection['health']
+}) {
   const isFoundry = active.mode === 'foundry'
   const connected = active.lifecycleState === 'connected'
+  const degraded = active.lifecycleState === 'degraded'
   return (
     <div className="connector-card connector-card--active">
       <div className="connector-card__header">
@@ -131,11 +149,13 @@ function ActiveConnectorPanel({ active }: { active: ConnectorsCollection['active
         <div>
           <h2>{isFoundry ? 'Azure AI Foundry' : 'Mock agent estate'}</h2>
           <p>
-            {!connected
-              ? 'Configured source failed its latest runtime connection test'
-              : isFoundry
-                ? 'Live discovery from Azure AI Foundry Agent Service'
-                : 'Synthetic seeded estate for demonstration and local development'}
+            {degraded
+              ? 'Some configured sources are unavailable; complete snapshots are not promoted'
+              : !connected
+                ? 'Configured source failed its latest runtime connection test'
+                : isFoundry
+                  ? 'Live discovery from Azure AI Foundry Agent Service'
+                  : 'Synthetic seeded estate for demonstration and local development'}
           </p>
         </div>
         <Badge
@@ -143,11 +163,13 @@ function ActiveConnectorPanel({ active }: { active: ConnectorsCollection['active
           appearance="tint"
           aria-label={`Connection mode: ${active.mode}`}
         >
-          {connected
-            ? active.mode === 'foundry'
-              ? 'Connected · Foundry'
-              : 'Connected · mock'
-            : 'Connection unavailable'}
+          {degraded
+            ? 'Degraded · partial'
+            : connected
+              ? active.mode === 'foundry'
+                ? 'Connected · Foundry'
+                : 'Connected · mock'
+              : 'Connection unavailable'}
         </Badge>
       </div>
       <dl className="connector-details">
@@ -174,6 +196,19 @@ function ActiveConnectorPanel({ active }: { active: ConnectorsCollection['active
           </div>
         )}
       </dl>
+      {health !== undefined ? (
+        <dl className="connector-details" aria-label="Configured source health">
+          {health.sources.map((source) => (
+            <div key={source.id}>
+              <dt>{source.name}</dt>
+              <dd>
+                {source.readiness}
+                {source.reason ? ` · ${source.reason}` : ''}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
     </div>
   )
 }
@@ -293,6 +328,7 @@ export function ConnectorsPage() {
   useEffect(() => void load(), [load])
 
   const hasConnected = collection?.catalog.some((e) => e.lifecycleState === 'connected') ?? false
+  const hasDegraded = collection?.catalog.some((e) => e.lifecycleState === 'degraded') ?? false
   const hasAvailable =
     collection?.catalog.some((e) => e.lifecycleState === 'available-to-configure') ?? false
   const hasPlanned = collection?.catalog.some((e) => e.lifecycleState === 'planned') ?? false
@@ -338,7 +374,7 @@ export function ConnectorsPage() {
               <PlugConnectedRegular aria-hidden="true" />
               Active connection
             </h2>
-            <ActiveConnectorPanel active={collection.active} />
+            <ActiveConnectorPanel active={collection.active} health={collection.health} />
           </section>
 
           <section aria-label="Connector catalog" className="connectors-section">
@@ -352,6 +388,12 @@ export function ConnectorsPage() {
                   <span className="legend-item legend-item--connected">
                     <CheckmarkCircleRegular aria-hidden="true" />
                     Connected
+                  </span>
+                )}
+                {hasDegraded && (
+                  <span className="legend-item legend-item--auth">
+                    <AlertRegular aria-hidden="true" />
+                    Degraded
                   </span>
                 )}
                 {hasAvailable && (

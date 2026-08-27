@@ -383,7 +383,8 @@ export async function createApp(
     defaultTenantId: defaultTenantId(),
     ...(runtimeTelemetryConnector !== undefined ? { runtimeTelemetryConnector } : {}),
   })
-  const manifestEnvironmentId = process.env['FOUNDRY_ENVIRONMENT']?.trim()
+  const manifestEnvironmentId =
+    process.env['AGENT_SENTINEL_ENVIRONMENT']?.trim() || process.env['FOUNDRY_ENVIRONMENT']?.trim()
   registerManifestIngestionRoutes(app, {
     authConfig,
     writeEnabled,

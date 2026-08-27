@@ -1,6 +1,7 @@
 import type {
   AgentConnector,
   ApprovalContext,
+  ConnectorHealthReport,
   ConnectorDescriptor,
 } from '@agent-sentinel/connector-sdk'
 import {
@@ -12,7 +13,11 @@ import {
   type Remediation,
 } from '@agent-sentinel/domain'
 import type { TokenCredential } from '@azure/core-auth'
-import { DefaultAzureCredential } from '@azure/identity'
+import {
+  ClientAssertionCredential,
+  DefaultAzureCredential,
+  ManagedIdentityCredential,
+} from '@azure/identity'
 import { z } from 'zod'
 
 export const FOUNDRY_API_VERSION = 'v1'
@@ -47,6 +52,128 @@ export const foundryConnectorConfigSchema = z.strictObject({
 })
 export const foundryConfigSchema = foundryConnectorConfigSchema
 export type FoundryConnectorConfig = z.infer<typeof foundryConnectorConfigSchema>
+
+const foundrySourceCredentialSchema = z.discriminatedUnion('mode', [
+  z.strictObject({
+    mode: z.literal('default'),
+    managedIdentityClientId: z.string().uuid().optional(),
+  }),
+  z.strictObject({
+    mode: z.literal('federated-app'),
+    clientId: z.string().uuid(),
+    managedIdentityClientId: z.string().uuid().optional(),
+  }),
+])
+
+export const foundrySourceConfigSchema = foundryConnectorConfigSchema.extend({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/),
+  name: z.string().trim().min(1).max(100),
+  credential: foundrySourceCredentialSchema.optional(),
+})
+export type FoundrySourceConfig = z.infer<typeof foundrySourceConfigSchema>
+
+export const foundryPortfolioConfigSchema = z
+  .strictObject({
+    estateTenantId: z.string().trim().min(1),
+    estateEnvironment: z.string().trim().min(1),
+    sources: z.array(foundrySourceConfigSchema).min(1).max(50),
+  })
+  .superRefine((config, context) => {
+    const ids = new Set<string>()
+    const endpoints = new Set<string>()
+    for (const [index, source] of config.sources.entries()) {
+      if (ids.has(source.id)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['sources', index, 'id'],
+          message: `Duplicate Foundry source id: ${source.id}`,
+        })
+      }
+      ids.add(source.id)
+      if (endpoints.has(source.projectEndpoint)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['sources', index, 'projectEndpoint'],
+          message: `Duplicate Foundry project endpoint: ${source.projectEndpoint}`,
+        })
+      }
+      endpoints.add(source.projectEndpoint)
+    }
+  })
+export type FoundryPortfolioConfig = z.infer<typeof foundryPortfolioConfigSchema>
+export type FoundryCredentialFactory = (source: FoundrySourceConfig) => TokenCredential
+
+export function createFoundrySourceCredential(source: FoundrySourceConfig): TokenCredential {
+  if (source.credential?.mode === 'federated-app') {
+    const managedIdentityClientId =
+      source.credential.managedIdentityClientId ?? process.env['AZURE_CLIENT_ID']?.trim()
+    if (!managedIdentityClientId) {
+      throw new FoundryConnectorError(
+        'Cross-tenant federation requires a user-assigned managed identity client ID.',
+      )
+    }
+    const assertionCredential = new ManagedIdentityCredential({
+      clientId: managedIdentityClientId,
+    })
+    return new ClientAssertionCredential(source.tenantId, source.credential.clientId, async () => {
+      const assertion = await assertionCredential.getToken('api://AzureADTokenExchange/.default')
+      if (assertion === null) {
+        throw new FoundryConnectorError(
+          'Managed identity did not return a workload identity federation assertion.',
+        )
+      }
+      return assertion.token
+    })
+  }
+  return new DefaultAzureCredential({
+    tenantId: source.tenantId,
+    ...(source.credential?.managedIdentityClientId !== undefined
+      ? { managedIdentityClientId: source.credential.managedIdentityClientId }
+      : {}),
+  })
+}
+
+function requiredEnvironment(environment: NodeJS.ProcessEnv, name: string): string {
+  const value = environment[name]?.trim()
+  if (!value) throw new Error(`${name} is required for Foundry discovery.`)
+  return value
+}
+
+export function parseFoundryPortfolioConfig(
+  environment: NodeJS.ProcessEnv = process.env,
+): FoundryPortfolioConfig {
+  const sourcesJson = environment['FOUNDRY_SOURCES_JSON']?.trim()
+  if (sourcesJson === undefined || sourcesJson.length === 0) {
+    const projectEndpoint = requiredEnvironment(environment, 'FOUNDRY_PROJECT_ENDPOINT')
+    const tenantId = requiredEnvironment(environment, 'FOUNDRY_TENANT_ID')
+    const source = foundrySourceConfigSchema.parse({
+      id: 'primary',
+      name: 'Primary Foundry project',
+      projectEndpoint,
+      tenantId,
+      environment: requiredEnvironment(environment, 'FOUNDRY_ENVIRONMENT'),
+    })
+    return foundryPortfolioConfigSchema.parse({
+      estateTenantId: environment['AGENT_SENTINEL_TENANT_ID']?.trim() || tenantId,
+      estateEnvironment: environment['AGENT_SENTINEL_ENVIRONMENT']?.trim() || source.environment,
+      sources: [source],
+    })
+  }
+
+  let sources: unknown
+  try {
+    sources = JSON.parse(sourcesJson)
+  } catch {
+    throw new Error('FOUNDRY_SOURCES_JSON must be valid JSON.')
+  }
+  return foundryPortfolioConfigSchema.parse({
+    estateTenantId: requiredEnvironment(environment, 'AGENT_SENTINEL_TENANT_ID'),
+    estateEnvironment:
+      environment['AGENT_SENTINEL_ENVIRONMENT']?.trim() ||
+      requiredEnvironment(environment, 'FOUNDRY_ENVIRONMENT'),
+    sources,
+  })
+}
 
 const functionToolSchema = z
   .object({
@@ -359,6 +486,233 @@ export class FoundryAgentConnector implements AgentConnector {
   }
 }
 
+interface FoundrySourceState {
+  config: FoundrySourceConfig
+  connector: FoundryAgentConnector
+  readiness: 'ready' | 'unavailable'
+  checkedAt: string | undefined
+  reason: 'not-queried' | 'authentication-or-access' | 'discovery-failed' | undefined
+}
+
+function sourceProjectId(endpoint: string): string {
+  return new URL(endpoint).pathname.split('/').at(-1) ?? 'unknown'
+}
+
+function sourceScopedId(sourceId: string, id: string): string {
+  return sourceId === 'primary' ? id : `foundry-source-${sourceId}--${id}`
+}
+
+function scopeFoundrySnapshot(
+  snapshot: EstateSnapshot,
+  source: FoundrySourceConfig,
+  estateTenantId: string,
+  estateEnvironment: string,
+): EstateSnapshot {
+  const nodeIds = new Map(
+    snapshot.nodes.map((node) => [node.id, sourceScopedId(source.id, node.id)]),
+  )
+  const evidenceIds = new Map(
+    snapshot.evidence.map((item) => [item.id, sourceScopedId(source.id, item.id)]),
+  )
+  return assertEstateSnapshot({
+    tenantId: estateTenantId,
+    environment: estateEnvironment,
+    generatedAt: snapshot.generatedAt,
+    nodes: snapshot.nodes.map((node) => ({
+      ...node,
+      id: nodeIds.get(node.id)!,
+      evidenceIds: node.evidenceIds.map((id) => evidenceIds.get(id) ?? id),
+      metadata: {
+        ...node.metadata,
+        sourceConnectorId: source.id,
+        sourceConnectorName: source.name,
+        sourceTenantId: source.tenantId,
+        sourceProjectId: sourceProjectId(source.projectEndpoint),
+        sourceEnvironment: source.environment,
+      },
+    })),
+    edges: snapshot.edges.map((edge) => ({
+      ...edge,
+      id: sourceScopedId(source.id, edge.id),
+      from: nodeIds.get(edge.from) ?? edge.from,
+      to: nodeIds.get(edge.to) ?? edge.to,
+      evidenceIds: edge.evidenceIds.map((id) => evidenceIds.get(id) ?? id),
+    })),
+    evidence: snapshot.evidence.map((item) => ({
+      ...item,
+      id: evidenceIds.get(item.id)!,
+      source: `${item.source} · ${source.name}`,
+      sourceObjectId: `${source.id}:${item.sourceObjectId}`,
+      metadata: {
+        sourceConnectorId: source.id,
+        sourceConnectorName: source.name,
+        sourceTenantId: source.tenantId,
+        sourceProjectId: sourceProjectId(source.projectEndpoint),
+        sourceEnvironment: source.environment,
+      },
+    })),
+  })
+}
+
+function mergeFoundrySnapshots(
+  snapshots: readonly EstateSnapshot[],
+  estateTenantId: string,
+  estateEnvironment: string,
+): EstateSnapshot {
+  const ids = new Set<string>()
+  const requireUnique = (id: string): void => {
+    if (ids.has(id)) throw new FoundryConnectorError(`Duplicate aggregated Foundry id: ${id}`)
+    ids.add(id)
+  }
+  const nodes = snapshots.flatMap((snapshot) => snapshot.nodes)
+  const edges = snapshots.flatMap((snapshot) => snapshot.edges)
+  const evidence = snapshots.flatMap((snapshot) => snapshot.evidence)
+  for (const item of [...nodes, ...edges, ...evidence]) requireUnique(item.id)
+  return assertEstateSnapshot({
+    tenantId: estateTenantId,
+    environment: estateEnvironment,
+    generatedAt: snapshots
+      .map((snapshot) => snapshot.generatedAt)
+      .sort()
+      .at(-1)!,
+    nodes,
+    edges,
+    evidence,
+  })
+}
+
+export class MultiFoundryConnector implements AgentConnector {
+  readonly descriptor: ConnectorDescriptor = {
+    id: 'azure-ai-foundry-agent-service',
+    name: 'Azure AI Foundry Agent Service',
+    apiVersion: FOUNDRY_API_VERSION,
+    releaseStatus: 'ga',
+    capabilities: ['discovery', 'evidence'],
+    requiredPermissions: ['Azure AI User on every configured Foundry project'],
+    blindSpots: [
+      'Declared configuration does not prove observed runtime behavior.',
+      'Each tenant/project requires an independently valid credential and role assignment.',
+    ],
+  }
+
+  private readonly config: FoundryPortfolioConfig
+  private readonly sources: FoundrySourceState[]
+  private evidenceById = new Map<string, Evidence>()
+
+  constructor(
+    configInput: FoundryPortfolioConfig,
+    credentialFactory: FoundryCredentialFactory = createFoundrySourceCredential,
+  ) {
+    this.config = foundryPortfolioConfigSchema.parse(configInput)
+    this.sources = this.config.sources.map((config) => ({
+      config,
+      connector: new FoundryAgentConnector(
+        {
+          projectEndpoint: config.projectEndpoint,
+          tenantId: config.tenantId,
+          environment: config.environment,
+        },
+        credentialFactory(config),
+      ),
+      readiness: 'unavailable',
+      checkedAt: undefined,
+      reason: 'not-queried',
+    }))
+  }
+
+  async testConnection() {
+    const results = await Promise.all(
+      this.sources.map(async (source) => ({
+        source,
+        result: await source.connector.testConnection(),
+      })),
+    )
+    for (const { source, result } of results) {
+      source.checkedAt = result.checkedAt
+      source.readiness = result.ok ? 'ready' : 'unavailable'
+      source.reason = result.ok ? undefined : 'authentication-or-access'
+    }
+    const ready = results.filter(({ result }) => result.ok).length
+    return {
+      ok: ready === results.length,
+      checkedAt: new Date().toISOString(),
+      message:
+        ready === results.length
+          ? `All ${ready} configured Foundry sources are reachable.`
+          : `${ready} of ${results.length} configured Foundry sources are reachable.`,
+    }
+  }
+
+  async discover(): Promise<EstateSnapshot> {
+    const results = await Promise.allSettled(
+      this.sources.map(async (source) => ({
+        source,
+        snapshot: await source.connector.discover(),
+      })),
+    )
+    const snapshots: EstateSnapshot[] = []
+    for (const [index, result] of results.entries()) {
+      const source = this.sources[index]!
+      source.checkedAt = new Date().toISOString()
+      if (result.status === 'fulfilled') {
+        source.readiness = 'ready'
+        source.reason = undefined
+        snapshots.push(
+          scopeFoundrySnapshot(
+            result.value.snapshot,
+            source.config,
+            this.config.estateTenantId,
+            this.config.estateEnvironment,
+          ),
+        )
+      } else {
+        source.readiness = 'unavailable'
+        source.reason = 'discovery-failed'
+      }
+    }
+    if (snapshots.length === 0) {
+      throw new FoundryConnectorError('No configured Foundry source completed discovery.')
+    }
+    const snapshot = mergeFoundrySnapshots(
+      snapshots,
+      this.config.estateTenantId,
+      this.config.estateEnvironment,
+    )
+    this.evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]))
+    return snapshot
+  }
+
+  getConnectorHealth(): ConnectorHealthReport {
+    const ready = this.sources.filter((source) => source.readiness === 'ready').length
+    return {
+      overall: ready === 0 ? 'unavailable' : ready === this.sources.length ? 'ready' : 'degraded',
+      partial: ready > 0 && ready < this.sources.length,
+      sources: this.sources.map((source) => ({
+        id: `foundry:${source.config.id}`,
+        name: source.config.name,
+        role: 'discovery',
+        enabled: true,
+        configured: true,
+        readiness: source.readiness,
+        ...(source.checkedAt !== undefined ? { checkedAt: source.checkedAt } : {}),
+        ...(source.reason !== undefined ? { reason: source.reason } : {}),
+      })),
+    }
+  }
+
+  getEvidence(id: string): Promise<Evidence> {
+    const item = this.evidenceById.get(id)
+    if (item === undefined) {
+      throw new FoundryConnectorError(`Aggregated Foundry evidence was not found: ${id}`)
+    }
+    return Promise.resolve(structuredClone(item))
+  }
+
+  execute(): Promise<{ remediation: Remediation; snapshot: EstateSnapshot }> {
+    return Promise.reject(new Error('Live remediation not supported for Foundry connector'))
+  }
+}
+
 export function createFoundryConnector(
   environment: NodeJS.ProcessEnv = process.env,
   credential: TokenCredential = new DefaultAzureCredential(),
@@ -371,4 +725,11 @@ export function createFoundryConnector(
     },
     credential,
   )
+}
+
+export function createMultiFoundryConnector(
+  environment: NodeJS.ProcessEnv = process.env,
+  credentialFactory?: FoundryCredentialFactory,
+): MultiFoundryConnector {
+  return new MultiFoundryConnector(parseFoundryPortfolioConfig(environment), credentialFactory)
 }

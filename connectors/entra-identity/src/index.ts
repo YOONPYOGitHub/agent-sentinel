@@ -311,8 +311,11 @@ export class EntraEnrichmentConnector implements AgentConnector {
   }
 
   getConnectorHealth(): ConnectorHealthReport {
+    const baseHealth = this.base.getConnectorHealth?.()
     const entraHealth = this.getHealth().entra
-    const baseReady = this.baseHealth.ok
+    const baseReady =
+      baseHealth !== undefined ? baseHealth.overall !== 'unavailable' : this.baseHealth.ok
+    const basePartial = baseHealth?.partial === true
     const optionalCapabilitiesReady = [
       entraHealth.owners,
       entraHealth.appRoleAssignments,
@@ -341,19 +344,25 @@ export class EntraEnrichmentConnector implements AgentConnector {
           'unavailable')
         : undefined
     return {
-      overall: !baseReady ? 'unavailable' : this.enabled && !entraReady ? 'degraded' : 'ready',
-      partial: baseReady && this.enabled && !entraReady,
+      overall: !baseReady
+        ? 'unavailable'
+        : basePartial || (this.enabled && !entraReady)
+          ? 'degraded'
+          : 'ready',
+      partial: baseReady && (basePartial || (this.enabled && !entraReady)),
       sources: [
-        {
-          id: this.base.descriptor.id,
-          name: this.base.descriptor.name,
-          role: 'discovery',
-          enabled: true,
-          configured: true,
-          readiness: baseReady ? 'ready' : 'unavailable',
-          checkedAt: this.baseHealth.checkedAt,
-          ...(!baseReady ? { reason: 'unavailable' } : {}),
-        },
+        ...(baseHealth?.sources ?? [
+          {
+            id: this.base.descriptor.id,
+            name: this.base.descriptor.name,
+            role: 'discovery' as const,
+            enabled: true,
+            configured: true,
+            readiness: baseReady ? ('ready' as const) : ('unavailable' as const),
+            checkedAt: this.baseHealth.checkedAt,
+            ...(!baseReady ? { reason: 'unavailable' } : {}),
+          },
+        ]),
         {
           id: 'microsoft-entra-service-principals',
           name: 'Microsoft Entra service principals',
