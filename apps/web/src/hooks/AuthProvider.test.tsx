@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const msal = vi.hoisted(() => ({
   initialize: vi.fn(),
+  handleRedirectPromise: vi.fn(),
   loginPopup: vi.fn(),
   logoutRedirect: vi.fn(),
   acquireTokenSilent: vi.fn(),
@@ -42,6 +43,7 @@ function AuthState() {
 beforeEach(() => {
   vi.clearAllMocks()
   msal.initialize.mockResolvedValue(undefined)
+  msal.handleRedirectPromise.mockResolvedValue(null)
   msal.logoutRedirect.mockResolvedValue(undefined)
   msal.getAllAccounts.mockReturnValue([])
 })
@@ -84,6 +86,7 @@ describe('AuthProvider', () => {
     expect(
       await screen.findByText('true', { selector: '[data-testid="configured"]' }),
     ).toBeVisible()
+    expect(msal.handleRedirectPromise).toHaveBeenCalledOnce()
     expect(screen.getByTestId('signed-in')).toHaveTextContent('false')
   })
 

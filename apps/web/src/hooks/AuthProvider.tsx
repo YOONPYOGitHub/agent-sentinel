@@ -175,6 +175,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await msal.initialize()
         if (cancelled) return
 
+        await msal.handleRedirectPromise()
+        if (cancelled) return
+
         msalRef.current = msal
         setSpaConfig(spa)
         setIsConfigured(true)
