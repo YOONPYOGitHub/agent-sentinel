@@ -230,17 +230,11 @@ const DIRECTORY_ID_KEYS = [
 const APPLICATION_ID_KEYS = ['entraAppId', 'appId', 'entraClientId', 'clientId'] as const
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-export function enrichSnapshotWithEntra(
+function composeSnapshotWithEntra(
   base: EstateSnapshot,
   identities: EstateSnapshot,
+  shouldCorrelate: (agent: GraphNode) => boolean,
 ): EstateSnapshot {
-  if (base.tenantId.toLowerCase() !== identities.tenantId.toLowerCase()) {
-    throw new Error('Cannot compose connector snapshots from different Microsoft Entra tenants.')
-  }
-  if (base.environment !== identities.environment) {
-    throw new Error('Cannot compose connector snapshots from different environments.')
-  }
-
   const distinctById = <T extends { id: string }>(items: readonly T[]): T[] => {
     const sorted = [...items].sort(
       (left, right) =>
@@ -272,7 +266,7 @@ export function enrichSnapshotWithEntra(
     metadata: { ...node.metadata },
   }))
   const correlationEdges: GraphEdge[] = []
-  for (const agent of baseNodes.filter((node) => node.kind === 'agent')) {
+  for (const agent of baseNodes.filter((node) => node.kind === 'agent' && shouldCorrelate(node))) {
     const candidates = new Map<string, GraphNode>()
     for (const key of DIRECTORY_ID_KEYS) {
       const value = agent.metadata[key]
@@ -329,4 +323,93 @@ export function enrichSnapshotWithEntra(
     edges,
     evidence,
   })
+}
+
+export function enrichSnapshotWithEntra(
+  base: EstateSnapshot,
+  identities: EstateSnapshot,
+): EstateSnapshot {
+  if (base.tenantId.toLowerCase() !== identities.tenantId.toLowerCase()) {
+    throw new Error('Cannot compose connector snapshots from different Microsoft Entra tenants.')
+  }
+  if (base.environment !== identities.environment) {
+    throw new Error('Cannot compose connector snapshots from different environments.')
+  }
+  return composeSnapshotWithEntra(base, identities, () => true)
+}
+
+export interface EntraAggregateSource {
+  id: string
+  name: string
+  tenantId: string
+  environment: string
+}
+
+function aggregateScopedId(sourceId: string, id: string): string {
+  return `entra-source-${sourceId}--${id}`
+}
+
+export function enrichAggregateSnapshotWithEntra(
+  base: EstateSnapshot,
+  identities: EstateSnapshot,
+  source: EntraAggregateSource,
+): EstateSnapshot {
+  if (identities.tenantId.toLowerCase() !== source.tenantId.toLowerCase()) {
+    throw new Error('Entra identity snapshot does not match its configured source tenant.')
+  }
+  if (identities.environment !== source.environment) {
+    throw new Error('Entra identity snapshot does not match its configured source environment.')
+  }
+
+  const nodeIds = new Map(
+    identities.nodes.map((node) => [node.id, aggregateScopedId(source.id, node.id)]),
+  )
+  const evidenceIds = new Map(
+    identities.evidence.map((item) => [item.id, aggregateScopedId(source.id, item.id)]),
+  )
+  const scopedIdentities = assertEstateSnapshot({
+    tenantId: base.tenantId,
+    environment: base.environment,
+    generatedAt: identities.generatedAt,
+    nodes: identities.nodes.map((node) => ({
+      ...node,
+      id: nodeIds.get(node.id)!,
+      evidenceIds: node.evidenceIds.map((id) => evidenceIds.get(id) ?? id),
+      metadata: {
+        ...node.metadata,
+        sourceConnectorId: source.id,
+        sourceConnectorName: source.name,
+        sourceTenantId: source.tenantId,
+        sourceEnvironment: source.environment,
+      },
+    })),
+    edges: identities.edges.map((edge) => ({
+      ...edge,
+      id: aggregateScopedId(source.id, edge.id),
+      from: nodeIds.get(edge.from) ?? edge.from,
+      to: nodeIds.get(edge.to) ?? edge.to,
+      evidenceIds: edge.evidenceIds.map((id) => evidenceIds.get(id) ?? id),
+    })),
+    evidence: identities.evidence.map((item) => ({
+      ...item,
+      id: evidenceIds.get(item.id)!,
+      source: `${item.source} · ${source.name}`,
+      sourceObjectId: `${source.id}:${item.sourceObjectId}`,
+      metadata: {
+        ...item.metadata,
+        sourceConnectorId: source.id,
+        sourceConnectorName: source.name,
+        sourceTenantId: source.tenantId,
+        sourceEnvironment: source.environment,
+      },
+    })),
+  })
+
+  return composeSnapshotWithEntra(
+    base,
+    scopedIdentities,
+    (agent) =>
+      agent.metadata['sourceTenantId']?.toLowerCase() === source.tenantId.toLowerCase() &&
+      agent.metadata['sourceEnvironment'] === source.environment,
+  )
 }

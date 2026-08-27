@@ -9,11 +9,13 @@ import {
   EntraEnrichmentConnector,
   EntraGraphClient,
   EntraIdentityConnector,
+  MultiEntraEnrichmentConnector,
   createEntraIdentityConnector,
   createOptionalEntraEnrichmentConnector,
   enrichSnapshotWithEntra,
   entraIdentityConnectorConfigSchema,
   mapEntraInventoryToSnapshot,
+  parseEntraSourcesConfig,
 } from '../src/index.js'
 
 const tenantId = '99999999-9999-4999-8999-999999999999'
@@ -98,6 +100,13 @@ function baseConnector(): AgentConnector {
     discover: () =>
       Promise.resolve(baseSnapshot({ servicePrincipalId: '22222222-2222-4222-8222-222222222222' })),
     getEvidence: () => Promise.reject(new Error('not used')),
+  }
+}
+
+function connectorForSnapshot(snapshot: EstateSnapshot): AgentConnector {
+  return {
+    ...baseConnector(),
+    discover: () => Promise.resolve(structuredClone(snapshot)),
   }
 }
 
@@ -439,13 +448,185 @@ describe('composite enrichment connector', () => {
     expect(composite.getHealth().entra.stableInventory.status).toBe('available')
   })
 
+  describe('multi-source Entra enrichment', () => {
+    const tenantA = '99999999-9999-4999-8999-999999999999'
+    const tenantB = '88888888-8888-4888-8888-888888888888'
+    const expectedSources = [
+      {
+        id: 'project-a',
+        name: 'Project A',
+        tenantId: tenantA,
+        environment: 'production',
+      },
+      {
+        id: 'project-b',
+        name: 'Project B',
+        tenantId: tenantB,
+        environment: 'validation',
+      },
+    ]
+
+    function aggregateBase(): EstateSnapshot {
+      const observedAt = '2026-08-28T00:00:00.000Z'
+      return {
+        tenantId: 'estate',
+        environment: 'portfolio',
+        generatedAt: observedAt,
+        nodes: expectedSources.map((source) => ({
+          id: `agent-${source.id}`,
+          kind: 'agent' as const,
+          name: `Agent ${source.id}`,
+          description: 'test',
+          environment: source.environment,
+          evidenceIds: [`evidence-${source.id}`],
+          metadata: {
+            sourceConnectorId: source.id,
+            sourceTenantId: source.tenantId,
+            sourceEnvironment: source.environment,
+            servicePrincipalId: '11111111-1111-4111-8111-111111111111',
+          },
+        })),
+        edges: [],
+        evidence: expectedSources.map((source) => ({
+          id: `evidence-${source.id}`,
+          source: 'Foundry',
+          sourceObjectId: source.id,
+          observedAt,
+          freshness: 'live' as const,
+          confidence: 1,
+          summary: 'Declared configuration.',
+        })),
+      }
+    }
+
+    function sourceConfig(source: (typeof expectedSources)[number]) {
+      return {
+        ...source,
+        graphBaseUrl: 'https://graph.microsoft.com',
+        capabilities: {
+          owners: false,
+          appRoleAssignments: false,
+          agentIdentityPreview: false,
+        },
+        limits: config.limits,
+      }
+    }
+
+    it('parses legacy and multi-source environment configuration', () => {
+      expect(
+        parseEntraSourcesConfig({
+          ENTRA_CONNECTOR_TENANT_ID: tenantA,
+          ENTRA_CONNECTOR_ENVIRONMENT: 'production',
+        }),
+      ).toMatchObject([{ id: 'primary', tenantId: tenantA }])
+      expect(
+        parseEntraSourcesConfig({
+          ENTRA_SOURCES_JSON: JSON.stringify(expectedSources),
+        }),
+      ).toMatchObject([
+        { id: 'project-a', tenantId: tenantA },
+        { id: 'project-b', tenantId: tenantB },
+      ])
+    })
+
+    it('correlates identical directory ids only within matching source boundaries', async () => {
+      const servicePrincipal = {
+        id: '11111111-1111-4111-8111-111111111111',
+        appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        displayName: 'Shared provider id',
+        servicePrincipalType: 'Application',
+        accountEnabled: true,
+        appOwnerOrganizationId: tenantA,
+        tags: [],
+      }
+      const connector = new MultiEntraEnrichmentConnector(
+        connectorForSnapshot(aggregateBase()),
+        expectedSources.map(sourceConfig),
+        {
+          enabled: true,
+          expectedSources,
+          credentialFactory: () => new Credential(),
+          clientFactory: () => ({
+            fetcher: vi
+              .fn<typeof fetch>()
+              .mockResolvedValue(Response.json({ value: [servicePrincipal] })),
+          }),
+        },
+      )
+
+      const snapshot = await connector.discover()
+      const correlations = snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')
+      expect(correlations).toHaveLength(2)
+      for (const source of expectedSources) {
+        const agent = snapshot.nodes.find((node) => node.id === `agent-${source.id}`)
+        expect(agent?.metadata['entraIdentityNodeId']).toContain(`entra-source-${source.id}--`)
+        const edge = correlations.find((candidate) => candidate.from === agent?.id)
+        const identity = snapshot.nodes.find((node) => node.id === edge?.to)
+        expect(identity?.metadata['sourceTenantId']).toBe(source.tenantId)
+      }
+      expect(connector.getConnectorHealth()).toMatchObject({
+        overall: 'ready',
+        partial: false,
+        sources: [
+          { id: 'base', readiness: 'ready' },
+          { id: 'entra:project-a', readiness: 'ready' },
+          { id: 'entra:project-b', readiness: 'ready' },
+        ],
+      })
+    })
+
+    it('reports missing tenant authorization without correlating another source', async () => {
+      const connector = new MultiEntraEnrichmentConnector(
+        connectorForSnapshot(aggregateBase()),
+        [sourceConfig(expectedSources[0]!)],
+        {
+          enabled: true,
+          expectedSources,
+          credentialFactory: () => new Credential(),
+          clientFactory: () => ({
+            fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+              Response.json({
+                value: [
+                  {
+                    id: '11111111-1111-4111-8111-111111111111',
+                    appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                    displayName: 'Tenant A identity',
+                    servicePrincipalType: 'Application',
+                    accountEnabled: true,
+                    appOwnerOrganizationId: tenantA,
+                    tags: [],
+                  },
+                ],
+              }),
+            ),
+          }),
+        },
+      )
+      const snapshot = await connector.discover()
+      expect(snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(1)
+      expect(connector.getConnectorHealth()).toMatchObject({
+        overall: 'degraded',
+        partial: true,
+        sources: [
+          { id: 'base', readiness: 'ready' },
+          { id: 'entra:project-a', readiness: 'ready' },
+          {
+            id: 'entra:project-b',
+            configured: false,
+            readiness: 'authorization-required',
+          },
+        ],
+      })
+    })
+  })
+
   it('fails closed on invalid activation configuration without blocking base discovery', async () => {
     const composite = createOptionalEntraEnrichmentConnector(baseConnector(), {
       ENTRA_CONNECTOR_ENABLED: 'not-a-boolean',
     })
     await expect(composite.discover()).resolves.toMatchObject({ tenantId })
     await expect(composite.testConnection()).resolves.toMatchObject({ ok: true })
-    expect(composite.getConnectorHealth()).toMatchObject({
+    expect(composite.getConnectorHealth?.()).toMatchObject({
       overall: 'degraded',
       partial: true,
       sources: [

@@ -9,11 +9,20 @@ import type {
 } from '@agent-sentinel/connector-sdk'
 import type { EstateSnapshot, Evidence, Remediation } from '@agent-sentinel/domain'
 import type { TokenCredential } from '@azure/core-auth'
-import { DefaultAzureCredential } from '@azure/identity'
-import type { z } from 'zod'
+import {
+  ClientAssertionCredential,
+  DefaultAzureCredential,
+  ManagedIdentityCredential,
+} from '@azure/identity'
+import { z } from 'zod'
 
 import { EntraGraphClient, EntraGraphError, type EntraGraphClientOptions } from './client.js'
-import { enrichSnapshotWithEntra, mapEntraInventoryToSnapshot } from './normalize.js'
+import {
+  enrichAggregateSnapshotWithEntra,
+  enrichSnapshotWithEntra,
+  mapEntraInventoryToSnapshot,
+  type EntraAggregateSource,
+} from './normalize.js'
 import {
   entraIdentityConnectorConfigSchema,
   type AgentIdentityPreview,
@@ -30,6 +39,82 @@ export interface EntraConnectorHealth {
   owners: { status: EntraCapabilityStatus; reason?: string }
   appRoleAssignments: { status: EntraCapabilityStatus; reason?: string }
   agentIdentityPreview: { status: EntraCapabilityStatus; reason?: string }
+}
+
+const entraSourceCredentialSchema = z.discriminatedUnion('mode', [
+  z.strictObject({
+    mode: z.literal('default'),
+    managedIdentityClientId: z.string().uuid().optional(),
+  }),
+  z.strictObject({
+    mode: z.literal('federated-app'),
+    clientId: z.string().uuid(),
+    managedIdentityClientId: z.string().uuid().optional(),
+  }),
+])
+
+export const entraSourceConfigSchema = entraIdentityConnectorConfigSchema.extend({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/),
+  name: z.string().trim().min(1).max(100),
+  credential: entraSourceCredentialSchema.optional(),
+})
+export type EntraSourceConfig = z.infer<typeof entraSourceConfigSchema>
+
+export const entraSourcesConfigSchema = z
+  .array(entraSourceConfigSchema)
+  .min(1)
+  .max(50)
+  .superRefine((sources, context) => {
+    const ids = new Set<string>()
+    const boundaries = new Set<string>()
+    for (const [index, source] of sources.entries()) {
+      if (ids.has(source.id)) {
+        context.addIssue({
+          code: 'custom',
+          path: [index, 'id'],
+          message: `Duplicate Entra source id: ${source.id}`,
+        })
+      }
+      ids.add(source.id)
+      const boundary = `${source.tenantId.toLowerCase()}\0${source.environment}`
+      if (boundaries.has(boundary)) {
+        context.addIssue({
+          code: 'custom',
+          path: [index],
+          message: 'Duplicate Entra tenant and environment source boundary.',
+        })
+      }
+      boundaries.add(boundary)
+    }
+  })
+export type EntraCredentialFactory = (source: EntraSourceConfig) => TokenCredential
+
+export function createEntraSourceCredential(source: EntraSourceConfig): TokenCredential {
+  if (source.credential?.mode === 'federated-app') {
+    const managedIdentityClientId =
+      source.credential.managedIdentityClientId ?? process.env['AZURE_CLIENT_ID']?.trim()
+    if (!managedIdentityClientId) {
+      throw new Error(
+        'Cross-tenant Entra federation requires a user-assigned managed identity client ID.',
+      )
+    }
+    const assertionCredential = new ManagedIdentityCredential({
+      clientId: managedIdentityClientId,
+    })
+    return new ClientAssertionCredential(source.tenantId, source.credential.clientId, async () => {
+      const assertion = await assertionCredential.getToken('api://AzureADTokenExchange/.default')
+      if (assertion === null) {
+        throw new Error('Managed identity did not return a workload identity federation assertion.')
+      }
+      return assertion.token
+    })
+  }
+  return new DefaultAzureCredential({
+    tenantId: source.tenantId,
+    ...(source.credential?.managedIdentityClientId !== undefined
+      ? { managedIdentityClientId: source.credential.managedIdentityClientId }
+      : {}),
+  })
 }
 
 function safeFailureReason(error: unknown): string {
@@ -392,12 +477,279 @@ export class EntraEnrichmentConnector implements AgentConnector {
   }
 }
 
-export function createEntraIdentityConnector(
-  environment: NodeJS.ProcessEnv = process.env,
-  credential?: TokenCredential,
-  options: EntraGraphClientOptions = {},
-): EntraIdentityConnector {
-  const config = entraIdentityConnectorConfigSchema.parse({
+export type ExpectedEntraSource = EntraAggregateSource
+
+export interface MultiEntraEnrichmentOptions {
+  enabled: boolean
+  expectedSources: readonly ExpectedEntraSource[]
+  credentialFactory?: EntraCredentialFactory
+  clientFactory?: (source: EntraSourceConfig) => EntraGraphClientOptions
+}
+
+interface MultiEntraSourceState {
+  expected: ExpectedEntraSource
+  config: EntraSourceConfig | undefined
+  connector: EntraIdentityConnector | undefined
+  configured: boolean
+  readiness: ConnectorReadiness
+  checkedAt: string | undefined
+  reason: string | undefined
+}
+
+function sourceBoundary(source: Pick<EntraAggregateSource, 'tenantId' | 'environment'>): string {
+  return `${source.tenantId.toLowerCase()}\0${source.environment}`
+}
+
+function entraReadiness(connector: EntraIdentityConnector): {
+  readiness: 'ready' | 'degraded'
+  reason?: string
+} {
+  const health = connector.getHealth()
+  const optionalReady = [
+    health.owners,
+    health.appRoleAssignments,
+    health.agentIdentityPreview,
+  ].every((capability) => capability.status === 'disabled' || capability.status === 'available')
+  if (health.stableInventory.status === 'available' && optionalReady) {
+    return { readiness: 'ready' }
+  }
+  return {
+    readiness: 'degraded',
+    reason:
+      health.stableInventory.reason ??
+      health.owners.reason ??
+      health.appRoleAssignments.reason ??
+      health.agentIdentityPreview.reason ??
+      'not-queried',
+  }
+}
+
+export class MultiEntraEnrichmentConnector implements AgentConnector {
+  readonly descriptor: ConnectorDescriptor
+  private readonly sources: MultiEntraSourceState[]
+  private readonly enabled: boolean
+  private evidenceById = new Map<string, Evidence>()
+  private baseHealth: ConnectionTestResult = {
+    ok: false,
+    checkedAt: new Date(0).toISOString(),
+    message: 'Base connector has not been tested.',
+  }
+
+  constructor(
+    private readonly base: AgentConnector,
+    configuredSources: readonly EntraSourceConfig[],
+    options: MultiEntraEnrichmentOptions,
+  ) {
+    this.enabled = options.enabled
+    const credentialFactory = options.credentialFactory ?? createEntraSourceCredential
+    const expectedIds = new Set(options.expectedSources.map((source) => source.id))
+    const unexpected = configuredSources.find((source) => !expectedIds.has(source.id))
+    if (unexpected !== undefined) {
+      throw new Error(`Entra source has no matching Foundry source: ${unexpected.id}`)
+    }
+    const configuredById = new Map(configuredSources.map((source) => [source.id, source]))
+    this.sources = options.expectedSources.map((expected) => {
+      const config = configuredById.get(expected.id)
+      const boundaryMatches =
+        config !== undefined && sourceBoundary(config) === sourceBoundary(expected)
+      let connector: EntraIdentityConnector | undefined
+      let reason: string | undefined
+      if (config !== undefined && !boundaryMatches) reason = 'boundary-mismatch'
+      if (this.enabled && boundaryMatches && config !== undefined) {
+        try {
+          connector = new EntraIdentityConnector(
+            {
+              tenantId: config.tenantId,
+              environment: config.environment,
+              graphBaseUrl: config.graphBaseUrl,
+              capabilities: config.capabilities,
+              limits: config.limits,
+            },
+            credentialFactory(config),
+            options.clientFactory?.(config),
+          )
+        } catch {
+          reason = 'invalid-configuration'
+        }
+      }
+      return {
+        expected,
+        config,
+        connector,
+        configured: boundaryMatches,
+        readiness: !this.enabled
+          ? boundaryMatches
+            ? 'disabled'
+            : 'authorization-required'
+          : connector !== undefined
+            ? 'degraded'
+            : boundaryMatches
+              ? 'degraded'
+              : 'authorization-required',
+        checkedAt: undefined,
+        reason:
+          reason ??
+          (this.enabled && connector !== undefined
+            ? 'not-queried'
+            : boundaryMatches
+              ? undefined
+              : 'not-configured'),
+      }
+    })
+    this.descriptor = {
+      ...base.descriptor,
+      capabilities: [
+        ...new Set<ConnectorCapability>([...base.descriptor.capabilities, 'discovery', 'evidence']),
+      ],
+      requiredPermissions: [
+        ...new Set([
+          ...base.descriptor.requiredPermissions,
+          ...configuredSources.flatMap((source) => [
+            'Application.Read.All',
+            ...(source.capabilities.agentIdentityPreview
+              ? ['AgentIdentity.Read.All (preview)']
+              : []),
+          ]),
+        ]),
+      ],
+      blindSpots: [
+        ...base.descriptor.blindSpots,
+        'Every Foundry tenant/environment requires a matching Entra source for complete identity coverage.',
+      ],
+    }
+  }
+
+  async testConnection(): Promise<ConnectionTestResult> {
+    const [base, ...results] = await Promise.all([
+      this.base.testConnection(),
+      ...this.sources.map(async (source) =>
+        this.enabled && source.connector !== undefined
+          ? source.connector.testConnection()
+          : undefined,
+      ),
+    ])
+    this.baseHealth = base
+    for (const [index, result] of results.entries()) {
+      const source = this.sources[index]!
+      if (result === undefined || source.connector === undefined) continue
+      source.checkedAt = result.checkedAt
+      const measured = entraReadiness(source.connector)
+      source.readiness = result.ok ? measured.readiness : 'unavailable'
+      source.reason = result.ok ? measured.reason : 'authentication-or-access'
+    }
+    return {
+      ok: base.ok,
+      checkedAt: new Date().toISOString(),
+      message: base.ok
+        ? 'Primary discovery sources are reachable.'
+        : 'One or more primary discovery sources are unavailable.',
+    }
+  }
+
+  async discover(): Promise<EstateSnapshot> {
+    let snapshot = await this.base.discover()
+    this.baseHealth = {
+      ok: true,
+      checkedAt: new Date().toISOString(),
+      message: 'Primary discovery completed.',
+    }
+    if (!this.enabled) {
+      this.evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]))
+      return snapshot
+    }
+
+    const results = await Promise.allSettled(
+      this.sources.map(async (source) =>
+        source.connector === undefined
+          ? undefined
+          : {
+              source,
+              identities: await source.connector.discover(),
+            },
+      ),
+    )
+    for (const [index, result] of results.entries()) {
+      const source = this.sources[index]!
+      source.checkedAt = new Date().toISOString()
+      if (result.status === 'rejected') {
+        source.readiness = 'unavailable'
+        source.reason = 'discovery-failed'
+        continue
+      }
+      if (result.value === undefined || source.connector === undefined) continue
+      try {
+        snapshot = enrichAggregateSnapshotWithEntra(
+          snapshot,
+          result.value.identities,
+          source.expected,
+        )
+        const measured = entraReadiness(source.connector)
+        source.readiness = measured.readiness
+        source.reason = measured.reason
+      } catch {
+        source.readiness = 'degraded'
+        source.reason = 'composition-failed'
+      }
+    }
+    this.evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]))
+    return snapshot
+  }
+
+  getConnectorHealth(): ConnectorHealthReport {
+    const baseHealth = this.base.getConnectorHealth?.()
+    const baseReady =
+      baseHealth !== undefined ? baseHealth.overall !== 'unavailable' : this.baseHealth.ok
+    const basePartial = baseHealth?.partial === true
+    const entraComplete =
+      !this.enabled || this.sources.every((source) => source.readiness === 'ready')
+    return {
+      overall: !baseReady ? 'unavailable' : basePartial || !entraComplete ? 'degraded' : 'ready',
+      partial: baseReady && (basePartial || !entraComplete),
+      sources: [
+        ...(baseHealth?.sources ?? [
+          {
+            id: this.base.descriptor.id,
+            name: this.base.descriptor.name,
+            role: 'discovery' as const,
+            enabled: true,
+            configured: true,
+            readiness: baseReady ? ('ready' as const) : ('unavailable' as const),
+            checkedAt: this.baseHealth.checkedAt,
+          },
+        ]),
+        ...this.sources.map((source) => ({
+          id: `entra:${source.expected.id}`,
+          name: `${source.expected.name} · Microsoft Entra`,
+          role: 'enrichment' as const,
+          enabled: this.enabled,
+          configured: source.configured,
+          readiness: source.readiness,
+          ...(source.checkedAt !== undefined ? { checkedAt: source.checkedAt } : {}),
+          ...(source.reason !== undefined ? { reason: source.reason } : {}),
+        })),
+      ],
+    }
+  }
+
+  getEvidence(evidenceId: string): Promise<Evidence> {
+    const evidence = this.evidenceById.get(evidenceId)
+    if (evidence === undefined) throw new Error(`Composite evidence was not found: ${evidenceId}`)
+    return Promise.resolve(structuredClone(evidence))
+  }
+
+  execute(
+    remediation: Remediation,
+    approval: ApprovalContext,
+  ): Promise<{ remediation: Remediation; snapshot: EstateSnapshot }> {
+    if (this.base.execute === undefined) {
+      return Promise.reject(new Error('Base connector does not support remediation execution.'))
+    }
+    return this.base.execute(remediation, approval)
+  }
+}
+
+function entraConfigInput(environment: NodeJS.ProcessEnv) {
+  return {
     tenantId: environment['ENTRA_CONNECTOR_TENANT_ID']?.trim() ?? '',
     environment: environment['ENTRA_CONNECTOR_ENVIRONMENT']?.trim() ?? '',
     graphBaseUrl:
@@ -414,7 +766,39 @@ export function createEntraIdentityConnector(
       maxRetries: envNumber(environment, 'ENTRA_CONNECTOR_MAX_RETRIES'),
       maxRetryAfterMs: envNumber(environment, 'ENTRA_CONNECTOR_MAX_RETRY_AFTER_MS'),
     },
-  })
+  }
+}
+
+export function parseEntraSourcesConfig(
+  environment: NodeJS.ProcessEnv = process.env,
+): EntraSourceConfig[] {
+  const sourcesJson = environment['ENTRA_SOURCES_JSON']?.trim()
+  if (sourcesJson !== undefined && sourcesJson.length > 0) {
+    let sources: unknown
+    try {
+      sources = JSON.parse(sourcesJson)
+    } catch {
+      throw new Error('ENTRA_SOURCES_JSON must be valid JSON.')
+    }
+    return entraSourcesConfigSchema.parse(sources)
+  }
+  const input = entraConfigInput(environment)
+  if (input.tenantId.length === 0 || input.environment.length === 0) return []
+  return [
+    entraSourceConfigSchema.parse({
+      ...input,
+      id: 'primary',
+      name: 'Primary Foundry project',
+    }),
+  ]
+}
+
+export function createEntraIdentityConnector(
+  environment: NodeJS.ProcessEnv = process.env,
+  credential?: TokenCredential,
+  options: EntraGraphClientOptions = {},
+): EntraIdentityConnector {
+  const config = entraIdentityConnectorConfigSchema.parse(entraConfigInput(environment))
   return new EntraIdentityConnector(
     config,
     credential ?? new DefaultAzureCredential({ tenantId: config.tenantId }),
@@ -425,6 +809,9 @@ export function createEntraIdentityConnector(
 export interface OptionalEntraEnrichmentOptions {
   credential?: TokenCredential
   client?: EntraGraphClientOptions
+  credentialFactory?: EntraCredentialFactory
+  clientFactory?: (source: EntraSourceConfig) => EntraGraphClientOptions
+  expectedSources?: readonly ExpectedEntraSource[]
   expectedTenantId?: string
   expectedEnvironment?: string
 }
@@ -433,7 +820,7 @@ export function createOptionalEntraEnrichmentConnector(
   base: AgentConnector,
   environment: NodeJS.ProcessEnv = process.env,
   options: OptionalEntraEnrichmentOptions = {},
-): EntraEnrichmentConnector {
+): AgentConnector {
   let enabled = false
   try {
     enabled = envBoolean(environment, 'ENTRA_CONNECTOR_ENABLED')
@@ -442,6 +829,32 @@ export function createOptionalEntraEnrichmentConnector(
       enabled: true,
       configured: false,
       configurationReason: 'invalid-configuration',
+    })
+  }
+  if (options.expectedSources !== undefined) {
+    let sources: EntraSourceConfig[]
+    try {
+      sources = parseEntraSourcesConfig(environment)
+    } catch {
+      return new EntraEnrichmentConnector(base, undefined, {
+        enabled: true,
+        configured: false,
+        configurationReason: 'invalid-configuration',
+      })
+    }
+    return new MultiEntraEnrichmentConnector(base, sources, {
+      enabled,
+      expectedSources: options.expectedSources,
+      ...(options.credentialFactory !== undefined
+        ? { credentialFactory: options.credentialFactory }
+        : options.credential !== undefined
+          ? { credentialFactory: () => options.credential! }
+          : {}),
+      ...(options.clientFactory !== undefined
+        ? { clientFactory: options.clientFactory }
+        : options.client !== undefined
+          ? { clientFactory: () => options.client! }
+          : {}),
     })
   }
   const tenantId = environment['ENTRA_CONNECTOR_TENANT_ID']?.trim() ?? ''
@@ -480,6 +893,7 @@ export function createOptionalEntraEnrichmentConnector(
 export {
   EntraGraphClient,
   EntraGraphError,
+  enrichAggregateSnapshotWithEntra,
   enrichSnapshotWithEntra,
   mapEntraInventoryToSnapshot,
   entraIdentityConnectorConfigSchema,

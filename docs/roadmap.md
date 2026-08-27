@@ -167,6 +167,11 @@ provenance, and degradation behavior that subsequent live connectors reuse.
 The deployment still has one Foundry source until additional target projects
 and cross-tenant federation are approved.
 
+**Multi-source Entra composition — implemented:** `ENTRA_SOURCES_JSON` matches
+each Foundry source id to its exact tenant/environment, namespaces identity
+evidence, and reports missing tenant consent independently. Deployment
+activation still requires tenant-admin `Application.Read.All` consent.
+
 | Connector                                   | Catalogued state         | Gate                                                                          |
 | ------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------- |
 | Microsoft Agent 365 (`m365-agent-registry`) | `authorization-required` | Supported management API plus tenant admin authorization                      |

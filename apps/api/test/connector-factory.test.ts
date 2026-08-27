@@ -41,10 +41,11 @@ describe('connector selection', () => {
       sources: [
         { id: 'foundry:primary' },
         {
-          id: 'microsoft-entra-service-principals',
+          id: 'entra:primary',
           enabled: true,
-          readiness: 'degraded',
-          reason: 'tenant-mismatch',
+          configured: false,
+          readiness: 'authorization-required',
+          reason: 'boundary-mismatch',
         },
       ],
     })
@@ -93,33 +94,89 @@ describe('connector selection', () => {
     )
   })
 
-  it('rejects one Entra source across multiple Foundry tenants', () => {
-    expect(() =>
-      createConfiguredConnector(
-        {
-          AGENT_SENTINEL_CONNECTOR: 'foundry',
-          AGENT_SENTINEL_TENANT_ID: 'estate-tenant',
-          FOUNDRY_ENVIRONMENT: 'portfolio',
-          FOUNDRY_SOURCES_JSON: JSON.stringify([
-            {
-              id: 'project-a',
-              name: 'Project A',
-              projectEndpoint: 'https://a.services.ai.azure.com/api/projects/a',
-              tenantId: 'tenant-a',
-              environment: 'production',
-            },
-            {
-              id: 'project-b',
-              name: 'Project B',
-              projectEndpoint: 'https://b.services.ai.azure.com/api/projects/b',
-              tenantId: 'tenant-b',
-              environment: 'production',
-            },
-          ]),
-          ENTRA_CONNECTOR_ENABLED: 'true',
+  it('reports missing Entra authorization for every Foundry source boundary', () => {
+    const result = createConfiguredConnector(
+      {
+        AGENT_SENTINEL_CONNECTOR: 'foundry',
+        AGENT_SENTINEL_TENANT_ID: 'estate-tenant',
+        FOUNDRY_ENVIRONMENT: 'portfolio',
+        FOUNDRY_SOURCES_JSON: JSON.stringify([
+          {
+            id: 'project-a',
+            name: 'Project A',
+            projectEndpoint: 'https://a.services.ai.azure.com/api/projects/a',
+            tenantId: 'tenant-a',
+            environment: 'production',
+          },
+          {
+            id: 'project-b',
+            name: 'Project B',
+            projectEndpoint: 'https://b.services.ai.azure.com/api/projects/b',
+            tenantId: 'tenant-b',
+            environment: 'production',
+          },
+        ]),
+        ENTRA_CONNECTOR_ENABLED: 'true',
+      },
+      { credentialFactory: () => ({ getToken: () => Promise.resolve(null) }) },
+    )
+    expect(
+      result.connector
+        .getConnectorHealth?.()
+        .sources.filter((source) => source.role === 'enrichment'),
+    ).toMatchObject([
+      { id: 'entra:project-a', readiness: 'authorization-required' },
+      { id: 'entra:project-b', readiness: 'authorization-required' },
+    ])
+  })
+
+  it('matches configured Entra sources to multiple Foundry boundaries', () => {
+    const foundrySources = [
+      {
+        id: 'project-a',
+        name: 'Project A',
+        projectEndpoint: 'https://a.services.ai.azure.com/api/projects/a',
+        tenantId: '11111111-1111-4111-8111-111111111111',
+        environment: 'production',
+      },
+      {
+        id: 'project-b',
+        name: 'Project B',
+        projectEndpoint: 'https://b.services.ai.azure.com/api/projects/b',
+        tenantId: '22222222-2222-4222-8222-222222222222',
+        environment: 'validation',
+      },
+    ]
+    const result = createConfiguredConnector(
+      {
+        AGENT_SENTINEL_CONNECTOR: 'foundry',
+        AGENT_SENTINEL_TENANT_ID: 'estate',
+        FOUNDRY_ENVIRONMENT: 'portfolio',
+        FOUNDRY_SOURCES_JSON: JSON.stringify(foundrySources),
+        ENTRA_CONNECTOR_ENABLED: 'true',
+        ENTRA_SOURCES_JSON: JSON.stringify(
+          foundrySources.map(({ id, name, tenantId, environment }) => ({
+            id,
+            name,
+            tenantId,
+            environment,
+          })),
+        ),
+      },
+      {
+        credential: { getToken: () => Promise.resolve(null) },
+        entraClient: {
+          fetcher: () => Promise.resolve(Response.json({ value: [] })),
         },
-        { credentialFactory: () => ({ getToken: () => Promise.resolve(null) }) },
-      ),
-    ).toThrow('requires one Foundry tenant matching the estate tenant')
+      },
+    )
+    expect(
+      result.connector
+        .getConnectorHealth?.()
+        .sources.filter((source) => source.role === 'enrichment'),
+    ).toMatchObject([
+      { id: 'entra:project-a', configured: true, readiness: 'degraded' },
+      { id: 'entra:project-b', configured: true, readiness: 'degraded' },
+    ])
   })
 })

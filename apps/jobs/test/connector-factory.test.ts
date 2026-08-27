@@ -30,7 +30,7 @@ describe('jobs connector selection', () => {
       sources: [
         { id: 'foundry:primary' },
         {
-          id: 'microsoft-entra-service-principals',
+          id: 'entra:primary',
           enabled: true,
           configured: true,
           readiness: 'degraded',
@@ -70,7 +70,8 @@ describe('jobs connector selection', () => {
     expect(connector.getConnectorHealth?.().sources.map((source) => source.id)).toEqual([
       'foundry:project-a',
       'foundry:project-b',
-      'microsoft-entra-service-principals',
+      'entra:project-a',
+      'entra:project-b',
     ])
   })
 })

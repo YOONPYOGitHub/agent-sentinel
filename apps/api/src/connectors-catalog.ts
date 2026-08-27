@@ -45,7 +45,7 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     sourceOfTruth: true,
     ownershipModel: 'consumes',
     prerequisiteNote:
-      'Implemented read-only foundation. Requires ENTRA_CONNECTOR_TENANT_ID, ENTRA_CONNECTOR_ENVIRONMENT, DefaultAzureCredential, and tenant-admin consent for Application.Read.All. AgentIdentity.Read.All is separate and required only when the explicitly preview-gated beta enrichment is enabled. This is independent of user sign-in.',
+      'Implemented read-only multi-source foundation. Each Entra source id must match a Foundry source and requires tenant-admin Application.Read.All consent plus a default or secretless federated-app credential. AgentIdentity.Read.All remains separate and preview-only.',
     unlocksScorecard: ['security', 'governance'],
   },
   {
@@ -173,17 +173,26 @@ export function buildConnectorsCollection(
               readyDiscoverySources === 0)
           ? 'unavailable'
           : 'connected'
-  const entraHealth = opts.connectorHealth?.sources.find(
-    (source) => source.role === 'enrichment' && source.id === 'microsoft-entra-service-principals',
+  const entraSources = opts.connectorHealth?.sources.filter(
+    (source) =>
+      source.role === 'enrichment' &&
+      (source.id === 'microsoft-entra-service-principals' || source.id.startsWith('entra:')),
   )
+  const enabledEntraSources = entraSources?.filter((source) => source.enabled) ?? []
   const catalog: CatalogConnectorEntry[] = BASE_CATALOG.map((entry) => {
     if (entry.id === 'azure-ai-foundry') {
       return { ...entry, lifecycleState: foundryLifecycle }
     }
-    if (entry.id === 'entra-agent-id' && entraHealth?.enabled === true) {
+    if (entry.id === 'entra-agent-id' && enabledEntraSources.length > 0) {
+      const ready = enabledEntraSources.filter((source) => source.readiness === 'ready').length
       return {
         ...entry,
-        lifecycleState: entraHealth.readiness === 'ready' ? 'connected' : 'unavailable',
+        lifecycleState:
+          ready === enabledEntraSources.length
+            ? 'connected'
+            : ready > 0
+              ? 'degraded'
+              : 'unavailable',
       }
     }
     if (entry.id === 'azure-monitor-otel' && opts.runtimeTelemetryConfigured === true) {

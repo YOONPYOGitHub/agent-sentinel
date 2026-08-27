@@ -186,8 +186,48 @@ describe('buildConnectorsCollection', () => {
         ],
       },
     })
+
     expect(result.active.lifecycleState).toBe('degraded')
     expect(result.catalog.find((entry) => entry.id === 'azure-ai-foundry')?.lifecycleState).toBe(
+      'degraded',
+    )
+  })
+
+  it('reports partial multi-tenant Entra authorization as degraded', () => {
+    const result = buildConnectorsCollection('foundry', {
+      connectorId: 'azure-ai-foundry-agent-service',
+      connectorHealth: {
+        overall: 'degraded',
+        partial: true,
+        sources: [
+          {
+            id: 'foundry:project-a',
+            name: 'Project A',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+          },
+          {
+            id: 'entra:project-a',
+            name: 'Project A Entra',
+            role: 'enrichment',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+          },
+          {
+            id: 'entra:project-b',
+            name: 'Project B Entra',
+            role: 'enrichment',
+            enabled: true,
+            configured: false,
+            readiness: 'authorization-required',
+          },
+        ],
+      },
+    })
+    expect(result.catalog.find((entry) => entry.id === 'entra-agent-id')?.lifecycleState).toBe(
       'degraded',
     )
   })

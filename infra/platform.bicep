@@ -40,6 +40,8 @@ param agentSentinelEnvironment string = ''
 param entraConnectorEnabled bool = false
 @description('Microsoft Entra tenant ID for identity enrichment. Empty while disabled.')
 param entraConnectorTenantId string = ''
+@description('Optional JSON array of Entra sources matched by id to Foundry sources.')
+param entraSourcesJson string = ''
 @description('Environment boundary for Entra identity enrichment. Must exactly match Foundry.')
 param entraConnectorEnvironment string = ''
 @description('Microsoft Graph resource base. Restricted by connector validation to the public Graph host.')
@@ -235,6 +237,7 @@ module containerApps './modules/container-apps.bicep' = {
     agentSentinelEnvironment: agentSentinelEnvironment
     entraConnectorEnabled: entraConnectorEnabled
     entraConnectorTenantId: entraConnectorTenantId
+    entraSourcesJson: entraSourcesJson
     entraConnectorEnvironment: entraConnectorEnvironment
     entraConnectorGraphBaseUrl: entraConnectorGraphBaseUrl
     entraConnectorOwnersEnabled: entraConnectorOwnersEnabled

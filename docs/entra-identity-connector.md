@@ -1,9 +1,9 @@
 # Microsoft Entra identity connector
 
 `@agent-sentinel/entra-identity-connector` is a read-only, authorization-gated
-foundation. It does not share configuration or consent with `AUTH_*` user
-sign-in. It is wired into API and jobs images but remains disabled in the
-deployed environment.
+multi-source connector. It does not share configuration or consent with
+`AUTH_*` user sign-in. It is wired into API and jobs images but remains
+disabled in the deployed environment.
 
 ## Supported live boundary
 
@@ -48,6 +48,18 @@ consent. Jobs report partial success when primary discovery succeeds but Entra
 does not; partial snapshots and finding reconciliation are not persisted, so a
 transient Graph failure cannot erase the last complete state. There is no mock
 fallback.
+
+For multiple Foundry tenant/project sources, set `ENTRA_SOURCES_JSON`. Every
+entry uses the same `id`, tenant, and source environment as its matching
+`FOUNDRY_SOURCES_JSON` entry. Identity nodes and evidence are namespaced per
+source, and correlation considers only Foundry agents with that exact source
+tenant/environment. Missing source authorization remains
+`authorization-required`; it is never substituted with another tenant.
+
+Same-tenant sources use the default managed identity credential. Cross-tenant
+sources use `credential.mode=federated-app`, the target-tenant app client ID,
+and the attached UAMI (`managedIdentityClientId` or `AZURE_CLIENT_ID`) as the
+secretless assertion issuer.
 
 Next, obtain tenant-admin consent for `Application.Read.All`, configure the
 tenant/environment values, then enable and validate bounded v1.0 inventory.

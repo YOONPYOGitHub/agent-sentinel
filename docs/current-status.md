@@ -1,6 +1,6 @@
 # Current status
 
-**Status date: 2026-08-28** · Branch: `feature/multi-foundry-connectors`
+**Status date: 2026-08-28** · Branch: `feature/multi-entra-sources`
 
 This is the authoritative dated ledger for the Agent Sentinel control plane. Every row states what is true today, not what is intended. Where a capability is absent, the ledger says so rather than describing it as pending success.
 
@@ -57,15 +57,15 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 
 ## In progress
 
-| Item                                         | Where it stands                                                                                                                                                                                                                     |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unified inventory for future connectors      | Inventory renders any connector's records, but only the Foundry connector currently supplies live data.                                                                                                                             |
-| Employee catalog entitlement personalization | The assurance overlay renders. Per-employee entitlement filtering needs an authenticated principal.                                                                                                                                 |
-| Entra identity enrichment                    | Read-only Graph inventory, deterministic Foundry correlation, composite health, API/jobs wiring, packaging, and disabled-by-default IaC are implemented. Tenant-admin consent and live activation remain separate approved changes. |
-| Additional Foundry sources                   | Runtime aggregation is implemented. Each target project still requires an approved credential/federation setup and `Azure AI User`; the current deployment remains the `primary` source only.                                       |
-| Live role coverage                           | Employee login and Viewer boundaries are validated. Analyst, Approver, Administrator, and write-scope live-token validation remain pending before any public write-path change.                                                     |
-| Manifest ingestion activation                | The dedicated container and API/jobs images are deployed. The endpoint remains blocked by writes-false; activation requires Administrator, write-scope, and exact public-edge mutation validation.                                  |
-| Repository documentation                     | This rebuild. Superseded and contradictory statements are being corrected in place.                                                                                                                                                 |
+| Item                                         | Where it stands                                                                                                                                                                                                                                               |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unified inventory for future connectors      | Inventory renders any connector's records, but only the Foundry connector currently supplies live data.                                                                                                                                                       |
+| Employee catalog entitlement personalization | The assurance overlay renders. Per-employee entitlement filtering needs an authenticated principal.                                                                                                                                                           |
+| Entra identity enrichment                    | Read-only multi-source Graph inventory, tenant/environment-scoped Foundry correlation, per-source health, API/jobs wiring, packaging, and disabled-by-default IaC are implemented. Tenant-admin consent and live activation remain separate approved changes. |
+| Additional Foundry sources                   | Runtime aggregation is implemented. Each target project still requires an approved credential/federation setup and `Azure AI User`; the current deployment remains the `primary` source only.                                                                 |
+| Live role coverage                           | Employee login and Viewer boundaries are validated. Analyst, Approver, Administrator, and write-scope live-token validation remain pending before any public write-path change.                                                                               |
+| Manifest ingestion activation                | The dedicated container and API/jobs images are deployed. The endpoint remains blocked by writes-false; activation requires Administrator, write-scope, and exact public-edge mutation validation.                                                            |
+| Repository documentation                     | This rebuild. Superseded and contradictory statements are being corrected in place.                                                                                                                                                                           |
 
 ---
 

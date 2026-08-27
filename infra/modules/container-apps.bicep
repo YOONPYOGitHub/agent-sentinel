@@ -86,6 +86,7 @@ param agentSentinelEnvironment string = ''
 @description('Enable optional Microsoft Entra identity enrichment. Disabled by default.')
 param entraConnectorEnabled bool = false
 param entraConnectorTenantId string = ''
+param entraSourcesJson string = ''
 param entraConnectorEnvironment string = ''
 param entraConnectorGraphBaseUrl string = 'https://graph.microsoft.com'
 param entraConnectorOwnersEnabled bool = false
@@ -164,6 +165,7 @@ var env = [
   { name: 'AGENT_SENTINEL_ENVIRONMENT',           value: empty(agentSentinelEnvironment) ? foundryEnvironment : agentSentinelEnvironment }
   { name: 'ENTRA_CONNECTOR_ENABLED',              value: string(entraConnectorEnabled) }
   { name: 'ENTRA_CONNECTOR_TENANT_ID',            value: entraConnectorTenantId }
+  { name: 'ENTRA_SOURCES_JSON',                   value: entraSourcesJson }
   { name: 'ENTRA_CONNECTOR_ENVIRONMENT',          value: entraConnectorEnvironment }
   { name: 'ENTRA_CONNECTOR_GRAPH_BASE_URL',       value: entraConnectorGraphBaseUrl }
   { name: 'ENTRA_CONNECTOR_OWNERS_ENABLED',        value: string(entraConnectorOwnersEnabled) }

@@ -29,20 +29,14 @@ export function buildConnector(
     options.credentialFactory ??
     ((source) => options.credential ?? createFoundrySourceCredential(source))
   const foundry = new MultiFoundryConnector(config, credentialFactory)
-  const sourceTenantIds = new Set(config.sources.map((source) => source.tenantId.toLowerCase()))
-  if (
-    environment['ENTRA_CONNECTOR_ENABLED']?.trim().toLowerCase() === 'true' &&
-    (sourceTenantIds.size > 1 || !sourceTenantIds.has(config.estateTenantId.toLowerCase()))
-  ) {
-    throw new Error(
-      'A single Entra enrichment source requires one Foundry tenant matching the estate tenant.',
-    )
-  }
-  const primarySource = config.sources[0]!
   return createOptionalEntraEnrichmentConnector(foundry, environment, {
-    credential: credentialFactory(primarySource),
-    ...(options.entraClient !== undefined ? { client: options.entraClient } : {}),
-    expectedTenantId: primarySource.tenantId,
-    expectedEnvironment: config.estateEnvironment,
+    expectedSources: config.sources.map((source) => ({
+      id: source.id,
+      name: source.name,
+      tenantId: source.tenantId,
+      environment: source.environment,
+    })),
+    ...(options.credential !== undefined ? { credentialFactory: () => options.credential! } : {}),
+    ...(options.entraClient !== undefined ? { clientFactory: () => options.entraClient! } : {}),
   })
 }

@@ -43,6 +43,13 @@ preserve current identifiers. Each cross-tenant source needs a target-tenant
 app registration with workload identity federation and project-scoped
 `Azure AI User`; no client secret is stored in Container Apps.
 
+Set `entraSourcesJson` with entries whose ids and tenant/environment boundaries
+exactly match `foundrySourcesJson`. Cross-tenant entries use the same
+managed-identity federation pattern and require target-tenant
+`Application.Read.All` admin consent. Keep `entraConnectorEnabled=false` until
+every intended source is authorized and the bounded Graph inventory probe is
+approved.
+
 ### Phase C ? Foundry Embedding
 
 Add text-embedding-3-large deployment (only this module touches AIServices).
