@@ -112,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const account = accountRef.current
     if (msal === null) return
     try {
-      await msal.logoutPopup({
+      await msal.logoutRedirect({
         ...(account !== null ? { account } : {}),
         ...(spaConfig !== null ? { postLogoutRedirectUri: spaConfig.postLogoutRedirectUri } : {}),
       })
