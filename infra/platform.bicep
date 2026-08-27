@@ -58,6 +58,11 @@ param entraConnectorRequestTimeoutMs string = '15000'
 param entraConnectorMaxRetries string = '2'
 param entraConnectorMaxRetryAfterMs string = '30000'
 
+@description('Enable read-only Azure Monitor OTel telemetry. Disabled until instrumentation and workspace RBAC are validated.')
+param azureMonitorConnectorEnabled bool = false
+@description('Optional JSON array of Azure Monitor sources matched by id to Foundry sources.')
+param azureMonitorSourcesJson string = ''
+
 @description('Cosmos database id backing exposure findings.')
 param cosmosDatabase string = 'agent-sentinel-db'
 
@@ -248,6 +253,8 @@ module containerApps './modules/container-apps.bicep' = {
     entraConnectorRequestTimeoutMs: entraConnectorRequestTimeoutMs
     entraConnectorMaxRetries: entraConnectorMaxRetries
     entraConnectorMaxRetryAfterMs: entraConnectorMaxRetryAfterMs
+    azureMonitorConnectorEnabled: azureMonitorConnectorEnabled
+    azureMonitorSourcesJson: azureMonitorSourcesJson
     cosmosDatabase: cosmosDatabase
     discoveryIntervalMs: discoveryIntervalMs
     authMode: authMode

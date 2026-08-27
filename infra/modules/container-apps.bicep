@@ -98,6 +98,9 @@ param entraConnectorRequestTimeoutMs string = '15000'
 param entraConnectorMaxRetries string = '2'
 param entraConnectorMaxRetryAfterMs string = '30000'
 
+param azureMonitorConnectorEnabled bool = false
+param azureMonitorSourcesJson string = ''
+
 @description('Cosmos database id backing exposure findings and snapshots.')
 param cosmosDatabase string = 'agent-sentinel-db'
 
@@ -176,6 +179,10 @@ var env = [
   { name: 'ENTRA_CONNECTOR_REQUEST_TIMEOUT_MS',    value: entraConnectorRequestTimeoutMs }
   { name: 'ENTRA_CONNECTOR_MAX_RETRIES',           value: entraConnectorMaxRetries }
   { name: 'ENTRA_CONNECTOR_MAX_RETRY_AFTER_MS',    value: entraConnectorMaxRetryAfterMs }
+  { name: 'AZURE_MONITOR_SOURCES_JSON',            value: azureMonitorConnectorEnabled ? azureMonitorSourcesJson : '' }
+  { name: 'AZURE_MONITOR_WORKSPACE_ID',            value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? lawWorkspaceId : '' }
+  { name: 'AZURE_MONITOR_TENANT_ID',               value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? foundryTenantId : '' }
+  { name: 'AZURE_MONITOR_ENVIRONMENT',             value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? foundryEnvironment : '' }
   { name: 'AGENT_SENTINEL_TENANT_ID',             value: empty(agentSentinelTenantId) ? foundryTenantId : agentSentinelTenantId }
   { name: 'COSMOS_DATABASE',                      value: cosmosDatabase }
   { name: 'COSMOS_GOVERNANCE_CONTAINER',          value: 'governance-cases' }

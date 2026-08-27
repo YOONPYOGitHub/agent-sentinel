@@ -97,6 +97,7 @@ describe('buildConnectorsCollection', () => {
     const unavailable = buildConnectorsCollection('foundry', {
       connectorId: 'foundry-connector',
     })
+
     const configured = buildConnectorsCollection('foundry', {
       connectorId: 'foundry-connector',
       runtimeTelemetryConfigured: true,
@@ -107,6 +108,34 @@ describe('buildConnectorsCollection', () => {
     expect(
       configured.catalog.find((entry) => entry.id === 'azure-monitor-otel')?.lifecycleState,
     ).toBe('connected')
+  })
+
+  it('exposes measured multi-source OTel readiness', () => {
+    const result = buildConnectorsCollection('foundry', {
+      connectorId: 'foundry-connector',
+      runtimeTelemetryConfigured: true,
+      runtimeTelemetryHealth: {
+        overall: 'degraded',
+        partial: false,
+        sources: [
+          {
+            id: 'otel:project-a',
+            name: 'Project A Azure Monitor',
+            role: 'enrichment',
+            enabled: true,
+            configured: true,
+            readiness: 'degraded',
+            reason: 'not-queried',
+          },
+        ],
+      },
+    })
+    expect(result.catalog.find((entry) => entry.id === 'azure-monitor-otel')?.lifecycleState).toBe(
+      'degraded',
+    )
+    expect(result.health?.sources).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'otel:project-a' })]),
+    )
   })
 
   it('Entra inventory is implemented, authorization-required, and distinct from Foundry auth', () => {

@@ -8,6 +8,7 @@ import { computeBaseline } from '@agent-sentinel/behavior-engine'
 import { MOCK_TOKEN_ECONOMICS_WINDOWS } from '@agent-sentinel/mock-connector'
 import {
   runtimeObservationWindowsSchema,
+  type RuntimeTelemetryRequest,
   type RuntimeTelemetryConnector,
 } from '@agent-sentinel/connector-sdk'
 
@@ -15,6 +16,7 @@ export interface TokenEconomicsRoutesOptions {
   mode: 'mock' | 'foundry'
   defaultTenantId: string
   runtimeTelemetryConnector?: RuntimeTelemetryConnector
+  resolveTelemetryRequest?: (agentId: string) => Promise<RuntimeTelemetryRequest>
 }
 
 function unavailableReportId(agentId: string): string {
@@ -48,10 +50,13 @@ export function registerTokenEconomicsRoutes(
       if (opts.mode === 'foundry') {
         if (opts.runtimeTelemetryConnector !== undefined) {
           try {
+            const telemetryRequest = (await opts.resolveTelemetryRequest?.(agentId)) ?? {
+              tenantId,
+              agentId,
+            }
             const windows = runtimeObservationWindowsSchema.parse(
               await opts.runtimeTelemetryConnector.readObservationWindows({
-                tenantId,
-                agentId,
+                ...telemetryRequest,
               }),
             )
             if (windows.observed.tenantId !== tenantId || windows.observed.agentId !== agentId) {

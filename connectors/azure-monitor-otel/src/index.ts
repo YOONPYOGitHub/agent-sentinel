@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 
 import { runtimeObservationWindowsSchema } from '@agent-sentinel/connector-sdk'
 import type {
+  ConnectorHealthReport,
+  RuntimeTelemetryRequest,
   RuntimeObservationWindows,
   RuntimeTelemetryConnector,
 } from '@agent-sentinel/connector-sdk'
@@ -11,7 +13,11 @@ import {
   type RuntimeObservation,
 } from '@agent-sentinel/domain'
 import type { TokenCredential } from '@azure/core-auth'
-import { DefaultAzureCredential } from '@azure/identity'
+import {
+  ClientAssertionCredential,
+  DefaultAzureCredential,
+  ManagedIdentityCredential,
+} from '@azure/identity'
 import { z } from 'zod'
 
 const LOGS_SCOPE = 'https://api.loganalytics.io/.default'
@@ -31,6 +37,76 @@ export const azureMonitorOtelConfigSchema = z.strictObject({
   requestTimeoutMs: z.number().int().min(1_000).max(60_000).default(15_000),
 })
 export type AzureMonitorOtelConfig = z.infer<typeof azureMonitorOtelConfigSchema>
+
+const telemetrySourceCredentialSchema = z.discriminatedUnion('mode', [
+  z.strictObject({
+    mode: z.literal('default'),
+    managedIdentityClientId: z.string().uuid().optional(),
+  }),
+  z.strictObject({
+    mode: z.literal('federated-app'),
+    clientId: z.string().uuid(),
+    managedIdentityClientId: z.string().uuid().optional(),
+  }),
+])
+
+export const azureMonitorOtelSourceConfigSchema = azureMonitorOtelConfigSchema.extend({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/),
+  name: z.string().trim().min(1).max(100),
+  credential: telemetrySourceCredentialSchema.optional(),
+})
+export type AzureMonitorOtelSourceConfig = z.infer<typeof azureMonitorOtelSourceConfigSchema>
+export type AzureMonitorCredentialFactory = (
+  source: AzureMonitorOtelSourceConfig,
+) => TokenCredential
+
+const azureMonitorOtelSourcesConfigSchema = z
+  .array(azureMonitorOtelSourceConfigSchema)
+  .min(1)
+  .max(50)
+  .superRefine((sources, context) => {
+    const ids = new Set<string>()
+    for (const [index, source] of sources.entries()) {
+      if (ids.has(source.id)) {
+        context.addIssue({
+          code: 'custom',
+          path: [index, 'id'],
+          message: `Duplicate Azure Monitor source id: ${source.id}`,
+        })
+      }
+      ids.add(source.id)
+    }
+  })
+
+function createTelemetrySourceCredential(source: AzureMonitorOtelSourceConfig): TokenCredential {
+  if (source.credential?.mode === 'federated-app') {
+    const managedIdentityClientId =
+      source.credential.managedIdentityClientId ?? process.env['AZURE_CLIENT_ID']?.trim()
+    if (!managedIdentityClientId) {
+      throw new AzureMonitorOtelConnectorError(
+        'Cross-tenant telemetry federation requires a user-assigned managed identity client ID.',
+      )
+    }
+    const assertionCredential = new ManagedIdentityCredential({
+      clientId: managedIdentityClientId,
+    })
+    return new ClientAssertionCredential(source.tenantId, source.credential.clientId, async () => {
+      const assertion = await assertionCredential.getToken('api://AzureADTokenExchange/.default')
+      if (assertion === null) {
+        throw new AzureMonitorOtelConnectorError(
+          'Managed identity did not return a workload identity federation assertion.',
+        )
+      }
+      return assertion.token
+    })
+  }
+  return new DefaultAzureCredential({
+    tenantId: source.tenantId,
+    ...(source.credential?.managedIdentityClientId !== undefined
+      ? { managedIdentityClientId: source.credential.managedIdentityClientId }
+      : {}),
+  })
+}
 
 export const runtimeTelemetryRequestSchema = z.strictObject({
   tenantId: bindingSchema,
@@ -375,34 +451,186 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
   }
 }
 
-export function createAzureMonitorOtelConnector(
+interface TelemetrySourceState {
+  config: AzureMonitorOtelSourceConfig
+  connector: AzureMonitorOtelConnector
+  readiness: 'ready' | 'degraded' | 'unavailable'
+  checkedAt: string | undefined
+  reason: string | undefined
+}
+
+function rebindWindows(
+  windows: RuntimeObservationWindows,
+  request: RuntimeTelemetryRequest,
+  source: AzureMonitorOtelSourceConfig,
+): RuntimeObservationWindows {
+  const boundedId = (kind: string, original: string): string =>
+    `otel-${kind}-${createHash('sha256').update(`${source.id}\0${original}`).digest('hex')}`
+  const rebindWindow = (window: RuntimeObservationWindows['baseline']) => ({
+    ...window,
+    windowId: boundedId('window', window.windowId),
+    tenantId: request.tenantId,
+    agentId: request.agentId,
+    observations: window.observations.map((observation) => ({
+      ...observation,
+      id: boundedId('observation', observation.id),
+      tenantId: request.tenantId,
+      agentId: request.agentId,
+    })),
+  })
+  return runtimeObservationWindowsSchema.parse({
+    baseline: rebindWindow(windows.baseline),
+    observed: rebindWindow(windows.observed),
+    baselineEvidenceId: boundedId('evidence', windows.baselineEvidenceId),
+    observedEvidenceId: boundedId('evidence', windows.observedEvidenceId),
+    queriedAt: windows.queriedAt,
+  })
+}
+
+export class MultiAzureMonitorOtelConnector implements RuntimeTelemetryConnector {
+  readonly id = 'azure-monitor-otel'
+  private readonly sources: TelemetrySourceState[]
+
+  constructor(
+    sourcesInput: readonly AzureMonitorOtelSourceConfig[],
+    credentialFactory: AzureMonitorCredentialFactory = createTelemetrySourceCredential,
+    fetcherFactory: (source: AzureMonitorOtelSourceConfig) => typeof fetch = () => fetch,
+    clock: () => Date = () => new Date(),
+  ) {
+    const sources = azureMonitorOtelSourcesConfigSchema.parse(sourcesInput)
+    this.sources = sources.map((config) => ({
+      config,
+      connector: new AzureMonitorOtelConnector(
+        {
+          workspaceId: config.workspaceId,
+          tenantId: config.tenantId,
+          environment: config.environment,
+          baselineWindowHours: config.baselineWindowHours,
+          observedWindowHours: config.observedWindowHours,
+          requestTimeoutMs: config.requestTimeoutMs,
+        },
+        credentialFactory(config),
+        fetcherFactory(config),
+        clock,
+      ),
+      readiness: 'degraded',
+      checkedAt: undefined,
+      reason: 'not-queried',
+    }))
+  }
+
+  async readObservationWindows(
+    request: RuntimeTelemetryRequest,
+  ): Promise<RuntimeObservationWindows> {
+    const source =
+      request.sourceConnectorId === undefined && this.sources.length === 1
+        ? this.sources[0]
+        : this.sources.find((candidate) => candidate.config.id === request.sourceConnectorId)
+    if (source === undefined) {
+      throw new AzureMonitorOtelConnectorError(
+        'No Azure Monitor source matches the requested agent source.',
+      )
+    }
+    const sourceTenantId = request.sourceTenantId ?? source.config.tenantId
+    const sourceEnvironment = request.sourceEnvironment ?? source.config.environment
+    const sourceAgentId = request.sourceAgentId ?? request.agentId
+    if (
+      sourceTenantId.toLowerCase() !== source.config.tenantId.toLowerCase() ||
+      sourceEnvironment !== source.config.environment
+    ) {
+      throw new AzureMonitorOtelConnectorError(
+        'The requested agent source boundary does not match the Azure Monitor source.',
+      )
+    }
+    try {
+      const windows = await source.connector.readObservationWindows({
+        tenantId: source.config.tenantId,
+        agentId: sourceAgentId,
+      })
+      source.readiness = 'ready'
+      source.checkedAt = windows.queriedAt
+      source.reason = undefined
+      return rebindWindows(windows, request, source.config)
+    } catch (error) {
+      source.readiness = 'unavailable'
+      source.checkedAt = new Date().toISOString()
+      source.reason = 'query-failed'
+      throw error
+    }
+  }
+
+  getConnectorHealth(): ConnectorHealthReport {
+    const ready = this.sources.filter((source) => source.readiness === 'ready').length
+    const allUnavailable = this.sources.every((source) => source.readiness === 'unavailable')
+    return {
+      overall: allUnavailable
+        ? 'unavailable'
+        : ready === this.sources.length
+          ? 'ready'
+          : 'degraded',
+      partial: ready > 0 && ready < this.sources.length,
+      sources: this.sources.map((source) => ({
+        id: `otel:${source.config.id}`,
+        name: `${source.config.name} · Azure Monitor`,
+        role: 'enrichment',
+        enabled: true,
+        configured: true,
+        readiness: source.readiness,
+        ...(source.checkedAt !== undefined ? { checkedAt: source.checkedAt } : {}),
+        ...(source.reason !== undefined ? { reason: source.reason } : {}),
+      })),
+    }
+  }
+}
+
+function numberValue(environment: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const value = environment[name]?.trim()
+  return value === undefined || value === '' ? fallback : Number(value)
+}
+
+export function parseAzureMonitorOtelSources(
   environment: NodeJS.ProcessEnv = process.env,
-  credential?: TokenCredential,
-): AzureMonitorOtelConnector | undefined {
+): AzureMonitorOtelSourceConfig[] {
+  const sourcesJson = environment['AZURE_MONITOR_SOURCES_JSON']?.trim()
+  if (sourcesJson !== undefined && sourcesJson.length > 0) {
+    let sources: unknown
+    try {
+      sources = JSON.parse(sourcesJson)
+    } catch {
+      throw new AzureMonitorOtelConnectorError('AZURE_MONITOR_SOURCES_JSON must be valid JSON.')
+    }
+    return azureMonitorOtelSourcesConfigSchema.parse(sources)
+  }
   const names = [
     'AZURE_MONITOR_WORKSPACE_ID',
     'AZURE_MONITOR_TENANT_ID',
     'AZURE_MONITOR_ENVIRONMENT',
   ] as const
   const configured = names.filter((name) => (environment[name]?.trim().length ?? 0) > 0)
-  if (configured.length === 0) return undefined
-  if (configured.length !== names.length) {
-    return undefined
-  }
+  if (configured.length === 0) return []
+  if (configured.length !== names.length) return []
+  return [
+    azureMonitorOtelSourceConfigSchema.parse({
+      id: 'primary',
+      name: 'Primary Foundry project',
+      workspaceId: environment.AZURE_MONITOR_WORKSPACE_ID,
+      tenantId: environment.AZURE_MONITOR_TENANT_ID,
+      environment: environment.AZURE_MONITOR_ENVIRONMENT,
+      baselineWindowHours: numberValue(environment, 'AZURE_MONITOR_BASELINE_WINDOW_HOURS', 168),
+      observedWindowHours: numberValue(environment, 'AZURE_MONITOR_OBSERVED_WINDOW_HOURS', 24),
+      requestTimeoutMs: numberValue(environment, 'AZURE_MONITOR_REQUEST_TIMEOUT_MS', 15_000),
+    }),
+  ]
+}
 
-  const numberValue = (name: string, fallback: number): number => {
-    const value = environment[name]?.trim()
-    return value === undefined || value === '' ? fallback : Number(value)
-  }
-  return new AzureMonitorOtelConnector(
-    {
-      workspaceId: environment.AZURE_MONITOR_WORKSPACE_ID!,
-      tenantId: environment.AZURE_MONITOR_TENANT_ID!,
-      environment: environment.AZURE_MONITOR_ENVIRONMENT!,
-      baselineWindowHours: numberValue('AZURE_MONITOR_BASELINE_WINDOW_HOURS', 168),
-      observedWindowHours: numberValue('AZURE_MONITOR_OBSERVED_WINDOW_HOURS', 24),
-      requestTimeoutMs: numberValue('AZURE_MONITOR_REQUEST_TIMEOUT_MS', 15_000),
-    },
-    credential ?? new DefaultAzureCredential(),
+export function createAzureMonitorOtelConnector(
+  environment: NodeJS.ProcessEnv = process.env,
+  credential?: TokenCredential,
+): MultiAzureMonitorOtelConnector | undefined {
+  const sources = parseAzureMonitorOtelSources(environment)
+  if (sources.length === 0) return undefined
+  return new MultiAzureMonitorOtelConnector(
+    sources,
+    (source) => credential ?? createTelemetrySourceCredential(source),
   )
 }

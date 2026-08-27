@@ -8,6 +8,7 @@ import { computeBaseline } from '@agent-sentinel/behavior-engine'
 import { MOCK_BEHAVIOR_WINDOWS } from '@agent-sentinel/mock-connector'
 import {
   runtimeObservationWindowsSchema,
+  type RuntimeTelemetryRequest,
   type RuntimeTelemetryConnector,
 } from '@agent-sentinel/connector-sdk'
 
@@ -16,6 +17,7 @@ export interface BehaviorRoutesOptions {
   mode: 'mock' | 'foundry'
   defaultTenantId: string
   runtimeTelemetryConnector?: RuntimeTelemetryConnector
+  resolveTelemetryRequest?: (agentId: string) => Promise<RuntimeTelemetryRequest>
 }
 
 function unavailableAnalysisId(kind: 'unavailable' | 'no-data', agentId: string): string {
@@ -50,10 +52,13 @@ export function registerBehaviorRoutes(app: FastifyInstance, opts: BehaviorRoute
       if (opts.mode === 'foundry') {
         if (opts.runtimeTelemetryConnector !== undefined) {
           try {
+            const telemetryRequest = (await opts.resolveTelemetryRequest?.(agentId)) ?? {
+              tenantId,
+              agentId,
+            }
             const windows = runtimeObservationWindowsSchema.parse(
               await opts.runtimeTelemetryConnector.readObservationWindows({
-                tenantId,
-                agentId,
+                ...telemetryRequest,
               }),
             )
             if (windows.observed.tenantId !== tenantId || windows.observed.agentId !== agentId) {

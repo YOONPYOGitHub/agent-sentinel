@@ -5,10 +5,12 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   AzureMonitorOtelConnector,
+  MultiAzureMonitorOtelConnector,
   azureMonitorOtelConfigSchema,
   buildAzureMonitorOtelQuery,
   createAzureMonitorOtelConnector,
   mapAzureMonitorRows,
+  parseAzureMonitorOtelSources,
 } from '../src/index.js'
 
 const columns = [
@@ -40,13 +42,20 @@ const config = {
   observedWindowHours: 24,
 }
 
-function row(id: string, observedAt: string, index: number): unknown[] {
+function row(
+  id: string,
+  observedAt: string,
+  index: number,
+  tenantId = 'tenant-a',
+  agentId = 'agent-a',
+  environment = 'production',
+): unknown[] {
   return [
     id,
     observedAt,
-    'tenant-a',
-    'agent-a',
-    'production',
+    tenantId,
+    agentId,
+    environment,
     800 + index,
     300 + index,
     100 + index,
@@ -181,7 +190,160 @@ describe('Azure Monitor OTel connector', () => {
         },
         new Credential(),
       ),
-    ).toBeInstanceOf(AzureMonitorOtelConnector)
+    ).toBeInstanceOf(MultiAzureMonitorOtelConnector)
+  })
+
+  it('routes aggregate agents to their exact source workspace and rebinds results', async () => {
+    const sources = [
+      {
+        id: 'project-a',
+        name: 'Project A',
+        workspaceId: '11111111-1111-4111-8111-111111111111',
+        tenantId: 'tenant-a',
+        environment: 'production',
+        baselineWindowHours: 24,
+        observedWindowHours: 24,
+        requestTimeoutMs: 15_000,
+      },
+      {
+        id: 'project-b',
+        name: 'Project B',
+        workspaceId: '22222222-2222-4222-8222-222222222222',
+        tenantId: 'tenant-b',
+        environment: 'validation',
+        baselineWindowHours: 24,
+        observedWindowHours: 24,
+        requestTimeoutMs: 15_000,
+      },
+    ]
+    const fetchers = new Map(
+      sources.map((source) => {
+        const rows = [
+          row(
+            `${source.id}-baseline`,
+            '2026-08-23T12:00:00.000Z',
+            0,
+            source.tenantId,
+            `provider-${source.id}`,
+            source.environment,
+          ),
+          row(
+            source.id === 'project-b' ? 'x'.repeat(200) : `${source.id}-observed`,
+            '2026-08-24T01:00:00.000Z',
+            1,
+            source.tenantId,
+            `provider-${source.id}`,
+            source.environment,
+          ),
+        ]
+        return [
+          source.id,
+          vi.fn<typeof fetch>().mockResolvedValue(
+            Response.json({
+              tables: [{ name: 'PrimaryResult', columns, rows }],
+            }),
+          ),
+        ] as const
+      }),
+    )
+    const connector = new MultiAzureMonitorOtelConnector(
+      sources,
+      () => new Credential(),
+      (source) => fetchers.get(source.id)!,
+      () => new Date('2026-08-24T12:00:00.000Z'),
+    )
+    const aggregateAgentId = 'foundry-source-project-b--foundry-agent-provider-project-b'
+    const windows = await connector.readObservationWindows({
+      tenantId: 'estate',
+      agentId: aggregateAgentId,
+      sourceConnectorId: 'project-b',
+      sourceTenantId: 'tenant-b',
+      sourceAgentId: 'provider-project-b',
+      sourceEnvironment: 'validation',
+    })
+
+    expect(fetchers.get('project-a')).not.toHaveBeenCalled()
+    expect(fetchers.get('project-b')).toHaveBeenCalledOnce()
+    expect(windows.observed).toMatchObject({
+      tenantId: 'estate',
+      agentId: aggregateAgentId,
+      environment: 'validation',
+    })
+    expect(windows.observed.observations[0]).toMatchObject({
+      tenantId: 'estate',
+      agentId: aggregateAgentId,
+    })
+    expect(windows.observed.observations[0]?.id.length).toBeLessThanOrEqual(200)
+    expect(connector.getConnectorHealth()).toMatchObject({
+      overall: 'degraded',
+      partial: true,
+      sources: [
+        { id: 'otel:project-a', readiness: 'degraded' },
+        { id: 'otel:project-b', readiness: 'ready' },
+      ],
+    })
+  })
+
+  it('parses multi-source configuration and rejects a mismatched source request', async () => {
+    const sources = parseAzureMonitorOtelSources({
+      AZURE_MONITOR_SOURCES_JSON: JSON.stringify([
+        {
+          id: 'project-a',
+          name: 'Project A',
+          workspaceId: config.workspaceId,
+          tenantId: config.tenantId,
+          environment: config.environment,
+        },
+      ]),
+    })
+    const connector = new MultiAzureMonitorOtelConnector(
+      sources,
+      () => new Credential(),
+      () => vi.fn<typeof fetch>(),
+    )
+    await expect(
+      connector.readObservationWindows({
+        tenantId: 'estate',
+        agentId: 'aggregate-agent',
+        sourceConnectorId: 'project-a',
+        sourceTenantId: 'tenant-b',
+        sourceAgentId: 'provider-agent',
+        sourceEnvironment: 'production',
+      }),
+    ).rejects.toThrow('does not match the Azure Monitor source')
+  })
+
+  it('reports unavailable after every configured source query fails', async () => {
+    const connector = new MultiAzureMonitorOtelConnector(
+      [
+        {
+          id: 'project-a',
+          name: 'Project A',
+          workspaceId: config.workspaceId,
+          tenantId: config.tenantId,
+          environment: config.environment,
+          baselineWindowHours: 24,
+          observedWindowHours: 24,
+          requestTimeoutMs: 15_000,
+        },
+      ],
+      () => new Credential(),
+      () =>
+        vi
+          .fn<typeof fetch>()
+          .mockResolvedValue(Response.json({ error: { code: 'Forbidden' } }, { status: 403 })),
+    )
+    await expect(
+      connector.readObservationWindows({
+        tenantId: 'estate',
+        agentId: 'aggregate-agent',
+      }),
+    ).rejects.toThrow()
+    expect(connector.getConnectorHealth()).toMatchObject({
+      overall: 'unavailable',
+      partial: false,
+      sources: [{ id: 'otel:project-a', readiness: 'unavailable' }],
+    })
   })
 
   it('rejects unsafe bindings and invalid time configuration', () => {

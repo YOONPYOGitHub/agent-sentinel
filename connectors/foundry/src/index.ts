@@ -529,6 +529,9 @@ function scopeFoundrySnapshot(
         sourceTenantId: source.tenantId,
         sourceProjectId: sourceProjectId(source.projectEndpoint),
         sourceEnvironment: source.environment,
+        sourceObjectId: node.id.startsWith('foundry-agent-')
+          ? node.id.slice('foundry-agent-'.length)
+          : node.id,
       },
     })),
     edges: snapshot.edges.map((edge) => ({

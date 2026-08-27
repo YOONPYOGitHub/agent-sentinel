@@ -117,8 +117,8 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     sourceOfTruth: true,
     ownershipModel: 'consumes',
     prerequisiteNote:
-      'Requires AZURE_MONITOR_WORKSPACE_ID, AZURE_MONITOR_TENANT_ID, and AZURE_MONITOR_ENVIRONMENT. ' +
-      'Uses DefaultAzureCredential with read-only Log Analytics query permission. Instrumented agent request spans must emit the documented OTel attributes.',
+      'Supports one workspace source per Foundry source id through AZURE_MONITOR_SOURCES_JSON. ' +
+      'Each source requires read-only Log Analytics query permission and instrumented spans with the documented OTel attributes.',
     unlocksScorecard: ['cost'],
   },
   {
@@ -150,6 +150,7 @@ export function buildConnectorsCollection(
     writeEnabled?: boolean
     projectEndpoint?: string
     runtimeTelemetryConfigured?: boolean
+    runtimeTelemetryHealth?: ConnectorHealthReport
     connectorHealth?: ConnectorHealthReport
   },
 ): ConnectorsCollectionResponse {
@@ -196,11 +197,41 @@ export function buildConnectorsCollection(
       }
     }
     if (entry.id === 'azure-monitor-otel' && opts.runtimeTelemetryConfigured === true) {
-      return { ...entry, lifecycleState: 'connected' }
+      const sources = opts.runtimeTelemetryHealth?.sources ?? []
+      const ready = sources.filter((source) => source.readiness === 'ready').length
+      return {
+        ...entry,
+        lifecycleState:
+          sources.length === 0 || ready === sources.length
+            ? 'connected'
+            : ready > 0 || sources.some((source) => source.readiness === 'degraded')
+              ? 'degraded'
+              : 'unavailable',
+      }
     }
     return { ...entry }
   })
 
+  const healthSources = [
+    ...(opts.connectorHealth?.sources ?? []),
+    ...(opts.runtimeTelemetryHealth?.sources ?? []),
+  ]
+  const combinedHealth =
+    healthSources.length === 0
+      ? undefined
+      : {
+          overall:
+            opts.connectorHealth?.overall === 'unavailable'
+              ? ('unavailable' as const)
+              : opts.connectorHealth?.overall === 'degraded' ||
+                  (opts.runtimeTelemetryHealth !== undefined &&
+                    opts.runtimeTelemetryHealth.overall !== 'ready')
+                ? ('degraded' as const)
+                : ('ready' as const),
+          partial:
+            opts.connectorHealth?.partial === true || opts.runtimeTelemetryHealth?.partial === true,
+          sources: healthSources,
+        }
   return {
     active: {
       id: opts.connectorId,
@@ -216,7 +247,7 @@ export function buildConnectorsCollection(
       ...(opts.projectEndpoint !== undefined ? { projectEndpoint: opts.projectEndpoint } : {}),
     },
     catalog,
-    ...(opts.connectorHealth ? { health: opts.connectorHealth } : {}),
+    ...(combinedHealth ? { health: combinedHealth } : {}),
   }
 }
 

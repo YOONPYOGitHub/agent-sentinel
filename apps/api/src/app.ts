@@ -7,6 +7,7 @@ import { DefaultAzureCredential } from '@azure/identity'
 import { createAzureMonitorOtelConnector } from '@agent-sentinel/azure-monitor-otel-connector'
 import type {
   ManifestIngestionRepository,
+  RuntimeTelemetryRequest,
   RuntimeTelemetryConnector,
 } from '@agent-sentinel/connector-sdk'
 
@@ -98,6 +99,38 @@ function defaultTenantId(): string {
     process.env['AZURE_MONITOR_TENANT_ID']?.trim() ||
     'tenant-demo'
   )
+}
+
+function defaultEnvironment(): string {
+  return (
+    process.env['AGENT_SENTINEL_ENVIRONMENT']?.trim() ||
+    process.env['FOUNDRY_ENVIRONMENT']?.trim() ||
+    'validation'
+  )
+}
+
+function telemetryRequestResolver(
+  snapshotRepository: SnapshotRepository | undefined,
+): ((agentId: string) => Promise<RuntimeTelemetryRequest>) | undefined {
+  if (snapshotRepository === undefined) return undefined
+  return async (agentId) => {
+    const tenantId = defaultTenantId()
+    const snapshot = await snapshotRepository.findLatest(tenantId, defaultEnvironment())
+    const agent = snapshot?.nodes.find((node) => node.kind === 'agent' && node.id === agentId)
+    if (agent === undefined) return { tenantId, agentId }
+    const sourceConnectorId = agent.metadata['sourceConnectorId']
+    const sourceTenantId = agent.metadata['sourceTenantId']
+    const sourceAgentId = agent.metadata['sourceObjectId']
+    const sourceEnvironment = agent.metadata['sourceEnvironment']
+    return {
+      tenantId,
+      agentId,
+      ...(sourceConnectorId !== undefined ? { sourceConnectorId } : {}),
+      ...(sourceTenantId !== undefined ? { sourceTenantId } : {}),
+      ...(sourceAgentId !== undefined ? { sourceAgentId } : {}),
+      ...(sourceEnvironment !== undefined ? { sourceEnvironment } : {}),
+    }
+  }
 }
 
 function defaultWriteEnabled(mode: 'mock' | 'live', authConfig: AuthConfig): boolean {
@@ -302,12 +335,14 @@ export async function createApp(
     const connection = await resolvedService.testConnectorConnection()
     const status = await resolvedService.getConnectorStatus()
     const connectorHealth = resolvedService.getConnectorHealth()
+    const runtimeTelemetryHealth = runtimeTelemetryConnector?.getConnectorHealth?.()
     return buildConnectorsCollection(status.mode, {
       connectorId: status.connectorId,
       connectionOk: connection.ok,
       ...(status.writeEnabled !== undefined ? { writeEnabled: status.writeEnabled } : {}),
       ...(status.projectEndpoint !== undefined ? { projectEndpoint: status.projectEndpoint } : {}),
       runtimeTelemetryConfigured: runtimeTelemetryConnector !== undefined,
+      ...(runtimeTelemetryHealth !== undefined ? { runtimeTelemetryHealth } : {}),
       ...(connectorHealth ? { connectorHealth } : {}),
     })
   })
@@ -373,15 +408,18 @@ export async function createApp(
     writeEnabled,
     ...(governanceCaseRepository ? { repository: governanceCaseRepository } : {}),
   })
+  const resolveTelemetryRequest = telemetryRequestResolver(snapshotRepository)
   registerBehaviorRoutes(app, {
     mode: exposureMode,
     defaultTenantId: defaultTenantId(),
     ...(runtimeTelemetryConnector !== undefined ? { runtimeTelemetryConnector } : {}),
+    ...(resolveTelemetryRequest !== undefined ? { resolveTelemetryRequest } : {}),
   })
   registerTokenEconomicsRoutes(app, {
     mode: exposureMode,
     defaultTenantId: defaultTenantId(),
     ...(runtimeTelemetryConnector !== undefined ? { runtimeTelemetryConnector } : {}),
+    ...(resolveTelemetryRequest !== undefined ? { resolveTelemetryRequest } : {}),
   })
   const manifestEnvironmentId =
     process.env['AGENT_SENTINEL_ENVIRONMENT']?.trim() || process.env['FOUNDRY_ENVIRONMENT']?.trim()

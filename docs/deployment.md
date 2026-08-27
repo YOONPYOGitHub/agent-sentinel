@@ -50,6 +50,13 @@ managed-identity federation pattern and require target-tenant
 every intended source is authorized and the bounded Graph inventory probe is
 approved.
 
+Set `azureMonitorSourcesJson` with entries matching Foundry source ids. Each
+entry contains a workspace customer id, source tenant, source environment, and
+optional federated credential. `azureMonitorConnectorEnabled` remains false
+until the application UAMI has an approved read-only workspace query role and
+the target agents emit validated `agent.sentinel.tenant_id`,
+`gen_ai.agent.id`, and `deployment.environment.name` attributes.
+
 ### Phase C ? Foundry Embedding
 
 Add text-embedding-3-large deployment (only this module touches AIServices).

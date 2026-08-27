@@ -63,6 +63,10 @@ export interface AgentConnector {
 export interface RuntimeTelemetryRequest {
   tenantId: string
   agentId: string
+  sourceConnectorId?: string
+  sourceTenantId?: string
+  sourceAgentId?: string
+  sourceEnvironment?: string
 }
 
 const liveObservationWindowSchema = observationWindowSchema.extend({
@@ -125,6 +129,7 @@ export type RuntimeObservationWindows = z.infer<typeof runtimeObservationWindows
 export interface RuntimeTelemetryConnector {
   readonly id: string
   readObservationWindows(request: RuntimeTelemetryRequest): Promise<RuntimeObservationWindows>
+  getConnectorHealth?(): ConnectorHealthReport
 }
 
 // ─── Connector Catalog Model ─────────────────────────────────────────────────

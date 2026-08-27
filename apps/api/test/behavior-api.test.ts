@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { driftAnalysisResultSchema } from '@agent-sentinel/domain'
 import type { ExposureFindingRepository, SnapshotRepository } from '@agent-sentinel/domain'
 import { createApp } from '../src/app.js'
@@ -194,6 +194,28 @@ describe('behavior drift API — foundry/live mode', () => {
     expect(response.statusCode).toBe(200)
   })
 
+  it('does not read the snapshot repository while telemetry is disabled', async () => {
+    const repositories = makeStubRepositories()
+    repositories.snapshotRepository.findLatest = () =>
+      Promise.reject(new Error('Cosmos unavailable'))
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: null,
+        ...repositories,
+      },
+    )
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/any-agent/drift',
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ status: 'invalid' })
+    await app.close()
+  })
+
   it('runs the drift engine on injected Azure Monitor OTel windows', async () => {
     const app = await createApp(
       undefined,
@@ -216,6 +238,72 @@ describe('behavior drift API — foundry/live mode', () => {
     expect(result.baselineEvidenceId).toBe('otel-baseline-evidence')
     expect(result.observedEvidenceId).toBe('otel-observed-evidence')
     expect(result.anyDrift).toBe(true)
+    await app.close()
+  })
+
+  it('resolves aggregate agent ids to exact telemetry source bindings', async () => {
+    const fixture = createRuntimeTelemetryFixture()
+    const readObservationWindows = vi.fn(fixture.readObservationWindows.bind(fixture))
+    const runtimeTelemetryConnector = {
+      id: 'azure-monitor-otel',
+      readObservationWindows,
+    }
+    const repositories = makeStubRepositories()
+    repositories.snapshotRepository.findLatest = () =>
+      Promise.resolve({
+        tenantId: 'tenant-demo',
+        environment: 'validation',
+        generatedAt: '2026-08-28T00:00:00.000Z',
+        nodes: [
+          {
+            id: 'live-agent',
+            kind: 'agent',
+            name: 'Live agent',
+            description: 'test',
+            environment: 'production',
+            evidenceIds: ['evidence-1'],
+            metadata: {
+              sourceConnectorId: 'project-a',
+              sourceTenantId: 'source-tenant',
+              sourceEnvironment: 'production',
+              sourceObjectId: 'provider-agent-id',
+            },
+          },
+        ],
+        edges: [],
+        evidence: [
+          {
+            id: 'evidence-1',
+            source: 'Foundry',
+            sourceObjectId: 'provider-agent-id',
+            observedAt: '2026-08-28T00:00:00.000Z',
+            freshness: 'live',
+            confidence: 1,
+            summary: 'Declared configuration.',
+          },
+        ],
+      })
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector,
+        ...repositories,
+      },
+    )
+    await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/live-agent/drift',
+    })
+    expect(readObservationWindows).toHaveBeenCalledWith({
+      tenantId: 'tenant-demo',
+      agentId: 'live-agent',
+      sourceConnectorId: 'project-a',
+      sourceTenantId: 'source-tenant',
+      sourceAgentId: 'provider-agent-id',
+      sourceEnvironment: 'production',
+    })
     await app.close()
   })
 
