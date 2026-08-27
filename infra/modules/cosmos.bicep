@@ -49,7 +49,6 @@ var containerNames = [
   'evidence'
   'graph-nodes'
   'graph-edges'
-  'governance-cases'
 ]
 
 resource containers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = [for containerName in containerNames: {
@@ -65,6 +64,46 @@ resource containers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containe
     }
   }
 }]
+
+resource governanceContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
+  parent: database
+  name: 'governance-cases'
+  properties: {
+    resource: {
+      id: 'governance-cases'
+      partitionKey: {
+        paths: ['/tenantId']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+        compositeIndexes: [
+          [
+            {
+              path: '/case/lastTransitionAt'
+              order: 'descending'
+            }
+            {
+              path: '/case/id'
+              order: 'ascending'
+            }
+          ]
+        ]
+      }
+    }
+  }
+}
 
 resource privateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' existing = {
   name: 'privatelink.documents.azure.com'
