@@ -84,8 +84,9 @@ Deterministic policies currently shipped:
 | `AS-POL-003` | Mutation tool without approval                  | high     |
 
 The live ingestion and shift-left exposure catalog contains `AS-POL-001..003`. `AS-POL-004` is a
-legacy attack-path `Finding` evaluator used only by the process-local demo state; it is not persisted
-as an `ExposureFinding` and must not be counted as live policy coverage.
+legacy attack-path `Finding` evaluator used only for the overview summary derived from the latest
+persisted estate snapshot; it is not persisted as an `ExposureFinding` and must not be counted as
+live policy coverage.
 
 Findings carry `validationStatus` of `theoretical`, `validated`, or `mitigated`, and a `sourceMode` of `mock`, `foundry`, or non-authoritative `manifest` so provenance is never ambiguous.
 

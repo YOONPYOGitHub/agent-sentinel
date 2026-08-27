@@ -17,6 +17,8 @@ describe('connector selection', () => {
       FOUNDRY_ENVIRONMENT: 'validation',
     })
     expect(result.mode).toBe('foundry')
+    expect(result.tenantId).toBe('tenant')
+    expect(result.environment).toBe('validation')
   })
 
   it('wires Entra enrichment with an exact tenant and environment boundary', () => {

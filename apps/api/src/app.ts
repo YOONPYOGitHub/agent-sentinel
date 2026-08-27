@@ -27,7 +27,12 @@ import {
 } from './auth.js'
 import { createAdvisoryService, type AdvisoryService } from './advisory-service.js'
 import { createConfiguredConnector } from './connector-factory.js'
-import { DemoService, NotFoundError, StateConflictError } from './demo-service.js'
+import {
+  DemoService,
+  NotFoundError,
+  ReadModelUnavailableError,
+  StateConflictError,
+} from './demo-service.js'
 import { registerExposureRoutes } from './exposure-routes.js'
 import { registerGovernanceRoutes } from './governance-routes.js'
 import {
@@ -42,9 +47,28 @@ const approvalSchema = z.object({
   approvedBy: z.string().trim().min(2).max(100),
 })
 
-function configuredService(): DemoService {
+function configuredService(
+  snapshotRepository?: SnapshotRepository,
+  persistedReadModelRequired = false,
+): DemoService {
   const configured = createConfiguredConnector()
-  return new DemoService(configured.connector, configured.mode, configured.projectEndpoint)
+  const persistedReadModel =
+    snapshotRepository !== undefined &&
+    configured.tenantId !== undefined &&
+    configured.environment !== undefined
+      ? {
+          snapshotRepository,
+          tenantId: configured.tenantId,
+          environment: configured.environment,
+        }
+      : undefined
+  return new DemoService(
+    configured.connector,
+    configured.mode,
+    configured.projectEndpoint,
+    persistedReadModel,
+    persistedReadModelRequired,
+  )
 }
 
 function corsOrigins(value = process.env['CORS_ORIGIN']): string[] {
@@ -120,7 +144,7 @@ export interface CreateAppOptions {
 }
 
 export async function createApp(
-  service = configuredService(),
+  service?: DemoService,
   authConfig: AuthConfig = buildAuthConfig(),
   options: CreateAppOptions = {},
 ): Promise<FastifyInstance> {
@@ -147,6 +171,36 @@ export async function createApp(
         ? undefined
         : (options.runtimeTelemetryConnector ?? createAzureMonitorOtelConnector())
       : undefined
+  const exposureMode: 'mock' | 'foundry' = resolvedDataMode === 'live' ? 'foundry' : 'mock'
+  const writeEnabled = defaultWriteEnabled(resolvedDataMode, authConfig)
+  const liveRepositories =
+    resolvedDataMode === 'live' &&
+    options.exposureRepository === undefined &&
+    options.snapshotRepository === undefined
+      ? buildLiveRepositories()
+      : undefined
+  const exposureRepository = options.exposureRepository ?? liveRepositories?.exposureRepository
+  const snapshotRepository = options.snapshotRepository ?? liveRepositories?.snapshotRepository
+  const governanceCaseRepository =
+    options.governanceCaseRepository ??
+    (resolvedDataMode === 'mock'
+      ? createSeededGovernanceCaseRepository(exposureMode, writeEnabled)
+      : liveRepositories?.governanceCaseRepository)
+  const defaultService =
+    service === undefined
+      ? configuredService(
+          resolvedDataMode === 'live' ? snapshotRepository : undefined,
+          resolvedDataMode === 'live',
+        )
+      : undefined
+  const resolvedService = service ?? defaultService
+  if (resolvedService === undefined) {
+    throw new Error('Failed to initialize the application service.')
+  }
+  const stateService =
+    resolvedDataMode === 'live'
+      ? (defaultService ?? configuredService(snapshotRepository, true))
+      : resolvedService
 
   // Live mode: forbid non-GET writes to /api/demo/* to keep production read-only.
   app.addHook('preHandler', (request, reply, done) => {
@@ -222,12 +276,12 @@ export async function createApp(
     timestamp: new Date().toISOString(),
   }))
 
-  app.get('/api/demo/state', async () => service.getState())
-  app.get('/api/connector/status', async () => service.getConnectorStatus())
+  app.get('/api/demo/state', async () => stateService.getState())
+  app.get('/api/connector/status', async () => resolvedService.getConnectorStatus())
   app.get('/api/connectors', async () => {
-    const connection = await service.testConnectorConnection()
-    const status = await service.getConnectorStatus()
-    const connectorHealth = service.getConnectorHealth()
+    const connection = await resolvedService.testConnectorConnection()
+    const status = await resolvedService.getConnectorStatus()
+    const connectorHealth = resolvedService.getConnectorHealth()
     return buildConnectorsCollection(status.mode, {
       connectorId: status.connectorId,
       connectionOk: connection.ok,
@@ -242,19 +296,19 @@ export async function createApp(
     {
       preHandler: requireCapability(authConfig, 'configure'),
     },
-    async () => service.reset(),
+    async () => resolvedService.reset(),
   )
 
   app.post<{ Params: { findingId: string } }>(
     '/api/demo/findings/:findingId/validate',
     { preHandler: requireCapability(authConfig, 'validateFinding') },
-    async (request) => service.validateFinding(request.params.findingId),
+    async (request) => resolvedService.validateFinding(request.params.findingId),
   )
 
   app.post<{ Params: { findingId: string } }>(
     '/api/demo/findings/:findingId/remediations',
     { preHandler: requireCapability(authConfig, 'proposeRemediation') },
-    async (request) => service.proposeRemediation(request.params.findingId),
+    async (request) => resolvedService.proposeRemediation(request.params.findingId),
   )
 
   app.post<{ Params: { remediationId: string }; Body: unknown }>(
@@ -269,31 +323,16 @@ export async function createApp(
             principal.objectId ??
             principal.subject)
           : approvalSchema.parse(request.body).approvedBy
-      return service.approveRemediation(request.params.remediationId, approvedBy)
+      return resolvedService.approveRemediation(request.params.remediationId, approvedBy)
     },
   )
 
   app.post<{ Params: { remediationId: string } }>(
     '/api/demo/remediations/:remediationId/execute',
     { preHandler: requireCapability(authConfig, 'executeRemediation') },
-    async (request) => service.executeRemediation(request.params.remediationId),
+    async (request) => resolvedService.executeRemediation(request.params.remediationId),
   )
 
-  const exposureMode: 'mock' | 'foundry' = resolvedDataMode === 'live' ? 'foundry' : 'mock'
-  const writeEnabled = defaultWriteEnabled(resolvedDataMode, authConfig)
-  const liveRepositories =
-    resolvedDataMode === 'live' &&
-    options.exposureRepository === undefined &&
-    options.snapshotRepository === undefined
-      ? buildLiveRepositories()
-      : undefined
-  const exposureRepository = options.exposureRepository ?? liveRepositories?.exposureRepository
-  const snapshotRepository = options.snapshotRepository ?? liveRepositories?.snapshotRepository
-  const governanceCaseRepository =
-    options.governanceCaseRepository ??
-    (resolvedDataMode === 'mock'
-      ? createSeededGovernanceCaseRepository(exposureMode, writeEnabled)
-      : liveRepositories?.governanceCaseRepository)
   const advisoryService = options.advisoryService ?? createAdvisoryService()
   registerExposureRoutes(app, {
     mode: exposureMode,
@@ -333,7 +372,9 @@ export async function createApp(
           ? 404
           : error instanceof StateConflictError
             ? 409
-            : 500
+            : error instanceof ReadModelUnavailableError
+              ? 503
+              : 500
     const message = error instanceof Error ? error.message : 'Unexpected operation failure.'
     void reply.status(statusCode).send({
       error:
@@ -343,7 +384,9 @@ export async function createApp(
             ? 'not_found'
             : statusCode === 409
               ? 'operation_rejected'
-              : 'internal_error',
+              : statusCode === 503
+                ? 'read_model_unavailable'
+                : 'internal_error',
       message,
     })
   })

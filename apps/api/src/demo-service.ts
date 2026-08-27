@@ -3,6 +3,7 @@ import type {
   AgentSentinelState,
   Finding,
   Remediation,
+  SnapshotRepository,
   ValidationRun,
 } from '@agent-sentinel/domain'
 import { MockAgentConnector } from '@agent-sentinel/mock-connector'
@@ -16,11 +17,23 @@ export class StateConflictError extends Error {
   override readonly name = 'StateConflictError'
 }
 
+export class ReadModelUnavailableError extends Error {
+  override readonly name = 'ReadModelUnavailableError'
+}
+
+export interface PersistedReadModel {
+  snapshotRepository: SnapshotRepository
+  tenantId: string
+  environment: string
+}
+
 export class DemoService {
   constructor(
     private readonly connector: AgentConnector = new MockAgentConnector(),
     private readonly connectorMode: 'mock' | 'foundry' = 'mock',
     private readonly projectEndpoint?: string,
+    private readonly persistedReadModel?: PersistedReadModel,
+    private readonly persistedReadModelRequired = false,
   ) {}
 
   private validations: ValidationRun[] = []
@@ -28,14 +41,38 @@ export class DemoService {
   private findingHistory: Finding[] | undefined
 
   async getState(): Promise<AgentSentinelState> {
-    const snapshot = await this.connector.discover()
+    if (this.persistedReadModelRequired && this.persistedReadModel === undefined) {
+      throw new ReadModelUnavailableError(
+        'The persisted estate read model is not configured for this live deployment.',
+      )
+    }
+    const snapshot =
+      this.persistedReadModel === undefined
+        ? await this.connector.discover()
+        : await this.persistedReadModel.snapshotRepository.findLatest(
+            this.persistedReadModel.tenantId,
+            this.persistedReadModel.environment,
+          )
+    if (snapshot === null) {
+      throw new ReadModelUnavailableError(
+        'No persisted estate snapshot is available for the configured tenant and environment.',
+      )
+    }
     const currentFindings = evaluateUncontrolledEgress(snapshot)
-    if (this.findingHistory === undefined && currentFindings.length > 0) {
+    if (
+      this.persistedReadModel === undefined &&
+      this.findingHistory === undefined &&
+      currentFindings.length > 0
+    ) {
       this.findingHistory = currentFindings
     }
     return {
-      snapshot,
-      findings: structuredClone(this.findingHistory ?? currentFindings),
+      snapshot: structuredClone(snapshot),
+      findings: structuredClone(
+        this.persistedReadModel === undefined
+          ? (this.findingHistory ?? currentFindings)
+          : currentFindings,
+      ),
       validations: structuredClone(this.validations),
       remediations: structuredClone(this.remediations),
     }

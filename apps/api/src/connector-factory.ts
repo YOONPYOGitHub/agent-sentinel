@@ -31,6 +31,8 @@ export function createConfiguredConnector(
   connector: AgentConnector
   mode: ConnectorMode
   projectEndpoint?: string
+  tenantId?: string
+  environment?: string
 } {
   const mode = env.AGENT_SENTINEL_CONNECTOR?.trim() || 'mock'
   if (mode === 'mock') return { connector: new MockAgentConnector(), mode }
@@ -52,5 +54,7 @@ export function createConfiguredConnector(
     }),
     mode,
     projectEndpoint: config.projectEndpoint,
+    tenantId: config.tenantId,
+    environment: config.environment,
   }
 }
