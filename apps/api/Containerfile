@@ -4,12 +4,14 @@ RUN corepack enable
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/domain/package.json packages/domain/
 COPY packages/connector-sdk/package.json packages/connector-sdk/
+COPY packages/behavior-engine/package.json packages/behavior-engine/
 COPY packages/graph-engine/package.json packages/graph-engine/
 COPY packages/policy-engine/package.json packages/policy-engine/
 COPY packages/persistence/package.json packages/persistence/
 COPY packages/scenarios/package.json packages/scenarios/
 COPY connectors/foundry/package.json connectors/foundry/
 COPY connectors/mock/package.json connectors/mock/
+COPY connectors/azure-monitor-otel/package.json connectors/azure-monitor-otel/
 COPY apps/api/package.json apps/api/
 RUN pnpm install --frozen-lockfile
 COPY tsconfig.base.json ./
@@ -19,12 +21,14 @@ COPY apps/api/ apps/api/
 # Build each workspace package in dependency order (avoids requiring turbo.json in context)
 RUN pnpm --filter @agent-sentinel/domain build
 RUN pnpm --filter @agent-sentinel/connector-sdk build
+RUN pnpm --filter @agent-sentinel/behavior-engine build
 RUN pnpm --filter @agent-sentinel/graph-engine build
 RUN pnpm --filter @agent-sentinel/policy-engine build
 RUN pnpm --filter @agent-sentinel/persistence build
 RUN pnpm --filter @agent-sentinel/scenarios build
 RUN pnpm --filter @agent-sentinel/foundry-connector build
 RUN pnpm --filter @agent-sentinel/mock-connector build
+RUN pnpm --filter @agent-sentinel/azure-monitor-otel-connector build
 RUN pnpm --filter @agent-sentinel/api build
 
 FROM node:22-slim AS runtime
@@ -38,6 +42,8 @@ COPY --from=builder /workspace/packages/domain/dist ./packages/domain/dist/
 COPY --from=builder /workspace/packages/domain/package.json ./packages/domain/
 COPY --from=builder /workspace/packages/connector-sdk/dist ./packages/connector-sdk/dist/
 COPY --from=builder /workspace/packages/connector-sdk/package.json ./packages/connector-sdk/
+COPY --from=builder /workspace/packages/behavior-engine/dist ./packages/behavior-engine/dist/
+COPY --from=builder /workspace/packages/behavior-engine/package.json ./packages/behavior-engine/
 COPY --from=builder /workspace/packages/graph-engine/dist ./packages/graph-engine/dist/
 COPY --from=builder /workspace/packages/graph-engine/package.json ./packages/graph-engine/
 COPY --from=builder /workspace/packages/policy-engine/dist ./packages/policy-engine/dist/
@@ -50,6 +56,8 @@ COPY --from=builder /workspace/connectors/foundry/dist ./connectors/foundry/dist
 COPY --from=builder /workspace/connectors/foundry/package.json ./connectors/foundry/
 COPY --from=builder /workspace/connectors/mock/dist ./connectors/mock/dist/
 COPY --from=builder /workspace/connectors/mock/package.json ./connectors/mock/
+COPY --from=builder /workspace/connectors/azure-monitor-otel/dist ./connectors/azure-monitor-otel/dist/
+COPY --from=builder /workspace/connectors/azure-monitor-otel/package.json ./connectors/azure-monitor-otel/
 RUN pnpm install --frozen-lockfile --prod
 USER node
 EXPOSE 3001
