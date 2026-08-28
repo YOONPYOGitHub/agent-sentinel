@@ -194,8 +194,9 @@ module identity './modules/identity.bicep' = {
     aiAccountId: foundry.outputs.aiAccountId
     sbNamespaceId: serviceBus.outputs.id
     searchId: search.outputs.id
+    lawWorkspaceId: observability.outputs.workspaceId
   }
-  dependsOn: [registry, cosmos, keyVault, foundry, serviceBus, search]
+  dependsOn: [registry, cosmos, keyVault, foundry, serviceBus, search, observability]
 }
 
 module postgres './modules/postgres.bicep' = {

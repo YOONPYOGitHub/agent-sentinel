@@ -214,6 +214,44 @@ If any item regresses, stop activation and restore the last known-good revision.
 3. Add the origin to CORS only if the SPA and API are intentionally cross-origin.
 4. Validate login, logout, token tenant/audience, certificate renewal, and RB-011 behavior.
 
+## RB-013B: Live Entra and OTel Read Permissions
+
+These are independent read-only source permissions. Apply only after approval.
+
+For Entra stable inventory, resolve the tenant-local Microsoft Graph service
+principal and `Application.Read.All` application role dynamically. Assign it to
+the Agent Sentinel UAMI; do not request `AgentIdentity.Read.All` or any write
+role during the stable v1.0 stage.
+
+```bash
+UAMI_PRINCIPAL_ID=$(az identity show -g rg-agent-sentinel \
+  -n id-agent-sentinel-260814 --query principalId -o tsv)
+GRAPH_SP_ID=$(az ad sp show --id 00000003-0000-0000-c000-000000000000 \
+  --query id -o tsv)
+APPLICATION_READ_ALL_ID=$(az ad sp show \
+  --id 00000003-0000-0000-c000-000000000000 \
+  --query "appRoles[?value=='Application.Read.All'].id | [0]" -o tsv)
+BODY=$(jq -n \
+  --arg principalId "$UAMI_PRINCIPAL_ID" \
+  --arg resourceId "$GRAPH_SP_ID" \
+  --arg appRoleId "$APPLICATION_READ_ALL_ID" \
+  '{principalId:$principalId,resourceId:$resourceId,appRoleId:$appRoleId}')
+az rest --method POST \
+  --url "https://graph.microsoft.com/v1.0/servicePrincipals/${UAMI_PRINCIPAL_ID}/appRoleAssignments" \
+  --headers Content-Type=application/json \
+  --body "$BODY"
+```
+
+For OTel queries, `infra/modules/identity.bicep` assigns built-in
+`Log Analytics Reader` only at the configured workspace scope. It excludes
+shared-key reads. Validate synthetic AppRequests before enabling
+`azureMonitorConnectorEnabled`.
+
+The Container Apps managed environment separately uses a secure workspace key
+to deliver platform console logs. That control-plane sink is not exposed as an
+application environment variable and is not used by the OTel query connector;
+connector reads authenticate only through the UAMI role above.
+
 ## RB-014: Private CI Build Runner
 
 ### Architecture
