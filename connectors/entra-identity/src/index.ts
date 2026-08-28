@@ -673,7 +673,7 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
       source.checkedAt = new Date().toISOString()
       if (result.status === 'rejected') {
         source.readiness = 'unavailable'
-        source.reason = 'discovery-failed'
+        source.reason = safeFailureReason(result.reason)
         continue
       }
       if (result.value === undefined || source.connector === undefined) continue

@@ -618,6 +618,39 @@ describe('composite enrichment connector', () => {
         ],
       })
     })
+
+    it('preserves sanitized Graph failure reasons in source health', async () => {
+      const expected = [expectedSources[0]!]
+      const connector = new MultiEntraEnrichmentConnector(
+        connectorForSnapshot(aggregateBase()),
+        [sourceConfig(expected[0]!)],
+        {
+          enabled: true,
+          expectedSources: expected,
+          credentialFactory: () => new Credential(),
+          clientFactory: () => ({
+            fetcher: vi
+              .fn<typeof fetch>()
+              .mockResolvedValue(new Response(undefined, { status: 403 })),
+          }),
+        },
+      )
+
+      await connector.discover()
+
+      expect(connector.getConnectorHealth()).toMatchObject({
+        overall: 'degraded',
+        partial: true,
+        sources: [
+          { id: 'base', readiness: 'ready' },
+          {
+            id: 'entra:project-a',
+            readiness: 'unavailable',
+            reason: 'authorization (403)',
+          },
+        ],
+      })
+    })
   })
 
   it('fails closed on invalid activation configuration without blocking base discovery', async () => {

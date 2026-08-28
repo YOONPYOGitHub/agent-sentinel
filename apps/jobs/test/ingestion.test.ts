@@ -241,7 +241,13 @@ describe('IngestionService', () => {
     )
     expect(logger.warn).toHaveBeenCalledWith('ingestion.enrichment.degraded', {
       correlationId: expect.any(String),
-      sources: ['microsoft-entra-service-principals'],
+      sources: [
+        {
+          id: 'microsoft-entra-service-principals',
+          readiness: 'degraded',
+          reason: 'unavailable',
+        },
+      ],
     })
   })
 

@@ -134,7 +134,11 @@ export class IngestionService {
     if (connectorPartial) {
       const sources = connectorHealth?.sources
         .filter((source) => source.readiness !== 'ready' && source.readiness !== 'disabled')
-        .map((source) => source.id)
+        .map((source) => ({
+          id: source.id,
+          readiness: source.readiness,
+          ...(source.reason !== undefined ? { reason: source.reason } : {}),
+        }))
       logger.warn('ingestion.enrichment.degraded', { correlationId, sources })
       logger.info('ingestion.partial.complete', {
         correlationId,
