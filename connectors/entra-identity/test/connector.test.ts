@@ -16,6 +16,7 @@ import {
   entraIdentityConnectorConfigSchema,
   mapEntraInventoryToSnapshot,
   parseEntraSourcesConfig,
+  servicePrincipalPageSchema,
 } from '../src/index.js'
 
 const tenantId = '99999999-9999-4999-8999-999999999999'
@@ -130,6 +131,22 @@ function inventorySnapshot() {
 afterEach(() => vi.useRealTimers())
 
 describe('Microsoft Graph client contracts', () => {
+  it('accepts Azure application GUIDs that are not RFC UUIDs', () => {
+    expect(
+      servicePrincipalPageSchema.parse({
+        value: [
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            appId: '00000003-0000-0000-c000-000000000000',
+            displayName: 'Microsoft Graph',
+          },
+        ],
+      }),
+    ).toMatchObject({
+      value: [{ appId: '00000003-0000-0000-c000-000000000000' }],
+    })
+  })
+
   it('accepts only the HTTPS public Microsoft Graph base URL', () => {
     expect(entraIdentityConnectorConfigSchema.parse(config).graphBaseUrl).toBe(
       'https://graph.microsoft.com',
