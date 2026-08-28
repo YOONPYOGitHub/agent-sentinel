@@ -7,6 +7,7 @@
     "provision-agents": "tsx provision-agents.ts",
     "cleanup-agents": "tsx cleanup-agents.ts",
     "validate-live": "tsx validate-live.ts",
+    "validate-telemetry-live": "AGENT_SENTINEL_TELEMETRY_PROBE_ONLY=true tsx validate-live.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

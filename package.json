@@ -19,6 +19,7 @@
     "foundry:provision": "pnpm --filter @agent-sentinel/scripts provision-agents",
     "foundry:cleanup": "pnpm --filter @agent-sentinel/scripts cleanup-agents",
     "foundry:validate": "pnpm --filter @agent-sentinel/scripts validate-live",
+    "foundry:validate-telemetry": "pnpm --filter @agent-sentinel/scripts validate-telemetry-live",
     "auth:validate-live": "pnpm --filter @agent-sentinel/scripts validate-auth-live",
     "manifest:validate": "pnpm --filter @agent-sentinel/tools validate-manifest",
     "manifest:scan": "pnpm --filter @agent-sentinel/tools scan-manifest",
