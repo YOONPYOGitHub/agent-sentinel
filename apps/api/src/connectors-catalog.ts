@@ -26,13 +26,13 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     id: 'm365-agent-registry',
     name: 'Microsoft Agent 365',
     description:
-      'Authoritative registry and administration source for agents governed through Microsoft Agent 365. Agent Sentinel consumes its records rather than recreating registry operations.',
+      'Reads the official Microsoft Graph v1.0 Agent 365 package catalog foundation as authoritative package inventory. This connector is read-only and never calls package management write operations.',
     lifecycleState: 'authorization-required',
-    capabilities: ['discovery', 'lifecycle-admin'],
+    capabilities: ['discovery'],
     sourceOfTruth: true,
     ownershipModel: 'consumes',
     prerequisiteNote:
-      'The product is generally available, but this connector is not implemented. It requires a supported management API, tenant admin authorization, and permission review before connection.',
+      'Implemented read-only and disabled by default. Activation remains authorization-required until Microsoft Agent 365 licensing and tenant-admin CopilotPackages.Read.All application consent are separately approved; only the Global service is supported.',
     unlocksScorecard: ['governance', 'lifecycle'],
   },
   {
@@ -156,7 +156,10 @@ export function buildConnectorsCollection(
 ): ConnectorsCollectionResponse {
   const connectionOk = opts.connectionOk !== false
   const discoverySources = opts.connectorHealth?.sources.filter(
-    (source) => source.role === 'discovery' && !source.id.startsWith('power-platform:'),
+    (source) =>
+      source.role === 'discovery' &&
+      !source.id.startsWith('power-platform:') &&
+      !source.id.startsWith('agent365:'),
   )
   const readyDiscoverySources =
     discoverySources?.filter((source) => source.readiness === 'ready').length ?? 0
@@ -183,6 +186,10 @@ export function buildConnectorsCollection(
   const enabledPowerPlatformSources =
     opts.connectorHealth?.sources.filter(
       (source) => source.id.startsWith('power-platform:') && source.enabled,
+    ) ?? []
+  const enabledAgent365Sources =
+    opts.connectorHealth?.sources.filter(
+      (source) => source.id.startsWith('agent365:') && source.enabled,
     ) ?? []
   const catalog: CatalogConnectorEntry[] = BASE_CATALOG.map((entry) => {
     if (entry.id === 'azure-ai-foundry') {
@@ -214,6 +221,23 @@ export function buildConnectorsCollection(
             ? 'connected'
             : ready > 0 ||
                 enabledPowerPlatformSources.some((source) => source.readiness === 'degraded')
+              ? 'degraded'
+              : authorizationRequired
+                ? 'authorization-required'
+                : 'unavailable',
+      }
+    }
+    if (entry.id === 'm365-agent-registry' && enabledAgent365Sources.length > 0) {
+      const ready = enabledAgent365Sources.filter((source) => source.readiness === 'ready').length
+      const authorizationRequired = enabledAgent365Sources.some(
+        (source) => source.readiness === 'authorization-required',
+      )
+      return {
+        ...entry,
+        lifecycleState:
+          ready === enabledAgent365Sources.length
+            ? 'connected'
+            : ready > 0 || enabledAgent365Sources.some((source) => source.readiness === 'degraded')
               ? 'degraded'
               : authorizationRequired
                 ? 'authorization-required'

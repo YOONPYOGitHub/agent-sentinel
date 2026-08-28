@@ -178,3 +178,11 @@ In dependency order. Each condition gates everything below it in its own track.
 4. **Instrumented spans, Azure Monitor workspace settings, and least-privilege Logs query access are injected** → the implemented connector starts supplying real `ObservationWindow` objects; quality, reliability, and cost dimensions become evidence-backed instead of `unknown`.
 
 Tracks 1–3 are identity- or edge-dependent; OneRAI onboarding is independent. Track 4 can proceed in parallel. See [roadmap.md](roadmap.md).
+
+## Microsoft Agent 365 package catalog foundation
+
+- The official Microsoft Graph v1.0 list connector is implemented as read-only, multi-source, and disabled by default.
+- It composes after Foundry, optional Entra, and optional Power Platform without display-name correlation or inferred identity edges.
+- Core inventory uses only documented `copilotPackage` fields; detail, package files, principal lists, beta, and all write operations remain disabled.
+- Live activation has **not** occurred. It remains `authorization-required` until a Microsoft Agent 365 license and tenant-admin `CopilotPackages.Read.All` application consent are separately approved.
+- IaC injects only disabled settings and grants no Microsoft Graph app role or license.

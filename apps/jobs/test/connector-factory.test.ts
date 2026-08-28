@@ -100,4 +100,30 @@ describe('jobs connector selection', () => {
       'power-platform:primary',
     ])
   })
+  it('wires Agent 365 after Power Platform with injectable client options', () => {
+    const connector = buildConnector(
+      'foundry',
+      {
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+        FOUNDRY_TENANT_ID: '11111111-1111-4111-8111-111111111111',
+        FOUNDRY_ENVIRONMENT: 'validation',
+        POWER_PLATFORM_CONNECTOR_ENABLED: 'true',
+        POWER_PLATFORM_TENANT_ID: '11111111-1111-4111-8111-111111111111',
+        POWER_PLATFORM_ENVIRONMENT: 'studio-environment',
+        AGENT365_CONNECTOR_ENABLED: 'true',
+        AGENT365_TENANT_ID: '22222222-2222-4222-8222-222222222222',
+        AGENT365_ENVIRONMENT: 'agent365-global',
+      },
+      {
+        credential: { getToken: () => Promise.resolve(null) },
+        agent365Client: { fetcher: () => Promise.resolve(Response.json({ value: [] })) },
+      },
+    )
+    expect(connector.getConnectorHealth?.().sources.map((source) => source.id)).toEqual([
+      'foundry:primary',
+      'entra:primary',
+      'power-platform:primary',
+      'agent365:primary',
+    ])
+  })
 })

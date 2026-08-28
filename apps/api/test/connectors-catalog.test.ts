@@ -377,6 +377,87 @@ describe('buildConnectorsCollection', () => {
     expect(agent365?.prerequisiteNote).toBeTruthy()
   })
 
+  it.each([
+    ['ready', 'connected'],
+    ['degraded', 'degraded'],
+    ['authorization-required', 'authorization-required'],
+    ['unavailable', 'unavailable'],
+  ] as const)('maps enabled Agent 365 %s health to %s', (readiness, lifecycle) => {
+    const result = buildConnectorsCollection('foundry', {
+      connectorId: 'foundry-test',
+      connectorHealth: {
+        overall: readiness === 'ready' ? 'ready' : 'degraded',
+        partial: readiness !== 'ready',
+        sources: [
+          {
+            id: 'foundry:primary',
+            name: 'Foundry',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+          },
+          {
+            id: 'agent365:tenant-a',
+            name: 'Agent 365 Tenant A',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness,
+          },
+        ],
+      },
+    })
+    expect(result.catalog.find((entry) => entry.id === 'm365-agent-registry')?.lifecycleState).toBe(
+      lifecycle,
+    )
+    expect(result.catalog.find((entry) => entry.id === 'azure-ai-foundry')?.lifecycleState).toBe(
+      'connected',
+    )
+  })
+
+  it('marks mixed Agent 365 source health degraded and documents read-only prerequisites', () => {
+    const result = buildConnectorsCollection('foundry', {
+      connectorId: 'foundry-test',
+      connectorHealth: {
+        overall: 'degraded',
+        partial: true,
+        sources: [
+          {
+            id: 'foundry:primary',
+            name: 'Foundry',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+          },
+          {
+            id: 'agent365:a',
+            name: 'A',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+          },
+          {
+            id: 'agent365:b',
+            name: 'B',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'authorization-required',
+          },
+        ],
+      },
+    })
+    const entry = result.catalog.find((item) => item.id === 'm365-agent-registry')
+    expect(entry?.lifecycleState).toBe('degraded')
+    expect(entry?.description).toContain('v1.0')
+    expect(entry?.description).toContain('read-only')
+    expect(entry?.prerequisiteNote).toContain('Microsoft Agent 365 licensing')
+    expect(entry?.prerequisiteNote).toContain('CopilotPackages.Read.All')
+    expect(entry?.capabilities).not.toContain('lifecycle-admin')
+  })
   it('includes expected capability kinds for all entries', () => {
     const validCapabilities = new Set([
       'discovery',

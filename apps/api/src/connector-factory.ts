@@ -1,3 +1,8 @@
+import {
+  createOptionalAgent365Connector,
+  type Agent365ClientOptions,
+  type Agent365CredentialFactory,
+} from '@agent-sentinel/agent365-connector'
 import type { AgentConnector } from '@agent-sentinel/connector-sdk'
 import {
   createOptionalEntraEnrichmentConnector,
@@ -25,6 +30,8 @@ export interface ConfiguredConnectorOptions {
   entraClient?: EntraGraphClientOptions
   powerPlatformCredentialFactory?: PowerPlatformCredentialFactory
   powerPlatformClient?: PowerPlatformClientOptions
+  agent365CredentialFactory?: Agent365CredentialFactory
+  agent365Client?: Agent365ClientOptions
 }
 
 export function createConfiguredConnector(
@@ -58,14 +65,22 @@ export function createConfiguredConnector(
     ...(options.credential !== undefined ? { credentialFactory: () => options.credential! } : {}),
     ...(options.entraClient !== undefined ? { clientFactory: () => options.entraClient! } : {}),
   })
+  const powerPlatform = createOptionalPowerPlatformConnector(entra, env, {
+    ...(options.powerPlatformCredentialFactory !== undefined
+      ? { credentialFactory: options.powerPlatformCredentialFactory }
+      : options.credential !== undefined
+        ? { credential: options.credential }
+        : {}),
+    ...(options.powerPlatformClient !== undefined ? { client: options.powerPlatformClient } : {}),
+  })
   return {
-    connector: createOptionalPowerPlatformConnector(entra, env, {
-      ...(options.powerPlatformCredentialFactory !== undefined
-        ? { credentialFactory: options.powerPlatformCredentialFactory }
+    connector: createOptionalAgent365Connector(powerPlatform, env, {
+      ...(options.agent365CredentialFactory !== undefined
+        ? { credentialFactory: options.agent365CredentialFactory }
         : options.credential !== undefined
           ? { credential: options.credential }
           : {}),
-      ...(options.powerPlatformClient !== undefined ? { client: options.powerPlatformClient } : {}),
+      ...(options.agent365Client !== undefined ? { client: options.agent365Client } : {}),
     }),
     mode,
     ...(config.sources.length === 1 ? { projectEndpoint: primarySource.projectEndpoint } : {}),

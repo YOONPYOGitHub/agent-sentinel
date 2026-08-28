@@ -60,6 +60,16 @@ Do not enable it or add an IaC role assignment until **Power Platform Reader**
 (or an approved least-privilege ResourceQuery read RBAC role) is approved at
 the intended tenant scope. See [Power Platform connector](power-platform-connector.md).
 
+Microsoft Agent 365 package catalog inventory is independently disabled by
+`agent365ConnectorEnabled=false`. Configure `agent365SourcesJson`, or the legacy
+`agent365TenantId` and `agent365Environment` pair. The only accepted base is
+`https://graph.microsoft.com`; all requests use the fixed v1.0 list endpoint and
+bounded continuation links. Do not enable it until the tenant has a Microsoft
+Agent 365 license and tenant-admin `CopilotPackages.Read.All` **application**
+consent. The Bicep parameters only inject disabled configuration: they do not
+grant a Graph app role, assign a license, or create tenant resources. See
+[Agent 365 connector](agent365-connector.md).
+
 Set `azureMonitorSourcesJson` with entries matching Foundry source ids. Each
 entry contains a workspace customer id, source tenant, source environment, and
 optional federated credential. `azureMonitorConnectorEnabled` remains false

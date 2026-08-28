@@ -1,3 +1,8 @@
+import {
+  createOptionalAgent365Connector,
+  type Agent365ClientOptions,
+  type Agent365CredentialFactory,
+} from '@agent-sentinel/agent365-connector'
 import type { AgentConnector } from '@agent-sentinel/connector-sdk'
 import {
   createOptionalEntraEnrichmentConnector,
@@ -23,6 +28,8 @@ export interface JobsConnectorOptions {
   entraClient?: EntraGraphClientOptions
   powerPlatformCredentialFactory?: PowerPlatformCredentialFactory
   powerPlatformClient?: PowerPlatformClientOptions
+  agent365CredentialFactory?: Agent365CredentialFactory
+  agent365Client?: Agent365ClientOptions
 }
 
 export function buildConnector(
@@ -46,12 +53,20 @@ export function buildConnector(
     ...(options.credential !== undefined ? { credentialFactory: () => options.credential! } : {}),
     ...(options.entraClient !== undefined ? { clientFactory: () => options.entraClient! } : {}),
   })
-  return createOptionalPowerPlatformConnector(entra, environment, {
+  const powerPlatform = createOptionalPowerPlatformConnector(entra, environment, {
     ...(options.powerPlatformCredentialFactory !== undefined
       ? { credentialFactory: options.powerPlatformCredentialFactory }
       : options.credential !== undefined
         ? { credential: options.credential }
         : {}),
     ...(options.powerPlatformClient !== undefined ? { client: options.powerPlatformClient } : {}),
+  })
+  return createOptionalAgent365Connector(powerPlatform, environment, {
+    ...(options.agent365CredentialFactory !== undefined
+      ? { credentialFactory: options.agent365CredentialFactory }
+      : options.credential !== undefined
+        ? { credential: options.credential }
+        : {}),
+    ...(options.agent365Client !== undefined ? { client: options.agent365Client } : {}),
   })
 }

@@ -181,15 +181,22 @@ the official ResourceQuery API supplies bounded Copilot Studio and Microsoft
 IDs and compose after Entra without inferred identity edges. The connector is
 disabled until tenant-scope read RBAC is separately approved.
 
-| Connector                                   | Catalogued state         | Gate                                                                           |
-| ------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------ |
-| Microsoft Agent 365 (`m365-agent-registry`) | `authorization-required` | Supported management API plus tenant admin authorization                       |
-| Microsoft Entra identity and entitlements   | `connected`              | Primary stable v1.0 inventory is live; each additional tenant requires consent |
-| Microsoft Purview                           | `planned`                | Tenant authorization                                                           |
-| Microsoft Defender for Cloud Apps           | `planned`                | Tenant authorization                                                           |
-| Microsoft Copilot Studio / Agent Builder    | `authorization-required` | Power Platform Reader (or approved ResourceQuery read RBAC); schema is preview |
-| Microsoft 365 and SharePoint agents         | `planned`                | Tenant authorization                                                           |
-| Microsoft Teams distribution                | `planned`                | Tenant authorization                                                           |
+**Microsoft Agent 365 package catalog foundation — implemented, authorization pending:**
+the official Microsoft Graph v1.0 list API supplies bounded tenant package
+inventory after Power Platform composition. Detail and all writes remain
+disabled. Activation still requires separate Microsoft Agent 365 licensing and
+tenant-admin `CopilotPackages.Read.All` application consent; no live tenant is
+configured by this change.
+
+| Connector                                   | Catalogued state         | Gate                                                                               |
+| ------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------- |
+| Microsoft Agent 365 (`m365-agent-registry`) | `authorization-required` | Agent 365 license plus tenant-admin `CopilotPackages.Read.All` application consent |
+| Microsoft Entra identity and entitlements   | `connected`              | Primary stable v1.0 inventory is live; each additional tenant requires consent     |
+| Microsoft Purview                           | `planned`                | Tenant authorization                                                               |
+| Microsoft Defender for Cloud Apps           | `planned`                | Tenant authorization                                                               |
+| Microsoft Copilot Studio / Agent Builder    | `authorization-required` | Power Platform Reader (or approved ResourceQuery read RBAC); schema is preview     |
+| Microsoft 365 and SharePoint agents         | `planned`                | Tenant authorization                                                               |
+| Microsoft Teams distribution                | `planned`                | Tenant authorization                                                               |
 
 **Definition of done, per connector**
 

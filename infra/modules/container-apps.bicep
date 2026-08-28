@@ -111,6 +111,17 @@ param powerPlatformMaxRetries string = '2'
 param powerPlatformMaxRetryAfterMs string = '30000'
 param powerPlatformMaxResponseBytes string = '2000000'
 
+param agent365ConnectorEnabled bool = false
+param agent365SourcesJson string = ''
+param agent365TenantId string = ''
+param agent365Environment string = ''
+param agent365GraphBaseUrl string = 'https://graph.microsoft.com'
+param agent365MaxPages string = '20'
+param agent365MaxItems string = '5000'
+param agent365RequestTimeoutMs string = '15000'
+param agent365MaxRetries string = '2'
+param agent365MaxRetryAfterMs string = '30000'
+param agent365MaxResponseBytes string = '2000000'
 param azureMonitorConnectorEnabled bool = false
 param azureMonitorSourcesJson string = ''
 
@@ -204,6 +215,17 @@ var env = [
   { name: 'POWER_PLATFORM_MAX_RETRIES',             value: powerPlatformMaxRetries }
   { name: 'POWER_PLATFORM_MAX_RETRY_AFTER_MS',      value: powerPlatformMaxRetryAfterMs }
   { name: 'POWER_PLATFORM_MAX_RESPONSE_BYTES',      value: powerPlatformMaxResponseBytes }
+  { name: 'AGENT365_CONNECTOR_ENABLED',             value: string(agent365ConnectorEnabled) }
+  { name: 'AGENT365_SOURCES_JSON',                 value: agent365ConnectorEnabled ? agent365SourcesJson : '' }
+  { name: 'AGENT365_TENANT_ID',                   value: agent365ConnectorEnabled ? agent365TenantId : '' }
+  { name: 'AGENT365_ENVIRONMENT',                 value: agent365ConnectorEnabled ? agent365Environment : '' }
+  { name: 'AGENT365_GRAPH_BASE_URL',                value: agent365GraphBaseUrl }
+  { name: 'AGENT365_MAX_PAGES',                     value: agent365MaxPages }
+  { name: 'AGENT365_MAX_ITEMS',                     value: agent365MaxItems }
+  { name: 'AGENT365_REQUEST_TIMEOUT_MS',            value: agent365RequestTimeoutMs }
+  { name: 'AGENT365_MAX_RETRIES',                   value: agent365MaxRetries }
+  { name: 'AGENT365_MAX_RETRY_AFTER_MS',            value: agent365MaxRetryAfterMs }
+  { name: 'AGENT365_MAX_RESPONSE_BYTES',            value: agent365MaxResponseBytes }
   { name: 'AZURE_MONITOR_SOURCES_JSON',            value: azureMonitorConnectorEnabled ? azureMonitorSourcesJson : '' }
   { name: 'AZURE_MONITOR_WORKSPACE_ID',            value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? lawWorkspaceId : '' }
   { name: 'AZURE_MONITOR_TENANT_ID',               value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? foundryTenantId : '' }

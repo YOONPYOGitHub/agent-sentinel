@@ -76,6 +76,23 @@ param powerPlatformMaxRetries string = '2'
 param powerPlatformMaxRetryAfterMs string = '30000'
 param powerPlatformMaxResponseBytes string = '2000000'
 
+@description('Enable read-only Microsoft Agent 365 Graph v1.0 package catalog inventory. Keep false until licensing and tenant-admin application consent are approved.')
+param agent365ConnectorEnabled bool = false
+@description('Optional JSON array of up to 50 independent Microsoft Agent 365 tenant sources.')
+param agent365SourcesJson string = ''
+@description('Legacy primary Agent 365 tenant ID. Empty while disabled or when source JSON is used.')
+param agent365TenantId string = ''
+@description('Legacy primary Agent 365 environment label. Empty while disabled or when source JSON is used.')
+param agent365Environment string = ''
+@description('Microsoft Graph base. Connector validation permits exactly the official Global service origin.')
+param agent365GraphBaseUrl string = 'https://graph.microsoft.com'
+param agent365MaxPages string = '20'
+param agent365MaxItems string = '5000'
+param agent365RequestTimeoutMs string = '15000'
+param agent365MaxRetries string = '2'
+param agent365MaxRetryAfterMs string = '30000'
+param agent365MaxResponseBytes string = '2000000'
+
 @description('Enable read-only Azure Monitor OTel telemetry. Disabled until instrumentation and workspace RBAC are validated.')
 param azureMonitorConnectorEnabled bool = false
 @description('Optional JSON array of Azure Monitor sources matched by id to Foundry sources.')
@@ -284,6 +301,17 @@ module containerApps './modules/container-apps.bicep' = {
     powerPlatformMaxRetries: powerPlatformMaxRetries
     powerPlatformMaxRetryAfterMs: powerPlatformMaxRetryAfterMs
     powerPlatformMaxResponseBytes: powerPlatformMaxResponseBytes
+    agent365ConnectorEnabled: agent365ConnectorEnabled
+    agent365SourcesJson: agent365SourcesJson
+    agent365TenantId: agent365TenantId
+    agent365Environment: agent365Environment
+    agent365GraphBaseUrl: agent365GraphBaseUrl
+    agent365MaxPages: agent365MaxPages
+    agent365MaxItems: agent365MaxItems
+    agent365RequestTimeoutMs: agent365RequestTimeoutMs
+    agent365MaxRetries: agent365MaxRetries
+    agent365MaxRetryAfterMs: agent365MaxRetryAfterMs
+    agent365MaxResponseBytes: agent365MaxResponseBytes
     azureMonitorConnectorEnabled: azureMonitorConnectorEnabled
     azureMonitorSourcesJson: azureMonitorSourcesJson
     cosmosDatabase: cosmosDatabase
