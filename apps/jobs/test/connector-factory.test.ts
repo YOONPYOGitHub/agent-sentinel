@@ -126,4 +126,34 @@ describe('jobs connector selection', () => {
       'agent365:primary',
     ])
   })
+
+  it('wires Defender for Cloud Apps after optional Agent 365', () => {
+    const connector = buildConnector(
+      'foundry',
+      {
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+        FOUNDRY_TENANT_ID: '11111111-1111-4111-8111-111111111111',
+        FOUNDRY_ENVIRONMENT: 'validation',
+        AGENT365_CONNECTOR_ENABLED: 'true',
+        AGENT365_TENANT_ID: '22222222-2222-4222-8222-222222222222',
+        AGENT365_ENVIRONMENT: 'agent365-global',
+        DEFENDER_CLOUD_APPS_CONNECTOR_ENABLED: 'true',
+        DEFENDER_CLOUD_APPS_TENANT_ID: '33333333-3333-4333-8333-333333333333',
+        DEFENDER_CLOUD_APPS_ENVIRONMENT: 'security-evidence',
+        DEFENDER_CLOUD_APPS_API_BASE_URL: 'https://contoso.us2.portal.cloudappsecurity.com',
+      },
+      {
+        credential: { getToken: () => Promise.resolve(null) },
+        defenderCloudAppsClient: {
+          fetcher: () => Promise.resolve(Response.json({ data: [], hasNext: false })),
+        },
+      },
+    )
+    expect(connector.getConnectorHealth?.().sources.map((source) => source.id)).toEqual([
+      'foundry:primary',
+      'entra:primary',
+      'agent365:primary',
+      'defender-cloud-apps:primary',
+    ])
+  })
 })

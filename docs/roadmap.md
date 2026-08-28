@@ -188,15 +188,23 @@ disabled. Activation still requires separate Microsoft Agent 365 licensing and
 tenant-admin `CopilotPackages.Read.All` application consent; no live tenant is
 configured by this change.
 
-| Connector                                   | Catalogued state         | Gate                                                                               |
-| ------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------- |
-| Microsoft Agent 365 (`m365-agent-registry`) | `authorization-required` | Agent 365 license plus tenant-admin `CopilotPackages.Read.All` application consent |
-| Microsoft Entra identity and entitlements   | `connected`              | Primary stable v1.0 inventory is live; each additional tenant requires consent     |
-| Microsoft Purview                           | `planned`                | Tenant authorization                                                               |
-| Microsoft Defender for Cloud Apps           | `planned`                | Tenant authorization                                                               |
-| Microsoft Copilot Studio / Agent Builder    | `authorization-required` | Power Platform Reader (or approved ResourceQuery read RBAC); schema is preview     |
-| Microsoft 365 and SharePoint agents         | `planned`                | Tenant authorization                                                               |
-| Microsoft Teams distribution                | `planned`                | Tenant authorization                                                               |
+**Microsoft Defender for Cloud Apps evidence — implemented, authorization pending:**
+the official tenant-specific v1 alert and activity GET lists are consumed with
+OAuth application context after Agent 365 composition. Evidence is bounded,
+privacy-reduced, tenant-level, and explicitly unattributed because no supported
+agent correlation key exists. Activation requires licensing/API availability,
+the exact tenant portal URL, and tenant-admin `Investigation.Read` application
+consent; no live tenant or permission is configured by this change.
+
+| Connector                                   | Catalogued state         | Gate                                                                                                     |
+| ------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------- |
+| Microsoft Agent 365 (`m365-agent-registry`) | `authorization-required` | Agent 365 license plus tenant-admin `CopilotPackages.Read.All` application consent                       |
+| Microsoft Entra identity and entitlements   | `connected`              | Primary stable v1.0 inventory is live; each additional tenant requires consent                           |
+| Microsoft Purview                           | `planned`                | Tenant authorization                                                                                     |
+| Microsoft Defender for Cloud Apps           | `authorization-required` | Licensing/API availability, tenant portal URL, and tenant-admin `Investigation.Read` application consent |
+| Microsoft Copilot Studio / Agent Builder    | `authorization-required` | Power Platform Reader (or approved ResourceQuery read RBAC); schema is preview                           |
+| Microsoft 365 and SharePoint agents         | `planned`                | Tenant authorization                                                                                     |
+| Microsoft Teams distribution                | `planned`                | Tenant authorization                                                                                     |
 
 **Definition of done, per connector**
 

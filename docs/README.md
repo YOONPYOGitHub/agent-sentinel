@@ -16,15 +16,16 @@ Start with the [root README](../README.md) for the value proposition, quick star
 
 ## Engineering
 
-| Document                                                | Read this when you need to…                                                                                                           |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| [Architecture](architecture.md)                         | Understand the runtime topology, network boundaries, public edges, the custom manifest adapter, and package layout.                   |
-| [Data model](data-model.md)                             | Look up domain types, the manifest envelope contract, Cosmos containers, PostgreSQL tables, search indexes, and Service Bus entities. |
-| [Development](development.md)                           | Set up the canonical WSL workflow, run the test pyramid, follow branch and commit practice, and develop the custom manifest adapter.  |
-| [Foundry live agents](foundry-live-agents.md)           | Provision, validate, or clean up the six synthetic Microsoft Foundry validation agents.                                               |
-| [Power Platform connector](power-platform-connector.md) | Configure and review the disabled-by-default ResourceQuery inventory connector and its authorization boundary.                        |
-| [Agent 365 connector](agent365-connector.md)            | Review the disabled-by-default Graph v1.0 package catalog contract, licensing, consent, bounds, and evidence semantics.               |
-| [Corporate onboarding](internal-onboarding.md)          | Repeat Service Tree, Feature Alias, and corporate Entra onboarding without storing private identifiers.                               |
+| Document                                                              | Read this when you need to…                                                                                                           |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| [Architecture](architecture.md)                                       | Understand the runtime topology, network boundaries, public edges, the custom manifest adapter, and package layout.                   |
+| [Data model](data-model.md)                                           | Look up domain types, the manifest envelope contract, Cosmos containers, PostgreSQL tables, search indexes, and Service Bus entities. |
+| [Development](development.md)                                         | Set up the canonical WSL workflow, run the test pyramid, follow branch and commit practice, and develop the custom manifest adapter.  |
+| [Foundry live agents](foundry-live-agents.md)                         | Provision, validate, or clean up the six synthetic Microsoft Foundry validation agents.                                               |
+| [Power Platform connector](power-platform-connector.md)               | Configure and review the disabled-by-default ResourceQuery inventory connector and its authorization boundary.                        |
+| [Agent 365 connector](agent365-connector.md)                          | Review the disabled-by-default Graph v1.0 package catalog contract, licensing, consent, bounds, and evidence semantics.               |
+| [Defender for Cloud Apps connector](defender-cloud-apps-connector.md) | Review the disabled-by-default OAuth alert/activity evidence contract, privacy boundary, bounds, and activation gate.                 |
+| [Corporate onboarding](internal-onboarding.md)                        | Repeat Service Tree, Feature Alias, and corporate Entra onboarding without storing private identifiers.                               |
 
 ## Operations
 

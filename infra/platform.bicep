@@ -93,6 +93,27 @@ param agent365MaxRetries string = '2'
 param agent365MaxRetryAfterMs string = '30000'
 param agent365MaxResponseBytes string = '2000000'
 
+@description('Enable read-only Microsoft Defender for Cloud Apps alert and activity evidence. Keep false until licensing, tenant portal, and Investigation.Read application consent are approved.')
+param defenderCloudAppsConnectorEnabled bool = false
+@description('Optional JSON array of up to 50 independent Defender for Cloud Apps tenant sources.')
+param defenderCloudAppsSourcesJson string = ''
+@description('Legacy primary Defender for Cloud Apps tenant ID. Empty while disabled or when source JSON is used.')
+param defenderCloudAppsTenantId string = ''
+@description('Legacy primary local aggregate environment label. Empty while disabled or when source JSON is used.')
+param defenderCloudAppsEnvironment string = ''
+@description('Legacy primary official tenant portal HTTPS origin. Empty while disabled or when source JSON is used.')
+param defenderCloudAppsApiBaseUrl string = ''
+@description('Alternative legacy primary official tenant portal hostname. Empty while disabled or when API base URL is used.')
+param defenderCloudAppsPortalHostname string = ''
+param defenderCloudAppsLookbackHours string = '24'
+param defenderCloudAppsPageSize string = '100'
+param defenderCloudAppsMaxPages string = '20'
+param defenderCloudAppsMaxItems string = '4000'
+param defenderCloudAppsRequestTimeoutMs string = '15000'
+param defenderCloudAppsMaxRetries string = '2'
+param defenderCloudAppsMaxRetryAfterMs string = '30000'
+param defenderCloudAppsMaxResponseBytes string = '2000000'
+
 @description('Enable read-only Azure Monitor OTel telemetry. Disabled until instrumentation and workspace RBAC are validated.')
 param azureMonitorConnectorEnabled bool = false
 @description('Optional JSON array of Azure Monitor sources matched by id to Foundry sources.')
@@ -312,6 +333,20 @@ module containerApps './modules/container-apps.bicep' = {
     agent365MaxRetries: agent365MaxRetries
     agent365MaxRetryAfterMs: agent365MaxRetryAfterMs
     agent365MaxResponseBytes: agent365MaxResponseBytes
+    defenderCloudAppsConnectorEnabled: defenderCloudAppsConnectorEnabled
+    defenderCloudAppsSourcesJson: defenderCloudAppsSourcesJson
+    defenderCloudAppsTenantId: defenderCloudAppsTenantId
+    defenderCloudAppsEnvironment: defenderCloudAppsEnvironment
+    defenderCloudAppsApiBaseUrl: defenderCloudAppsApiBaseUrl
+    defenderCloudAppsPortalHostname: defenderCloudAppsPortalHostname
+    defenderCloudAppsLookbackHours: defenderCloudAppsLookbackHours
+    defenderCloudAppsPageSize: defenderCloudAppsPageSize
+    defenderCloudAppsMaxPages: defenderCloudAppsMaxPages
+    defenderCloudAppsMaxItems: defenderCloudAppsMaxItems
+    defenderCloudAppsRequestTimeoutMs: defenderCloudAppsRequestTimeoutMs
+    defenderCloudAppsMaxRetries: defenderCloudAppsMaxRetries
+    defenderCloudAppsMaxRetryAfterMs: defenderCloudAppsMaxRetryAfterMs
+    defenderCloudAppsMaxResponseBytes: defenderCloudAppsMaxResponseBytes
     azureMonitorConnectorEnabled: azureMonitorConnectorEnabled
     azureMonitorSourcesJson: azureMonitorSourcesJson
     cosmosDatabase: cosmosDatabase

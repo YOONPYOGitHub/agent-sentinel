@@ -13,6 +13,7 @@ COPY connectors/foundry/package.json connectors/foundry/
 COPY connectors/entra-identity/package.json connectors/entra-identity/
 COPY connectors/power-platform/package.json connectors/power-platform/
 COPY connectors/agent365/package.json connectors/agent365/
+COPY connectors/defender-cloud-apps/package.json connectors/defender-cloud-apps/
 COPY connectors/manifest/package.json connectors/manifest/
 COPY connectors/mock/package.json connectors/mock/
 COPY connectors/azure-monitor-otel/package.json connectors/azure-monitor-otel/
@@ -34,6 +35,7 @@ RUN pnpm --filter @agent-sentinel/foundry-connector build
 RUN pnpm --filter @agent-sentinel/entra-identity-connector build
 RUN pnpm --filter @agent-sentinel/power-platform-connector build
 RUN pnpm --filter @agent-sentinel/agent365-connector build
+RUN pnpm --filter @agent-sentinel/defender-cloud-apps-connector build
 RUN pnpm --filter @agent-sentinel/manifest-connector build
 RUN pnpm --filter @agent-sentinel/mock-connector build
 RUN pnpm --filter @agent-sentinel/azure-monitor-otel-connector build
@@ -68,6 +70,8 @@ COPY --from=builder /workspace/connectors/power-platform/dist ./connectors/power
 COPY --from=builder /workspace/connectors/power-platform/package.json ./connectors/power-platform/
 COPY --from=builder /workspace/connectors/agent365/dist ./connectors/agent365/dist/
 COPY --from=builder /workspace/connectors/agent365/package.json ./connectors/agent365/
+COPY --from=builder /workspace/connectors/defender-cloud-apps/dist ./connectors/defender-cloud-apps/dist/
+COPY --from=builder /workspace/connectors/defender-cloud-apps/package.json ./connectors/defender-cloud-apps/
 COPY --from=builder /workspace/connectors/manifest/dist ./connectors/manifest/dist/
 COPY --from=builder /workspace/connectors/manifest/package.json ./connectors/manifest/
 COPY --from=builder /workspace/connectors/mock/dist ./connectors/mock/dist/

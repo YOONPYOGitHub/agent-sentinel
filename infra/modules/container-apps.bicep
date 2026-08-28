@@ -122,6 +122,22 @@ param agent365RequestTimeoutMs string = '15000'
 param agent365MaxRetries string = '2'
 param agent365MaxRetryAfterMs string = '30000'
 param agent365MaxResponseBytes string = '2000000'
+
+param defenderCloudAppsConnectorEnabled bool = false
+param defenderCloudAppsSourcesJson string = ''
+param defenderCloudAppsTenantId string = ''
+param defenderCloudAppsEnvironment string = ''
+param defenderCloudAppsApiBaseUrl string = ''
+param defenderCloudAppsPortalHostname string = ''
+param defenderCloudAppsLookbackHours string = '24'
+param defenderCloudAppsPageSize string = '100'
+param defenderCloudAppsMaxPages string = '20'
+param defenderCloudAppsMaxItems string = '4000'
+param defenderCloudAppsRequestTimeoutMs string = '15000'
+param defenderCloudAppsMaxRetries string = '2'
+param defenderCloudAppsMaxRetryAfterMs string = '30000'
+param defenderCloudAppsMaxResponseBytes string = '2000000'
+
 param azureMonitorConnectorEnabled bool = false
 param azureMonitorSourcesJson string = ''
 
@@ -226,6 +242,20 @@ var env = [
   { name: 'AGENT365_MAX_RETRIES',                   value: agent365MaxRetries }
   { name: 'AGENT365_MAX_RETRY_AFTER_MS',            value: agent365MaxRetryAfterMs }
   { name: 'AGENT365_MAX_RESPONSE_BYTES',            value: agent365MaxResponseBytes }
+  { name: 'DEFENDER_CLOUD_APPS_CONNECTOR_ENABLED',  value: string(defenderCloudAppsConnectorEnabled) }
+  { name: 'DEFENDER_CLOUD_APPS_SOURCES_JSON',       value: defenderCloudAppsConnectorEnabled ? defenderCloudAppsSourcesJson : '' }
+  { name: 'DEFENDER_CLOUD_APPS_TENANT_ID',          value: defenderCloudAppsConnectorEnabled ? defenderCloudAppsTenantId : '' }
+  { name: 'DEFENDER_CLOUD_APPS_ENVIRONMENT',        value: defenderCloudAppsConnectorEnabled ? defenderCloudAppsEnvironment : '' }
+  { name: 'DEFENDER_CLOUD_APPS_API_BASE_URL',       value: defenderCloudAppsConnectorEnabled ? defenderCloudAppsApiBaseUrl : '' }
+  { name: 'DEFENDER_CLOUD_APPS_PORTAL_HOSTNAME',    value: defenderCloudAppsConnectorEnabled ? defenderCloudAppsPortalHostname : '' }
+  { name: 'DEFENDER_CLOUD_APPS_LOOKBACK_HOURS',     value: defenderCloudAppsLookbackHours }
+  { name: 'DEFENDER_CLOUD_APPS_PAGE_SIZE',          value: defenderCloudAppsPageSize }
+  { name: 'DEFENDER_CLOUD_APPS_MAX_PAGES',          value: defenderCloudAppsMaxPages }
+  { name: 'DEFENDER_CLOUD_APPS_MAX_ITEMS',          value: defenderCloudAppsMaxItems }
+  { name: 'DEFENDER_CLOUD_APPS_REQUEST_TIMEOUT_MS', value: defenderCloudAppsRequestTimeoutMs }
+  { name: 'DEFENDER_CLOUD_APPS_MAX_RETRIES',        value: defenderCloudAppsMaxRetries }
+  { name: 'DEFENDER_CLOUD_APPS_MAX_RETRY_AFTER_MS', value: defenderCloudAppsMaxRetryAfterMs }
+  { name: 'DEFENDER_CLOUD_APPS_MAX_RESPONSE_BYTES', value: defenderCloudAppsMaxResponseBytes }
   { name: 'AZURE_MONITOR_SOURCES_JSON',            value: azureMonitorConnectorEnabled ? azureMonitorSourcesJson : '' }
   { name: 'AZURE_MONITOR_WORKSPACE_ID',            value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? lawWorkspaceId : '' }
   { name: 'AZURE_MONITOR_TENANT_ID',               value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? foundryTenantId : '' }

@@ -5,6 +5,11 @@ import {
 } from '@agent-sentinel/agent365-connector'
 import type { AgentConnector } from '@agent-sentinel/connector-sdk'
 import {
+  createOptionalDefenderCloudAppsConnector,
+  type DefenderCloudAppsClientOptions,
+  type DefenderCloudAppsCredentialFactory,
+} from '@agent-sentinel/defender-cloud-apps-connector'
+import {
   createOptionalEntraEnrichmentConnector,
   type EntraGraphClientOptions,
 } from '@agent-sentinel/entra-identity-connector'
@@ -30,6 +35,8 @@ export interface JobsConnectorOptions {
   powerPlatformClient?: PowerPlatformClientOptions
   agent365CredentialFactory?: Agent365CredentialFactory
   agent365Client?: Agent365ClientOptions
+  defenderCloudAppsCredentialFactory?: DefenderCloudAppsCredentialFactory
+  defenderCloudAppsClient?: DefenderCloudAppsClientOptions
 }
 
 export function buildConnector(
@@ -61,12 +68,22 @@ export function buildConnector(
         : {}),
     ...(options.powerPlatformClient !== undefined ? { client: options.powerPlatformClient } : {}),
   })
-  return createOptionalAgent365Connector(powerPlatform, environment, {
+  const agent365 = createOptionalAgent365Connector(powerPlatform, environment, {
     ...(options.agent365CredentialFactory !== undefined
       ? { credentialFactory: options.agent365CredentialFactory }
       : options.credential !== undefined
         ? { credential: options.credential }
         : {}),
     ...(options.agent365Client !== undefined ? { client: options.agent365Client } : {}),
+  })
+  return createOptionalDefenderCloudAppsConnector(agent365, environment, {
+    ...(options.defenderCloudAppsCredentialFactory !== undefined
+      ? { credentialFactory: options.defenderCloudAppsCredentialFactory }
+      : options.credential !== undefined
+        ? { credential: options.credential }
+        : {}),
+    ...(options.defenderCloudAppsClient !== undefined
+      ? { client: options.defenderCloudAppsClient }
+      : {}),
   })
 }

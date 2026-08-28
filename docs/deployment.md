@@ -70,6 +70,16 @@ consent. The Bicep parameters only inject disabled configuration: they do not
 grant a Graph app role, assign a license, or create tenant resources. See
 [Agent 365 connector](agent365-connector.md).
 
+Microsoft Defender for Cloud Apps evidence is independently disabled by
+`defenderCloudAppsConnectorEnabled=false`. Configure
+`defenderCloudAppsSourcesJson`, or the legacy tenant/environment and exact
+tenant portal URL values. The IaC only injects gated, empty-by-default
+configuration; it creates no permission, app role, token, secret, license, or
+M365 resource. Do not enable until `Investigation.Read` application consent,
+licensing/API availability, exact portal URLs, and the secretless credential
+are separately approved. See
+[Defender for Cloud Apps connector](defender-cloud-apps-connector.md).
+
 Set `azureMonitorSourcesJson` with entries matching Foundry source ids. Each
 entry contains a workspace customer id, source tenant, source environment, and
 optional federated credential. `azureMonitorConnectorEnabled` remains false

@@ -51,6 +51,7 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 | Entra authentication and RBAC              | **Live, read-only.** Strict API tenant/audience/issuer/JWKS/scope validation and MSAL employee login are deployed. Anonymous access returns `401`; Viewer mutation returns `403`; `/api/auth/me` returns a sanitized principal. Broader live role validation remains pending.                                                                                    |
 | Entra identity enrichment                  | **Live for the primary source.** `Application.Read.All` reads 539 validated service principals into the complete Cosmos snapshot. Optional owners, app roles, and preview APIs remain disabled. Current Foundry agents expose no matching identity metadata, so `RUNS_AS` correlation is correctly empty rather than inferred.                                   |
 | Power Platform agent inventory             | **Implementation complete, activation pending.** Official ResourceQuery core inventory for Copilot Studio and Microsoft 365 Copilot Agent Builder is strict, bounded, multi-source, read-only, and composed after Entra. The schema is preview overall. No tenant RBAC has been granted and the live connector remains disabled.                                 |
+| Defender for Cloud Apps evidence           | **Implementation complete, activation pending.** Official tenant-specific v1 alert/activity GET lists use OAuth application context, bounded sequential multi-source collection, strict privacy reduction, and no agent attribution. No permission, license, token, secret, or live source was created.                                                          |
 | Azure deployment                           | **Live.** Container Apps `web`, `api`, and `jobs` run on a private ACA environment behind Front Door. Web uses the verified logout fix; API uses JWT mode; jobs remains non-interactive.                                                                                                                                                                         |
 | Corporate Service Tree registration        | **Complete.** Registered under the confirmed `MCAPS > GES Asia > Korea` hierarchy with two administrators.                                                                                                                                                                                                                                                       |
 | Universal custom manifest adapter          | **Implementation complete, activation pending.** Strict offline input remains available. The authenticated Administrator-only API, dedicated immutable Cosmos repository, hash idempotency, and jobs composition are implemented. Live ingestion stays blocked by writes-false and the public mutation posture.                                                  |
@@ -76,12 +77,13 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 
 ## Blocked
 
-| Item                                 | Blocking condition                                                                                             | Unblocks when                                                                                                   |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Terra authenticated `POST`           | The `BlockApiMutationPreAuth` WAF rule blocks every non-`GET`/`HEAD`/`OPTIONS` request under `/api/` pre-auth. | Authenticated write scopes are validated, then the rule is narrowed.                                            |
-| WAF rule narrowing                   | Must not be relaxed until the authenticated write path is proven and anonymous mutation remains denied.        | JWT write-scope tests and an authorized remediation smoke test pass.                                            |
-| Employee entitlement personalization | Requires tenant-authorized Entra entitlement evidence beyond the now-active authenticated principal.           | Activate and validate the `entra-agent-id` connector.                                                           |
-| Power Platform inventory activation  | Service-principal ResourceQuery access requires approved read RBAC at each intended tenant scope.              | Approve and assign Power Platform Reader or a reviewed least-privilege equivalent, then run bounded validation. |
+| Item                                 | Blocking condition                                                                                                                                | Unblocks when                                                                                                   |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Terra authenticated `POST`           | The `BlockApiMutationPreAuth` WAF rule blocks every non-`GET`/`HEAD`/`OPTIONS` request under `/api/` pre-auth.                                    | Authenticated write scopes are validated, then the rule is narrowed.                                            |
+| WAF rule narrowing                   | Must not be relaxed until the authenticated write path is proven and anonymous mutation remains denied.                                           | JWT write-scope tests and an authorized remediation smoke test pass.                                            |
+| Employee entitlement personalization | Requires tenant-authorized Entra entitlement evidence beyond the now-active authenticated principal.                                              | Activate and validate the `entra-agent-id` connector.                                                           |
+| Power Platform inventory activation  | Service-principal ResourceQuery access requires approved read RBAC at each intended tenant scope.                                                 | Approve and assign Power Platform Reader or a reviewed least-privilege equivalent, then run bounded validation. |
+| Defender for Cloud Apps activation   | The connector needs approved licensing/API availability, exact tenant portal URLs, secretless credentials, and target-tenant application consent. | Grant `Investigation.Read` separately, configure exact sources, then run bounded connection/privacy validation. |
 
 Corporate onboarding is tracked separately in [internal-onboarding.md](internal-onboarding.md). OneRAI remains blocked on authoritative Product CVP and Frontline CELA; that process does not block engineering.
 
@@ -186,3 +188,18 @@ Tracks 1–3 are identity- or edge-dependent; OneRAI onboarding is independent. 
 - Core inventory uses only documented `copilotPackage` fields; detail, package files, principal lists, beta, and all write operations remain disabled.
 - Live activation has **not** occurred. It remains `authorization-required` until a Microsoft Agent 365 license and tenant-admin `CopilotPackages.Read.All` application consent are separately approved.
 - IaC injects only disabled settings and grants no Microsoft Graph app role or license.
+
+## Microsoft Defender for Cloud Apps evidence foundation
+
+- The official tenant-specific `GET /api/v1/alerts/` and
+  `GET /api/v1/activities/` list connector is implemented as read-only,
+  multi-source, sequential, and disabled by default.
+- It composes after Agent 365. Direct provider records become standalone
+  control/evidence nodes with no edges or agent attribution.
+- Personal and narrative fields are stripped before domain mapping. Confidence
+  `1` means direct provider observation only.
+- Live activation has **not** occurred. It remains `authorization-required`
+  pending licensing/API availability, exact portal URLs, and tenant-admin
+  `Investigation.Read` application consent.
+- IaC injects only disabled settings and creates no permission, role, token,
+  secret, license, or Microsoft 365 resource.

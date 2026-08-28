@@ -377,6 +377,60 @@ describe('buildConnectorsCollection', () => {
     expect(agent365?.prerequisiteNote).toBeTruthy()
   })
 
+  it('describes Defender for Cloud Apps as read-only unattributed OAuth evidence', () => {
+    const result = buildConnectorsCollection('mock', { connectorId: 'mock-agent-estate' })
+    const defender = result.catalog.find((entry) => entry.id === 'defender-for-cloud-apps')
+    expect(defender).toMatchObject({
+      lifecycleState: 'authorization-required',
+      capabilities: ['security-alerts'],
+      sourceOfTruth: true,
+      ownershipModel: 'consumes',
+      unlocksScorecard: [],
+    })
+    expect(defender?.description).toContain('unattributed')
+    expect(defender?.prerequisiteNote).toContain('Investigation.Read')
+    expect(defender?.prerequisiteNote).toContain('Legacy API tokens are not accepted')
+  })
+
+  it.each([
+    ['ready', 'connected'],
+    ['degraded', 'degraded'],
+    ['authorization-required', 'authorization-required'],
+    ['unavailable', 'unavailable'],
+  ] as const)('maps enabled Defender for Cloud Apps %s health to %s', (readiness, lifecycle) => {
+    const result = buildConnectorsCollection('foundry', {
+      connectorId: 'foundry-test',
+      connectorHealth: {
+        overall: readiness === 'ready' ? 'ready' : 'degraded',
+        partial: readiness !== 'ready',
+        sources: [
+          {
+            id: 'foundry:primary',
+            name: 'Foundry',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+          },
+          {
+            id: 'defender-cloud-apps:tenant-a',
+            name: 'MDCA Tenant A',
+            role: 'enrichment',
+            enabled: true,
+            configured: true,
+            readiness,
+          },
+        ],
+      },
+    })
+    expect(
+      result.catalog.find((entry) => entry.id === 'defender-for-cloud-apps')?.lifecycleState,
+    ).toBe(lifecycle)
+    expect(result.catalog.find((entry) => entry.id === 'azure-ai-foundry')?.lifecycleState).toBe(
+      'connected',
+    )
+  })
+
   it.each([
     ['ready', 'connected'],
     ['degraded', 'degraded'],

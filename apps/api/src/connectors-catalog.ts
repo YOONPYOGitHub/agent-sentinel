@@ -87,12 +87,14 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     id: 'defender-for-cloud-apps',
     name: 'Microsoft Defender for Cloud Apps',
     description:
-      'Supplies security alerts, anomalous behavior signals, and session-level evidence for agent activity. Unlocks evidence-backed exposure findings.',
-    lifecycleState: 'planned',
-    capabilities: ['security-alerts', 'runtime-telemetry'],
+      'Reads bounded alert and activity metadata from the official tenant-specific Microsoft Defender for Cloud Apps v1 APIs. Evidence remains tenant-level and unattributed; the connector never infers agent links.',
+    lifecycleState: 'authorization-required',
+    capabilities: ['security-alerts'],
     sourceOfTruth: true,
     ownershipModel: 'consumes',
-    unlocksScorecard: ['security', 'reliability'],
+    prerequisiteNote:
+      'Implemented read-only and disabled by default. Activation requires approved OAuth application context, tenant-admin Investigation.Read consent on Microsoft Cloud App Security, the tenant portal API URL, and applicable Defender for Cloud Apps licensing/API availability. Legacy API tokens are not accepted.',
+    unlocksScorecard: [],
   },
   {
     id: 'purview',
@@ -191,6 +193,10 @@ export function buildConnectorsCollection(
     opts.connectorHealth?.sources.filter(
       (source) => source.id.startsWith('agent365:') && source.enabled,
     ) ?? []
+  const enabledDefenderCloudAppsSources =
+    opts.connectorHealth?.sources.filter(
+      (source) => source.id.startsWith('defender-cloud-apps:') && source.enabled,
+    ) ?? []
   const catalog: CatalogConnectorEntry[] = BASE_CATALOG.map((entry) => {
     if (entry.id === 'azure-ai-foundry') {
       return { ...entry, lifecycleState: foundryLifecycle }
@@ -238,6 +244,26 @@ export function buildConnectorsCollection(
           ready === enabledAgent365Sources.length
             ? 'connected'
             : ready > 0 || enabledAgent365Sources.some((source) => source.readiness === 'degraded')
+              ? 'degraded'
+              : authorizationRequired
+                ? 'authorization-required'
+                : 'unavailable',
+      }
+    }
+    if (entry.id === 'defender-for-cloud-apps' && enabledDefenderCloudAppsSources.length > 0) {
+      const ready = enabledDefenderCloudAppsSources.filter(
+        (source) => source.readiness === 'ready',
+      ).length
+      const authorizationRequired = enabledDefenderCloudAppsSources.some(
+        (source) => source.readiness === 'authorization-required',
+      )
+      return {
+        ...entry,
+        lifecycleState:
+          ready === enabledDefenderCloudAppsSources.length
+            ? 'connected'
+            : ready > 0 ||
+                enabledDefenderCloudAppsSources.some((source) => source.readiness === 'degraded')
               ? 'degraded'
               : authorizationRequired
                 ? 'authorization-required'
