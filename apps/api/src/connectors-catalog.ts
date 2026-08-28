@@ -52,13 +52,13 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     id: 'copilot-studio',
     name: 'Microsoft Copilot Studio',
     description:
-      'Discovers agents built and published in Microsoft Copilot Studio, including topic flows, connected data sources, and published channels.',
-    lifecycleState: 'planned',
+      'Reads Power Platform ResourceQuery core inventory for Microsoft Copilot Studio and Microsoft 365 Copilot Agent Builder agents. The Copilot Studio resource schema is preview overall; connectors, channels, authentication, and runtime behavior are not authoritative in this increment.',
+    lifecycleState: 'authorization-required',
     capabilities: ['discovery'],
     sourceOfTruth: true,
     ownershipModel: 'consumes',
     prerequisiteNote:
-      'Requires Power Platform environment access and Copilot Studio admin permissions. Agent inventory is read-only; no write operations are supported.',
+      'Implemented read-only and disabled by default. Each intended tenant scope requires Power Platform Reader (or approved least-privilege ResourceQuery read RBAC); no Graph application permission or RBAC assignment is created by Agent Sentinel.',
     unlocksScorecard: ['security', 'lifecycle'],
   },
   {
@@ -156,7 +156,7 @@ export function buildConnectorsCollection(
 ): ConnectorsCollectionResponse {
   const connectionOk = opts.connectionOk !== false
   const discoverySources = opts.connectorHealth?.sources.filter(
-    (source) => source.role === 'discovery',
+    (source) => source.role === 'discovery' && !source.id.startsWith('power-platform:'),
   )
   const readyDiscoverySources =
     discoverySources?.filter((source) => source.readiness === 'ready').length ?? 0
@@ -180,6 +180,10 @@ export function buildConnectorsCollection(
       (source.id === 'microsoft-entra-service-principals' || source.id.startsWith('entra:')),
   )
   const enabledEntraSources = entraSources?.filter((source) => source.enabled) ?? []
+  const enabledPowerPlatformSources =
+    opts.connectorHealth?.sources.filter(
+      (source) => source.id.startsWith('power-platform:') && source.enabled,
+    ) ?? []
   const catalog: CatalogConnectorEntry[] = BASE_CATALOG.map((entry) => {
     if (entry.id === 'azure-ai-foundry') {
       return { ...entry, lifecycleState: foundryLifecycle }
@@ -194,6 +198,26 @@ export function buildConnectorsCollection(
             : ready > 0
               ? 'degraded'
               : 'unavailable',
+      }
+    }
+    if (entry.id === 'copilot-studio' && enabledPowerPlatformSources.length > 0) {
+      const ready = enabledPowerPlatformSources.filter(
+        (source) => source.readiness === 'ready',
+      ).length
+      const authorizationRequired = enabledPowerPlatformSources.some(
+        (source) => source.readiness === 'authorization-required',
+      )
+      return {
+        ...entry,
+        lifecycleState:
+          ready === enabledPowerPlatformSources.length
+            ? 'connected'
+            : ready > 0 ||
+                enabledPowerPlatformSources.some((source) => source.readiness === 'degraded')
+              ? 'degraded'
+              : authorizationRequired
+                ? 'authorization-required'
+                : 'unavailable',
       }
     }
     if (entry.id === 'azure-monitor-otel' && opts.runtimeTelemetryConfigured === true) {

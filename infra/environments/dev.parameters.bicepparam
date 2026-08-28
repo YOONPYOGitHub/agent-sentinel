@@ -13,6 +13,7 @@ param agentSentinelDataMode = 'live'
 // Safety gates remain explicit until the staged Entra activation runbook is approved.
 param agentSentinelWriteEnabled = false
 param entraConnectorEnabled = false
+param powerPlatformConnectorEnabled = false
 param authMode = 'disabled'
 param foundryProjectEndpoint = 'https://ais-agent-sentinel-260814.services.ai.azure.com/api/projects/agent-sentinel-pjt'
 param foundryTenantId = '4dfc2b10-8eb6-4454-a9ee-9f337141b596'

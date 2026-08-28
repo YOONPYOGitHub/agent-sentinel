@@ -74,4 +74,30 @@ describe('jobs connector selection', () => {
       'entra:project-b',
     ])
   })
+
+  it('wires an independent Power Platform discovery family after Entra', () => {
+    const connector = buildConnector(
+      'foundry',
+      {
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+        FOUNDRY_TENANT_ID: '11111111-1111-4111-8111-111111111111',
+        FOUNDRY_ENVIRONMENT: 'validation',
+        POWER_PLATFORM_CONNECTOR_ENABLED: 'true',
+        POWER_PLATFORM_TENANT_ID: '11111111-1111-4111-8111-111111111111',
+        POWER_PLATFORM_ENVIRONMENT: 'studio-environment',
+      },
+      {
+        credential: { getToken: () => Promise.resolve(null) },
+        powerPlatformClient: {
+          fetcher: () => Promise.resolve(Response.json({})),
+        },
+      },
+    )
+
+    expect(connector.getConnectorHealth?.().sources.map((source) => source.id)).toEqual([
+      'foundry:primary',
+      'entra:primary',
+      'power-platform:primary',
+    ])
+  })
 })

@@ -10,12 +10,19 @@ import {
   type FoundryCredentialFactory,
 } from '@agent-sentinel/foundry-connector'
 import { MockAgentConnector } from '@agent-sentinel/mock-connector'
+import {
+  createOptionalPowerPlatformConnector,
+  type PowerPlatformClientOptions,
+  type PowerPlatformCredentialFactory,
+} from '@agent-sentinel/power-platform-connector'
 import type { TokenCredential } from '@azure/core-auth'
 
 export interface JobsConnectorOptions {
   credential?: TokenCredential
   credentialFactory?: FoundryCredentialFactory
   entraClient?: EntraGraphClientOptions
+  powerPlatformCredentialFactory?: PowerPlatformCredentialFactory
+  powerPlatformClient?: PowerPlatformClientOptions
 }
 
 export function buildConnector(
@@ -29,7 +36,7 @@ export function buildConnector(
     options.credentialFactory ??
     ((source) => options.credential ?? createFoundrySourceCredential(source))
   const foundry = new MultiFoundryConnector(config, credentialFactory)
-  return createOptionalEntraEnrichmentConnector(foundry, environment, {
+  const entra = createOptionalEntraEnrichmentConnector(foundry, environment, {
     expectedSources: config.sources.map((source) => ({
       id: source.id,
       name: source.name,
@@ -38,5 +45,13 @@ export function buildConnector(
     })),
     ...(options.credential !== undefined ? { credentialFactory: () => options.credential! } : {}),
     ...(options.entraClient !== undefined ? { clientFactory: () => options.entraClient! } : {}),
+  })
+  return createOptionalPowerPlatformConnector(entra, environment, {
+    ...(options.powerPlatformCredentialFactory !== undefined
+      ? { credentialFactory: options.powerPlatformCredentialFactory }
+      : options.credential !== undefined
+        ? { credential: options.credential }
+        : {}),
+    ...(options.powerPlatformClient !== undefined ? { client: options.powerPlatformClient } : {}),
   })
 }

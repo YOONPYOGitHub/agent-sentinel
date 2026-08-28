@@ -58,6 +58,24 @@ param entraConnectorRequestTimeoutMs string = '15000'
 param entraConnectorMaxRetries string = '2'
 param entraConnectorMaxRetryAfterMs string = '30000'
 
+@description('Enable read-only Power Platform ResourceQuery agent inventory. Keep false until tenant-scope read RBAC is approved.')
+param powerPlatformConnectorEnabled bool = false
+@description('Optional JSON array of up to 50 independent Power Platform tenant/environment sources.')
+param powerPlatformSourcesJson string = ''
+@description('Legacy primary Power Platform tenant ID. Empty while disabled or when source JSON is used.')
+param powerPlatformTenantId string = ''
+@description('Legacy primary Power Platform environment ID. Empty while disabled or when source JSON is used.')
+param powerPlatformEnvironment string = ''
+@description('Power Platform API resource base. Connector validation only permits the official public host.')
+param powerPlatformApiBaseUrl string = 'https://api.powerplatform.com'
+param powerPlatformPageSize string = '100'
+param powerPlatformMaxPages string = '20'
+param powerPlatformMaxItems string = '5000'
+param powerPlatformRequestTimeoutMs string = '15000'
+param powerPlatformMaxRetries string = '2'
+param powerPlatformMaxRetryAfterMs string = '30000'
+param powerPlatformMaxResponseBytes string = '2000000'
+
 @description('Enable read-only Azure Monitor OTel telemetry. Disabled until instrumentation and workspace RBAC are validated.')
 param azureMonitorConnectorEnabled bool = false
 @description('Optional JSON array of Azure Monitor sources matched by id to Foundry sources.')
@@ -254,6 +272,18 @@ module containerApps './modules/container-apps.bicep' = {
     entraConnectorRequestTimeoutMs: entraConnectorRequestTimeoutMs
     entraConnectorMaxRetries: entraConnectorMaxRetries
     entraConnectorMaxRetryAfterMs: entraConnectorMaxRetryAfterMs
+    powerPlatformConnectorEnabled: powerPlatformConnectorEnabled
+    powerPlatformSourcesJson: powerPlatformSourcesJson
+    powerPlatformTenantId: powerPlatformTenantId
+    powerPlatformEnvironment: powerPlatformEnvironment
+    powerPlatformApiBaseUrl: powerPlatformApiBaseUrl
+    powerPlatformPageSize: powerPlatformPageSize
+    powerPlatformMaxPages: powerPlatformMaxPages
+    powerPlatformMaxItems: powerPlatformMaxItems
+    powerPlatformRequestTimeoutMs: powerPlatformRequestTimeoutMs
+    powerPlatformMaxRetries: powerPlatformMaxRetries
+    powerPlatformMaxRetryAfterMs: powerPlatformMaxRetryAfterMs
+    powerPlatformMaxResponseBytes: powerPlatformMaxResponseBytes
     azureMonitorConnectorEnabled: azureMonitorConnectorEnabled
     azureMonitorSourcesJson: azureMonitorSourcesJson
     cosmosDatabase: cosmosDatabase

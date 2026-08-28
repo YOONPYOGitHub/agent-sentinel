@@ -147,6 +147,104 @@ describe('buildConnectorsCollection', () => {
     expect(entra?.prerequisiteNote).toContain('Application.Read.All')
   })
 
+  it('describes Power Platform core inventory honestly and requires RBAC authorization', () => {
+    const result = buildConnectorsCollection('mock', { connectorId: 'mock-agent-estate' })
+    const powerPlatform = result.catalog.find((entry) => entry.id === 'copilot-studio')
+    expect(powerPlatform).toMatchObject({
+      lifecycleState: 'authorization-required',
+      sourceOfTruth: true,
+      ownershipModel: 'consumes',
+    })
+    expect(powerPlatform?.description).toContain('Microsoft 365 Copilot Agent Builder')
+    expect(powerPlatform?.description).toContain('preview')
+    expect(powerPlatform?.prerequisiteNote).toContain('Power Platform Reader')
+    expect(powerPlatform?.prerequisiteNote).not.toContain('PowerPlatform.Read')
+  })
+
+  it('maps enabled Power Platform source health without degrading Foundry catalog state', () => {
+    const base = {
+      connectorId: 'azure-ai-foundry-agent-service',
+      connectorHealth: {
+        overall: 'degraded' as const,
+        partial: true,
+        sources: [
+          {
+            id: 'foundry:primary',
+            name: 'Foundry',
+            role: 'discovery' as const,
+            enabled: true,
+            configured: true,
+            readiness: 'ready' as const,
+          },
+          {
+            id: 'power-platform:studio',
+            name: 'Studio',
+            role: 'discovery' as const,
+            enabled: true,
+            configured: true,
+            readiness: 'authorization-required' as const,
+            reason: 'authorization',
+          },
+        ],
+      },
+    }
+    const authorizationRequired = buildConnectorsCollection('foundry', base)
+    expect(
+      authorizationRequired.catalog.find((entry) => entry.id === 'copilot-studio')?.lifecycleState,
+    ).toBe('authorization-required')
+    expect(
+      authorizationRequired.catalog.find((entry) => entry.id === 'azure-ai-foundry')
+        ?.lifecycleState,
+    ).toBe('connected')
+
+    const connected = buildConnectorsCollection('foundry', {
+      ...base,
+      connectorHealth: {
+        overall: 'ready',
+        partial: false,
+        sources: [
+          base.connectorHealth.sources[0]!,
+          { ...base.connectorHealth.sources[1]!, readiness: 'ready' as const },
+        ],
+      },
+    })
+    expect(connected.catalog.find((entry) => entry.id === 'copilot-studio')?.lifecycleState).toBe(
+      'connected',
+    )
+
+    const degraded = buildConnectorsCollection('foundry', {
+      ...base,
+      connectorHealth: {
+        ...base.connectorHealth,
+        sources: [
+          base.connectorHealth.sources[0]!,
+          { ...base.connectorHealth.sources[1]!, readiness: 'degraded' as const },
+        ],
+      },
+    })
+    expect(degraded.catalog.find((entry) => entry.id === 'copilot-studio')?.lifecycleState).toBe(
+      'degraded',
+    )
+
+    const unavailable = buildConnectorsCollection('foundry', {
+      ...base,
+      connectorHealth: {
+        ...base.connectorHealth,
+        sources: [
+          base.connectorHealth.sources[0]!,
+          {
+            ...base.connectorHealth.sources[1]!,
+            readiness: 'unavailable' as const,
+            reason: 'network',
+          },
+        ],
+      },
+    })
+    expect(unavailable.catalog.find((entry) => entry.id === 'copilot-studio')?.lifecycleState).toBe(
+      'unavailable',
+    )
+  })
+
   it('maps measured Entra health without hiding partial readiness', () => {
     const health = {
       overall: 'degraded' as const,

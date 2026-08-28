@@ -50,6 +50,16 @@ managed-identity federation pattern and require target-tenant
 every intended source is authorized and the bounded Graph inventory probe is
 approved.
 
+Power Platform ResourceQuery inventory is separately disabled by
+`powerPlatformConnectorEnabled=false`. Configure `powerPlatformSourcesJson` with
+independent source IDs, or the legacy `powerPlatformTenantId` and
+`powerPlatformEnvironment` pair. The only allowed base is
+`https://api.powerplatform.com`; paging, item count, retries, timeout, and
+response bytes are bounded by the corresponding `powerPlatform*` parameters.
+Do not enable it or add an IaC role assignment until **Power Platform Reader**
+(or an approved least-privilege ResourceQuery read RBAC role) is approved at
+the intended tenant scope. See [Power Platform connector](power-platform-connector.md).
+
 Set `azureMonitorSourcesJson` with entries matching Foundry source ids. Each
 entry contains a workspace customer id, source tenant, source environment, and
 optional federated credential. `azureMonitorConnectorEnabled` remains false

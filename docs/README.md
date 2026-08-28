@@ -1,6 +1,6 @@
 # Agent Sentinel documentation
 
-Documentation index for the Agent Sentinel control plane. Last reviewed **2026-08-23** against branch `feature/live-exposure`.
+Documentation index for the Agent Sentinel control plane. Last reviewed **2026-08-28** against branch `feature/multi-source-otel`.
 
 Start with the [root README](../README.md) for the value proposition, quick start, and the live-vs-mock truth table.
 
@@ -16,13 +16,14 @@ Start with the [root README](../README.md) for the value proposition, quick star
 
 ## Engineering
 
-| Document                                       | Read this when you need to…                                                                                                           |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| [Architecture](architecture.md)                | Understand the runtime topology, network boundaries, public edges, the custom manifest adapter, and package layout.                   |
-| [Data model](data-model.md)                    | Look up domain types, the manifest envelope contract, Cosmos containers, PostgreSQL tables, search indexes, and Service Bus entities. |
-| [Development](development.md)                  | Set up the canonical WSL workflow, run the test pyramid, follow branch and commit practice, and develop the custom manifest adapter.  |
-| [Foundry live agents](foundry-live-agents.md)  | Provision, validate, or clean up the six synthetic Microsoft Foundry validation agents.                                               |
-| [Corporate onboarding](internal-onboarding.md) | Repeat Service Tree, Feature Alias, and corporate Entra onboarding without storing private identifiers.                               |
+| Document                                                | Read this when you need to…                                                                                                           |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| [Architecture](architecture.md)                         | Understand the runtime topology, network boundaries, public edges, the custom manifest adapter, and package layout.                   |
+| [Data model](data-model.md)                             | Look up domain types, the manifest envelope contract, Cosmos containers, PostgreSQL tables, search indexes, and Service Bus entities. |
+| [Development](development.md)                           | Set up the canonical WSL workflow, run the test pyramid, follow branch and commit practice, and develop the custom manifest adapter.  |
+| [Foundry live agents](foundry-live-agents.md)           | Provision, validate, or clean up the six synthetic Microsoft Foundry validation agents.                                               |
+| [Power Platform connector](power-platform-connector.md) | Configure and review the disabled-by-default ResourceQuery inventory connector and its authorization boundary.                        |
+| [Corporate onboarding](internal-onboarding.md)          | Repeat Service Tree, Feature Alias, and corporate Entra onboarding without storing private identifiers.                               |
 
 ## Operations
 
@@ -56,7 +57,7 @@ Every statement in these documents carries an explicit maturity label. The label
 
 | Label                           | Meaning                                                                                                   |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| **Current**                     | Implemented, merged on `feature/live-exposure`, and covered by tests.                                     |
+| **Current**                     | Implemented on `feature/multi-source-otel` and covered by tests.                                          |
 | **Live**                        | Running against a real Azure service in the deployed environment.                                         |
 | **Live declared configuration** | Real data read from a real source, describing what was _configured_ — not what was _observed_ at runtime. |
 | **Future runtime evidence**     | Requires an implemented telemetry connector to be configured against an authorized measured source.       |

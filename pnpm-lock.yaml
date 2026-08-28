@@ -95,6 +95,9 @@ importers:
       '@agent-sentinel/policy-engine':
         specifier: workspace:*
         version: link:../../packages/policy-engine
+      '@agent-sentinel/power-platform-connector':
+        specifier: workspace:*
+        version: link:../../connectors/power-platform
       '@agent-sentinel/scenarios':
         specifier: workspace:*
         version: link:../../packages/scenarios
@@ -165,6 +168,9 @@ importers:
       '@agent-sentinel/policy-engine':
         specifier: workspace:*
         version: link:../../packages/policy-engine
+      '@agent-sentinel/power-platform-connector':
+        specifier: workspace:*
+        version: link:../../connectors/power-platform
       '@azure/cosmos':
         specifier: ^4.4.0
         version: 4.10.0
@@ -328,6 +334,24 @@ importers:
       '@agent-sentinel/graph-engine':
         specifier: workspace:*
         version: link:../../packages/graph-engine
+
+  connectors/power-platform:
+    dependencies:
+      '@agent-sentinel/connector-sdk':
+        specifier: workspace:*
+        version: link:../../packages/connector-sdk
+      '@agent-sentinel/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@azure/core-auth':
+        specifier: ^1.10.1
+        version: 1.11.0
+      '@azure/identity':
+        specifier: ^4.13.1
+        version: 4.13.1
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
 
   packages/behavior-engine:
     dependencies:

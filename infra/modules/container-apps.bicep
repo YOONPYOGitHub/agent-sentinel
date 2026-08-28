@@ -98,6 +98,19 @@ param entraConnectorRequestTimeoutMs string = '15000'
 param entraConnectorMaxRetries string = '2'
 param entraConnectorMaxRetryAfterMs string = '30000'
 
+param powerPlatformConnectorEnabled bool = false
+param powerPlatformSourcesJson string = ''
+param powerPlatformTenantId string = ''
+param powerPlatformEnvironment string = ''
+param powerPlatformApiBaseUrl string = 'https://api.powerplatform.com'
+param powerPlatformPageSize string = '100'
+param powerPlatformMaxPages string = '20'
+param powerPlatformMaxItems string = '5000'
+param powerPlatformRequestTimeoutMs string = '15000'
+param powerPlatformMaxRetries string = '2'
+param powerPlatformMaxRetryAfterMs string = '30000'
+param powerPlatformMaxResponseBytes string = '2000000'
+
 param azureMonitorConnectorEnabled bool = false
 param azureMonitorSourcesJson string = ''
 
@@ -179,6 +192,18 @@ var env = [
   { name: 'ENTRA_CONNECTOR_REQUEST_TIMEOUT_MS',    value: entraConnectorRequestTimeoutMs }
   { name: 'ENTRA_CONNECTOR_MAX_RETRIES',           value: entraConnectorMaxRetries }
   { name: 'ENTRA_CONNECTOR_MAX_RETRY_AFTER_MS',    value: entraConnectorMaxRetryAfterMs }
+  { name: 'POWER_PLATFORM_CONNECTOR_ENABLED',       value: string(powerPlatformConnectorEnabled) }
+  { name: 'POWER_PLATFORM_SOURCES_JSON',            value: powerPlatformSourcesJson }
+  { name: 'POWER_PLATFORM_TENANT_ID',               value: powerPlatformTenantId }
+  { name: 'POWER_PLATFORM_ENVIRONMENT',             value: powerPlatformEnvironment }
+  { name: 'POWER_PLATFORM_API_BASE_URL',            value: powerPlatformApiBaseUrl }
+  { name: 'POWER_PLATFORM_PAGE_SIZE',               value: powerPlatformPageSize }
+  { name: 'POWER_PLATFORM_MAX_PAGES',               value: powerPlatformMaxPages }
+  { name: 'POWER_PLATFORM_MAX_ITEMS',               value: powerPlatformMaxItems }
+  { name: 'POWER_PLATFORM_REQUEST_TIMEOUT_MS',      value: powerPlatformRequestTimeoutMs }
+  { name: 'POWER_PLATFORM_MAX_RETRIES',             value: powerPlatformMaxRetries }
+  { name: 'POWER_PLATFORM_MAX_RETRY_AFTER_MS',      value: powerPlatformMaxRetryAfterMs }
+  { name: 'POWER_PLATFORM_MAX_RESPONSE_BYTES',      value: powerPlatformMaxResponseBytes }
   { name: 'AZURE_MONITOR_SOURCES_JSON',            value: azureMonitorConnectorEnabled ? azureMonitorSourcesJson : '' }
   { name: 'AZURE_MONITOR_WORKSPACE_ID',            value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? lawWorkspaceId : '' }
   { name: 'AZURE_MONITOR_TENANT_ID',               value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? foundryTenantId : '' }

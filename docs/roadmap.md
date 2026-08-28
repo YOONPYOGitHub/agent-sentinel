@@ -1,6 +1,6 @@
 # Roadmap
 
-Phased delivery plan for Agent Sentinel. Last reviewed **2026-08-28** against branch `feature/multi-foundry-connectors`.
+Phased delivery plan for Agent Sentinel. Last reviewed **2026-08-28** against branch `feature/multi-source-otel`.
 
 Every phase has an explicit definition of done. A phase is not done because its UI renders; it is done when its evidence is real, its boundaries are enforced in code, and its tests prove the behavior without model access.
 
@@ -175,13 +175,19 @@ evidence, and reports missing tenant consent independently. Deployment
 activation uses tenant-admin `Application.Read.All`; the primary source is live
 with optional owner, app-role, and preview reads disabled.
 
+**Multi-source Power Platform inventory — implemented, activation pending:**
+the official ResourceQuery API supplies bounded Copilot Studio and Microsoft
+365 Copilot Agent Builder core inventory. Sources are independent of Foundry
+IDs and compose after Entra without inferred identity edges. The connector is
+disabled until tenant-scope read RBAC is separately approved.
+
 | Connector                                   | Catalogued state         | Gate                                                                           |
 | ------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------ |
 | Microsoft Agent 365 (`m365-agent-registry`) | `authorization-required` | Supported management API plus tenant admin authorization                       |
 | Microsoft Entra identity and entitlements   | `connected`              | Primary stable v1.0 inventory is live; each additional tenant requires consent |
 | Microsoft Purview                           | `planned`                | Tenant authorization                                                           |
 | Microsoft Defender for Cloud Apps           | `planned`                | Tenant authorization                                                           |
-| Microsoft Copilot Studio                    | `planned`                | Power Platform environment access                                              |
+| Microsoft Copilot Studio / Agent Builder    | `authorization-required` | Power Platform Reader (or approved ResourceQuery read RBAC); schema is preview |
 | Microsoft 365 and SharePoint agents         | `planned`                | Tenant authorization                                                           |
 | Microsoft Teams distribution                | `planned`                | Tenant authorization                                                           |
 

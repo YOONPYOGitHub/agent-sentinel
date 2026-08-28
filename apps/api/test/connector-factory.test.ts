@@ -179,4 +179,39 @@ describe('connector selection', () => {
       { id: 'entra:project-b', configured: true, readiness: 'degraded' },
     ])
   })
+
+  it('composes Power Platform after Entra without requiring matching source ids', () => {
+    const result = createConfiguredConnector(
+      {
+        AGENT_SENTINEL_CONNECTOR: 'foundry',
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+        FOUNDRY_TENANT_ID: '11111111-1111-4111-8111-111111111111',
+        FOUNDRY_ENVIRONMENT: 'validation',
+        ENTRA_CONNECTOR_ENABLED: 'true',
+        ENTRA_CONNECTOR_TENANT_ID: '11111111-1111-4111-8111-111111111111',
+        ENTRA_CONNECTOR_ENVIRONMENT: 'validation',
+        POWER_PLATFORM_CONNECTOR_ENABLED: 'true',
+        POWER_PLATFORM_SOURCES_JSON: JSON.stringify([
+          {
+            id: 'studio-environment',
+            name: 'Studio environment',
+            tenantId: '11111111-1111-4111-8111-111111111111',
+            environment: 'environment-guid',
+          },
+        ]),
+      },
+      {
+        credential: { getToken: () => Promise.resolve(null) },
+        powerPlatformClient: {
+          fetcher: () => Promise.resolve(Response.json({})),
+        },
+      },
+    )
+
+    expect(result.connector.getConnectorHealth?.().sources.map((source) => source.id)).toEqual([
+      'foundry:primary',
+      'entra:primary',
+      'power-platform:studio-environment',
+    ])
+  })
 })
