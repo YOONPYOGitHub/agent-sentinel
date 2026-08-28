@@ -5,6 +5,7 @@ const boundedText = z.string().max(512)
 const nullableName = z.string().min(1).max(256).nullable().optional()
 
 export const servicePrincipalSchema = z.strictObject({
+  '@odata.type': z.string().min(1).max(128).optional(),
   id: graphIdSchema,
   appId: graphIdSchema,
   displayName: z.string().min(1).max(256),
