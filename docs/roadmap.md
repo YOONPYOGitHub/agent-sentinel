@@ -172,17 +172,18 @@ and cross-tenant federation are approved.
 **Multi-source Entra composition — implemented:** `ENTRA_SOURCES_JSON` matches
 each Foundry source id to its exact tenant/environment, namespaces identity
 evidence, and reports missing tenant consent independently. Deployment
-activation still requires tenant-admin `Application.Read.All` consent.
+activation uses tenant-admin `Application.Read.All`; the primary source is live
+with optional owner, app-role, and preview reads disabled.
 
-| Connector                                   | Catalogued state         | Gate                                                                          |
-| ------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------- |
-| Microsoft Agent 365 (`m365-agent-registry`) | `authorization-required` | Supported management API plus tenant admin authorization                      |
-| Microsoft Entra identity and entitlements   | `authorization-required` | Connector implemented; tenant-admin Graph consent and live validation pending |
-| Microsoft Purview                           | `planned`                | Tenant authorization                                                          |
-| Microsoft Defender for Cloud Apps           | `planned`                | Tenant authorization                                                          |
-| Microsoft Copilot Studio                    | `planned`                | Power Platform environment access                                             |
-| Microsoft 365 and SharePoint agents         | `planned`                | Tenant authorization                                                          |
-| Microsoft Teams distribution                | `planned`                | Tenant authorization                                                          |
+| Connector                                   | Catalogued state         | Gate                                                                           |
+| ------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------ |
+| Microsoft Agent 365 (`m365-agent-registry`) | `authorization-required` | Supported management API plus tenant admin authorization                       |
+| Microsoft Entra identity and entitlements   | `connected`              | Primary stable v1.0 inventory is live; each additional tenant requires consent |
+| Microsoft Purview                           | `planned`                | Tenant authorization                                                           |
+| Microsoft Defender for Cloud Apps           | `planned`                | Tenant authorization                                                           |
+| Microsoft Copilot Studio                    | `planned`                | Power Platform environment access                                              |
+| Microsoft 365 and SharePoint agents         | `planned`                | Tenant authorization                                                           |
+| Microsoft Teams distribution                | `planned`                | Tenant authorization                                                           |
 
 **Definition of done, per connector**
 
