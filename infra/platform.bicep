@@ -114,6 +114,23 @@ param defenderCloudAppsMaxRetries string = '2'
 param defenderCloudAppsMaxRetryAfterMs string = '30000'
 param defenderCloudAppsMaxResponseBytes string = '2000000'
 
+@description('Enable read-only Microsoft Purview sensitivity-label catalog evidence. Keep false until tenant-admin SensitivityLabel.Read application consent is approved.')
+param purviewConnectorEnabled bool = false
+@description('Optional JSON array of up to 50 unique Microsoft Purview tenant sources.')
+param purviewSourcesJson string = ''
+@description('Legacy primary Purview tenant ID. Empty while disabled or when source JSON is used.')
+param purviewTenantId string = ''
+@description('Legacy primary local aggregate environment label. Empty while disabled or when source JSON is used.')
+param purviewEnvironment string = ''
+@description('Microsoft Graph base. Connector validation permits exactly the official Global service origin.')
+param purviewGraphBaseUrl string = 'https://graph.microsoft.com'
+param purviewMaxPages string = '20'
+param purviewMaxItems string = '5000'
+param purviewRequestTimeoutMs string = '15000'
+param purviewMaxRetries string = '2'
+param purviewMaxRetryAfterMs string = '30000'
+param purviewMaxResponseBytes string = '2000000'
+
 @description('Enable read-only Azure Monitor OTel telemetry. Disabled until instrumentation and workspace RBAC are validated.')
 param azureMonitorConnectorEnabled bool = false
 @description('Optional JSON array of Azure Monitor sources matched by id to Foundry sources.')
@@ -347,6 +364,17 @@ module containerApps './modules/container-apps.bicep' = {
     defenderCloudAppsMaxRetries: defenderCloudAppsMaxRetries
     defenderCloudAppsMaxRetryAfterMs: defenderCloudAppsMaxRetryAfterMs
     defenderCloudAppsMaxResponseBytes: defenderCloudAppsMaxResponseBytes
+    purviewConnectorEnabled: purviewConnectorEnabled
+    purviewSourcesJson: purviewSourcesJson
+    purviewTenantId: purviewTenantId
+    purviewEnvironment: purviewEnvironment
+    purviewGraphBaseUrl: purviewGraphBaseUrl
+    purviewMaxPages: purviewMaxPages
+    purviewMaxItems: purviewMaxItems
+    purviewRequestTimeoutMs: purviewRequestTimeoutMs
+    purviewMaxRetries: purviewMaxRetries
+    purviewMaxRetryAfterMs: purviewMaxRetryAfterMs
+    purviewMaxResponseBytes: purviewMaxResponseBytes
     azureMonitorConnectorEnabled: azureMonitorConnectorEnabled
     azureMonitorSourcesJson: azureMonitorSourcesJson
     cosmosDatabase: cosmosDatabase

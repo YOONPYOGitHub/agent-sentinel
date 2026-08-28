@@ -25,6 +25,11 @@ import {
   type PowerPlatformClientOptions,
   type PowerPlatformCredentialFactory,
 } from '@agent-sentinel/power-platform-connector'
+import {
+  createOptionalPurviewConnector,
+  type PurviewClientOptions,
+  type PurviewCredentialFactory,
+} from '@agent-sentinel/purview-connector'
 import type { TokenCredential } from '@azure/core-auth'
 
 export interface JobsConnectorOptions {
@@ -37,6 +42,8 @@ export interface JobsConnectorOptions {
   agent365Client?: Agent365ClientOptions
   defenderCloudAppsCredentialFactory?: DefenderCloudAppsCredentialFactory
   defenderCloudAppsClient?: DefenderCloudAppsClientOptions
+  purviewCredentialFactory?: PurviewCredentialFactory
+  purviewClient?: PurviewClientOptions
 }
 
 export function buildConnector(
@@ -76,7 +83,7 @@ export function buildConnector(
         : {}),
     ...(options.agent365Client !== undefined ? { client: options.agent365Client } : {}),
   })
-  return createOptionalDefenderCloudAppsConnector(agent365, environment, {
+  const defender = createOptionalDefenderCloudAppsConnector(agent365, environment, {
     ...(options.defenderCloudAppsCredentialFactory !== undefined
       ? { credentialFactory: options.defenderCloudAppsCredentialFactory }
       : options.credential !== undefined
@@ -85,5 +92,13 @@ export function buildConnector(
     ...(options.defenderCloudAppsClient !== undefined
       ? { client: options.defenderCloudAppsClient }
       : {}),
+  })
+  return createOptionalPurviewConnector(defender, environment, {
+    ...(options.purviewCredentialFactory !== undefined
+      ? { credentialFactory: options.purviewCredentialFactory }
+      : options.credential !== undefined
+        ? { credential: options.credential }
+        : {}),
+    ...(options.purviewClient !== undefined ? { client: options.purviewClient } : {}),
   })
 }

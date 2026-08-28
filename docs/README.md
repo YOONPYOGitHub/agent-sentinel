@@ -25,6 +25,7 @@ Start with the [root README](../README.md) for the value proposition, quick star
 | [Power Platform connector](power-platform-connector.md)               | Configure and review the disabled-by-default ResourceQuery inventory connector and its authorization boundary.                        |
 | [Agent 365 connector](agent365-connector.md)                          | Review the disabled-by-default Graph v1.0 package catalog contract, licensing, consent, bounds, and evidence semantics.               |
 | [Defender for Cloud Apps connector](defender-cloud-apps-connector.md) | Review the disabled-by-default OAuth alert/activity evidence contract, privacy boundary, bounds, and activation gate.                 |
+| [Purview connector](purview-connector.md)                             | Review the disabled-by-default Graph v1.0 sensitivity-label catalog, privacy model, bounds, and tenant-consent gate.                  |
 | [Corporate onboarding](internal-onboarding.md)                        | Repeat Service Tree, Feature Alias, and corporate Entra onboarding without storing private identifiers.                               |
 
 ## Operations

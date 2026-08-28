@@ -138,6 +138,18 @@ param defenderCloudAppsMaxRetries string = '2'
 param defenderCloudAppsMaxRetryAfterMs string = '30000'
 param defenderCloudAppsMaxResponseBytes string = '2000000'
 
+param purviewConnectorEnabled bool = false
+param purviewSourcesJson string = ''
+param purviewTenantId string = ''
+param purviewEnvironment string = ''
+param purviewGraphBaseUrl string = 'https://graph.microsoft.com'
+param purviewMaxPages string = '20'
+param purviewMaxItems string = '5000'
+param purviewRequestTimeoutMs string = '15000'
+param purviewMaxRetries string = '2'
+param purviewMaxRetryAfterMs string = '30000'
+param purviewMaxResponseBytes string = '2000000'
+
 param azureMonitorConnectorEnabled bool = false
 param azureMonitorSourcesJson string = ''
 
@@ -256,6 +268,17 @@ var env = [
   { name: 'DEFENDER_CLOUD_APPS_MAX_RETRIES',        value: defenderCloudAppsMaxRetries }
   { name: 'DEFENDER_CLOUD_APPS_MAX_RETRY_AFTER_MS', value: defenderCloudAppsMaxRetryAfterMs }
   { name: 'DEFENDER_CLOUD_APPS_MAX_RESPONSE_BYTES', value: defenderCloudAppsMaxResponseBytes }
+  { name: 'PURVIEW_CONNECTOR_ENABLED',              value: string(purviewConnectorEnabled) }
+  { name: 'PURVIEW_SOURCES_JSON',                   value: purviewConnectorEnabled ? purviewSourcesJson : '' }
+  { name: 'PURVIEW_TENANT_ID',                      value: purviewConnectorEnabled ? purviewTenantId : '' }
+  { name: 'PURVIEW_ENVIRONMENT',                    value: purviewConnectorEnabled ? purviewEnvironment : '' }
+  { name: 'PURVIEW_GRAPH_BASE_URL',                 value: purviewGraphBaseUrl }
+  { name: 'PURVIEW_MAX_PAGES',                      value: purviewMaxPages }
+  { name: 'PURVIEW_MAX_ITEMS',                      value: purviewMaxItems }
+  { name: 'PURVIEW_REQUEST_TIMEOUT_MS',             value: purviewRequestTimeoutMs }
+  { name: 'PURVIEW_MAX_RETRIES',                    value: purviewMaxRetries }
+  { name: 'PURVIEW_MAX_RETRY_AFTER_MS',             value: purviewMaxRetryAfterMs }
+  { name: 'PURVIEW_MAX_RESPONSE_BYTES',             value: purviewMaxResponseBytes }
   { name: 'AZURE_MONITOR_SOURCES_JSON',            value: azureMonitorConnectorEnabled ? azureMonitorSourcesJson : '' }
   { name: 'AZURE_MONITOR_WORKSPACE_ID',            value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? lawWorkspaceId : '' }
   { name: 'AZURE_MONITOR_TENANT_ID',               value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? foundryTenantId : '' }

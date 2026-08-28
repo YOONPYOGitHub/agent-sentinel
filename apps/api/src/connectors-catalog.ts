@@ -100,12 +100,14 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     id: 'purview',
     name: 'Microsoft Purview',
     description:
-      'Provides data classification, sensitivity labels, and data governance policy signals to enrich agent data access graphs and compliance posture.',
-    lifecycleState: 'planned',
+      'Reads bounded tenant sensitivity-label definitions from the official Microsoft Graph v1.0 data security and governance API. Catalog evidence is unattributed and does not show label usage, content, users, activity, agents, trust, or compliance.',
+    lifecycleState: 'authorization-required',
     capabilities: ['data-governance'],
     sourceOfTruth: true,
     ownershipModel: 'consumes',
-    unlocksScorecard: ['governance'],
+    prerequisiteNote:
+      'Implemented read-only and disabled by default. Activation requires tenant-admin SensitivityLabel.Read application consent and secretless credentials for each tenant. Only the Global Graph service is supported; no activity/usage evidence is required or collected.',
+    unlocksScorecard: [],
   },
   {
     id: 'azure-monitor-otel',
@@ -197,6 +199,10 @@ export function buildConnectorsCollection(
     opts.connectorHealth?.sources.filter(
       (source) => source.id.startsWith('defender-cloud-apps:') && source.enabled,
     ) ?? []
+  const enabledPurviewSources =
+    opts.connectorHealth?.sources.filter(
+      (source) => source.id.startsWith('purview:') && source.enabled,
+    ) ?? []
   const catalog: CatalogConnectorEntry[] = BASE_CATALOG.map((entry) => {
     if (entry.id === 'azure-ai-foundry') {
       return { ...entry, lifecycleState: foundryLifecycle }
@@ -264,6 +270,23 @@ export function buildConnectorsCollection(
             ? 'connected'
             : ready > 0 ||
                 enabledDefenderCloudAppsSources.some((source) => source.readiness === 'degraded')
+              ? 'degraded'
+              : authorizationRequired
+                ? 'authorization-required'
+                : 'unavailable',
+      }
+    }
+    if (entry.id === 'purview' && enabledPurviewSources.length > 0) {
+      const ready = enabledPurviewSources.filter((source) => source.readiness === 'ready').length
+      const authorizationRequired = enabledPurviewSources.some(
+        (source) => source.readiness === 'authorization-required',
+      )
+      return {
+        ...entry,
+        lifecycleState:
+          ready === enabledPurviewSources.length
+            ? 'connected'
+            : ready > 0 || enabledPurviewSources.some((source) => source.readiness === 'degraded')
               ? 'degraded'
               : authorizationRequired
                 ? 'authorization-required'

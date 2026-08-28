@@ -104,6 +104,9 @@ importers:
       '@agent-sentinel/power-platform-connector':
         specifier: workspace:*
         version: link:../../connectors/power-platform
+      '@agent-sentinel/purview-connector':
+        specifier: workspace:*
+        version: link:../../connectors/purview
       '@agent-sentinel/scenarios':
         specifier: workspace:*
         version: link:../../packages/scenarios
@@ -183,6 +186,9 @@ importers:
       '@agent-sentinel/power-platform-connector':
         specifier: workspace:*
         version: link:../../connectors/power-platform
+      '@agent-sentinel/purview-connector':
+        specifier: workspace:*
+        version: link:../../connectors/purview
       '@azure/cosmos':
         specifier: ^4.4.0
         version: 4.10.0
@@ -384,6 +390,24 @@ importers:
         version: link:../../packages/graph-engine
 
   connectors/power-platform:
+    dependencies:
+      '@agent-sentinel/connector-sdk':
+        specifier: workspace:*
+        version: link:../../packages/connector-sdk
+      '@agent-sentinel/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@azure/core-auth':
+        specifier: ^1.10.1
+        version: 1.11.0
+      '@azure/identity':
+        specifier: ^4.13.1
+        version: 4.13.1
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
+
+  connectors/purview:
     dependencies:
       '@agent-sentinel/connector-sdk':
         specifier: workspace:*

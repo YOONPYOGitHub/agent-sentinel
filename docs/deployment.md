@@ -80,6 +80,16 @@ licensing/API availability, exact portal URLs, and the secretless credential
 are separately approved. See
 [Defender for Cloud Apps connector](defender-cloud-apps-connector.md).
 
+Microsoft Purview sensitivity-label catalog evidence is independently disabled
+by `purviewConnectorEnabled=false`. Configure `purviewSourcesJson`, or the
+legacy `purviewTenantId` and `purviewEnvironment` pair. The Graph base is fixed
+to `https://graph.microsoft.com`, and source identifiers are injected as empty
+while disabled. IaC creates no Graph app-role assignment, permission, secret,
+label, or M365 resource. Enable only after tenant-admin
+`SensitivityLabel.Read` application consent and secretless credentials are
+separately approved for every source. See
+[Purview connector](purview-connector.md).
+
 Set `azureMonitorSourcesJson` with entries matching Foundry source ids. Each
 entry contains a workspace customer id, source tenant, source environment, and
 optional federated credential. `azureMonitorConnectorEnabled` remains false

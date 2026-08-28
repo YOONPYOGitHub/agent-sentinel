@@ -270,4 +270,35 @@ describe('connector selection', () => {
       'defender-cloud-apps:primary',
     ])
   })
+
+  it('wraps Purview after Defender with injectable Graph client options', () => {
+    const result = createConfiguredConnector(
+      {
+        AGENT_SENTINEL_CONNECTOR: 'foundry',
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+        FOUNDRY_TENANT_ID: '11111111-1111-4111-8111-111111111111',
+        FOUNDRY_ENVIRONMENT: 'validation',
+        DEFENDER_CLOUD_APPS_CONNECTOR_ENABLED: 'true',
+        DEFENDER_CLOUD_APPS_TENANT_ID: '22222222-2222-4222-8222-222222222222',
+        DEFENDER_CLOUD_APPS_ENVIRONMENT: 'security',
+        DEFENDER_CLOUD_APPS_PORTAL_HOSTNAME: 'contoso.us2.portal.cloudappsecurity.com',
+        PURVIEW_CONNECTOR_ENABLED: 'true',
+        PURVIEW_TENANT_ID: '33333333-3333-4333-8333-333333333333',
+        PURVIEW_ENVIRONMENT: 'governance',
+      },
+      {
+        credential: { getToken: () => Promise.resolve(null) },
+        defenderCloudAppsClient: {
+          fetcher: () => Promise.resolve(Response.json({ data: [], hasNext: false })),
+        },
+        purviewClient: { fetcher: () => Promise.resolve(Response.json({ value: [] })) },
+      },
+    )
+    expect(result.connector.getConnectorHealth?.().sources.map((source) => source.id)).toEqual([
+      'foundry:primary',
+      'entra:primary',
+      'defender-cloud-apps:primary',
+      'purview:primary',
+    ])
+  })
 })

@@ -25,6 +25,11 @@ import {
   type PowerPlatformClientOptions,
   type PowerPlatformCredentialFactory,
 } from '@agent-sentinel/power-platform-connector'
+import {
+  createOptionalPurviewConnector,
+  type PurviewClientOptions,
+  type PurviewCredentialFactory,
+} from '@agent-sentinel/purview-connector'
 import type { TokenCredential } from '@azure/core-auth'
 
 export type ConnectorMode = 'mock' | 'foundry'
@@ -39,6 +44,8 @@ export interface ConfiguredConnectorOptions {
   agent365Client?: Agent365ClientOptions
   defenderCloudAppsCredentialFactory?: DefenderCloudAppsCredentialFactory
   defenderCloudAppsClient?: DefenderCloudAppsClientOptions
+  purviewCredentialFactory?: PurviewCredentialFactory
+  purviewClient?: PurviewClientOptions
 }
 
 export function createConfiguredConnector(
@@ -88,16 +95,24 @@ export function createConfiguredConnector(
         : {}),
     ...(options.agent365Client !== undefined ? { client: options.agent365Client } : {}),
   })
+  const defender = createOptionalDefenderCloudAppsConnector(agent365, env, {
+    ...(options.defenderCloudAppsCredentialFactory !== undefined
+      ? { credentialFactory: options.defenderCloudAppsCredentialFactory }
+      : options.credential !== undefined
+        ? { credential: options.credential }
+        : {}),
+    ...(options.defenderCloudAppsClient !== undefined
+      ? { client: options.defenderCloudAppsClient }
+      : {}),
+  })
   return {
-    connector: createOptionalDefenderCloudAppsConnector(agent365, env, {
-      ...(options.defenderCloudAppsCredentialFactory !== undefined
-        ? { credentialFactory: options.defenderCloudAppsCredentialFactory }
+    connector: createOptionalPurviewConnector(defender, env, {
+      ...(options.purviewCredentialFactory !== undefined
+        ? { credentialFactory: options.purviewCredentialFactory }
         : options.credential !== undefined
           ? { credential: options.credential }
           : {}),
-      ...(options.defenderCloudAppsClient !== undefined
-        ? { client: options.defenderCloudAppsClient }
-        : {}),
+      ...(options.purviewClient !== undefined ? { client: options.purviewClient } : {}),
     }),
     mode,
     ...(config.sources.length === 1 ? { projectEndpoint: primarySource.projectEndpoint } : {}),

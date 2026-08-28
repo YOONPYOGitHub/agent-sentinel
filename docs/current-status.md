@@ -52,6 +52,7 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 | Entra identity enrichment                  | **Live for the primary source.** `Application.Read.All` reads 539 validated service principals into the complete Cosmos snapshot. Optional owners, app roles, and preview APIs remain disabled. Current Foundry agents expose no matching identity metadata, so `RUNS_AS` correlation is correctly empty rather than inferred.                                   |
 | Power Platform agent inventory             | **Implementation complete, activation pending.** Official ResourceQuery core inventory for Copilot Studio and Microsoft 365 Copilot Agent Builder is strict, bounded, multi-source, read-only, and composed after Entra. The schema is preview overall. No tenant RBAC has been granted and the live connector remains disabled.                                 |
 | Defender for Cloud Apps evidence           | **Implementation complete, activation pending.** Official tenant-specific v1 alert/activity GET lists use OAuth application context, bounded sequential multi-source collection, strict privacy reduction, and no agent attribution. No permission, license, token, secret, or live source was created.                                                          |
+| Purview sensitivity-label catalog          | **Implementation complete, activation pending.** Official Global Graph v1.0 tenant label definitions are collected with strict bounds, sequential multi-tenant composition, source provenance, and no content, usage, user, activity, agent-correlation, trust, or compliance claim. No permission or live source was created.                                   |
 | Azure deployment                           | **Live.** Container Apps `web`, `api`, and `jobs` run on a private ACA environment behind Front Door. Web uses the verified logout fix; API uses JWT mode; jobs remains non-interactive.                                                                                                                                                                         |
 | Corporate Service Tree registration        | **Complete.** Registered under the confirmed `MCAPS > GES Asia > Korea` hierarchy with two administrators.                                                                                                                                                                                                                                                       |
 | Universal custom manifest adapter          | **Implementation complete, activation pending.** Strict offline input remains available. The authenticated Administrator-only API, dedicated immutable Cosmos repository, hash idempotency, and jobs composition are implemented. Live ingestion stays blocked by writes-false and the public mutation posture.                                                  |
@@ -84,6 +85,7 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 | Employee entitlement personalization | Requires tenant-authorized Entra entitlement evidence beyond the now-active authenticated principal.                                              | Activate and validate the `entra-agent-id` connector.                                                           |
 | Power Platform inventory activation  | Service-principal ResourceQuery access requires approved read RBAC at each intended tenant scope.                                                 | Approve and assign Power Platform Reader or a reviewed least-privilege equivalent, then run bounded validation. |
 | Defender for Cloud Apps activation   | The connector needs approved licensing/API availability, exact tenant portal URLs, secretless credentials, and target-tenant application consent. | Grant `Investigation.Read` separately, configure exact sources, then run bounded connection/privacy validation. |
+| Purview label catalog activation     | Each source requires Global Graph access, a secretless credential, and tenant-admin application consent.                                          | Grant `SensitivityLabel.Read` separately, configure unique tenant sources, then run bounded privacy validation. |
 
 Corporate onboarding is tracked separately in [internal-onboarding.md](internal-onboarding.md). OneRAI remains blocked on authoritative Product CVP and Frontline CELA; that process does not block engineering.
 
@@ -203,3 +205,19 @@ Tracks 1–3 are identity- or edge-dependent; OneRAI onboarding is independent. 
   `Investigation.Read` application consent.
 - IaC injects only disabled settings and creates no permission, role, token,
   secret, license, or Microsoft 365 resource.
+
+## Microsoft Purview sensitivity-label catalog foundation
+
+- The official Global Graph
+  `GET /v1.0/security/dataSecurityAndGovernance/sensitivityLabels` connector is
+  implemented as read-only, multi-tenant, sequential, and disabled by default.
+- It composes after Defender for Cloud Apps. Each definition becomes a
+  standalone control/evidence pair; there are no edges or agent correlations.
+- Only bounded ID, display/name, color, sensitivity, priority, applicable
+  targets, enabled status, and source provenance are retained. Label
+  descriptions and all content, user, activity, and usage data are excluded.
+- Confidence `1` means direct label-catalog observation only and makes no
+  label-usage, content-protection, trust, or compliance claim.
+- Live activation has **not** occurred. It remains `authorization-required`
+  pending tenant-admin `SensitivityLabel.Read` application consent for every
+  source. IaC adds no Graph app-role assignment or Microsoft 365 resource.

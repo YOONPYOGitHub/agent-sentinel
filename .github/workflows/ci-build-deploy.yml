@@ -124,7 +124,7 @@ jobs:
           docker run --rm \
             --workdir /app/apps/api \
             "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-api:${{ steps.set-tag.outputs.imageTag }}" \
-            node -e "Promise.all([import('@agent-sentinel/azure-monitor-otel-connector'), import('@agent-sentinel/behavior-engine'), import('@agent-sentinel/entra-identity-connector'), import('@agent-sentinel/power-platform-connector'), import('@agent-sentinel/agent365-connector'), import('@agent-sentinel/defender-cloud-apps-connector'), import('@agent-sentinel/manifest-connector')])"
+            node -e "Promise.all([import('@agent-sentinel/azure-monitor-otel-connector'), import('@agent-sentinel/behavior-engine'), import('@agent-sentinel/entra-identity-connector'), import('@agent-sentinel/power-platform-connector'), import('@agent-sentinel/agent365-connector'), import('@agent-sentinel/defender-cloud-apps-connector'), import('@agent-sentinel/purview-connector'), import('@agent-sentinel/manifest-connector')])"
           docker push "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-api:${{ steps.set-tag.outputs.imageTag }}"
 
       - name: Build and push jobs image
@@ -136,7 +136,7 @@ jobs:
           docker run --rm \
             --workdir /app/apps/jobs \
             "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-jobs:${{ steps.set-tag.outputs.imageTag }}" \
-            node -e "Promise.all([import('@agent-sentinel/entra-identity-connector'), import('@agent-sentinel/power-platform-connector'), import('@agent-sentinel/agent365-connector'), import('@agent-sentinel/defender-cloud-apps-connector'), import('@agent-sentinel/manifest-connector')])"
+            node -e "Promise.all([import('@agent-sentinel/entra-identity-connector'), import('@agent-sentinel/power-platform-connector'), import('@agent-sentinel/agent365-connector'), import('@agent-sentinel/defender-cloud-apps-connector'), import('@agent-sentinel/purview-connector'), import('@agent-sentinel/manifest-connector')])"
           docker push "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-jobs:${{ steps.set-tag.outputs.imageTag }}"
 
       - name: Verify images in ACR

@@ -387,9 +387,64 @@ describe('buildConnectorsCollection', () => {
       ownershipModel: 'consumes',
       unlocksScorecard: [],
     })
+
     expect(defender?.description).toContain('unattributed')
     expect(defender?.prerequisiteNote).toContain('Investigation.Read')
     expect(defender?.prerequisiteNote).toContain('Legacy API tokens are not accepted')
+  })
+
+  it('describes Purview as a read-only Global Graph label catalog without usage claims', () => {
+    const result = buildConnectorsCollection('mock', { connectorId: 'mock-agent-estate' })
+    const purview = result.catalog.find((entry) => entry.id === 'purview')
+    expect(purview).toMatchObject({
+      lifecycleState: 'authorization-required',
+      capabilities: ['data-governance'],
+      sourceOfTruth: true,
+      ownershipModel: 'consumes',
+      unlocksScorecard: [],
+    })
+    expect(purview?.description).toContain('v1.0')
+    expect(purview?.description).toContain('unattributed')
+    expect(purview?.prerequisiteNote).toContain('SensitivityLabel.Read')
+    expect(purview?.prerequisiteNote).toContain('Global Graph')
+    expect(purview?.prerequisiteNote).toContain('no activity/usage evidence')
+  })
+
+  it.each([
+    ['ready', 'connected'],
+    ['degraded', 'degraded'],
+    ['authorization-required', 'authorization-required'],
+    ['unavailable', 'unavailable'],
+  ] as const)('maps enabled Purview %s health to %s', (readiness, lifecycle) => {
+    const result = buildConnectorsCollection('foundry', {
+      connectorId: 'foundry-test',
+      connectorHealth: {
+        overall: readiness === 'ready' ? 'ready' : 'degraded',
+        partial: readiness !== 'ready',
+        sources: [
+          {
+            id: 'foundry:primary',
+            name: 'Foundry',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+          },
+          {
+            id: 'purview:tenant-a',
+            name: 'Purview Tenant A',
+            role: 'enrichment',
+            enabled: true,
+            configured: true,
+            readiness,
+          },
+        ],
+      },
+    })
+    expect(result.catalog.find((entry) => entry.id === 'purview')?.lifecycleState).toBe(lifecycle)
+    expect(result.catalog.find((entry) => entry.id === 'azure-ai-foundry')?.lifecycleState).toBe(
+      'connected',
+    )
   })
 
   it.each([

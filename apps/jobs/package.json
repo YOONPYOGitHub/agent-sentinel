@@ -22,6 +22,7 @@
     "@agent-sentinel/persistence": "workspace:*",
     "@agent-sentinel/policy-engine": "workspace:*",
     "@agent-sentinel/power-platform-connector": "workspace:*",
+    "@agent-sentinel/purview-connector": "workspace:*",
     "@azure/cosmos": "^4.4.0",
     "@azure/identity": "^4.11.1",
     "@azure/monitor-opentelemetry": "^1.10.0",

@@ -196,11 +196,19 @@ agent correlation key exists. Activation requires licensing/API availability,
 the exact tenant portal URL, and tenant-admin `Investigation.Read` application
 consent; no live tenant or permission is configured by this change.
 
+**Microsoft Purview sensitivity-label catalog — implemented, authorization pending:**
+the official Global Microsoft Graph v1.0 tenant label list is consumed after
+Defender for Cloud Apps. Evidence contains only bounded label-definition
+metadata, remains explicitly unattributed, and makes no usage, content,
+agent-correlation, trust, or compliance claim. Activation requires
+tenant-admin `SensitivityLabel.Read` application consent; no live tenant,
+permission, or resource is configured by this change.
+
 | Connector                                   | Catalogued state         | Gate                                                                                                     |
 | ------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------- |
 | Microsoft Agent 365 (`m365-agent-registry`) | `authorization-required` | Agent 365 license plus tenant-admin `CopilotPackages.Read.All` application consent                       |
 | Microsoft Entra identity and entitlements   | `connected`              | Primary stable v1.0 inventory is live; each additional tenant requires consent                           |
-| Microsoft Purview                           | `planned`                | Tenant authorization                                                                                     |
+| Microsoft Purview                           | `authorization-required` | Global Graph plus tenant-admin `SensitivityLabel.Read` application consent; no usage API prerequisite    |
 | Microsoft Defender for Cloud Apps           | `authorization-required` | Licensing/API availability, tenant portal URL, and tenant-admin `Investigation.Read` application consent |
 | Microsoft Copilot Studio / Agent Builder    | `authorization-required` | Power Platform Reader (or approved ResourceQuery read RBAC); schema is preview                           |
 | Microsoft 365 and SharePoint agents         | `planned`                | Tenant authorization                                                                                     |
