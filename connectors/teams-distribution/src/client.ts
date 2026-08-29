@@ -49,7 +49,15 @@ function retryAfterMilliseconds(value: string | null, now: number): number | und
   return Number.isNaN(date) ? undefined : Math.max(0, date - now)
 }
 
-function statusError(status: number): TeamsDistributionConnectorError {
+function graphErrorMessage(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const error = (value as Record<string, unknown>)['error']
+  if (typeof error !== 'object' || error === null || Array.isArray(error)) return undefined
+  const message = (error as Record<string, unknown>)['message']
+  return typeof message === 'string' && message.length <= 4_096 ? message : undefined
+}
+
+function statusError(status: number, body?: unknown): TeamsDistributionConnectorError {
   if (status === 401) {
     return new TeamsDistributionConnectorError(
       'authentication',
@@ -68,6 +76,13 @@ function statusError(status: number): TeamsDistributionConnectorError {
     return new TeamsDistributionConnectorError(
       'not-available',
       'The Microsoft Teams tenant app catalog is unavailable for this tenant.',
+      status,
+    )
+  }
+  if (status === 400 && graphErrorMessage(body)?.includes('AADSTS500014')) {
+    return new TeamsDistributionConnectorError(
+      'not-available',
+      'The Microsoft Teams catalog backend is disabled or unlicensed for this tenant.',
       status,
     )
   }
@@ -353,8 +368,15 @@ export class TeamsDistributionGraphClient {
             await this.sleep(retryAfter)
             continue
           }
-          await response.body?.cancel()
-          throw statusError(response.status)
+          let body: unknown
+          try {
+            body = await readBoundedJson(response, this.limits.maxResponseBytes)
+          } catch (error) {
+            if (error instanceof TeamsDistributionConnectorError && error.code === 'bounds') {
+              throw error
+            }
+          }
+          throw statusError(response.status, body)
         }
         return await readBoundedJson(response, this.limits.maxResponseBytes)
       } catch (error) {

@@ -217,11 +217,11 @@ resource is configured by this change.
 | ------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------- |
 | Microsoft Agent 365 (`m365-agent-registry`) | `authorization-required` | Agent 365 license plus tenant-admin `CopilotPackages.Read.All` application consent                       |
 | Microsoft Entra identity and entitlements   | `connected`              | Primary stable v1.0 inventory is live; each additional tenant requires consent                           |
-| Microsoft Purview                           | `authorization-required` | Global Graph plus tenant-admin `SensitivityLabel.Read` application consent; no usage API prerequisite    |
+| Microsoft Purview                           | `connected`              | Primary label-definition catalog is live; catalog evidence does not prove usage                          |
 | Microsoft Defender for Cloud Apps           | `authorization-required` | Licensing/API availability, tenant portal URL, and tenant-admin `Investigation.Read` application consent |
 | Microsoft Copilot Studio / Agent Builder    | `authorization-required` | Power Platform Reader (or approved ResourceQuery read RBAC); schema is preview                           |
-| Microsoft 365 and SharePoint agents         | `planned`                | Workload evidence beyond declarative-agent packages already covered by Agent 365                         |
-| Microsoft Teams distribution                | `authorization-required` | Global Graph plus tenant-admin `AppCatalog.Read.All`; catalog only, not installation coverage            |
+| Microsoft 365 and SharePoint agents         | `authorization-required` | Covered without duplication by Agent 365 packages; M365 E5 and Agent 365 licensing remain pending        |
+| Microsoft Teams distribution                | `unavailable`            | `AppCatalog.Read.All` is assigned, but tenant Teams licensing/backend provisioning remains pending       |
 
 **Definition of done, per connector**
 

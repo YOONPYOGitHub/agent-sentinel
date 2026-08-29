@@ -576,6 +576,9 @@ describe('buildConnectorsCollection', () => {
     expect(result.catalog.find((entry) => entry.id === 'm365-agent-registry')?.lifecycleState).toBe(
       lifecycle,
     )
+    expect(
+      result.catalog.find((entry) => entry.id === 'm365-sharepoint-agents')?.lifecycleState,
+    ).toBe(lifecycle)
     expect(result.catalog.find((entry) => entry.id === 'azure-ai-foundry')?.lifecycleState).toBe(
       'connected',
     )
@@ -622,6 +625,10 @@ describe('buildConnectorsCollection', () => {
     expect(entry?.prerequisiteNote).toContain('Microsoft Agent 365 licensing')
     expect(entry?.prerequisiteNote).toContain('CopilotPackages.Read.All')
     expect(entry?.capabilities).not.toContain('lifecycle-admin')
+    const sharePoint = result.catalog.find((item) => item.id === 'm365-sharepoint-agents')
+    expect(sharePoint?.lifecycleState).toBe('degraded')
+    expect(sharePoint?.prerequisiteNote).toContain('CopilotPackages.Read.All')
+    expect(sharePoint?.description).toContain('without duplicating package evidence')
   })
   it('includes expected capability kinds for all entries', () => {
     const validCapabilities = new Set([

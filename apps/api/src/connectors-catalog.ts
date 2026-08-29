@@ -65,12 +65,14 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     id: 'm365-sharepoint-agents',
     name: 'Microsoft 365 & SharePoint Agents',
     description:
-      'Planned SharePoint and Microsoft 365 workload evidence beyond package catalog inventory. Declarative-agent packages already belong to the separate Agent 365 catalog connector and will not be duplicated here.',
-    lifecycleState: 'planned',
-    capabilities: ['discovery', 'data-governance'],
+      'Uses the official Agent 365 package catalog to identify Microsoft 365 and SharePoint-hosted declarative-agent packages without duplicating package evidence. It does not inspect SharePoint content or infer site installation.',
+    lifecycleState: 'authorization-required',
+    capabilities: ['discovery'],
     sourceOfTruth: true,
     ownershipModel: 'consumes',
-    unlocksScorecard: ['governance'],
+    prerequisiteNote:
+      'Covered by the read-only Agent 365 package catalog connector. Activation requires Microsoft Agent 365 licensing and tenant-admin CopilotPackages.Read.All consent; no separate SharePoint scraping or private API is used.',
+    unlocksScorecard: ['governance', 'lifecycle'],
   },
   {
     id: 'teams-distribution',
@@ -245,7 +247,10 @@ export function buildConnectorsCollection(
                 : 'unavailable',
       }
     }
-    if (entry.id === 'm365-agent-registry' && enabledAgent365Sources.length > 0) {
+    if (
+      (entry.id === 'm365-agent-registry' || entry.id === 'm365-sharepoint-agents') &&
+      enabledAgent365Sources.length > 0
+    ) {
       const ready = enabledAgent365Sources.filter((source) => source.readiness === 'ready').length
       const authorizationRequired = enabledAgent365Sources.some(
         (source) => source.readiness === 'authorization-required',

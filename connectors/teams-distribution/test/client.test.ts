@@ -226,7 +226,28 @@ describe('TeamsDistributionGraphClient', () => {
         .fn<typeof fetch>()
         .mockResolvedValue(json({ error: { message: 'private@contoso.com' } }, { status })),
     })
+
     await expect(client.collect()).rejects.toMatchObject({ code, status })
+  })
+
+  it('maps a disabled Teams backend to not-available without retaining provider details', async () => {
+    const client = new TeamsDistributionGraphClient(limits, new TestCredential(), TENANT_ID, {
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+        json(
+          {
+            error: {
+              code: 'AuthenticationError',
+              message: 'AADSTS500014: service principal disabled. private@contoso.com',
+            },
+          },
+          { status: 400 },
+        ),
+      ),
+    })
+    await expect(client.collect()).rejects.toMatchObject({
+      code: 'not-available',
+      status: 400,
+    })
   })
 
   it('tolerates additive fields while stripping manifests, icons, files, and unknown data', async () => {
