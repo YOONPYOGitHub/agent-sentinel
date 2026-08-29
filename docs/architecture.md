@@ -87,19 +87,16 @@ Internet (HTTP/80)
 
 ## Azure Front Door Status
 
-**Primary profile `fd-as-260814` is preserved but NOT routing production traffic.**
+**Primary profile `fd-as-260814` is the active HTTPS edge.**
 
-Known issue: Azure Front Door Premium private-link origins consistently show `deploymentStatus: NotStarted` for ACA environments in `koreacentral`. The origins never reach `Approved` state, making the premium Private Link routing path non-functional.
+Front Door uses one private-link origin and one `/*` route: the VNet-visible web
+Container App. Nginx serves the SPA and proxies `/api/*` to the
+environment-only API through ACA service discovery.
 
-Evidence:
-
-- Profile: `fd-as-260814` (Premium_AzureFrontDoor)
-- Both `og-api` and `og-web` origin groups fail to activate private links
-- This is a platform-level issue; no code or policy change resolves it
-
-**Resolution:** App Gateway WAF v2 is used as the working regional public entry point while `fd-as-260814` is retained for a future support investigation with Microsoft.
-
-Temporary diagnostic profile `fd-as-260814-v2` was deleted after App Gateway validation.
+Front Door must never target the API Container App directly. Internal ACA
+ingress is reachable only by other apps in the same ACA environment; a direct
+private-link origin returns `404 Unavailable` even while the API replica is
+healthy.
 
 ## Nginx Reverse Proxy (web-as-260814)
 
@@ -107,9 +104,11 @@ The web container runs nginx which:
 
 1. Serves the React SPA for all non-`/api/` and non-`/health` paths
 2. Reverse-proxies `/api/*` to `http://api-as-260814` (ACA same-environment service discovery)
-3. Exposes `/health` ? HTTP 200 (used by App Gateway health probe)
+3. Exposes `/health` as HTTP 200 for edge health probes
 
-The API container is never directly addressable from the public internet or from the VNet; the only path is `AppGW ? web nginx ? api`.
+The API container is never directly addressable from the public internet or
+from the VNet. The supported path is `Front Door -> web nginx -> API`. App
+Gateway remains available only as the bounded regional diagnostic edge.
 
 ## Packages
 

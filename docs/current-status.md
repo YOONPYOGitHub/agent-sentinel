@@ -117,15 +117,18 @@ Corporate onboarding is tracked separately in [internal-onboarding.md](internal-
 - Exact tenant, subscription, request, support-case, and smart-card identifiers
   are maintained only in the git-ignored local onboarding handoff.
 
-## Active deployment incident
+## Deployment routing verification
 
 - CI produced and deployed the latest immutable web, API, and jobs images on
   2026-08-29.
-- The public web root returns HTTP 200, but the public `/api/` route was observed
-  returning Azure Container Apps `404 Unavailable` while the API revision
-  reported healthy and ready.
-- Restore and verify the Front Door-to-private-ACA API route before declaring
-  the deployment complete or starting another production-facing slice.
+- The registered `agent-sentinel` Front Door endpoint returns HTTP 200 for the
+  web root and public API health/configuration routes. Protected connector reads
+  return the expected unauthenticated `401`.
+- A separate unused `default` endpoint produced `404 Unavailable` during an
+  initial probe. It is not the registered application or authentication origin.
+- Desired state now declares only the active endpoint's architecture: one web
+  private-link origin and one catch-all route. Web nginx is the sole proxy to
+  the environment-only API.
 
 ---
 

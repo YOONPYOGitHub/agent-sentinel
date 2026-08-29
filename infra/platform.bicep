@@ -465,10 +465,7 @@ resource acaWildcardRecord 'Microsoft.Network/privateDnsZones/A@2020-06-01' = if
   }
 }
 
-// ?? Application Gateway WAF v2 (active public edge) ??????????????????????????
-// Front Door Premium profile (fd-as-260814) is preserved for future investigation
-// of the deploymentStatus NotStarted issue but does NOT carry production traffic.
-// App Gateway is the working regional public entry point.
+// ?? Application Gateway WAF v2 (regional diagnostic edge) ????????????????????
 module appGateway './modules/application-gateway.bicep' = {
   name: 'application-gateway'
   params: {
@@ -483,15 +480,12 @@ module appGateway './modules/application-gateway.bicep' = {
   dependsOn: [network, containerApps]
 }
 
-// ?? Front Door Premium (preserved, not routing production traffic) ????????????
-// Status: deploymentStatus = NotStarted for private-link origins in koreacentral.
-// Kept for future support investigation. Do not delete fd-as-260814.
+// ?? Front Door Premium (active HTTPS edge) ????????????????????????????????????
 module frontdoor './modules/frontdoor.bicep' = {
   name: 'frontdoor'
   params: {
     profileName: format('fd-as-{0}', suffix)
     tags: tags
-    apiOriginHostName: containerApps.outputs.apiFqdn
     webOriginHostName: containerApps.outputs.webFqdn
     acaEnvId: containerApps.outputs.acaEnvId
     acaPrivateLinkLocation: location

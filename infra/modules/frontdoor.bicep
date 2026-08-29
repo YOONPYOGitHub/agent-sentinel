@@ -4,9 +4,6 @@ param profileName string
 @description('Tags to apply to all resources.')
 param tags object
 
-@description('Internal FQDN of the API container app (used as AFD origin host).')
-param apiOriginHostName string
-
 @description('Internal FQDN of the web container app (used as AFD origin host).')
 param webOriginHostName string
 
@@ -61,7 +58,7 @@ resource profile 'Microsoft.Cdn/profiles@2024-02-01' = {
 // ── AFD Endpoint ────────────────────────────────────────────────────────────
 resource endpoint 'Microsoft.Cdn/profiles/afdEndpoints@2024-02-01' = {
   parent: profile
-  name: 'default'
+  name: 'agent-sentinel'
   location: 'global'
   properties: {
     enabledState: 'Enabled'
@@ -69,25 +66,6 @@ resource endpoint 'Microsoft.Cdn/profiles/afdEndpoints@2024-02-01' = {
 }
 
 // ── Origin Groups ───────────────────────────────────────────────────────────
-resource apiOriginGroup 'Microsoft.Cdn/profiles/originGroups@2024-02-01' = {
-  parent: profile
-  name: 'og-api'
-  properties: {
-    loadBalancingSettings: {
-      sampleSize: 4
-      successfulSamplesRequired: 3
-      additionalLatencyInMilliseconds: 50
-    }
-    healthProbeSettings: {
-      probePath: '/health'
-      probeRequestType: 'GET'
-      probeProtocol: 'Https'
-      probeIntervalInSeconds: 30
-    }
-    sessionAffinityState: 'Disabled'
-  }
-}
-
 resource webOriginGroup 'Microsoft.Cdn/profiles/originGroups@2024-02-01' = {
   parent: profile
   name: 'og-web'
@@ -108,29 +86,6 @@ resource webOriginGroup 'Microsoft.Cdn/profiles/originGroups@2024-02-01' = {
 }
 
 // ── Origins (Private Link to internal ACA env) ──────────────────────────────
-resource apiOrigin 'Microsoft.Cdn/profiles/originGroups/origins@2024-02-01' = {
-  parent: apiOriginGroup
-  name: 'aca-api'
-  properties: {
-    hostName: apiOriginHostName
-    httpPort: 80
-    httpsPort: 443
-    originHostHeader: apiOriginHostName
-    priority: 1
-    weight: 1000
-    enabledState: 'Enabled'
-    enforceCertificateNameCheck: true
-    sharedPrivateLinkResource: {
-      privateLink: {
-        id: acaEnvId
-      }
-      privateLinkLocation: acaPrivateLinkLocation
-      groupId: 'managedEnvironments'
-      requestMessage: 'afd-api-origin'
-    }
-  }
-}
-
 resource webOrigin 'Microsoft.Cdn/profiles/originGroups/origins@2024-02-01' = {
   parent: webOriginGroup
   name: 'aca-web'
@@ -154,32 +109,12 @@ resource webOrigin 'Microsoft.Cdn/profiles/originGroups/origins@2024-02-01' = {
   }
 }
 
-// ── Routes (more-specific /api/* first, catch-all /* second) ────────────────
-resource apiRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-02-01' = {
-  parent: endpoint
-  name: 'route-api'
-  dependsOn: [apiOrigin]
-  properties: {
-    originGroup: {
-      id: apiOriginGroup.id
-    }
-    patternsToMatch: [
-      '/api/*'
-    ]
-    forwardingProtocol: 'HttpsOnly'
-    httpsRedirect: 'Enabled'
-    linkToDefaultDomain: 'Enabled'
-    supportedProtocols: [
-      'Http'
-      'Https'
-    ]
-    enabledState: 'Enabled'
-  }
-}
-
+// ── Route ───────────────────────────────────────────────────────────────────
+// The catch-all route sends SPA and API traffic to web nginx. Nginx proxies
+// /api/* to the environment-only API through ACA service discovery.
 resource webRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-02-01' = {
   parent: endpoint
-  name: 'route-web'
+  name: 'diagnostic-web'
   dependsOn: [webOrigin]
   properties: {
     originGroup: {
