@@ -224,10 +224,32 @@ describe('OptimizationPage', () => {
     renderPage()
 
     expect(await screen.findByRole('heading', { name: 'Token Economics' })).toBeVisible()
-    const card = screen.getByRole('article', { name: 'Token economics for Hr Policy Agent' })
+    const card = screen.getByRole('article', { name: 'Token economics for HR Policy Assistant' })
     expect(within(card).queryByText(/Connector not connected/i)).not.toBeInTheDocument()
     expect(within(card).queryByText(/\[SYNTHETIC\]/)).not.toBeInTheDocument()
     expect(within(card).getByText(/\$0\.4400/)).toBeVisible()
+  })
+
+  it('queries token economics for authoritative snapshot agent ids', async () => {
+    const liveAgent = {
+      ...testState.snapshot.nodes.find((node) => node.id === 'hr-policy-agent')!,
+      id: 'foundry-primary--agent-provider-id',
+      name: 'Live Foundry Agent',
+    }
+    renderPage({
+      ...testState,
+      snapshot: {
+        ...testState.snapshot,
+        nodes: [liveAgent],
+      },
+    })
+
+    await screen.findByRole('heading', { name: 'Token Economics' })
+    expect(useTokenEconomics).toHaveBeenCalledWith('foundry-primary--agent-provider-id')
+    expect(useTokenEconomics).not.toHaveBeenCalledWith('hr-policy-agent')
+    expect(
+      screen.getByRole('article', { name: 'Token economics for Live Foundry Agent' }),
+    ).toBeVisible()
   })
 
   it('filters recommendations by priority and category', async () => {

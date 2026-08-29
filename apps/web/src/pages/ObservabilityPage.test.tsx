@@ -1,14 +1,24 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import { DemoStateContext, type DemoStateValue } from '../hooks/DemoStateContext'
+import { useAgentDrift } from '../hooks/useAgentDrift'
 import { testState } from '../test-fixture'
 import { ObservabilityPage } from './ObservabilityPage'
 
-afterEach(cleanup)
+vi.mock('../hooks/useAgentDrift')
+
+beforeEach(() => {
+  vi.mocked(useAgentDrift).mockReturnValue(null)
+})
+
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+})
 
 function renderPage(overrides: Partial<DemoStateValue> = {}) {
   const value: DemoStateValue = {
@@ -151,5 +161,32 @@ describe('ObservabilityPage', () => {
     expect(screen.getByText('Copilot Studio')).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
     expect(value.clearError).toHaveBeenCalled()
+  })
+
+  it('queries drift for authoritative snapshot agents instead of fixed mock ids', () => {
+    const liveAgent = {
+      ...testState.snapshot.nodes.find((node) => node.id === 'hr-policy-agent')!,
+      id: 'foundry-primary--agent-provider-id',
+      name: 'Live Foundry Agent',
+    }
+    renderPage({
+      state: {
+        ...testState,
+        snapshot: {
+          ...testState.snapshot,
+          nodes: [liveAgent],
+        },
+      },
+      connectorStatus: {
+        source: 'foundry',
+        connectorId: 'azure-ai-foundry-agent-service',
+        mode: 'foundry',
+        writeEnabled: false,
+      },
+    })
+
+    expect(useAgentDrift).toHaveBeenCalledWith('foundry-primary--agent-provider-id')
+    expect(useAgentDrift).not.toHaveBeenCalledWith('hr-policy-agent')
+    expect(screen.getByText('Live telemetry evaluation')).toBeVisible()
   })
 })

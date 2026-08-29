@@ -45,6 +45,14 @@ export function ObservabilityPage() {
   const navigate = useNavigate()
   const { clearError, connectorStatus, error, load, operation, state } = useDemoState()
   const snapshotEvidence = state?.snapshot.evidence
+  const observedAgents = useMemo(
+    () =>
+      (state?.snapshot.nodes ?? [])
+        .filter((node) => node.kind === 'agent')
+        .slice(0, 3)
+        .map((node) => ({ id: node.id, name: node.name })),
+    [state?.snapshot.nodes],
+  )
   const evidence = useMemo(() => snapshotEvidence ?? [], [snapshotEvidence])
   const sourceCoverage = useMemo(() => groupEvidence(evidence), [evidence])
   const freshness = useMemo(
@@ -103,8 +111,9 @@ export function ObservabilityPage() {
         <div>
           <strong>Evidence observability, not runtime APM</strong>
           <span>
-            Runtime latency, reliability, token, and cost telemetry are not yet connected. This view
-            reports only evidence the current connectors actually provide.
+            This view reports only evidence the current connectors actually provide. Runtime
+            latency, reliability, token, and cost remain insufficient until measured windows meet
+            their evidence thresholds.
           </span>
         </div>
       </section>
@@ -262,27 +271,18 @@ export function ObservabilityPage() {
         </aside>
       </section>
 
-      <BehaviorDriftSummary />
+      <BehaviorDriftSummary agents={observedAgents} mode={connectorStatus?.mode} />
     </>
   )
 }
 
-/**
- * Shows synthetic drift examples in mock mode or a "not connected" notice in
- * live mode. Every synthetic result is clearly marked.
- */
-function BehaviorDriftSummary() {
-  const salesDrift = useAgentDrift('sales-research-agent')
-  const crDrift = useAgentDrift('code-review-copilot')
-  const hrDrift = useAgentDrift('hr-policy-agent')
-
-  const allResults = [salesDrift, crDrift, hrDrift].filter(
-    (r): r is DriftAnalysisResult => r !== null,
-  )
-
-  const liveMode =
-    allResults.length > 0 && allResults.every((r) => r.source === 'azure-monitor-otel')
-
+function BehaviorDriftSummary({
+  agents,
+  mode,
+}: {
+  agents: Array<{ id: string; name: string }>
+  mode: 'mock' | 'foundry' | undefined
+}) {
   return (
     <section
       className="observability-card observability-drift"
@@ -296,42 +296,44 @@ function BehaviorDriftSummary() {
         <SparkleRegular aria-hidden="true" />
       </div>
 
-      {liveMode ? (
-        <div className="observability-boundary" role="status">
-          <PulseRegular aria-hidden="true" />
-          <div>
-            <strong>Telemetry not connected</strong>
-            <span>
-              Connect the <strong>Azure Monitor &amp; OpenTelemetry</strong> connector to unlock
-              behavior baselines and drift detection. The analysis engine is implemented and ready.
-            </span>
-          </div>
-        </div>
-      ) : allResults.length === 0 ? (
+      {agents.length === 0 ? (
         <div className="observability-empty">
           <DataUsageRegular aria-hidden="true" />
-          <strong>No drift data available</strong>
-          <span>Drift analysis will appear here once observations are loaded.</span>
+          <strong>No agents available for drift analysis</strong>
+          <span>Agent-bound telemetry appears after authoritative discovery supplies agents.</span>
         </div>
       ) : (
         <>
-          <div
-            className="observability-boundary observability-boundary--synthetic"
-            role="note"
-            aria-label="Synthetic data notice"
-          >
-            <SparkleRegular aria-hidden="true" />
-            <div>
-              <strong>[SYNTHETIC] Mock demonstration only</strong>
-              <span>
-                These results are generated from fixed synthetic observations and exist to
-                demonstrate the deterministic drift-analysis engine. No live telemetry is connected.
-              </span>
+          {mode === 'mock' ? (
+            <div
+              className="observability-boundary observability-boundary--synthetic"
+              role="note"
+              aria-label="Synthetic data notice"
+            >
+              <SparkleRegular aria-hidden="true" />
+              <div>
+                <strong>[SYNTHETIC] Mock demonstration only</strong>
+                <span>
+                  These results use fixed synthetic observations to demonstrate the deterministic
+                  drift-analysis engine.
+                </span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="observability-boundary" role="status">
+              <PulseRegular aria-hidden="true" />
+              <div>
+                <strong>Live telemetry evaluation</strong>
+                <span>
+                  Each agent result reports measured, insufficient, invalid, or unavailable state.
+                  Missing windows and query failures never appear healthy.
+                </span>
+              </div>
+            </div>
+          )}
           <div className="drift-results-grid">
-            {allResults.map((result) => (
-              <DriftAgentCard key={result.agentId} result={result} />
+            {agents.map((agent) => (
+              <AgentDriftCard key={agent.id} agent={agent} />
             ))}
           </div>
         </>
@@ -340,32 +342,56 @@ function BehaviorDriftSummary() {
   )
 }
 
-function DriftAgentCard({ result }: { result: DriftAnalysisResult }) {
+function AgentDriftCard({ agent }: { agent: { id: string; name: string } }) {
+  const result = useAgentDrift(agent.id)
+  if (result === null) {
+    return (
+      <article className="drift-card" aria-label={`Drift summary for ${agent.name}`}>
+        <div className="drift-card__header">
+          <strong>{agent.name}</strong>
+          <Badge appearance="outline">Loading or unavailable</Badge>
+        </div>
+      </article>
+    )
+  }
+  return <DriftAgentCard result={result} agentName={agent.name} />
+}
+
+function DriftAgentCard({ result, agentName }: { result: DriftAnalysisResult; agentName: string }) {
   const driftedDimensions = result.dimensions.filter((d) => d.drifted)
   const topSeverity = result.highestSeverity
+  const ready = result.status === 'ready'
 
   return (
     <article
-      className={`drift-card drift-card--${result.anyDrift ? (topSeverity ?? 'low') : 'healthy'}`}
-      aria-label={`Drift summary for ${result.agentId}`}
+      className={`drift-card drift-card--${
+        !ready ? 'neutral' : result.anyDrift ? (topSeverity ?? 'low') : 'healthy'
+      }`}
+      aria-label={`Drift summary for ${agentName}`}
     >
       <div className="drift-card__header">
         <strong>
-          <Link to={`/agent-inventory/${result.agentId}`}>{result.agentId}</Link>
+          <Link to={`/agent-inventory/${result.agentId}`}>{agentName}</Link>
         </strong>
         <Badge
           appearance="filled"
           color={
-            topSeverity === 'critical'
-              ? 'danger'
-              : topSeverity === 'high'
-                ? 'warning'
-                : topSeverity === 'medium' || topSeverity === 'low'
-                  ? 'informative'
-                  : 'success'
+            !ready
+              ? 'informative'
+              : topSeverity === 'critical'
+                ? 'danger'
+                : topSeverity === 'high'
+                  ? 'warning'
+                  : topSeverity === 'medium' || topSeverity === 'low'
+                    ? 'informative'
+                    : 'success'
           }
         >
-          {result.anyDrift ? `Drift: ${topSeverity ?? 'low'}` : 'Stable'}
+          {!ready
+            ? result.status.replaceAll('-', ' ')
+            : result.anyDrift
+              ? `Drift: ${topSeverity ?? 'low'}`
+              : 'Stable'}
         </Badge>
       </div>
       {result.coverage !== undefined && (
@@ -374,7 +400,11 @@ function DriftAgentCard({ result }: { result: DriftAnalysisResult }) {
           samples &middot; {Math.round(result.coverage.coverageScore * 100)}% metric coverage
         </p>
       )}
-      {driftedDimensions.length > 0 ? (
+      {!ready ? (
+        <p className="muted">
+          {result.unavailableReason ?? 'Measured telemetry is not sufficient for analysis.'}
+        </p>
+      ) : driftedDimensions.length > 0 ? (
         <ul className="drift-dimension-list" aria-label="Drifted dimensions">
           {driftedDimensions.map((dim) => (
             <li key={dim.dimension}>

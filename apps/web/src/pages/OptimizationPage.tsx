@@ -82,6 +82,14 @@ export function OptimizationPage() {
   const [error, setError] = useState<string>()
   const [category, setCategory] = useState<RecommendationCategory | ''>('')
   const [priority, setPriority] = useState<RecommendationPriority | ''>('')
+  const tokenEconomicsAgents = useMemo(
+    () =>
+      (state?.snapshot.nodes ?? [])
+        .filter((node) => node.kind === 'agent')
+        .slice(0, 3)
+        .map((node) => ({ id: node.id, name: node.name })),
+    [state?.snapshot.nodes],
+  )
 
   const loadFindings = useCallback(async () => {
     setLoading(true)
@@ -233,7 +241,7 @@ export function OptimizationPage() {
         </div>
       </section>
 
-      <TokenEconomicsSection />
+      <TokenEconomicsSection agents={tokenEconomicsAgents} />
 
       {loading && exposure === undefined ? (
         <div className="optimization-state" role="status">
@@ -387,7 +395,7 @@ export function OptimizationPage() {
   )
 }
 
-function TokenEconomicsSection() {
+function TokenEconomicsSection({ agents }: { agents: Array<{ id: string; name: string }> }) {
   return (
     <section className="optimization-token-economics" aria-labelledby="token-economics-heading">
       <h2 id="token-economics-heading">Token Economics</h2>
@@ -397,20 +405,20 @@ function TokenEconomicsSection() {
         and totals represent measured observations only.
       </p>
       <div className="token-economics-grid">
-        {['hr-policy-agent', 'code-review-copilot', 'sales-research-agent'].map((agentId) => (
-          <AgentTokenEconomicsCard key={agentId} agentId={agentId} />
-        ))}
+        {agents.length === 0 ? (
+          <p className="muted">No authoritative agents are available for token analysis.</p>
+        ) : (
+          agents.map((agent) => (
+            <AgentTokenEconomicsCard key={agent.id} agentId={agent.id} label={agent.name} />
+          ))
+        )}
       </div>
     </section>
   )
 }
 
-function AgentTokenEconomicsCard({ agentId }: { agentId: string }) {
+function AgentTokenEconomicsCard({ agentId, label }: { agentId: string; label: string }) {
   const state = useTokenEconomics(agentId)
-  const label = agentId
-    .split('-')
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ')
 
   return (
     <article className="token-economics-card" aria-label={`Token economics for ${label}`}>

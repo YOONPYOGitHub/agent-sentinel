@@ -112,7 +112,14 @@ AZURE_RESOURCE_GRAPH_MAX_RESPONSE_BYTES=2000000
 
 ## Validation evidence
 
-On 2026-08-29, the fixed query returned 64 live resources across 13 allowed
-resource types using an authorized user credential. Normalization produced 64
-control nodes, 64 evidence objects, and zero edges. Deployed managed-identity
-coverage must be measured independently after activation.
+On 2026-08-29:
+
+- The fixed query returned 64 live resources across 13 allowed resource types
+  using an authorized user credential. Normalization produced 64 control nodes,
+  64 evidence objects, and zero edges.
+- The deployed application UAMI reported `ready` with its existing roles.
+- Jobs persisted 5 UAMI-visible resources as 5 control nodes and 5 evidence
+  objects with zero edges.
+
+The difference between 64 and 5 is an authorization-coverage boundary, not
+missing or healthy evidence. No broader Reader role was added.
