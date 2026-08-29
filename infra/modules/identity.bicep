@@ -14,6 +14,18 @@ resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' 
   tags: tags
 }
 
+resource connectorIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: 'id-agent-sentinel-connectors-260829'
+  location: location
+  tags: tags
+}
+
+resource teamsIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: 'id-agent-sentinel-teams-260829'
+  location: location
+  tags: tags
+}
+
 resource acr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' existing = {
   name: last(split(acrId, '/'))
 }
@@ -165,3 +177,7 @@ resource logAnalyticsReader 'Microsoft.Authorization/roleAssignments@2022-04-01'
 output id string = identity.id
 output clientId string = identity.properties.clientId
 output principalId string = identity.properties.principalId
+output connectorIdentityId string = connectorIdentity.id
+output connectorIdentityClientId string = connectorIdentity.properties.clientId
+output teamsIdentityId string = teamsIdentity.id
+output teamsIdentityClientId string = teamsIdentity.properties.clientId

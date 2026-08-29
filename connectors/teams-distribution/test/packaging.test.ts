@@ -25,8 +25,9 @@ describe('Teams distribution packaging and IaC safety gates', () => {
     expect(platform).toContain("param teamsDistributionSourcesJson string = ''")
     expect(parameters).toContain('param teamsDistributionConnectorEnabled = false')
     expect(containerApps).toContain(
-      "value: teamsDistributionConnectorEnabled ? teamsDistributionSourcesJson : ''",
+      "value: teamsDistributionConnectorEnabled ? effectiveTeamsDistributionSourcesJson : ''",
     )
+    expect(containerApps).toContain('managedIdentityClientId: teamsUamiClientId')
     expect(containerApps).toContain(
       "value: teamsDistributionConnectorEnabled ? teamsDistributionTenantId : ''",
     )

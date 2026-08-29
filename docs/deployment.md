@@ -110,6 +110,14 @@ until the application UAMI has an approved read-only workspace query role and
 the target agents emit validated `agent.sentinel.tenant_id`,
 `gen_ai.agent.id`, and `deployment.environment.name` attributes.
 
+The identity module also declares separate read-only connector and Teams
+managed identities. Container Apps attach them only to API/jobs. When Purview
+is enabled without explicit source JSON, the deployment generates the primary
+tenant source with the connector identity; Teams uses its separate identity
+when separately enabled after tenant backend licensing is ready. Microsoft 365
+application and directory roles remain tenant-admin operations documented in
+the connector runbooks rather than ARM/Bicep assignments.
+
 ### Phase C ? Foundry Embedding
 
 Add text-embedding-3-large deployment (only this module touches AIServices).

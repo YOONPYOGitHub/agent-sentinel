@@ -313,6 +313,10 @@ module containerApps './modules/container-apps.bicep' = {
     lawWorkspaceKey: observability.outputs.workspaceSharedKey
     uamiId: identity.outputs.id
     uamiClientId: identity.outputs.clientId
+    connectorUamiId: identity.outputs.connectorIdentityId
+    connectorUamiClientId: identity.outputs.connectorIdentityClientId
+    teamsUamiId: identity.outputs.teamsIdentityId
+    teamsUamiClientId: identity.outputs.teamsIdentityClientId
     acrLoginServer: registry.outputs.loginServer
     cosmosEndpoint: cosmos.outputs.endpoint
     pgHost: postgres.outputs.fqdn

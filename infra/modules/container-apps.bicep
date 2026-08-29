@@ -7,6 +7,10 @@ param lawWorkspaceId string
 param lawWorkspaceKey string
 param uamiId string
 param uamiClientId string
+param connectorUamiId string = ''
+param connectorUamiClientId string = ''
+param teamsUamiId string = ''
+param teamsUamiClientId string = ''
 param acrLoginServer string
 param cosmosEndpoint string
 param pgHost string
@@ -213,6 +217,32 @@ var appDefinitions = [
   { slug: 'jobs', containerName: 'agent-sentinel-jobs', ingressEnabled: false, externalIngress: false, allowInsecure: false, port: 0,    minReplicas: 0 }
 ]
 
+var effectivePurviewSourcesJson = purviewConnectorEnabled && empty(purviewSourcesJson) && !empty(connectorUamiClientId) ? string([
+  {
+    id: 'primary'
+    name: 'Primary Microsoft Purview tenant'
+    tenantId: foundryTenantId
+    environment: foundryEnvironment
+    credential: {
+      mode: 'default'
+      managedIdentityClientId: connectorUamiClientId
+    }
+  }
+]) : purviewSourcesJson
+
+var effectiveTeamsDistributionSourcesJson = teamsDistributionConnectorEnabled && empty(teamsDistributionSourcesJson) && !empty(teamsUamiClientId) ? string([
+  {
+    id: 'primary'
+    name: 'Primary Teams organization catalog'
+    tenantId: foundryTenantId
+    environment: foundryEnvironment
+    credential: {
+      mode: 'default'
+      managedIdentityClientId: teamsUamiClientId
+    }
+  }
+]) : teamsDistributionSourcesJson
+
 var env = [
   { name: 'COSMOS_ENDPOINT',                       value: cosmosEndpoint }
   { name: 'PG_HOST',                               value: pgHost }
@@ -281,7 +311,7 @@ var env = [
   { name: 'DEFENDER_CLOUD_APPS_MAX_RETRY_AFTER_MS', value: defenderCloudAppsMaxRetryAfterMs }
   { name: 'DEFENDER_CLOUD_APPS_MAX_RESPONSE_BYTES', value: defenderCloudAppsMaxResponseBytes }
   { name: 'PURVIEW_CONNECTOR_ENABLED',              value: string(purviewConnectorEnabled) }
-  { name: 'PURVIEW_SOURCES_JSON',                   value: purviewConnectorEnabled ? purviewSourcesJson : '' }
+  { name: 'PURVIEW_SOURCES_JSON',                   value: purviewConnectorEnabled ? effectivePurviewSourcesJson : '' }
   { name: 'PURVIEW_TENANT_ID',                      value: purviewConnectorEnabled ? purviewTenantId : '' }
   { name: 'PURVIEW_ENVIRONMENT',                    value: purviewConnectorEnabled ? purviewEnvironment : '' }
   { name: 'PURVIEW_GRAPH_BASE_URL',                 value: purviewGraphBaseUrl }
@@ -292,7 +322,7 @@ var env = [
   { name: 'PURVIEW_MAX_RETRY_AFTER_MS',             value: purviewMaxRetryAfterMs }
   { name: 'PURVIEW_MAX_RESPONSE_BYTES',             value: purviewMaxResponseBytes }
   { name: 'TEAMS_DISTRIBUTION_CONNECTOR_ENABLED',   value: string(teamsDistributionConnectorEnabled) }
-  { name: 'TEAMS_DISTRIBUTION_SOURCES_JSON',        value: teamsDistributionConnectorEnabled ? teamsDistributionSourcesJson : '' }
+  { name: 'TEAMS_DISTRIBUTION_SOURCES_JSON',        value: teamsDistributionConnectorEnabled ? effectiveTeamsDistributionSourcesJson : '' }
   { name: 'TEAMS_DISTRIBUTION_TENANT_ID',           value: teamsDistributionConnectorEnabled ? teamsDistributionTenantId : '' }
   { name: 'TEAMS_DISTRIBUTION_ENVIRONMENT',         value: teamsDistributionConnectorEnabled ? teamsDistributionEnvironment : '' }
   { name: 'TEAMS_DISTRIBUTION_GRAPH_BASE_URL',      value: teamsDistributionGraphBaseUrl }
@@ -333,9 +363,17 @@ resource apps 'Microsoft.App/containerApps@2024-03-01' = [for app in appDefiniti
   tags: tags
   identity: {
     type: 'UserAssigned'
-    userAssignedIdentities: {
-      '${uamiId}': {}
-    }
+    userAssignedIdentities: union(
+      {
+        '${uamiId}': {}
+      },
+      app.slug == 'web' || empty(connectorUamiId) ? {} : {
+        '${connectorUamiId}': {}
+      },
+      app.slug == 'web' || empty(teamsUamiId) ? {} : {
+        '${teamsUamiId}': {}
+      }
+    )
   }
   properties: {
     managedEnvironmentId: environment.id
