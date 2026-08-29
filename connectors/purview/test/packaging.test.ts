@@ -24,7 +24,10 @@ describe('Purview packaging and IaC safety gates', () => {
     expect(platform).toContain('param purviewConnectorEnabled bool = false')
     expect(platform).toContain("param purviewSourcesJson string = ''")
     expect(parameters).toContain('param purviewConnectorEnabled = false')
-    expect(containerApps).toContain("value: purviewConnectorEnabled ? purviewSourcesJson : ''")
+    expect(containerApps).toContain(
+      "value: purviewConnectorEnabled ? effectivePurviewSourcesJson : ''",
+    )
+    expect(containerApps).toContain('managedIdentityClientId: connectorUamiClientId')
     expect(containerApps).toContain("value: purviewConnectorEnabled ? purviewTenantId : ''")
     expect(containerApps).toContain("value: purviewConnectorEnabled ? purviewEnvironment : ''")
     expect(identity.toLowerCase()).not.toContain('sensitivitylabel.read')
