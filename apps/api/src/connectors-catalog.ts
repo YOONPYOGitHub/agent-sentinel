@@ -65,7 +65,7 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     id: 'm365-sharepoint-agents',
     name: 'Microsoft 365 & SharePoint Agents',
     description:
-      'Discovers agents embedded in SharePoint sites and Microsoft 365 workloads, including declarative agents published via the Microsoft 365 admin center.',
+      'Planned SharePoint and Microsoft 365 workload evidence beyond package catalog inventory. Declarative-agent packages already belong to the separate Agent 365 catalog connector and will not be duplicated here.',
     lifecycleState: 'planned',
     capabilities: ['discovery', 'data-governance'],
     sourceOfTruth: true,
@@ -76,12 +76,14 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     id: 'teams-distribution',
     name: 'Microsoft Teams Distribution',
     description:
-      'Discovers agents distributed through Microsoft Teams app catalog and sideloaded app packages, providing deployment scope and installation coverage evidence.',
-    lifecycleState: 'planned',
-    capabilities: ['discovery', 'lifecycle-admin'],
+      'Reads non-personal package metadata from the Microsoft Teams organization app catalog through Microsoft Graph v1.0. Catalog presence does not prove an agent, deployment, installation, sideloading, distribution coverage, trust, tools, entitlement, or access.',
+    lifecycleState: 'authorization-required',
+    capabilities: ['discovery'],
     sourceOfTruth: true,
     ownershipModel: 'consumes',
-    unlocksScorecard: ['lifecycle'],
+    prerequisiteNote:
+      'Implemented read-only and disabled by default. Activation requires tenant-admin AppCatalog.Read.All application consent and secretless credentials for each tenant. This increment reads only organization catalog entries from the Global Graph service; it never enumerates teams, chats, users, groups, or installations.',
+    unlocksScorecard: [],
   },
   {
     id: 'defender-for-cloud-apps',
@@ -203,6 +205,10 @@ export function buildConnectorsCollection(
     opts.connectorHealth?.sources.filter(
       (source) => source.id.startsWith('purview:') && source.enabled,
     ) ?? []
+  const enabledTeamsDistributionSources =
+    opts.connectorHealth?.sources.filter(
+      (source) => source.id.startsWith('teams-distribution:') && source.enabled,
+    ) ?? []
   const catalog: CatalogConnectorEntry[] = BASE_CATALOG.map((entry) => {
     if (entry.id === 'azure-ai-foundry') {
       return { ...entry, lifecycleState: foundryLifecycle }
@@ -287,6 +293,26 @@ export function buildConnectorsCollection(
           ready === enabledPurviewSources.length
             ? 'connected'
             : ready > 0 || enabledPurviewSources.some((source) => source.readiness === 'degraded')
+              ? 'degraded'
+              : authorizationRequired
+                ? 'authorization-required'
+                : 'unavailable',
+      }
+    }
+    if (entry.id === 'teams-distribution' && enabledTeamsDistributionSources.length > 0) {
+      const ready = enabledTeamsDistributionSources.filter(
+        (source) => source.readiness === 'ready',
+      ).length
+      const authorizationRequired = enabledTeamsDistributionSources.some(
+        (source) => source.readiness === 'authorization-required',
+      )
+      return {
+        ...entry,
+        lifecycleState:
+          ready === enabledTeamsDistributionSources.length
+            ? 'connected'
+            : ready > 0 ||
+                enabledTeamsDistributionSources.some((source) => source.readiness === 'degraded')
               ? 'degraded'
               : authorizationRequired
                 ? 'authorization-required'

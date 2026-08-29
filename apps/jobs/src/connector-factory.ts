@@ -30,6 +30,11 @@ import {
   type PurviewClientOptions,
   type PurviewCredentialFactory,
 } from '@agent-sentinel/purview-connector'
+import {
+  createOptionalTeamsDistributionConnector,
+  type TeamsDistributionClientOptions,
+  type TeamsDistributionCredentialFactory,
+} from '@agent-sentinel/teams-distribution-connector'
 import type { TokenCredential } from '@azure/core-auth'
 
 export interface JobsConnectorOptions {
@@ -44,6 +49,8 @@ export interface JobsConnectorOptions {
   defenderCloudAppsClient?: DefenderCloudAppsClientOptions
   purviewCredentialFactory?: PurviewCredentialFactory
   purviewClient?: PurviewClientOptions
+  teamsDistributionCredentialFactory?: TeamsDistributionCredentialFactory
+  teamsDistributionClient?: TeamsDistributionClientOptions
 }
 
 export function buildConnector(
@@ -93,12 +100,22 @@ export function buildConnector(
       ? { client: options.defenderCloudAppsClient }
       : {}),
   })
-  return createOptionalPurviewConnector(defender, environment, {
+  const purview = createOptionalPurviewConnector(defender, environment, {
     ...(options.purviewCredentialFactory !== undefined
       ? { credentialFactory: options.purviewCredentialFactory }
       : options.credential !== undefined
         ? { credential: options.credential }
         : {}),
     ...(options.purviewClient !== undefined ? { client: options.purviewClient } : {}),
+  })
+  return createOptionalTeamsDistributionConnector(purview, environment, {
+    ...(options.teamsDistributionCredentialFactory !== undefined
+      ? { credentialFactory: options.teamsDistributionCredentialFactory }
+      : options.credential !== undefined
+        ? { credential: options.credential }
+        : {}),
+    ...(options.teamsDistributionClient !== undefined
+      ? { client: options.teamsDistributionClient }
+      : {}),
   })
 }

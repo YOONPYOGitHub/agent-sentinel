@@ -15,6 +15,7 @@ COPY connectors/power-platform/package.json connectors/power-platform/
 COPY connectors/agent365/package.json connectors/agent365/
 COPY connectors/defender-cloud-apps/package.json connectors/defender-cloud-apps/
 COPY connectors/purview/package.json connectors/purview/
+COPY connectors/teams-distribution/package.json connectors/teams-distribution/
 COPY connectors/manifest/package.json connectors/manifest/
 COPY connectors/mock/package.json connectors/mock/
 COPY connectors/azure-monitor-otel/package.json connectors/azure-monitor-otel/
@@ -38,6 +39,7 @@ RUN pnpm --filter @agent-sentinel/power-platform-connector build
 RUN pnpm --filter @agent-sentinel/agent365-connector build
 RUN pnpm --filter @agent-sentinel/defender-cloud-apps-connector build
 RUN pnpm --filter @agent-sentinel/purview-connector build
+RUN pnpm --filter @agent-sentinel/teams-distribution-connector build
 RUN pnpm --filter @agent-sentinel/manifest-connector build
 RUN pnpm --filter @agent-sentinel/mock-connector build
 RUN pnpm --filter @agent-sentinel/azure-monitor-otel-connector build
@@ -76,6 +78,8 @@ COPY --from=builder /workspace/connectors/defender-cloud-apps/dist ./connectors/
 COPY --from=builder /workspace/connectors/defender-cloud-apps/package.json ./connectors/defender-cloud-apps/
 COPY --from=builder /workspace/connectors/purview/dist ./connectors/purview/dist/
 COPY --from=builder /workspace/connectors/purview/package.json ./connectors/purview/
+COPY --from=builder /workspace/connectors/teams-distribution/dist ./connectors/teams-distribution/dist/
+COPY --from=builder /workspace/connectors/teams-distribution/package.json ./connectors/teams-distribution/
 COPY --from=builder /workspace/connectors/manifest/dist ./connectors/manifest/dist/
 COPY --from=builder /workspace/connectors/manifest/package.json ./connectors/manifest/
 COPY --from=builder /workspace/connectors/mock/dist ./connectors/mock/dist/

@@ -90,6 +90,19 @@ label, or M365 resource. Enable only after tenant-admin
 separately approved for every source. See
 [Purview connector](purview-connector.md).
 
+Microsoft Teams tenant app catalog evidence is independently disabled by
+`teamsDistributionConnectorEnabled=false`. Configure
+`teamsDistributionSourcesJson`, or the legacy `teamsDistributionTenantId` and
+`teamsDistributionEnvironment` pair. The Graph base is fixed to
+`https://graph.microsoft.com`, and source identifiers are injected as empty
+while disabled. IaC creates no Graph app-role assignment, permission, secret,
+Teams app, or Microsoft 365 resource. Enable only after tenant-admin
+`AppCatalog.Read.All` application consent and secretless credentials are
+separately approved for every source. This reads organization catalog metadata
+only; it does not prove agent, deployment, installation, sideloading, or
+distribution coverage. See
+[Teams distribution connector](teams-distribution-connector.md).
+
 Set `azureMonitorSourcesJson` with entries matching Foundry source ids. Each
 entry contains a workspace customer id, source tenant, source environment, and
 optional federated credential. `azureMonitorConnectorEnabled` remains false

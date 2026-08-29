@@ -131,6 +131,23 @@ param purviewMaxRetries string = '2'
 param purviewMaxRetryAfterMs string = '30000'
 param purviewMaxResponseBytes string = '2000000'
 
+@description('Enable read-only Microsoft Teams organization app catalog evidence. Keep false until tenant-admin AppCatalog.Read.All application consent is approved.')
+param teamsDistributionConnectorEnabled bool = false
+@description('Optional JSON array of up to 50 unique Microsoft Teams tenant catalog sources.')
+param teamsDistributionSourcesJson string = ''
+@description('Legacy primary Teams catalog tenant ID. Empty while disabled or when source JSON is used.')
+param teamsDistributionTenantId string = ''
+@description('Legacy primary local aggregate environment label. Empty while disabled or when source JSON is used.')
+param teamsDistributionEnvironment string = ''
+@description('Microsoft Graph base. Connector validation permits exactly the official Global service origin.')
+param teamsDistributionGraphBaseUrl string = 'https://graph.microsoft.com'
+param teamsDistributionMaxPages string = '20'
+param teamsDistributionMaxItems string = '5000'
+param teamsDistributionRequestTimeoutMs string = '15000'
+param teamsDistributionMaxRetries string = '2'
+param teamsDistributionMaxRetryAfterMs string = '30000'
+param teamsDistributionMaxResponseBytes string = '2000000'
+
 @description('Enable read-only Azure Monitor OTel telemetry. Disabled until instrumentation and workspace RBAC are validated.')
 param azureMonitorConnectorEnabled bool = false
 @description('Optional JSON array of Azure Monitor sources matched by id to Foundry sources.')
@@ -375,6 +392,17 @@ module containerApps './modules/container-apps.bicep' = {
     purviewMaxRetries: purviewMaxRetries
     purviewMaxRetryAfterMs: purviewMaxRetryAfterMs
     purviewMaxResponseBytes: purviewMaxResponseBytes
+    teamsDistributionConnectorEnabled: teamsDistributionConnectorEnabled
+    teamsDistributionSourcesJson: teamsDistributionSourcesJson
+    teamsDistributionTenantId: teamsDistributionTenantId
+    teamsDistributionEnvironment: teamsDistributionEnvironment
+    teamsDistributionGraphBaseUrl: teamsDistributionGraphBaseUrl
+    teamsDistributionMaxPages: teamsDistributionMaxPages
+    teamsDistributionMaxItems: teamsDistributionMaxItems
+    teamsDistributionRequestTimeoutMs: teamsDistributionRequestTimeoutMs
+    teamsDistributionMaxRetries: teamsDistributionMaxRetries
+    teamsDistributionMaxRetryAfterMs: teamsDistributionMaxRetryAfterMs
+    teamsDistributionMaxResponseBytes: teamsDistributionMaxResponseBytes
     azureMonitorConnectorEnabled: azureMonitorConnectorEnabled
     azureMonitorSourcesJson: azureMonitorSourcesJson
     cosmosDatabase: cosmosDatabase

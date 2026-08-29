@@ -187,4 +187,34 @@ describe('jobs connector selection', () => {
       'purview:primary',
     ])
   })
+
+  it('wires Teams distribution after Purview', () => {
+    const connector = buildConnector(
+      'foundry',
+      {
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+        FOUNDRY_TENANT_ID: '11111111-1111-1111-1111-111111111111',
+        FOUNDRY_ENVIRONMENT: 'validation',
+        PURVIEW_CONNECTOR_ENABLED: 'true',
+        PURVIEW_TENANT_ID: '22222222-2222-2222-2222-222222222222',
+        PURVIEW_ENVIRONMENT: 'governance',
+        TEAMS_DISTRIBUTION_CONNECTOR_ENABLED: 'true',
+        TEAMS_DISTRIBUTION_TENANT_ID: '33333333-3333-3333-3333-333333333333',
+        TEAMS_DISTRIBUTION_ENVIRONMENT: 'catalog',
+      },
+      {
+        credential: { getToken: () => Promise.resolve(null) },
+        purviewClient: { fetcher: () => Promise.resolve(Response.json({ value: [] })) },
+        teamsDistributionClient: {
+          fetcher: () => Promise.resolve(Response.json({ value: [] })),
+        },
+      },
+    )
+    expect(connector.getConnectorHealth?.().sources.map((source) => source.id)).toEqual([
+      'foundry:primary',
+      'entra:primary',
+      'purview:primary',
+      'teams-distribution:primary',
+    ])
+  })
 })

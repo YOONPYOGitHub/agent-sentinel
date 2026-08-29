@@ -150,6 +150,18 @@ param purviewMaxRetries string = '2'
 param purviewMaxRetryAfterMs string = '30000'
 param purviewMaxResponseBytes string = '2000000'
 
+param teamsDistributionConnectorEnabled bool = false
+param teamsDistributionSourcesJson string = ''
+param teamsDistributionTenantId string = ''
+param teamsDistributionEnvironment string = ''
+param teamsDistributionGraphBaseUrl string = 'https://graph.microsoft.com'
+param teamsDistributionMaxPages string = '20'
+param teamsDistributionMaxItems string = '5000'
+param teamsDistributionRequestTimeoutMs string = '15000'
+param teamsDistributionMaxRetries string = '2'
+param teamsDistributionMaxRetryAfterMs string = '30000'
+param teamsDistributionMaxResponseBytes string = '2000000'
+
 param azureMonitorConnectorEnabled bool = false
 param azureMonitorSourcesJson string = ''
 
@@ -279,6 +291,17 @@ var env = [
   { name: 'PURVIEW_MAX_RETRIES',                    value: purviewMaxRetries }
   { name: 'PURVIEW_MAX_RETRY_AFTER_MS',             value: purviewMaxRetryAfterMs }
   { name: 'PURVIEW_MAX_RESPONSE_BYTES',             value: purviewMaxResponseBytes }
+  { name: 'TEAMS_DISTRIBUTION_CONNECTOR_ENABLED',   value: string(teamsDistributionConnectorEnabled) }
+  { name: 'TEAMS_DISTRIBUTION_SOURCES_JSON',        value: teamsDistributionConnectorEnabled ? teamsDistributionSourcesJson : '' }
+  { name: 'TEAMS_DISTRIBUTION_TENANT_ID',           value: teamsDistributionConnectorEnabled ? teamsDistributionTenantId : '' }
+  { name: 'TEAMS_DISTRIBUTION_ENVIRONMENT',         value: teamsDistributionConnectorEnabled ? teamsDistributionEnvironment : '' }
+  { name: 'TEAMS_DISTRIBUTION_GRAPH_BASE_URL',      value: teamsDistributionGraphBaseUrl }
+  { name: 'TEAMS_DISTRIBUTION_MAX_PAGES',           value: teamsDistributionMaxPages }
+  { name: 'TEAMS_DISTRIBUTION_MAX_ITEMS',           value: teamsDistributionMaxItems }
+  { name: 'TEAMS_DISTRIBUTION_REQUEST_TIMEOUT_MS',  value: teamsDistributionRequestTimeoutMs }
+  { name: 'TEAMS_DISTRIBUTION_MAX_RETRIES',         value: teamsDistributionMaxRetries }
+  { name: 'TEAMS_DISTRIBUTION_MAX_RETRY_AFTER_MS',  value: teamsDistributionMaxRetryAfterMs }
+  { name: 'TEAMS_DISTRIBUTION_MAX_RESPONSE_BYTES',  value: teamsDistributionMaxResponseBytes }
   { name: 'AZURE_MONITOR_SOURCES_JSON',            value: azureMonitorConnectorEnabled ? azureMonitorSourcesJson : '' }
   { name: 'AZURE_MONITOR_WORKSPACE_ID',            value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? lawWorkspaceId : '' }
   { name: 'AZURE_MONITOR_TENANT_ID',               value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? foundryTenantId : '' }

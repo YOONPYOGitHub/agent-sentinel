@@ -26,6 +26,7 @@ Start with the [root README](../README.md) for the value proposition, quick star
 | [Agent 365 connector](agent365-connector.md)                          | Review the disabled-by-default Graph v1.0 package catalog contract, licensing, consent, bounds, and evidence semantics.               |
 | [Defender for Cloud Apps connector](defender-cloud-apps-connector.md) | Review the disabled-by-default OAuth alert/activity evidence contract, privacy boundary, bounds, and activation gate.                 |
 | [Purview connector](purview-connector.md)                             | Review the disabled-by-default Graph v1.0 sensitivity-label catalog, privacy model, bounds, and tenant-consent gate.                  |
+| [Teams distribution connector](teams-distribution-connector.md)       | Review the disabled-by-default Graph v1.0 organization app catalog evidence contract and its explicit installation blind spot.        |
 | [Corporate onboarding](internal-onboarding.md)                        | Repeat Service Tree, Feature Alias, and corporate Entra onboarding without storing private identifiers.                               |
 
 ## Operations

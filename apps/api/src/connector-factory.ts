@@ -30,6 +30,11 @@ import {
   type PurviewClientOptions,
   type PurviewCredentialFactory,
 } from '@agent-sentinel/purview-connector'
+import {
+  createOptionalTeamsDistributionConnector,
+  type TeamsDistributionClientOptions,
+  type TeamsDistributionCredentialFactory,
+} from '@agent-sentinel/teams-distribution-connector'
 import type { TokenCredential } from '@azure/core-auth'
 
 export type ConnectorMode = 'mock' | 'foundry'
@@ -46,6 +51,8 @@ export interface ConfiguredConnectorOptions {
   defenderCloudAppsClient?: DefenderCloudAppsClientOptions
   purviewCredentialFactory?: PurviewCredentialFactory
   purviewClient?: PurviewClientOptions
+  teamsDistributionCredentialFactory?: TeamsDistributionCredentialFactory
+  teamsDistributionClient?: TeamsDistributionClientOptions
 }
 
 export function createConfiguredConnector(
@@ -105,14 +112,24 @@ export function createConfiguredConnector(
       ? { client: options.defenderCloudAppsClient }
       : {}),
   })
+  const purview = createOptionalPurviewConnector(defender, env, {
+    ...(options.purviewCredentialFactory !== undefined
+      ? { credentialFactory: options.purviewCredentialFactory }
+      : options.credential !== undefined
+        ? { credential: options.credential }
+        : {}),
+    ...(options.purviewClient !== undefined ? { client: options.purviewClient } : {}),
+  })
   return {
-    connector: createOptionalPurviewConnector(defender, env, {
-      ...(options.purviewCredentialFactory !== undefined
-        ? { credentialFactory: options.purviewCredentialFactory }
+    connector: createOptionalTeamsDistributionConnector(purview, env, {
+      ...(options.teamsDistributionCredentialFactory !== undefined
+        ? { credentialFactory: options.teamsDistributionCredentialFactory }
         : options.credential !== undefined
           ? { credential: options.credential }
           : {}),
-      ...(options.purviewClient !== undefined ? { client: options.purviewClient } : {}),
+      ...(options.teamsDistributionClient !== undefined
+        ? { client: options.teamsDistributionClient }
+        : {}),
     }),
     mode,
     ...(config.sources.length === 1 ? { projectEndpoint: primarySource.projectEndpoint } : {}),

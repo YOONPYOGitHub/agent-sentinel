@@ -1,0 +1,28 @@
+{
+  "name": "@agent-sentinel/teams-distribution-connector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "dev": "tsup src/index.ts --format esm --dts --watch",
+    "lint": "eslint src test",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-sentinel/connector-sdk": "workspace:*",
+    "@agent-sentinel/domain": "workspace:*",
+    "@azure/core-auth": "^1.10.1",
+    "@azure/identity": "^4.13.1",
+    "zod": "^4.1.5"
+  }
+}

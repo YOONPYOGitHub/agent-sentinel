@@ -447,6 +447,62 @@ describe('buildConnectorsCollection', () => {
     )
   })
 
+  it('describes Teams distribution as tenant catalog evidence without installation claims', () => {
+    const result = buildConnectorsCollection('mock', { connectorId: 'mock-agent-estate' })
+    const teams = result.catalog.find((entry) => entry.id === 'teams-distribution')
+    expect(teams).toMatchObject({
+      lifecycleState: 'authorization-required',
+      capabilities: ['discovery'],
+      sourceOfTruth: true,
+      ownershipModel: 'consumes',
+      unlocksScorecard: [],
+    })
+    expect(teams?.description).toContain('organization app catalog')
+    expect(teams?.description).toContain('does not prove an agent')
+    expect(teams?.description).toContain('installation')
+    expect(teams?.prerequisiteNote).toContain('AppCatalog.Read.All')
+    expect(teams?.prerequisiteNote).toContain('Global Graph')
+  })
+
+  it.each([
+    ['ready', 'connected'],
+    ['degraded', 'degraded'],
+    ['authorization-required', 'authorization-required'],
+    ['unavailable', 'unavailable'],
+  ] as const)('maps enabled Teams distribution %s health to %s', (readiness, lifecycle) => {
+    const result = buildConnectorsCollection('foundry', {
+      connectorId: 'foundry-test',
+      connectorHealth: {
+        overall: readiness === 'ready' ? 'ready' : 'degraded',
+        partial: readiness !== 'ready',
+        sources: [
+          {
+            id: 'foundry:primary',
+            name: 'Foundry',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+          },
+          {
+            id: 'teams-distribution:tenant-a',
+            name: 'Teams Tenant A',
+            role: 'enrichment',
+            enabled: true,
+            configured: true,
+            readiness,
+          },
+        ],
+      },
+    })
+    expect(result.catalog.find((entry) => entry.id === 'teams-distribution')?.lifecycleState).toBe(
+      lifecycle,
+    )
+    expect(result.catalog.find((entry) => entry.id === 'azure-ai-foundry')?.lifecycleState).toBe(
+      'connected',
+    )
+  })
+
   it.each([
     ['ready', 'connected'],
     ['degraded', 'degraded'],

@@ -4,21 +4,21 @@
 
 Agent Sentinel gives an organization one explainable view of every AI agent it runs: what exists, who owns it, what it can reach, where it is exposed, whether it is governed, and whether it is still fit to operate. Every claim in the product cites typed evidence with a source, a confidence, and an observation timestamp.
 
-> **Status: pre-production engineering preview (2026-08-27).** The deployed environment uses read-only Microsoft Entra JWT authentication with a synthetic-only agent portfolio. Writes remain disabled at both the API and WAF. See [Security warning](#security-warning) and [docs/current-status.md](docs/current-status.md).
+> **Status: pre-production engineering preview (2026-08-29).** The deployed environment uses read-only Microsoft Entra JWT authentication with a synthetic-only agent portfolio. Writes remain disabled at both the API and WAF. See [Security warning](#security-warning) and [docs/current-status.md](docs/current-status.md).
 
 ---
 
 ## Value proposition
 
-| Agent Sentinel does                                                                                                                                                  | Agent Sentinel does **not** do                                                       |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Consume authoritative records from Agent 365, Microsoft Entra, Microsoft Defender, Microsoft Purview, Microsoft Foundry, platform telemetry, and third-party sources | Replace the native administration console of any of those platforms                  |
-| Correlate those sources into a single cross-plane typed evidence graph                                                                                               | Become the system of record for agent registration, identity, or data classification |
-| Compute deterministic attack paths and blast radius from that graph                                                                                                  | Infer relationships, owners, or health that a source did not actually return         |
-| Run bounded, non-destructive validation to move a theoretical finding to validated or not-reproduced                                                                 | Execute destructive probes or unauthorized actions                                   |
-| Preview remediation impact before anything is changed                                                                                                                | Apply changes without authorization and an approval trail                            |
-| Score each agent across separate, explainable assurance dimensions                                                                                                   | Collapse assurance into a single opaque number                                       |
-| Drive a cross-domain governance workflow over one shared evidence set                                                                                                | Ask security, platform, and business owners to reconcile five different consoles     |
+| Agent Sentinel does                                                                                                                                                                           | Agent Sentinel does **not** do                                                       |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Consume authoritative records from Agent 365, Microsoft Entra, Microsoft Defender, Microsoft Purview, Microsoft Teams catalog, Microsoft Foundry, platform telemetry, and third-party sources | Replace the native administration console of any of those platforms                  |
+| Correlate those sources into a single cross-plane typed evidence graph                                                                                                                        | Become the system of record for agent registration, identity, or data classification |
+| Compute deterministic attack paths and blast radius from that graph                                                                                                                           | Infer relationships, owners, or health that a source did not actually return         |
+| Run bounded, non-destructive validation to move a theoretical finding to validated or not-reproduced                                                                                          | Execute destructive probes or unauthorized actions                                   |
+| Preview remediation impact before anything is changed                                                                                                                                         | Apply changes without authorization and an approval trail                            |
+| Score each agent across separate, explainable assurance dimensions                                                                                                                            | Collapse assurance into a single opaque number                                       |
+| Drive a cross-domain governance workflow over one shared evidence set                                                                                                                         | Ask security, platform, and business owners to reconcile five different consoles     |
 
 ### Differentiators
 
@@ -29,7 +29,7 @@ Agent Sentinel gives an organization one explainable view of every AI agent it r
 - **Separate explainable per-agent assurance dimensions** — security, governance, lifecycle, quality, reliability, and cost are scored and explained independently, and report `unknown` rather than guessing.
 - **Cross-domain governance workflow** — one evidence set shared by security, platform, and business stakeholders.
 
-Implemented but not activated in the deployed environment: authenticated custom-manifest ingestion, Microsoft Entra identity enrichment, behavior drift analysis, measured token economics, and the Azure Monitor OTel connector. The offline shift-left scanner is available for local and CI publish gates. See [docs/roadmap.md](docs/roadmap.md).
+Implemented but not activated in the deployed environment: authenticated custom-manifest ingestion and the Power Platform, Agent 365, Defender, Purview, and Teams tenant app catalog connectors. Teams evidence is catalog-only and does not prove installation coverage. The offline shift-left scanner is available for local and CI publish gates. See [docs/roadmap.md](docs/roadmap.md).
 
 ---
 
@@ -76,7 +76,7 @@ ingested or exposed through an unauthenticated endpoint.
 flowchart LR
     subgraph Sources["Evidence sources"]
         FDRY["Microsoft Foundry<br/>(live, declared configuration)"]
-        PLAN["Agent 365 · Defender · Purview<br/>(planned) · Entra · Azure Monitor/OTel<br/>(implemented; activation pending)"]
+        PLAN["Agent 365 · Defender · Purview · Teams catalog<br/>(implemented; activation pending)<br/>Entra · Azure Monitor/OTel (live primary)"]
     end
 
     subgraph Ingest["Ingestion"]
@@ -180,10 +180,10 @@ Verified baseline on 2026-08-23:
 | Terra live validation                      | **Live, operator-invoked**           | `pnpm foundry:validate`; never run by CI                                                             |
 | Advisory narratives (public Azure edge)    | **Mock**                             | Deterministic mock provider until corporate Entra and WAF activation                                 |
 | Advisory narratives (grounded model path)  | **Live when configured**             | GPT-5.6 Terra, advisory explanation only; deterministic core stays authoritative                     |
-| Agent 365 connector                        | **Not implemented**                  | Catalogued as `authorization-required`                                                               |
+| Agent 365 connector                        | **Implemented, unconfigured**        | Read-only Graph package catalog; licensing and authorization remain pending                          |
 | Azure Monitor OTel                         | **Implemented, unconfigured**        | Strict read-only query and mapping path; deployed runtime evidence remains `unknown`                 |
 | Entra identity enrichment                  | **Implemented, unconfigured**        | Read-only service-principal inventory and Foundry composition; tenant-admin consent remains pending  |
-| Defender and Purview                       | **Planned**                          | Catalogued but no runtime evidence path is active                                                    |
+| Defender, Purview, and Teams catalog       | **Implemented, unconfigured**        | Disabled authorization-gated evidence paths; Teams catalog does not prove installations              |
 | Governance work queue                      | **Live persistence, writes blocked** | Cosmos-backed cases and audit history; public mutation remains disabled                              |
 | Authentication in the deployed environment | **Enabled, read-only**               | `AUTH_MODE=jwt`; employee login, anonymous `401`, Viewer `403`, and `/api/auth/me` validated         |
 | Write and remediation execution            | **Blocked at the edge**              | `writeEnabled=false`; WAF blocks pre-auth mutations under `/api/`                                    |
