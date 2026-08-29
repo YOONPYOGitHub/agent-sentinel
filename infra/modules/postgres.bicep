@@ -4,6 +4,7 @@ param tags object
 param delegatedSubnetResourceId string
 param privateDnsZoneArmResourceId string
 param adminObjectId string
+param adminPrincipalName string
 
 resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   name: serverName
@@ -45,7 +46,7 @@ resource administrator 'Microsoft.DBforPostgreSQL/flexibleServers/administrators
   parent: server
   name: adminObjectId
   properties: {
-    principalName: 'id-agent-sentinel-260814'
+    principalName: adminPrincipalName
     principalType: 'ServicePrincipal'
     tenantId: tenant().tenantId
   }

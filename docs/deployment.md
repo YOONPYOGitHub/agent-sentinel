@@ -14,6 +14,38 @@ is reconciled and separately reviewed. Images `web/api/jobs:acbb483` were verifi
 `33047446078`; the live ACA revision remains `8179785` because the surgical update was interrupted.
 Use only a reviewed, surgical Container Apps revision/image/config update for the next auth stage.
 
+## Replacement tenant portability
+
+The existing development environment deliberately pins its historical application,
+connector, Teams, and Foundry resource names in
+`infra/environments/dev.parameters.bicepparam`. These overrides prevent an
+incremental deployment from replacing identities whose names predate the current
+suffix.
+
+For a replacement tenant, create a separate environment parameter file and:
+
+1. Set a new, unique `suffix`.
+2. Do not copy `applicationIdentityName`, `connectorIdentityName`,
+   `teamsIdentityName`, or `foundryAccountName` from the development file unless
+   adopting resources that already exist under those exact names. Empty values
+   derive new names from `suffix`.
+3. Set tenant-specific authentication and connector source identifiers. Keep each
+   license- or consent-gated connector disabled until its documented prerequisite
+   is verified in the replacement tenant.
+4. Build one immutable web image. The web Container App injects
+   `API_UPSTREAM=api-as-<suffix>` at runtime, so the image does not need to be
+   rebuilt for a different API Container App name.
+5. Deploy `infra/ci-foundation.bicep` with the same suffix if a private build
+   runner is required; its identity name is derived from that suffix.
+6. Run a complete what-if against the new resource group and review all role
+   assignments before creation. The current development resource group's
+   unresolved drift prohibition does not transfer to an empty replacement
+   resource group.
+
+This is a clean IaC recreation, not an in-place tenant migration. Do not copy
+tenant IDs, principal IDs, federated credentials, Graph consent, or license state
+from the existing tenant.
+
 ## Infrastructure Deployment (reference only while drift is unresolved)
 
 ### Phase A ? Foundation (Network, Identity, Observability, KV, ACR)

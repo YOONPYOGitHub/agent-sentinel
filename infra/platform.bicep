@@ -1,6 +1,16 @@
 targetScope = 'resourceGroup'
 param location string = resourceGroup().location
 param suffix string = '260814'
+@description('Optional existing application UAMI name. Empty derives a portable name from suffix.')
+param applicationIdentityName string = ''
+@description('Optional existing shared connector UAMI name. Empty derives a portable name from suffix.')
+param connectorIdentityName string = ''
+@description('Optional existing Teams connector UAMI name. Empty derives a portable name from suffix.')
+param teamsIdentityName string = ''
+@description('Optional Foundry account name. Empty derives a portable name from suffix.')
+param foundryAccountName string = ''
+@description('Foundry project name.')
+param foundryProjectName string = 'agent-sentinel-pjt'
 param tags object = {
   application: 'agent-sentinel'
   environment: 'dev'
@@ -197,6 +207,11 @@ param authWriteScopes string = 'AgentSentinel.Write'
 @description('ACA environment default domain for private DNS zone creation (e.g. blackrock-0e55f941.koreacentral.azurecontainerapps.io). Empty string = skip DNS zone (use after first deployment). See deployment.md for post-deploy DNS step.')
 param acaEnvDomain string = ''
 
+var effectiveApplicationIdentityName = empty(applicationIdentityName) ? 'id-agent-sentinel-${suffix}' : applicationIdentityName
+var effectiveConnectorIdentityName = empty(connectorIdentityName) ? 'id-agent-sentinel-connectors-${suffix}' : connectorIdentityName
+var effectiveTeamsIdentityName = empty(teamsIdentityName) ? 'id-agent-sentinel-teams-${suffix}' : teamsIdentityName
+var effectiveFoundryAccountName = empty(foundryAccountName) ? 'ais-agent-sentinel-${suffix}' : foundryAccountName
+
 module network './modules/network.bicep' = {
   name: 'network'
   params: {
@@ -219,8 +234,8 @@ module observability './modules/observability.bicep' = {
 module foundry './modules/foundry.bicep' = {
   name: 'foundry'
   params: {
-    accountName: 'ais-agent-sentinel-260814'
-    projectName: 'agent-sentinel-pjt'
+    accountName: effectiveFoundryAccountName
+    projectName: foundryProjectName
     location: location
   }
 }
@@ -297,6 +312,9 @@ module identity './modules/identity.bicep' = {
     sbNamespaceId: serviceBus.outputs.id
     searchId: search.outputs.id
     lawWorkspaceId: observability.outputs.workspaceId
+    identityName: effectiveApplicationIdentityName
+    connectorIdentityName: effectiveConnectorIdentityName
+    teamsIdentityName: effectiveTeamsIdentityName
   }
   dependsOn: [registry, cosmos, keyVault, foundry, serviceBus, search, observability]
 }
@@ -310,6 +328,7 @@ module postgres './modules/postgres.bicep' = {
     delegatedSubnetResourceId: network.outputs.delegatedSubnetResourceId
     privateDnsZoneArmResourceId: network.outputs.postgresPrivateDnsZoneId
     adminObjectId: identity.outputs.principalId
+    adminPrincipalName: identity.outputs.name
   }
   dependsOn: [network, identity]
 }

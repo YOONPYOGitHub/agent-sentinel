@@ -390,6 +390,7 @@ var env = [
   { name: 'AUTH_SPA_POST_LOGOUT_REDIRECT_URI',     value: authSpaPostLogoutRedirectUri }
   { name: 'AUTH_READ_SCOPES',                      value: authReadScopes }
   { name: 'AUTH_WRITE_SCOPES',                     value: authWriteScopes }
+  { name: 'API_UPSTREAM',                           value: 'api-as-${suffix}' }
 ]
 
 resource apps 'Microsoft.App/containerApps@2024-03-01' = [for app in appDefinitions: {

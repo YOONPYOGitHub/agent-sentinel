@@ -7,21 +7,24 @@ param aiAccountId string
 param sbNamespaceId string
 param searchId string
 param lawWorkspaceId string
+param identityName string
+param connectorIdentityName string
+param teamsIdentityName string
 
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'id-agent-sentinel-260814'
+  name: identityName
   location: location
   tags: tags
 }
 
 resource connectorIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'id-agent-sentinel-connectors-260829'
+  name: connectorIdentityName
   location: location
   tags: tags
 }
 
 resource teamsIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'id-agent-sentinel-teams-260829'
+  name: teamsIdentityName
   location: location
   tags: tags
 }
@@ -175,6 +178,7 @@ resource logAnalyticsReader 'Microsoft.Authorization/roleAssignments@2022-04-01'
   }
 }
 output id string = identity.id
+output name string = identity.name
 output clientId string = identity.properties.clientId
 output principalId string = identity.properties.principalId
 output connectorIdentityId string = connectorIdentity.id

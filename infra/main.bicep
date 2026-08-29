@@ -3,25 +3,30 @@ targetScope = 'resourceGroup'
 @description('Azure region for all Agent Sentinel resources.')
 param location string = resourceGroup().location
 
+@description('Resource name suffix used when accountName is empty.')
+param suffix string = '260814'
+
 @description('Microsoft Foundry account name.')
-param accountName string = 'ais-agent-sentinel-260814'
+param accountName string = ''
 
 @description('Microsoft Foundry project name.')
 param projectName string = 'agent-sentinel-pjt'
+
+var effectiveAccountName = empty(accountName) ? 'ais-agent-sentinel-${suffix}' : accountName
 
 var deploymentDefinitions = [
   { name: 'gpt-5.6-terra', modelName: 'gpt-5.6-terra', version: '2026-07-09', capacity: 10, upgradeOption: 'NoAutoUpgrade' }
 ]
 
 resource foundryAccount 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
-  name: accountName
+  name: effectiveAccountName
   location: location
   kind: 'AIServices'
   sku: { name: 'S0' }
   identity: { type: 'SystemAssigned' }
   properties: {
     allowProjectManagement: true
-    customSubDomainName: accountName
+    customSubDomainName: effectiveAccountName
     disableLocalAuth: true
     publicNetworkAccess: 'Enabled'
     networkAcls: { defaultAction: 'Allow', ipRules: [], virtualNetworkRules: [] }

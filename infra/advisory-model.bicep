@@ -1,7 +1,12 @@
 targetScope = 'resourceGroup'
 
+@description('Resource name suffix used when accountName is empty.')
+param suffix string = '260814'
+
 @description('Existing Microsoft Foundry account name.')
-param accountName string = 'ais-agent-sentinel-260814'
+param accountName string = ''
+
+var effectiveAccountName = empty(accountName) ? 'ais-agent-sentinel-${suffix}' : accountName
 
 @description('Advisory model deployment name.')
 param deploymentName string = 'gpt-5.6-terra'
@@ -14,7 +19,7 @@ param modelVersion string = '2026-07-09'
 param capacity int = 10
 
 resource aiAccount 'Microsoft.CognitiveServices/accounts@2025-06-01' existing = {
-  name: accountName
+  name: effectiveAccountName
 }
 
 resource advisoryModel 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {

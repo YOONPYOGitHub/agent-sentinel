@@ -6,13 +6,14 @@ param location string
 param tags object
 param buildSubnetId string
 param acrId string
+param runnerIdentityName string
 
 @description('SSH public key for azureuser. VM is accessed via Run Command only; SSH port is closed by NSG.')
 param adminSshPublicKey string
 
 // Separate UAMI from the application identity; AcrPush only.
 resource runnerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'id-ci-runner-260814'
+  name: runnerIdentityName
   location: location
   tags: tags
 }

@@ -15,5 +15,6 @@ RUN pnpm --filter @agent-sentinel/web build
 # Production stage - serve with nginx
 FROM nginx:alpine AS runtime
 COPY --from=builder /workspace/apps/web/dist /usr/share/nginx/html
-COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+ENV NGINX_ENVSUBST_FILTER=^API_UPSTREAM$ API_UPSTREAM=api-as-260814
+COPY apps/web/nginx.conf.template /etc/nginx/templates/default.conf.template
 EXPOSE 80

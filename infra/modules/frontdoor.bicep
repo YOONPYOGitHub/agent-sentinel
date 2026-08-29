@@ -166,4 +166,4 @@ output profileId string = profile.id
 output wafPolicyId string = wafPolicy.id
 
 @description('Shell command to list and approve the private-link connection requests after this deployment.')
-output privateLinkApprovalHint string = 'az network private-endpoint-connection list --resource-group <rg> --name aca-env-260814 --type Microsoft.App/managedEnvironments'
+output privateLinkApprovalHint string = 'az network private-endpoint-connection list --resource-group <rg> --name ${last(split(acaEnvId, '/'))} --type Microsoft.App/managedEnvironments'

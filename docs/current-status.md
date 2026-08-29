@@ -121,6 +121,10 @@ Corporate onboarding is tracked separately in [internal-onboarding.md](internal-
 - After the replacement tenant is provisioned, verify its included M365 E5
   licensing, request separately gated products, and recreate Agent Sentinel from
   IaC. Do not depend on an in-place tenant migration.
+- Replacement deployment naming is portable: new environments derive application,
+  connector, Teams, Foundry, CI runner, and web-to-API routing names from a
+  per-environment suffix. The current development parameter file explicitly
+  preserves historical live identity and Foundry names to prevent replacement.
 - Exact tenant, subscription, request, support-case, and smart-card identifiers
   are maintained only in the git-ignored local onboarding handoff.
 

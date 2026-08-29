@@ -44,6 +44,7 @@ module buildRunner './modules/build-runner.bicep' = {
     buildSubnetId: buildSubnetId
     acrId: existingAcr.id
     adminSshPublicKey: adminSshPublicKey
+    runnerIdentityName: 'id-ci-runner-${suffix}'
   }
 }
 
