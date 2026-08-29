@@ -102,6 +102,31 @@ Corporate onboarding is tracked separately in [internal-onboarding.md](internal-
 | Universal adapters                     | Ingestion and composition are implemented. First-party correlation and independent verification of claimed runtime evidence remain.                                            |
 | Business-value evidence                | Requires runtime telemetry plus outcome sources.                                                                                                                               |
 
+## Environment continuity
+
+- The current Managed Environment remains the temporary live development and
+  hackathon environment. Its Microsoft 365 licensing is deprovisioned, so Agent
+  365, Teams, and Defender live validation cannot be completed there.
+- A separate replacement Managed Environment User Tenant request is awaiting
+  Reporting Manager approval. No replacement tenant or subscription exists yet.
+- License-independent application, Azure, Foundry, Entra, Purview, policy,
+  governance, telemetry, and test work continues in the current environment.
+- After the replacement tenant is provisioned, verify its included M365 E5
+  licensing, request separately gated products, and recreate Agent Sentinel from
+  IaC. Do not depend on an in-place tenant migration.
+- Exact tenant, subscription, request, support-case, and smart-card identifiers
+  are maintained only in the git-ignored local onboarding handoff.
+
+## Active deployment incident
+
+- CI produced and deployed the latest immutable web, API, and jobs images on
+  2026-08-29.
+- The public web root returns HTTP 200, but the public `/api/` route was observed
+  returning Azure Container Apps `404 Unavailable` while the API revision
+  reported healthy and ready.
+- Restore and verify the Front Door-to-private-ACA API route before declaring
+  the deployment complete or starting another production-facing slice.
+
 ---
 
 ## Exact evidence boundaries
