@@ -6,6 +6,7 @@ import {
   BotRegular,
   CheckmarkCircleRegular,
   ChevronRightRegular,
+  DataUsageRegular,
   HomeRegular,
   LockClosedRegular,
   NavigationRegular,
@@ -31,6 +32,7 @@ import { ShellMenu } from './ShellMenu'
 const navigation = [
   { label: 'Overview', icon: HomeRegular, to: '/overview', end: true },
   { label: 'Agent inventory', icon: BotRegular, to: '/agent-inventory', end: false },
+  { label: 'Cloud resources', icon: DataUsageRegular, to: '/cloud-resources', end: false },
   { label: 'Agent catalog', icon: BookmarkRegular, to: '/agent-catalog', end: false },
   { label: 'Exposure', icon: ShieldCheckmarkRegular, to: '/exposure', end: false },
   { label: 'Governance', icon: LockClosedRegular, to: '/governance', end: false },
@@ -208,8 +210,8 @@ export function AppLayout() {
             <SearchRegular aria-hidden="true" />
             <Input
               appearance="underline"
-              aria-label="Search agents, identities, tools, and evidence"
-              placeholder="Search agents, identities, tools, evidence"
+              aria-label="Search agents, cloud resources, identities, tools, and evidence"
+              placeholder="Search agents, cloud resources, identities, tools, evidence"
               readOnly
               onClick={() => setSearchOpen(true)}
             />

@@ -47,6 +47,13 @@ const destinations: SearchResult[] = [
     to: '/agent-catalog',
   },
   {
+    id: 'page-cloud-resources',
+    label: 'Cloud resources',
+    detail: 'Azure Resource Graph inventory and evidence',
+    type: 'Page',
+    to: '/cloud-resources',
+  },
+  {
     id: 'page-exposure',
     label: 'Exposure',
     detail: 'Findings and attack paths',
@@ -81,6 +88,7 @@ function iconFor(result: SearchResult) {
     if (result.to === '/exposure') return ShieldCheckmarkRegular
     if (result.to === '/governance') return LockClosedRegular
     if (result.to === '/connectors') return PlugConnectedRegular
+    if (result.to === '/cloud-resources') return DataUsageRegular
     return SearchRegular
   }
   if (result.kind === 'agent') return BotRegular
@@ -110,24 +118,34 @@ function parentAgent(node: GraphNode, state: AgentSentinelState): GraphNode | un
 function searchableAssets(state: AgentSentinelState): SearchResult[] {
   const assets = state.snapshot.nodes.map((node) => {
     const agent = parentAgent(node, state)
+    const cloudResource = node.metadata.sourceConnector === 'azure-resource-graph'
     return {
       id: `asset-${node.id}`,
       label: node.name,
       detail: `${node.kind} · ${node.owner ?? node.environment}`,
       type: node.kind,
       kind: node.kind,
-      to: agent ? `/agent-inventory/${agent.id}` : '/agent-inventory',
+      to: cloudResource
+        ? '/cloud-resources'
+        : agent
+          ? `/agent-inventory/${agent.id}`
+          : '/agent-inventory',
     }
   })
   const evidence = state.snapshot.evidence.map((item) => {
     const linkedNode = state.snapshot.nodes.find((node) => node.evidenceIds.includes(item.id))
     const agent = linkedNode ? parentAgent(linkedNode, state) : undefined
+    const cloudResource = linkedNode?.metadata.sourceConnector === 'azure-resource-graph'
     return {
       id: `evidence-${item.id}`,
       label: item.source,
       detail: `${item.summary} · ${Math.round(item.confidence * 100)}% confidence`,
       type: 'Evidence',
-      to: agent ? `/agent-inventory/${agent.id}` : '/agent-inventory',
+      to: cloudResource
+        ? '/cloud-resources'
+        : agent
+          ? `/agent-inventory/${agent.id}`
+          : '/agent-inventory',
     }
   })
   return [...assets, ...evidence]
@@ -201,7 +219,7 @@ export function GlobalSearchDialog({
         <div className="search-dialog__header">
           <div>
             <span className="eyebrow">GLOBAL SEARCH</span>
-            <h2 id="global-search-title">Find an agent, capability, or workspace</h2>
+            <h2 id="global-search-title">Find an agent, cloud resource, or capability</h2>
           </div>
           <button type="button" onClick={onClose} aria-label="Close search">
             <DismissRegular />
@@ -212,7 +230,7 @@ export function GlobalSearchDialog({
           size="large"
           contentBefore={<SearchRegular />}
           aria-label="Search Agent Sentinel"
-          placeholder="Search agents, identities, tools, evidence, and pages"
+          placeholder="Search agents, cloud resources, identities, tools, evidence, and pages"
           value={query}
           onChange={(_event, data) => setQuery(data.value)}
         />
@@ -220,7 +238,7 @@ export function GlobalSearchDialog({
           {results.length === 0 ? (
             <div className="search-results__empty">
               <strong>No results found</strong>
-              <span>Try an agent name, owner, capability, or workspace.</span>
+              <span>Try an agent, cloud resource, owner, capability, or evidence source.</span>
             </div>
           ) : (
             results.map((result) => {

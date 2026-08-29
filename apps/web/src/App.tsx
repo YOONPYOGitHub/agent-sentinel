@@ -11,6 +11,7 @@ import { usePreferences } from './hooks/usePreferences'
 import { AgentCatalogPage } from './pages/AgentCatalogPage'
 import { AgentDetailPage } from './pages/AgentDetailPage'
 import { AgentInventoryPage } from './pages/AgentInventoryPage'
+import { CloudResourcesPage } from './pages/CloudResourcesPage'
 import { ConnectorsPage } from './pages/ConnectorsPage'
 import { ExposureDetailPage } from './pages/ExposureDetailPage'
 import { ExposurePage } from './pages/ExposurePage'
@@ -70,6 +71,7 @@ function RoutedApplication() {
         <Route path="overview" element={<OverviewPage />} />
         <Route path="agent-inventory" element={<AgentInventoryPage />} />
         <Route path="agent-inventory/:agentId" element={<AgentDetailPage />} />
+        <Route path="cloud-resources" element={<CloudResourcesPage />} />
         <Route path="agent-estate" element={<Navigate to="/agent-inventory" replace />} />
         <Route path="agent-estate/:agentId" element={<AgentEstateDetailRedirect />} />
         <Route path="agent-catalog" element={<AgentCatalogPage />} />

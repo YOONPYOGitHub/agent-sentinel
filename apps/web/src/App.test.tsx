@@ -115,6 +115,15 @@ describe('application routing', () => {
     expect(await screen.findByRole('heading', { name: 'HR Policy Assistant' })).toBeVisible()
   })
 
+  it('renders the cloud resource inventory route', async () => {
+    await renderRoute('/cloud-resources')
+    expect(await screen.findByRole('heading', { name: 'Cloud resources' })).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Cloud resources' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+  })
+
   it('redirects legacy agent estate routes to the inventory', async () => {
     await renderRoute('/agent-estate')
     expect(await screen.findByRole('heading', { name: 'Agent inventory' })).toBeVisible()
@@ -178,13 +187,17 @@ describe('application routing', () => {
     await screen.findByRole('heading', { name: 'Agent operations overview' })
 
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
-    expect(await screen.findByRole('dialog', { name: /Find an agent/i })).toBeVisible()
+    expect(
+      await screen.findByRole('dialog', { name: /Find an agent, cloud resource/i }),
+    ).toBeVisible()
     const shellSearch = screen.getByRole('textbox', {
-      name: 'Search agents, identities, tools, and evidence',
+      name: 'Search agents, cloud resources, identities, tools, and evidence',
     })
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(shellSearch).toHaveFocus())
-    expect(screen.queryByRole('dialog', { name: /Find an agent/i })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('dialog', { name: /Find an agent, cloud resource/i }),
+    ).not.toBeInTheDocument()
 
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
     fireEvent.change(screen.getByRole('textbox', { name: 'Search Agent Sentinel' }), {
@@ -193,7 +206,9 @@ describe('application routing', () => {
     fireEvent.click(screen.getByRole('link', { name: /^Sales Research Agent agent/i }))
 
     expect(await screen.findByRole('heading', { name: 'Sales Research Agent' })).toBeVisible()
-    expect(screen.queryByRole('dialog', { name: /Find an agent/i })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('dialog', { name: /Find an agent, cloud resource/i }),
+    ).not.toBeInTheDocument()
   })
 
   it('makes scope, environment, overflow, and user shell controls informative', async () => {

@@ -65,8 +65,8 @@ export function EvidenceDrawer({ evidence, drawerRef, onClose, onKeyDown }: Evid
           <div>
             <strong>Evidence-first decision</strong>
             <span>
-              This object contributes to the path and risk factors. Missing or stale evidence lowers
-              confidence.
+              This object contributes only the claims stated above. Missing or stale evidence lowers
+              confidence; source presence alone does not establish health, trust, or compliance.
             </span>
           </div>
         </div>
