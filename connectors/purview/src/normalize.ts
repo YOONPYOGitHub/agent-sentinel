@@ -79,7 +79,7 @@ export function mapPurviewLabelsToSnapshot(
     nodes.push({
       id: `${namespace}-control`,
       kind: 'control',
-      name: label.displayName ?? label.name!,
+      name: label.displayName ?? label.name ?? label.id,
       description:
         'Direct Microsoft Purview tenant sensitivity-label catalog definition; no labeled content, usage, user, activity, agent relationship, or compliance outcome is observed.',
       environment: source.environment,

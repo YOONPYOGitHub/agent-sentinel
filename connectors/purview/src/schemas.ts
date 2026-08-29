@@ -8,7 +8,13 @@ export const PURVIEW_SENSITIVITY_LABELS_PATH =
 const azureGuidSchema = z
   .string()
   .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
-const boundedOptionalLabelText = z.string().trim().min(1).max(4_096).optional()
+const optionalLabelText = z
+  .string()
+  .trim()
+  .max(4_096)
+  .nullable()
+  .optional()
+  .transform((value) => (value === null || value === '' ? undefined : value))
 const boundedInteger = z.number().int().min(-2_147_483_648).max(2_147_483_647)
 const applicableTargets = new Set([
   'email',
@@ -19,18 +25,23 @@ const applicableTargets = new Set([
   'schematizedData',
 ])
 const applicableTargetSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(512)
+  .union([
+    z.string().trim().max(512),
+    z
+      .array(z.string().trim().max(128))
+      .max(32)
+      .transform((targets) => targets.join(',')),
+  ])
+  .nullable()
+  .optional()
   .transform((value) => {
+    if (value === null || value === undefined || value === '') return undefined
     const known = value
       .split(',')
       .map((target) => target.trim())
       .filter((target) => applicableTargets.has(target))
     return known.length === 0 ? undefined : known.join(',')
   })
-  .optional()
 
 export function sanitizePurviewGraphBaseUrl(value: string): string {
   const candidate = value.trim()
@@ -136,23 +147,29 @@ export const purviewSensitivityLabelSchema: z.ZodType<PurviewSensitivityLabel> =
         .regex(/^#?microsoft\.graph\.security\.sensitivityLabel$/i)
         .optional(),
       id: azureGuidSchema,
-      displayName: boundedOptionalLabelText,
-      name: boundedOptionalLabelText,
-      color: z.string().trim().min(1).max(128).optional(),
-      sensitivity: boundedInteger.optional(),
-      priority: boundedInteger.optional(),
+      displayName: optionalLabelText,
+      name: optionalLabelText,
+      color: optionalLabelText,
+      sensitivity: boundedInteger
+        .nullable()
+        .optional()
+        .transform((value) => value ?? undefined),
+      priority: boundedInteger
+        .nullable()
+        .optional()
+        .transform((value) => value ?? undefined),
       applicableTo: applicableTargetSchema,
-      isEnabled: z.boolean().optional(),
-      sublabels: z.array(purviewSensitivityLabelSchema).max(100).optional(),
-    })
-    .superRefine((label, context) => {
-      if (label.displayName === undefined && label.name === undefined) {
-        context.addIssue({
-          code: 'custom',
-          path: ['displayName'],
-          message: 'Sensitivity label requires displayName or name.',
-        })
-      }
+      isEnabled: z
+        .boolean()
+        .nullable()
+        .optional()
+        .transform((value) => value ?? undefined),
+      sublabels: z
+        .array(purviewSensitivityLabelSchema)
+        .max(100)
+        .nullable()
+        .optional()
+        .transform((value) => value ?? undefined),
     })
     .transform(({ '@odata.type': metadataType, ...label }) => {
       void metadataType

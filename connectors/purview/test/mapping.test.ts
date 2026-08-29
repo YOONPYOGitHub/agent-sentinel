@@ -26,6 +26,14 @@ const label: PurviewSensitivityLabel = {
 }
 
 describe('Purview sensitivity-label evidence mapping', () => {
+  it('uses the provider label id when display metadata is absent', () => {
+    const snapshot = mapPurviewLabelsToSnapshot(
+      [{ id: '00000000-0000-0000-0000-000000000099' }],
+      source,
+    )
+    expect(snapshot.nodes[0]?.name).toBe('00000000-0000-0000-0000-000000000099')
+  })
+
   it('creates deterministic control evidence with provenance and no correlation edges', () => {
     const first = mapPurviewLabelsToSnapshot([label], source, '2026-08-28T00:00:00Z')
     const repeated = mapPurviewLabelsToSnapshot([label], source, '2026-08-28T01:00:00Z')

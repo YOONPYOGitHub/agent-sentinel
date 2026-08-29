@@ -265,10 +265,30 @@ describe('PurviewGraphClient', () => {
     ])
     expect(nested[0]).not.toHaveProperty('sublabels')
 
+    const nullable = await new PurviewGraphClient(limits, new TestCredential(), TENANT_ID, {
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+        json({
+          value: [
+            {
+              id: '00000000-0000-0000-0000-000000000003',
+              displayName: null,
+              name: null,
+              color: '',
+              sensitivity: null,
+              priority: null,
+              applicableTo: null,
+              isEnabled: null,
+              sublabels: null,
+            },
+          ],
+        }),
+      ),
+    }).collect()
+    expect(nullable).toEqual([{ id: '00000000-0000-0000-0000-000000000003' }])
+
     for (const body of [
       { items: [label] },
       { value: [{ ...label, id: 'not-a-guid' }] },
-      { value: [{ id: LABEL_ID }] },
       { value: [{ ...label, isEnabled: 'true' }] },
     ]) {
       await expect(
