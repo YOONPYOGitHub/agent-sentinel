@@ -36,6 +36,19 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     unlocksScorecard: ['governance', 'lifecycle'],
   },
   {
+    id: 'azure-resource-graph',
+    name: 'Azure Resource Graph',
+    description:
+      'Queries a fixed set of Azure AI and supporting-resource types through the documented Azure Resource Graph REST API. Records are direct, unattributed cloud-resource evidence and are never classified as agents.',
+    lifecycleState: 'available-to-configure',
+    capabilities: ['discovery'],
+    sourceOfTruth: true,
+    ownershipModel: 'consumes',
+    prerequisiteNote:
+      'Implemented read-only and disabled by default. Each source declares exact subscription boundaries and uses existing resource-scoped reads or a separately reviewed Reader assignment. It does not require M365 E5.',
+    unlocksScorecard: [],
+  },
+  {
     id: 'entra-agent-id',
     name: 'Microsoft Entra Agent ID & Entitlements',
     description:
@@ -207,6 +220,10 @@ export function buildConnectorsCollection(
     opts.connectorHealth?.sources.filter(
       (source) => source.id.startsWith('purview:') && source.enabled,
     ) ?? []
+  const enabledAzureResourceGraphSources =
+    opts.connectorHealth?.sources.filter(
+      (source) => source.id.startsWith('azure-resource-graph:') && source.enabled,
+    ) ?? []
   const enabledTeamsDistributionSources =
     opts.connectorHealth?.sources.filter(
       (source) => source.id.startsWith('teams-distribution:') && source.enabled,
@@ -298,6 +315,26 @@ export function buildConnectorsCollection(
           ready === enabledPurviewSources.length
             ? 'connected'
             : ready > 0 || enabledPurviewSources.some((source) => source.readiness === 'degraded')
+              ? 'degraded'
+              : authorizationRequired
+                ? 'authorization-required'
+                : 'unavailable',
+      }
+    }
+    if (entry.id === 'azure-resource-graph' && enabledAzureResourceGraphSources.length > 0) {
+      const ready = enabledAzureResourceGraphSources.filter(
+        (source) => source.readiness === 'ready',
+      ).length
+      const authorizationRequired = enabledAzureResourceGraphSources.some(
+        (source) => source.readiness === 'authorization-required',
+      )
+      return {
+        ...entry,
+        lifecycleState:
+          ready === enabledAzureResourceGraphSources.length
+            ? 'connected'
+            : ready > 0 ||
+                enabledAzureResourceGraphSources.some((source) => source.readiness === 'degraded')
               ? 'degraded'
               : authorizationRequired
                 ? 'authorization-required'

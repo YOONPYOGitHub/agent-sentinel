@@ -410,6 +410,58 @@ describe('buildConnectorsCollection', () => {
     expect(purview?.prerequisiteNote).toContain('no activity/usage evidence')
   })
 
+  it('describes Azure Resource Graph as read-only unattributed resource evidence', () => {
+    const result = buildConnectorsCollection('mock', { connectorId: 'mock-agent-estate' })
+    const resourceGraph = result.catalog.find((entry) => entry.id === 'azure-resource-graph')
+    expect(resourceGraph).toMatchObject({
+      lifecycleState: 'available-to-configure',
+      capabilities: ['discovery'],
+      sourceOfTruth: true,
+      ownershipModel: 'consumes',
+      unlocksScorecard: [],
+    })
+    expect(resourceGraph?.description).toContain('unattributed')
+    expect(resourceGraph?.description).toContain('never classified as agents')
+    expect(resourceGraph?.prerequisiteNote).toContain('Reader')
+    expect(resourceGraph?.prerequisiteNote).toContain('does not require M365 E5')
+  })
+
+  it.each([
+    ['ready', 'connected'],
+    ['degraded', 'degraded'],
+    ['authorization-required', 'authorization-required'],
+    ['unavailable', 'unavailable'],
+  ] as const)('maps enabled Azure Resource Graph %s health to %s', (readiness, lifecycle) => {
+    const result = buildConnectorsCollection('foundry', {
+      connectorId: 'foundry-test',
+      connectorHealth: {
+        overall: readiness === 'ready' ? 'ready' : 'degraded',
+        partial: readiness !== 'ready',
+        sources: [
+          {
+            id: 'foundry:primary',
+            name: 'Foundry',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+          },
+          {
+            id: 'azure-resource-graph:primary',
+            name: 'Azure subscription',
+            role: 'enrichment',
+            enabled: true,
+            configured: true,
+            readiness,
+          },
+        ],
+      },
+    })
+    expect(
+      result.catalog.find((entry) => entry.id === 'azure-resource-graph')?.lifecycleState,
+    ).toBe(lifecycle)
+  })
+
   it.each([
     ['ready', 'connected'],
     ['degraded', 'degraded'],

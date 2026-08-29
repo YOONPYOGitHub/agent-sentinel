@@ -131,6 +131,18 @@ param purviewMaxRetries string = '2'
 param purviewMaxRetryAfterMs string = '30000'
 param purviewMaxResponseBytes string = '2000000'
 
+@description('Enable bounded read-only Azure Resource Graph inventory. Existing resource-scoped access is used unless broader Reader scope is separately approved.')
+param azureResourceGraphConnectorEnabled bool = false
+@description('Optional JSON array of Azure Resource Graph tenant/subscription sources.')
+param azureResourceGraphSourcesJson string = ''
+param azureResourceGraphPageSize string = '200'
+param azureResourceGraphMaxPages string = '20'
+param azureResourceGraphMaxItems string = '5000'
+param azureResourceGraphRequestTimeoutMs string = '15000'
+param azureResourceGraphMaxRetries string = '2'
+param azureResourceGraphMaxRetryAfterMs string = '30000'
+param azureResourceGraphMaxResponseBytes string = '2000000'
+
 @description('Enable read-only Microsoft Teams organization app catalog evidence. Keep false until tenant-admin AppCatalog.Read.All application consent is approved.')
 param teamsDistributionConnectorEnabled bool = false
 @description('Optional JSON array of up to 50 unique Microsoft Teams tenant catalog sources.')
@@ -396,6 +408,15 @@ module containerApps './modules/container-apps.bicep' = {
     purviewMaxRetries: purviewMaxRetries
     purviewMaxRetryAfterMs: purviewMaxRetryAfterMs
     purviewMaxResponseBytes: purviewMaxResponseBytes
+    azureResourceGraphConnectorEnabled: azureResourceGraphConnectorEnabled
+    azureResourceGraphSourcesJson: azureResourceGraphSourcesJson
+    azureResourceGraphPageSize: azureResourceGraphPageSize
+    azureResourceGraphMaxPages: azureResourceGraphMaxPages
+    azureResourceGraphMaxItems: azureResourceGraphMaxItems
+    azureResourceGraphRequestTimeoutMs: azureResourceGraphRequestTimeoutMs
+    azureResourceGraphMaxRetries: azureResourceGraphMaxRetries
+    azureResourceGraphMaxRetryAfterMs: azureResourceGraphMaxRetryAfterMs
+    azureResourceGraphMaxResponseBytes: azureResourceGraphMaxResponseBytes
     teamsDistributionConnectorEnabled: teamsDistributionConnectorEnabled
     teamsDistributionSourcesJson: teamsDistributionSourcesJson
     teamsDistributionTenantId: teamsDistributionTenantId

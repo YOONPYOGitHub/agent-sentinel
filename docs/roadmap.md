@@ -175,6 +175,13 @@ evidence, and reports missing tenant consent independently. Deployment
 activation uses tenant-admin `Application.Read.All`; the primary source is live
 with optional owner, app-role, and preview reads disabled.
 
+**Azure Resource Graph inventory — implemented, activation pending:** a fixed
+GA REST query reads bounded Azure AI and supporting-resource fields for exact
+subscription scopes. Records remain unattributed control/evidence and never
+become agents or edges. The live contract is validated; deployed UAMI coverage
+must be measured with existing rights before any broader Reader assignment is
+considered.
+
 **Multi-source Power Platform inventory — implemented, activation pending:**
 the official ResourceQuery API supplies bounded Copilot Studio and Microsoft
 365 Copilot Agent Builder core inventory. Sources are independent of Foundry
@@ -217,6 +224,7 @@ resource is configured by this change.
 | ------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------- |
 | Microsoft Agent 365 (`m365-agent-registry`) | `authorization-required` | Agent 365 license plus tenant-admin `CopilotPackages.Read.All` application consent                       |
 | Microsoft Entra identity and entitlements   | `connected`              | Primary stable v1.0 inventory is live; each additional tenant requires consent                           |
+| Azure Resource Graph                        | `available-to-configure` | Deploy with existing resource-scoped UAMI rights; broader Reader coverage requires separate approval     |
 | Microsoft Purview                           | `connected`              | Primary label-definition catalog is live; catalog evidence does not prove usage                          |
 | Microsoft Defender for Cloud Apps           | `authorization-required` | Licensing/API availability, tenant portal URL, and tenant-admin `Investigation.Read` application consent |
 | Microsoft Copilot Studio / Agent Builder    | `authorization-required` | Power Platform Reader (or approved ResourceQuery read RBAC); schema is preview                           |

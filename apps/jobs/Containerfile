@@ -12,6 +12,7 @@ COPY connectors/foundry/package.json connectors/foundry/
 COPY connectors/entra-identity/package.json connectors/entra-identity/
 COPY connectors/power-platform/package.json connectors/power-platform/
 COPY connectors/agent365/package.json connectors/agent365/
+COPY connectors/azure-resource-graph/package.json connectors/azure-resource-graph/
 COPY connectors/defender-cloud-apps/package.json connectors/defender-cloud-apps/
 COPY connectors/purview/package.json connectors/purview/
 COPY connectors/teams-distribution/package.json connectors/teams-distribution/
@@ -33,6 +34,7 @@ RUN pnpm --filter @agent-sentinel/foundry-connector build
 RUN pnpm --filter @agent-sentinel/entra-identity-connector build
 RUN pnpm --filter @agent-sentinel/power-platform-connector build
 RUN pnpm --filter @agent-sentinel/agent365-connector build
+RUN pnpm --filter @agent-sentinel/azure-resource-graph-connector build
 RUN pnpm --filter @agent-sentinel/defender-cloud-apps-connector build
 RUN pnpm --filter @agent-sentinel/purview-connector build
 RUN pnpm --filter @agent-sentinel/teams-distribution-connector build
@@ -66,6 +68,8 @@ COPY --from=builder /workspace/connectors/power-platform/dist ./connectors/power
 COPY --from=builder /workspace/connectors/power-platform/package.json ./connectors/power-platform/
 COPY --from=builder /workspace/connectors/agent365/dist ./connectors/agent365/dist/
 COPY --from=builder /workspace/connectors/agent365/package.json ./connectors/agent365/
+COPY --from=builder /workspace/connectors/azure-resource-graph/dist ./connectors/azure-resource-graph/dist/
+COPY --from=builder /workspace/connectors/azure-resource-graph/package.json ./connectors/azure-resource-graph/
 COPY --from=builder /workspace/connectors/defender-cloud-apps/dist ./connectors/defender-cloud-apps/dist/
 COPY --from=builder /workspace/connectors/defender-cloud-apps/package.json ./connectors/defender-cloud-apps/
 COPY --from=builder /workspace/connectors/purview/dist ./connectors/purview/dist/

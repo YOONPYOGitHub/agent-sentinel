@@ -154,6 +154,16 @@ param purviewMaxRetries string = '2'
 param purviewMaxRetryAfterMs string = '30000'
 param purviewMaxResponseBytes string = '2000000'
 
+param azureResourceGraphConnectorEnabled bool = false
+param azureResourceGraphSourcesJson string = ''
+param azureResourceGraphPageSize string = '200'
+param azureResourceGraphMaxPages string = '20'
+param azureResourceGraphMaxItems string = '5000'
+param azureResourceGraphRequestTimeoutMs string = '15000'
+param azureResourceGraphMaxRetries string = '2'
+param azureResourceGraphMaxRetryAfterMs string = '30000'
+param azureResourceGraphMaxResponseBytes string = '2000000'
+
 param teamsDistributionConnectorEnabled bool = false
 param teamsDistributionSourcesJson string = ''
 param teamsDistributionTenantId string = ''
@@ -229,6 +239,22 @@ var effectivePurviewSourcesJson = purviewConnectorEnabled && empty(purviewSource
     }
   }
 ]) : purviewSourcesJson
+
+var effectiveAzureResourceGraphSourcesJson = azureResourceGraphConnectorEnabled && empty(azureResourceGraphSourcesJson) && !empty(uamiClientId) ? string([
+  {
+    id: 'primary'
+    name: 'Primary Azure subscription'
+    tenantId: foundryTenantId
+    environment: foundryEnvironment
+    subscriptions: [
+      subscription().subscriptionId
+    ]
+    credential: {
+      mode: 'default'
+      managedIdentityClientId: uamiClientId
+    }
+  }
+]) : azureResourceGraphSourcesJson
 
 var effectiveTeamsDistributionSourcesJson = teamsDistributionConnectorEnabled && empty(teamsDistributionSourcesJson) && !empty(teamsUamiClientId) ? string([
   {
@@ -321,6 +347,15 @@ var env = [
   { name: 'PURVIEW_MAX_RETRIES',                    value: purviewMaxRetries }
   { name: 'PURVIEW_MAX_RETRY_AFTER_MS',             value: purviewMaxRetryAfterMs }
   { name: 'PURVIEW_MAX_RESPONSE_BYTES',             value: purviewMaxResponseBytes }
+  { name: 'AZURE_RESOURCE_GRAPH_CONNECTOR_ENABLED', value: string(azureResourceGraphConnectorEnabled) }
+  { name: 'AZURE_RESOURCE_GRAPH_SOURCES_JSON',      value: azureResourceGraphConnectorEnabled ? effectiveAzureResourceGraphSourcesJson : '' }
+  { name: 'AZURE_RESOURCE_GRAPH_PAGE_SIZE',         value: azureResourceGraphPageSize }
+  { name: 'AZURE_RESOURCE_GRAPH_MAX_PAGES',         value: azureResourceGraphMaxPages }
+  { name: 'AZURE_RESOURCE_GRAPH_MAX_ITEMS',         value: azureResourceGraphMaxItems }
+  { name: 'AZURE_RESOURCE_GRAPH_REQUEST_TIMEOUT_MS', value: azureResourceGraphRequestTimeoutMs }
+  { name: 'AZURE_RESOURCE_GRAPH_MAX_RETRIES',       value: azureResourceGraphMaxRetries }
+  { name: 'AZURE_RESOURCE_GRAPH_MAX_RETRY_AFTER_MS', value: azureResourceGraphMaxRetryAfterMs }
+  { name: 'AZURE_RESOURCE_GRAPH_MAX_RESPONSE_BYTES', value: azureResourceGraphMaxResponseBytes }
   { name: 'TEAMS_DISTRIBUTION_CONNECTOR_ENABLED',   value: string(teamsDistributionConnectorEnabled) }
   { name: 'TEAMS_DISTRIBUTION_SOURCES_JSON',        value: teamsDistributionConnectorEnabled ? effectiveTeamsDistributionSourcesJson : '' }
   { name: 'TEAMS_DISTRIBUTION_TENANT_ID',           value: teamsDistributionConnectorEnabled ? teamsDistributionTenantId : '' }

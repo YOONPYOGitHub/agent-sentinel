@@ -6,6 +6,9 @@ This is the authoritative dated ledger for the Agent Sentinel control plane. Eve
 
 This document contains no secrets, tokens, subscription or tenant identifiers, personal contact details, or local absolute user paths.
 
+Connector implementation, blocker type, and activation conditions are tracked
+in [connector-availability.md](connector-availability.md).
+
 ---
 
 ## Recent delivery on `feature/governance-phase1-completion`
@@ -50,6 +53,7 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 | Unified live exposure projections          | **Current.** Live Overview always renders persisted `ExposureFinding` posture instead of the mock demo workflow. Trust, lifecycle, agent detail, exposure, and governance consume the same active exposure contract; the legacy attack-path `Finding` remains mock-only.                                                                                         |
 | Entra authentication and RBAC              | **Live, read-only.** Strict API tenant/audience/issuer/JWKS/scope validation and MSAL employee login are deployed. Anonymous access returns `401`; Viewer mutation returns `403`; `/api/auth/me` returns a sanitized principal. Broader live role validation remains pending.                                                                                    |
 | Entra identity enrichment                  | **Live for the primary source.** `Application.Read.All` reads 539 validated service principals into the complete Cosmos snapshot. Optional owners, app roles, and preview APIs remain disabled. Current Foundry agents expose no matching identity metadata, so `RUNS_AS` correlation is correctly empty rather than inferred.                                   |
+| Azure Resource Graph inventory             | **Implementation complete; deployment activation pending.** A fixed GA REST query maps only bounded Azure AI/supporting-resource fields to unattributed control/evidence records. A live user-credential contract check produced 64 resources and zero inferred edges. UAMI-visible coverage remains to be measured without widening RBAC.                       |
 | Power Platform agent inventory             | **Configured; provider authorization pending.** The official ResourceQuery connector uses a dedicated read-only managed identity and exact environment boundary, but the service still returns `403`. No inventory is persisted until the source reports ready.                                                                                                  |
 | Defender for Cloud Apps evidence           | **Permission ready; licensing pending.** The dedicated identity has read-only investigation permission, but the tenant has no Defender for Cloud Apps subscription or portal. The connector remains disabled pending managed-environment licensing.                                                                                                              |
 | Purview sensitivity-label catalog          | **Live, read-only.** The dedicated identity and `SensitivityLabel.Read` source are active on API/jobs. Bounded nested label definitions are composed as unattributed control evidence, and complete jobs snapshots persist without content, usage, user, agent, trust, or compliance claims.                                                                     |
@@ -66,14 +70,15 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 
 ## In progress
 
-| Item                                         | Where it stands                                                                                                                                                                                    |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unified inventory for future connectors      | Inventory renders any connector's records. Purview now supplies live governance controls; Power Platform and Teams remain provider-gated after read-only role assignment.                          |
-| Employee catalog entitlement personalization | The assurance overlay renders. Per-employee entitlement filtering needs an authenticated principal.                                                                                                |
-| Additional Foundry sources                   | Runtime aggregation is implemented. Each target project still requires an approved credential/federation setup and `Azure AI User`; the current deployment remains the `primary` source only.      |
-| Live role coverage                           | Employee login and Viewer boundaries are validated. Analyst, Approver, Administrator, and write-scope live-token validation remain pending before any public write-path change.                    |
-| Manifest ingestion activation                | The dedicated container and API/jobs images are deployed. The endpoint remains blocked by writes-false; activation requires Administrator, write-scope, and exact public-edge mutation validation. |
-| Repository documentation                     | This rebuild. Superseded and contradictory statements are being corrected in place.                                                                                                                |
+| Item                                         | Where it stands                                                                                                                                                                                          |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unified inventory for future connectors      | Inventory renders any connector's records. Purview now supplies live governance controls; Power Platform and Teams remain provider-gated after read-only role assignment.                                |
+| Azure Resource Graph activation              | Code, API/jobs composition, images, and fail-closed IaC configuration are implemented. Deploy with existing UAMI rights and measure the authorized resource view before considering broader Reader RBAC. |
+| Employee catalog entitlement personalization | The assurance overlay renders. Per-employee entitlement filtering needs an authenticated principal.                                                                                                      |
+| Additional Foundry sources                   | Runtime aggregation is implemented. Each target project still requires an approved credential/federation setup and `Azure AI User`; the current deployment remains the `primary` source only.            |
+| Live role coverage                           | Employee login and Viewer boundaries are validated. Analyst, Approver, Administrator, and write-scope live-token validation remain pending before any public write-path change.                          |
+| Manifest ingestion activation                | The dedicated container and API/jobs images are deployed. The endpoint remains blocked by writes-false; activation requires Administrator, write-scope, and exact public-edge mutation validation.       |
+| Repository documentation                     | This rebuild. Superseded and contradictory statements are being corrected in place.                                                                                                                      |
 
 ---
 

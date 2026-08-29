@@ -17,6 +17,7 @@ param powerPlatformConnectorEnabled = false
 param agent365ConnectorEnabled = false
 param defenderCloudAppsConnectorEnabled = false
 param purviewConnectorEnabled = false
+param azureResourceGraphConnectorEnabled = false
 param teamsDistributionConnectorEnabled = false
 param authMode = 'disabled'
 param foundryProjectEndpoint = 'https://ais-agent-sentinel-260814.services.ai.azure.com/api/projects/agent-sentinel-pjt'

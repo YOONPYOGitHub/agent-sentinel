@@ -331,4 +331,46 @@ describe('connector selection', () => {
       'teams-distribution:primary',
     ])
   })
+
+  it('wraps Azure Resource Graph after Purview with exact subscription boundaries', () => {
+    const tenantId = '11111111-1111-4111-8111-111111111111'
+    const subscriptionId = '22222222-2222-4222-8222-222222222222'
+    const result = createConfiguredConnector(
+      {
+        AGENT_SENTINEL_CONNECTOR: 'foundry',
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+        FOUNDRY_TENANT_ID: tenantId,
+        FOUNDRY_ENVIRONMENT: 'validation',
+        AZURE_RESOURCE_GRAPH_CONNECTOR_ENABLED: 'true',
+        AZURE_RESOURCE_GRAPH_SOURCES_JSON: JSON.stringify([
+          {
+            id: 'primary',
+            name: 'Primary Azure subscription',
+            tenantId,
+            environment: 'validation',
+            subscriptions: [subscriptionId],
+          },
+        ]),
+      },
+      {
+        credential: { getToken: () => Promise.resolve(null) },
+        azureResourceGraphClient: {
+          fetcher: () =>
+            Promise.resolve(
+              Response.json({
+                totalRecords: 0,
+                count: 0,
+                resultTruncated: 'false',
+                data: [],
+              }),
+            ),
+        },
+      },
+    )
+    expect(result.connector.getConnectorHealth?.().sources.map((source) => source.id)).toEqual([
+      'foundry:primary',
+      'entra:primary',
+      'azure-resource-graph:primary',
+    ])
+  })
 })

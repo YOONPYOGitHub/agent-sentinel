@@ -3,6 +3,11 @@ import {
   type Agent365ClientOptions,
   type Agent365CredentialFactory,
 } from '@agent-sentinel/agent365-connector'
+import {
+  createOptionalAzureResourceGraphConnector,
+  type AzureResourceGraphClientOptions,
+  type AzureResourceGraphCredentialFactory,
+} from '@agent-sentinel/azure-resource-graph-connector'
 import type { AgentConnector } from '@agent-sentinel/connector-sdk'
 import {
   createOptionalDefenderCloudAppsConnector,
@@ -45,6 +50,8 @@ export interface JobsConnectorOptions {
   powerPlatformClient?: PowerPlatformClientOptions
   agent365CredentialFactory?: Agent365CredentialFactory
   agent365Client?: Agent365ClientOptions
+  azureResourceGraphCredentialFactory?: AzureResourceGraphCredentialFactory
+  azureResourceGraphClient?: AzureResourceGraphClientOptions
   defenderCloudAppsCredentialFactory?: DefenderCloudAppsCredentialFactory
   defenderCloudAppsClient?: DefenderCloudAppsClientOptions
   purviewCredentialFactory?: PurviewCredentialFactory
@@ -108,7 +115,17 @@ export function buildConnector(
         : {}),
     ...(options.purviewClient !== undefined ? { client: options.purviewClient } : {}),
   })
-  return createOptionalTeamsDistributionConnector(purview, environment, {
+  const azureResourceGraph = createOptionalAzureResourceGraphConnector(purview, environment, {
+    ...(options.azureResourceGraphCredentialFactory !== undefined
+      ? { credentialFactory: options.azureResourceGraphCredentialFactory }
+      : options.credential !== undefined
+        ? { credential: options.credential }
+        : {}),
+    ...(options.azureResourceGraphClient !== undefined
+      ? { client: options.azureResourceGraphClient }
+      : {}),
+  })
+  return createOptionalTeamsDistributionConnector(azureResourceGraph, environment, {
     ...(options.teamsDistributionCredentialFactory !== undefined
       ? { credentialFactory: options.teamsDistributionCredentialFactory }
       : options.credential !== undefined
