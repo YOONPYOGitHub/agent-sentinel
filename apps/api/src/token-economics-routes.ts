@@ -1,8 +1,12 @@
 import { createHash } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 
-import type { TokenEconomicsReport } from '@agent-sentinel/domain'
-import { tokenEconomicsReportSchema } from '@agent-sentinel/domain'
+import type {
+  EstateSnapshot,
+  TokenEconomicsAttribution,
+  TokenEconomicsReport,
+} from '@agent-sentinel/domain'
+import { tokenEconomicsAttributionSchema, tokenEconomicsReportSchema } from '@agent-sentinel/domain'
 import { analyzeTokenEconomics } from '@agent-sentinel/behavior-engine'
 import { computeBaseline } from '@agent-sentinel/behavior-engine'
 import { MOCK_TOKEN_ECONOMICS_WINDOWS } from '@agent-sentinel/mock-connector'
@@ -18,10 +22,71 @@ export interface TokenEconomicsRoutesOptions {
   defaultTenantId: string
   runtimeTelemetryConnector?: RuntimeTelemetryConnector
   resolveTelemetryRequest?: (agentId: string) => Promise<RuntimeTelemetryRequest | undefined>
+  resolveAttribution?: (agentId: string) => Promise<TokenEconomicsAttribution | undefined>
 }
 
 function unavailableReportId(agentId: string): string {
   return 'te-unavail-' + createHash('sha256').update(agentId).digest('hex').slice(0, 12)
+}
+
+function unknownAttribution(
+  reason: Extract<TokenEconomicsAttribution['reason'], string>,
+): TokenEconomicsAttribution {
+  return tokenEconomicsAttributionSchema.parse({ status: 'unknown', reason })
+}
+
+async function resolvedAttribution(
+  opts: TokenEconomicsRoutesOptions,
+  agentId: string,
+): Promise<TokenEconomicsAttribution> {
+  if (opts.resolveAttribution === undefined) return unknownAttribution('resolver-not-configured')
+  try {
+    const attribution = await opts.resolveAttribution(agentId)
+    return attribution === undefined
+      ? unknownAttribution('agent-not-found')
+      : tokenEconomicsAttributionSchema.parse(attribution)
+  } catch {
+    return unknownAttribution('source-resolution-failed')
+  }
+}
+
+export function tokenEconomicsAttributionForAgent(
+  snapshot: EstateSnapshot | null | undefined,
+  agentId: string,
+): TokenEconomicsAttribution {
+  if (snapshot === undefined || snapshot === null)
+    return unknownAttribution('source-snapshot-unavailable')
+  const agent = snapshot.nodes.find((node) => node.kind === 'agent' && node.id === agentId)
+  if (agent === undefined) return unknownAttribution('agent-not-found')
+  if (
+    agent.metadata['sourceOfTruth'] === 'false' ||
+    agent.metadata['isNonAuthoritative'] === 'true'
+  ) {
+    return unknownAttribution('non-authoritative-agent')
+  }
+  const evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]))
+  const evidenceIds = agent.evidenceIds.filter(
+    (id) => evidenceById.get(id)?.evidenceTypes.includes('declared_configuration') === true,
+  )
+  if (evidenceIds.length === 0) return unknownAttribution('source-evidence-unavailable')
+
+  const owner = agent.owner?.trim()
+  const businessUnit = agent.metadata['businessUnit']?.trim()
+  if (!owner && !businessUnit) return unknownAttribution('source-values-unavailable')
+  const value = (entry: string) => ({ value: entry, evidenceIds })
+  return tokenEconomicsAttributionSchema.parse({
+    status: owner && businessUnit ? 'sourced' : 'partial',
+    ...(owner ? { owner: value(owner) } : {}),
+    ...(businessUnit ? { businessUnit: value(businessUnit) } : {}),
+    ...(!owner || !businessUnit ? { reason: 'source-value-unavailable' as const } : {}),
+  })
+}
+
+function attachAttribution(
+  report: TokenEconomicsReport,
+  attribution: TokenEconomicsAttribution,
+): TokenEconomicsReport {
+  return tokenEconomicsReportSchema.parse({ ...report, attribution })
 }
 
 /**
@@ -47,6 +112,7 @@ export function registerTokenEconomicsRoutes(
     async (request, reply) => {
       const { agentId } = request.params
       const tenantId = opts.defaultTenantId
+      const attribution = await resolvedAttribution(opts, agentId)
 
       if (opts.mode === 'foundry') {
         if (opts.runtimeTelemetryConnector !== undefined) {
@@ -67,7 +133,7 @@ export function registerTokenEconomicsRoutes(
                 unavailableReason:
                   'No exact runtime telemetry source binding exists for this discovered agent.',
               })
-              return reply.status(200).send(result)
+              return reply.status(200).send(attachAttribution(result, attribution))
             }
             const telemetryRequest = resolvedRequest ?? { tenantId, agentId }
             const windows = withoutSyntheticObservations(
@@ -86,7 +152,7 @@ export function registerTokenEconomicsRoutes(
                 clock: () => new Date(windows.queriedAt),
                 observedEvidenceId: windows.observedEvidenceId,
               })
-              return reply.status(200).send(result)
+              return reply.status(200).send(attachAttribution(result, attribution))
             }
             const result: TokenEconomicsReport = tokenEconomicsReportSchema.parse({
               reportId: unavailableReportId(agentId),
@@ -101,7 +167,7 @@ export function registerTokenEconomicsRoutes(
                 baselineResult.error === 'insufficient-data' ? 'insufficient-data' : 'unavailable',
               unavailableReason: baselineResult.reason,
             })
-            return reply.status(200).send(result)
+            return reply.status(200).send(attachAttribution(result, attribution))
           } catch {
             const now = new Date().toISOString()
             const result: TokenEconomicsReport = tokenEconomicsReportSchema.parse({
@@ -117,7 +183,7 @@ export function registerTokenEconomicsRoutes(
               unavailableReason:
                 'Runtime telemetry provider query failed or returned data that did not satisfy the connector contract.',
             })
-            return reply.status(200).send(result)
+            return reply.status(200).send(attachAttribution(result, attribution))
           }
         }
 
@@ -135,7 +201,7 @@ export function registerTokenEconomicsRoutes(
             'Runtime telemetry connector is not configured. ' +
             'Connect the azure-monitor-otel connector to unlock token economics analysis.',
         })
-        return reply.status(200).send(result)
+        return reply.status(200).send(attachAttribution(result, attribution))
       }
 
       // Mock mode
@@ -153,14 +219,14 @@ export function registerTokenEconomicsRoutes(
           status: 'insufficient-data',
           unavailableReason: 'No synthetic observation windows are defined for this agent.',
         })
-        return reply.status(200).send(result)
+        return reply.status(200).send(attachAttribution(result, attribution))
       }
 
       const report = analyzeTokenEconomics(windows.observed, windows.baseline, {
         clock: windows.clock,
         observedEvidenceId: windows.observedEvidenceId,
       })
-      return reply.status(200).send(report)
+      return reply.status(200).send(attachAttribution(report, attribution))
     },
   )
 }

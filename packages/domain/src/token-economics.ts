@@ -123,6 +123,48 @@ export const tokenEconomicsCoverageSchema = z
   })
 export type TokenEconomicsCoverage = z.infer<typeof tokenEconomicsCoverageSchema>
 
+export const tokenEconomicsAttributionValueSchema = z.object({
+  value: z.string().min(1).max(200),
+  evidenceIds: z.array(z.string().min(1).max(200)).min(1).max(20),
+})
+export type TokenEconomicsAttributionValue = z.infer<typeof tokenEconomicsAttributionValueSchema>
+
+export const tokenEconomicsAttributionSchema = z
+  .object({
+    status: z.enum(['sourced', 'partial', 'unknown']),
+    owner: tokenEconomicsAttributionValueSchema.optional(),
+    businessUnit: tokenEconomicsAttributionValueSchema.optional(),
+    reason: z
+      .enum([
+        'resolver-not-configured',
+        'agent-not-found',
+        'non-authoritative-agent',
+        'source-values-unavailable',
+        'source-evidence-unavailable',
+        'source-snapshot-unavailable',
+        'source-resolution-failed',
+        'source-value-unavailable',
+      ])
+      .optional(),
+  })
+  .superRefine((attribution, context) => {
+    const valueCount =
+      Number(attribution.owner !== undefined) + Number(attribution.businessUnit !== undefined)
+    if (
+      (attribution.status === 'sourced' &&
+        (valueCount !== 2 || attribution.reason !== undefined)) ||
+      (attribution.status === 'partial' &&
+        (valueCount !== 1 || attribution.reason !== 'source-value-unavailable')) ||
+      (attribution.status === 'unknown' && (valueCount !== 0 || attribution.reason === undefined))
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Attribution status must exactly reflect sourced owner and business-unit values.',
+      })
+    }
+  })
+export type TokenEconomicsAttribution = z.infer<typeof tokenEconomicsAttributionSchema>
+
 // ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
@@ -149,6 +191,7 @@ export const tokenEconomicsReportSchema = z
     computedAt: z.iso.datetime(),
     status: tokenEconomicsAnalysisStatusSchema,
     unavailableReason: z.string().min(1).optional(),
+    attribution: tokenEconomicsAttributionSchema.optional(),
     baselineEvidenceId: z.string().min(1).max(200).optional(),
     observedEvidenceId: z.string().min(1).max(200).optional(),
     coverage: tokenEconomicsCoverageSchema.optional(),

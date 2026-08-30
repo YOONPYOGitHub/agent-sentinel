@@ -563,6 +563,8 @@ export {
   tokenEconomicsAnalysisStatusSchema,
   tokenEconomicsAnomalyDimensionSchema,
   tokenEconomicsAnomalySchema,
+  tokenEconomicsAttributionSchema,
+  tokenEconomicsAttributionValueSchema,
   tokenEconomicsCoverageSchema,
   tokenEconomicsReportSchema,
 } from './token-economics.js'
@@ -571,6 +573,8 @@ export type {
   TokenEconomicsAnalysisStatus,
   TokenEconomicsAnomalyDimension,
   TokenEconomicsAnomaly,
+  TokenEconomicsAttribution,
+  TokenEconomicsAttributionValue,
   TokenEconomicsCoverage,
   TokenEconomicsReport,
 } from './token-economics.js'

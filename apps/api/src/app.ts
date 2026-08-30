@@ -51,7 +51,10 @@ import {
 } from './governance-queue-routes.js'
 import { buildConnectorsCollection } from './connectors-catalog.js'
 import { registerBehaviorRoutes } from './behavior-routes.js'
-import { registerTokenEconomicsRoutes } from './token-economics-routes.js'
+import {
+  registerTokenEconomicsRoutes,
+  tokenEconomicsAttributionForAgent,
+} from './token-economics-routes.js'
 import { registerManifestIngestionRoutes } from './manifest-ingestion-routes.js'
 import { registerBusinessValueRoutes } from './business-value-routes.js'
 
@@ -441,6 +444,13 @@ export async function createApp(
     ...(governanceCaseRepository ? { repository: governanceCaseRepository } : {}),
   })
   const resolveTelemetryRequest = telemetryRequestResolver(snapshotRepository)
+  const resolveTokenEconomicsAttribution = async (agentId: string) => {
+    const snapshot =
+      resolvedDataMode === 'live'
+        ? await snapshotRepository?.findLatest(defaultTenantId(), defaultEnvironment())
+        : (await stateService.getState()).snapshot
+    return tokenEconomicsAttributionForAgent(snapshot, agentId)
+  }
   registerBehaviorRoutes(app, {
     mode: exposureMode,
     defaultTenantId: defaultTenantId(),
@@ -452,6 +462,7 @@ export async function createApp(
     defaultTenantId: defaultTenantId(),
     ...(runtimeTelemetryConnector !== undefined ? { runtimeTelemetryConnector } : {}),
     ...(resolveTelemetryRequest !== undefined ? { resolveTelemetryRequest } : {}),
+    resolveAttribution: resolveTokenEconomicsAttribution,
   })
   const resolveBusinessOutcomeRequest = async (
     agentId: string,

@@ -319,6 +319,7 @@ export function mapAgentToSnapshot(
         modelDeployment: agent.model ?? '',
         lifecycle: metadata.lifecycle ?? 'active',
         approvalRequired: metadata.approvalRequired ?? 'false',
+        ...(metadata.businessUnit !== undefined ? { businessUnit: metadata.businessUnit } : {}),
         apiVersion,
         ...explicitIdentityMetadata(metadata),
       },

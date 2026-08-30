@@ -12,7 +12,12 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import type { ExposureFinding, ExposurePage, TokenEconomicsReport } from '@agent-sentinel/domain'
+import type {
+  ExposureFinding,
+  ExposurePage,
+  TokenEconomicsAttributionValue,
+  TokenEconomicsReport,
+} from '@agent-sentinel/domain'
 
 import { exposureApi } from '../api/exposure-api'
 import { PageHeading } from '../components/PageHeading'
@@ -428,6 +433,11 @@ function AgentTokenEconomicsCard({ agentId, label }: { agentId: string; label: s
   )
 }
 
+function attributionLabel(value: TokenEconomicsAttributionValue | undefined): string {
+  if (value === undefined) return 'Unknown — source value unavailable'
+  return `${value.value} · ${value.evidenceIds.length} cited evidence`
+}
+
 function TokenEconomicsCardContent({
   state,
 }: {
@@ -517,6 +527,14 @@ function TokenEconomicsCardContent({
             {report.coverage?.deduplicatedObservations ?? 0} observations ·{' '}
             {report.coverage?.successCount ?? 0} successes
           </dd>
+        </div>
+        <div>
+          <dt>Cost owner</dt>
+          <dd>{attributionLabel(report.attribution?.owner)}</dd>
+        </div>
+        <div>
+          <dt>Business unit</dt>
+          <dd>{attributionLabel(report.attribution?.businessUnit)}</dd>
         </div>
       </dl>
       {report.anomalies !== undefined && report.anomalies.length > 0 && (

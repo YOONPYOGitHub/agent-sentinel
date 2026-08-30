@@ -7,6 +7,7 @@ import {
   createRuntimeTelemetryFixture,
   createSyntheticCanaryTelemetryFixture,
 } from './runtime-telemetry-fixture.js'
+import { tokenEconomicsAttributionForAgent } from '../src/token-economics-routes.js'
 
 function makeStubRepositories(): {
   exposureRepository: ExposureFindingRepository
@@ -23,8 +24,10 @@ function makeStubRepositories(): {
         name: 'Live agent',
         description: 'Test agent.',
         environment: 'production',
+        owner: 'Runtime Platform',
         evidenceIds: ['evidence-1'],
         metadata: {
+          businessUnit: 'Engineering',
           sourceConnectorId: 'primary',
           sourceTenantId: 'tenant-demo',
           sourceEnvironment: 'production',
@@ -81,6 +84,13 @@ async function makeFoundryApp() {
 }
 
 describe('token economics API - mock mode', () => {
+  it('reports an unavailable source snapshot separately from an unknown agent', () => {
+    expect(tokenEconomicsAttributionForAgent(undefined, 'agent-a')).toEqual({
+      status: 'unknown',
+      reason: 'source-snapshot-unavailable',
+    })
+  })
+
   it('returns ready status for hr-policy-agent (healthy with cost)', async () => {
     const app = await makeMockApp()
     const response = await app.inject({
@@ -95,6 +105,11 @@ describe('token economics API - mock mode', () => {
     expect(result.measuredCostUsd).toBeGreaterThan(0)
     expect(result.coverage?.costCoverage).toBe(1)
     expect(result.anomalies).toEqual([])
+    expect(result.attribution).toMatchObject({
+      status: 'partial',
+      owner: { value: 'People & Culture' },
+      reason: 'source-value-unavailable',
+    })
     expect(result.baselineEvidenceId).toBeDefined()
     expect(result.observedEvidenceId).toBeDefined()
     expect(result.unavailableReason).toBeUndefined()
@@ -146,6 +161,10 @@ describe('token economics API - mock mode', () => {
     expect(result.status).toBe('insufficient-data')
     expect(result.source).toBe('mock-synthetic')
     expect(result.measuredCostUsd).toBeUndefined()
+    expect(result.attribution).toEqual({
+      status: 'unknown',
+      reason: 'agent-not-found',
+    })
     await app.close()
   })
 
@@ -223,6 +242,17 @@ describe('token economics API - foundry mode', () => {
     expect(result.coverage?.costCoverage).toBe(1)
     expect(result.measuredCostUsd).toBeGreaterThan(0)
     expect(result.anomalies?.length).toBeGreaterThan(0)
+    expect(result.attribution).toEqual({
+      status: 'sourced',
+      owner: {
+        value: 'Runtime Platform',
+        evidenceIds: ['evidence-1'],
+      },
+      businessUnit: {
+        value: 'Engineering',
+        evidenceIds: ['evidence-1'],
+      },
+    })
     await app.close()
   })
 
@@ -246,6 +276,36 @@ describe('token economics API - foundry mode', () => {
     expect(result.source).toBe('azure-monitor-otel')
     expect(result.coverage).toBeUndefined()
     expect(result.unavailableReason).not.toContain('provider details')
+    await app.close()
+  })
+
+  it('does not attribute measured cost to a non-authoritative manifest owner', async () => {
+    const repositories = makeStubRepositories()
+    const snapshot = await repositories.snapshotRepository.findLatest('tenant-demo', 'validation')
+    if (snapshot === null) throw new Error('Expected the test snapshot.')
+    snapshot.nodes[0]!.metadata['sourceOfTruth'] = 'false'
+    snapshot.nodes[0]!.metadata['isNonAuthoritative'] = 'true'
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: createRuntimeTelemetryFixture(),
+        ...repositories,
+      },
+    )
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/token-economics/agents/live-agent',
+    })
+    const result = tokenEconomicsReportSchema.parse(response.json())
+
+    expect(result.status).toBe('ready')
+    expect(result.attribution).toEqual({
+      status: 'unknown',
+      reason: 'non-authoritative-agent',
+    })
     await app.close()
   })
 

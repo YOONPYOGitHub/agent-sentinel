@@ -23,7 +23,11 @@ const externalAgent = {
   id: 'a1',
   name: 'sales-research-vulnerable',
   model: 'gpt-5.4',
-  metadata: { approvalRequired: 'false' },
+  metadata: {
+    approvalRequired: 'false',
+    owner: 'Revenue AI',
+    businessUnit: 'Sales',
+  },
   tools: [
     {
       type: 'function',
@@ -108,6 +112,10 @@ describe('Foundry connector', () => {
     expect(snapshot.nodes.filter((n) => n.kind === 'tool')).toHaveLength(1)
     expect(snapshot.edges[0]?.relationship).toBe('CAN_CALL')
     expect(snapshot.nodes.find((n) => n.id === 'foundry-agent-a1')?.trust).toBe('untrusted')
+    expect(snapshot.nodes.find((n) => n.id === 'foundry-agent-a1')).toMatchObject({
+      owner: 'Revenue AI',
+      metadata: { businessUnit: 'Sales' },
+    })
     expect(snapshot.nodes.find((n) => n.id === 'foundry-agent-a2')?.trust).toBe('conditional')
     expect(snapshot.evidence[0]?.summary).toContain('Declared configuration')
   })

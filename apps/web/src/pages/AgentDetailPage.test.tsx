@@ -85,6 +85,11 @@ describe('AgentDetailPage', () => {
       windowEnd: '2026-08-23T23:59:59.000Z',
       computedAt: '2026-08-23T23:59:59.000Z',
       status: 'ready' as const,
+      attribution: {
+        status: 'sourced' as const,
+        owner: { value: 'People Platform', evidenceIds: ['agent-evidence'] },
+        businessUnit: { value: 'People', evidenceIds: ['agent-evidence'] },
+      },
       baselineEvidenceId: 'te-baseline-evidence',
       observedEvidenceId: 'te-observed-evidence',
       coverage: {
@@ -115,6 +120,8 @@ describe('AgentDetailPage', () => {
       screen.getByText('[SYNTHETIC] Mock demonstration — no live telemetry connected'),
     ).toBeVisible()
     expect(screen.getAllByText(/\$0\.4400/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText(/People Platform · 1 cited evidence/)).toBeVisible()
+    expect(screen.getByText(/People · 1 cited evidence/)).toBeVisible()
     const costCard = screen.getByRole('heading', { name: 'Cost / Efficiency' }).closest('article')
     expect(costCard).not.toBeNull()
     expect(within(costCard!).getByText('Healthy')).toBeVisible()

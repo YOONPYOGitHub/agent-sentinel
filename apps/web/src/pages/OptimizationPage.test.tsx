@@ -121,6 +121,11 @@ describe('OptimizationPage', () => {
       windowEnd: '2026-08-23T23:59:59.000Z',
       computedAt: '2026-08-23T23:59:59.000Z',
       status: 'ready' as const,
+      attribution: {
+        status: 'sourced' as const,
+        owner: { value: 'People Platform', evidenceIds: ['agent-evidence'] },
+        businessUnit: { value: 'People', evidenceIds: ['agent-evidence'] },
+      },
       coverage: {
         totalObservations: 20,
         deduplicatedObservations: 20,
@@ -155,6 +160,8 @@ describe('OptimizationPage', () => {
       screen.getAllByText('[SYNTHETIC] Mock demonstration — no live telemetry connected').length,
     ).toBeGreaterThan(0)
     expect(screen.getByText(/100% coverage/)).toBeVisible()
+    expect(screen.getByText(/People Platform · 1 cited evidence/)).toBeVisible()
+    expect(screen.getByText(/People · 1 cited evidence/)).toBeVisible()
   })
 
   it('shows connector-not-connected in live mode for token economics', async () => {

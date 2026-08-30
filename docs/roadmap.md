@@ -293,7 +293,7 @@ resource is configured by this change.
 - ~~Baseline normal agent behavior from runtime telemetry.~~ **Done (deterministic engine):** `@agent-sentinel/behavior-engine` implements median/MAD statistics, drift analysis, and evidence-coverage scoring. Domain types and Zod schemas are in `@agent-sentinel/domain`.
 - ~~Detect and explain deviation from baseline as evidence, not as a model opinion.~~ **Done (deterministic engine):** `analyzeDrift` produces `DriftAnalysisResult` with per-dimension explanations citing thresholds and measured values. No LLM involvement.
 - ~~Bridge OpenTelemetry spans to `ObservationWindow` objects.~~ **Done:** the read-only Azure Monitor OTel connector strictly maps bound request rows and feeds both engines without a live mock fallback.
-- ~~Per-agent measured token consumption, cost per success, and spend anomaly detection.~~ **Done:** measured-only token economics is implemented. Owner/business-unit attribution and business-outcome economics remain planned.
+- ~~Per-agent measured token consumption, cost per success, spend anomaly detection, and source-cited owner/business-unit attribution.~~ **Done:** measured-only token economics is implemented. Owner and business-unit values are attached only from the exact authoritative agent and cited declared-configuration evidence; missing values remain typed `partial` or `unknown`. Business-outcome economics remains planned.
 
 **Definition of done**
 

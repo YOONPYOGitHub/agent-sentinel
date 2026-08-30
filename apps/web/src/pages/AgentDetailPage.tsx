@@ -461,6 +461,22 @@ function AgentTokenEconomicsSummary({
                 <dd>${state.report.costPerSuccessUsd.toFixed(4)}</dd>
               </div>
             )}
+            <div>
+              <dt>Cost owner</dt>
+              <dd>
+                {state.report.attribution?.owner === undefined
+                  ? 'Unknown — source value unavailable'
+                  : `${state.report.attribution.owner.value} · ${state.report.attribution.owner.evidenceIds.length} cited evidence`}
+              </dd>
+            </div>
+            <div>
+              <dt>Business unit</dt>
+              <dd>
+                {state.report.attribution?.businessUnit === undefined
+                  ? 'Unknown — source value unavailable'
+                  : `${state.report.attribution.businessUnit.value} · ${state.report.attribution.businessUnit.evidenceIds.length} cited evidence`}
+              </dd>
+            </div>
           </dl>
           {state.report.anomalies !== undefined && state.report.anomalies.length > 0 && (
             <div
