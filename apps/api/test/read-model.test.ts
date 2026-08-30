@@ -110,6 +110,10 @@ describe('live product read model', () => {
         matched: 0,
         ambiguous: 0,
         notCorrelatable: 0,
+        valueMatched: 0,
+        valueMismatched: 0,
+        valueUnavailable: 0,
+        freeFormUnverified: 0,
       },
       claims: [],
     })

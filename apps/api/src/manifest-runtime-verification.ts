@@ -4,6 +4,7 @@ import {
   manifestRuntimeVerificationSchema,
   type EstateSnapshot,
   type GraphNode,
+  type ManifestConfigurationComparableField,
   type ManifestConfigurationReconciliation,
   type ManifestRuntimeClaimVerificationStatus,
   type ManifestRuntimeVerification,
@@ -18,17 +19,61 @@ export interface RuntimeQueryCoverage {
 
 type VerificationClaim = ManifestRuntimeVerification['claims'][number]
 type ReconciliationClaim = ManifestConfigurationReconciliation['claims'][number]
+type ReconciliationComparison = ReconciliationClaim['comparisons'][number]
+type ComparableValue = ReconciliationComparison['manifestValue']
+
+type ManifestSubject =
+  | {
+      readonly kind: 'agent'
+      readonly value: ManifestIngestionRecord['envelope']['agents'][number]
+    }
+  | {
+      readonly kind: 'tool'
+      readonly value: ManifestIngestionRecord['envelope']['tools'][number]
+    }
+  | {
+      readonly kind: 'identity'
+      readonly value: ManifestIngestionRecord['envelope']['identities'][number]
+    }
+  | {
+      readonly kind: 'data'
+      readonly value: ManifestIngestionRecord['envelope']['dataSources'][number]
+    }
+  | {
+      readonly kind: 'mcp'
+      readonly value: NonNullable<ManifestIngestionRecord['envelope']['mcpDependencies']>[number]
+    }
+
+interface ComparableDeclaration {
+  readonly field: ManifestConfigurationComparableField
+  readonly manifestValue: ComparableValue
+  readonly authoritativeMetadataKey?: string
+  readonly authoritativeNodeField?: 'sensitivity'
+  readonly valueType: 'string' | 'boolean'
+}
+
+function manifestSubject(
+  record: ManifestIngestionRecord,
+  subjectId: string,
+): ManifestSubject | undefined {
+  const agent = record.envelope.agents.find((item) => item.id === subjectId)
+  if (agent !== undefined) return { kind: 'agent', value: agent }
+  const tool = record.envelope.tools.find((item) => item.id === subjectId)
+  if (tool !== undefined) return { kind: 'tool', value: tool }
+  const identity = record.envelope.identities.find((item) => item.id === subjectId)
+  if (identity !== undefined) return { kind: 'identity', value: identity }
+  const data = record.envelope.dataSources.find((item) => item.id === subjectId)
+  if (data !== undefined) return { kind: 'data', value: data }
+  const mcp = record.envelope.mcpDependencies?.find((item) => item.id === subjectId)
+  if (mcp !== undefined) return { kind: 'mcp', value: mcp }
+  return undefined
+}
 
 function manifestSubjectKind(
   record: ManifestIngestionRecord,
   subjectId: string,
 ): GraphNode['kind'] | undefined {
-  if (record.envelope.agents.some((item) => item.id === subjectId)) return 'agent'
-  if (record.envelope.tools.some((item) => item.id === subjectId)) return 'tool'
-  if (record.envelope.identities.some((item) => item.id === subjectId)) return 'identity'
-  if (record.envelope.dataSources.some((item) => item.id === subjectId)) return 'data'
-  if (record.envelope.mcpDependencies?.some((item) => item.id === subjectId) === true) return 'mcp'
-  return undefined
+  return manifestSubject(record, subjectId)?.kind
 }
 
 function authoritative(node: GraphNode): boolean {
@@ -190,11 +235,14 @@ function reconcileClaim(
   record: ManifestIngestionRecord,
   declaration: ManifestIngestionRecord['envelope']['evidence'][number],
 ): ReconciliationClaim {
+  const unverifiedClaimKeys = Object.keys(declaration.claims).sort()
   const base = {
     manifestId: record.manifestId,
     evidenceId: stableId('manifest', `${record.manifestId}::evidence::${declaration.id}`),
     subjectId: declaration.subjectId,
     authoritativeEvidenceIds: [] as string[],
+    comparisons: [] as ReconciliationComparison[],
+    unverifiedClaimKeys,
   }
   const binding = declaration.sourceBinding
   if (binding === undefined) {
@@ -227,7 +275,8 @@ function reconcileClaim(
     }
   }
   const node = candidates[0]!
-  if (manifestSubjectKind(record, declaration.subjectId) !== node.kind) {
+  const subject = manifestSubject(record, declaration.subjectId)
+  if (subject?.kind !== node.kind) {
     return {
       ...base,
       status: 'not-correlatable',
@@ -236,6 +285,7 @@ function reconcileClaim(
     }
   }
   const evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]))
+  const comparisons = compareConfigurationValues(subject, node)
   return {
     ...base,
     status: 'matched-authoritative-object',
@@ -244,7 +294,99 @@ function reconcileClaim(
       (id) => evidenceById.get(id)?.evidenceTypes.includes('declared_configuration') === true,
     ),
     reason: 'exact-authoritative-object-match',
+    comparisons,
   }
+}
+
+function comparableDeclarations(subject: ManifestSubject): ComparableDeclaration[] {
+  const declarations: ComparableDeclaration[] = []
+  const add = (
+    field: ManifestConfigurationComparableField,
+    manifestValue: ComparableValue | undefined,
+    authoritativeMetadataKey: string,
+    valueType: ComparableDeclaration['valueType'] = 'string',
+  ): void => {
+    if (manifestValue !== undefined)
+      declarations.push({ field, manifestValue, authoritativeMetadataKey, valueType })
+  }
+
+  switch (subject.kind) {
+    case 'agent':
+      add('agent.platform', subject.value.platform, 'platform')
+      add('agent.version', subject.value.version, 'version')
+      add('agent.model', subject.value.model, 'modelDeployment')
+      add('agent.approvalRequired', subject.value.approvalRequired, 'approvalRequired', 'boolean')
+      break
+    case 'tool':
+      add('tool.toolType', subject.value.toolType, 'toolType')
+      break
+    case 'identity':
+      add('identity.principalType', subject.value.principalType, 'principalType')
+      break
+    case 'data':
+      if (subject.value.sensitivity !== undefined)
+        declarations.push({
+          field: 'data.sensitivity',
+          manifestValue: subject.value.sensitivity,
+          authoritativeNodeField: 'sensitivity',
+          valueType: 'string',
+        })
+      add('data.classification', subject.value.classification, 'classification')
+      break
+    case 'mcp':
+      add('mcp.endpointRef', subject.value.endpointRef, 'endpointRef')
+      add('mcp.approved', subject.value.approved, 'approved', 'boolean')
+      break
+  }
+  return declarations
+}
+
+function authoritativeValue(
+  node: GraphNode,
+  declaration: ComparableDeclaration,
+):
+  | { readonly status: 'available'; readonly value: ComparableValue }
+  | { readonly status: 'unavailable'; readonly reason: ReconciliationComparison['reason'] } {
+  const raw =
+    declaration.authoritativeNodeField === 'sensitivity'
+      ? node.sensitivity
+      : declaration.authoritativeMetadataKey === undefined
+        ? undefined
+        : node.metadata[declaration.authoritativeMetadataKey]
+  if (raw === undefined || raw === '') {
+    return { status: 'unavailable', reason: 'authoritative-value-not-exposed' }
+  }
+  if (declaration.valueType === 'boolean') {
+    if (raw === 'true') return { status: 'available', value: true }
+    if (raw === 'false') return { status: 'available', value: false }
+    return { status: 'unavailable', reason: 'invalid-authoritative-value' }
+  }
+  return { status: 'available', value: raw }
+}
+
+function compareConfigurationValues(
+  subject: ManifestSubject,
+  node: GraphNode,
+): ReconciliationComparison[] {
+  return comparableDeclarations(subject).map((declaration) => {
+    const authoritative = authoritativeValue(node, declaration)
+    if (authoritative.status === 'unavailable') {
+      return {
+        field: declaration.field,
+        status: 'unavailable',
+        manifestValue: declaration.manifestValue,
+        reason: authoritative.reason,
+      }
+    }
+    const matched = authoritative.value === declaration.manifestValue
+    return {
+      field: declaration.field,
+      status: matched ? 'matched' : 'mismatched',
+      manifestValue: declaration.manifestValue,
+      authoritativeValue: authoritative.value,
+      reason: matched ? 'exact-value-match' : 'value-mismatch',
+    }
+  })
 }
 
 export function reconcileManifestConfigurationEvidence(
@@ -261,14 +403,25 @@ export function reconcileManifestConfigurationEvidence(
     matched: claims.filter((item) => item.status === 'matched-authoritative-object').length,
     ambiguous: claims.filter((item) => item.status === 'ambiguous').length,
     notCorrelatable: claims.filter((item) => item.status === 'not-correlatable').length,
+    valueMatched: claims
+      .flatMap((item) => item.comparisons)
+      .filter((item) => item.status === 'matched').length,
+    valueMismatched: claims
+      .flatMap((item) => item.comparisons)
+      .filter((item) => item.status === 'mismatched').length,
+    valueUnavailable: claims
+      .flatMap((item) => item.comparisons)
+      .filter((item) => item.status === 'unavailable').length,
+    freeFormUnverified: claims.reduce((count, item) => count + item.unverifiedClaimKeys.length, 0),
   }
+  const unresolved =
+    counts.ambiguous +
+    counts.notCorrelatable +
+    counts.valueMismatched +
+    counts.valueUnavailable +
+    counts.freeFormUnverified
   return manifestConfigurationReconciliationSchema.parse({
-    status:
-      claims.length === 0
-        ? 'no-claims'
-        : counts.ambiguous + counts.notCorrelatable > 0
-          ? 'partial'
-          : 'ready',
+    status: claims.length === 0 ? 'no-claims' : unresolved > 0 ? 'partial' : 'ready',
     checkedAt,
     counts,
     claims,

@@ -223,6 +223,10 @@ describe('ObservabilityPage', () => {
             matched: 2,
             ambiguous: 1,
             notCorrelatable: 1,
+            valueMatched: 3,
+            valueMismatched: 1,
+            valueUnavailable: 1,
+            freeFormUnverified: 2,
           },
           claims: [],
         },
@@ -259,9 +263,15 @@ describe('ObservabilityPage', () => {
     expect(screen.getByText(/partial · 10 declared · 1 synthetic · 0 unclassified/)).toBeVisible()
     expect(screen.getByText(/Observed runtime · Synthetic validation/)).toBeVisible()
     expect(screen.getByText('Manifest runtime claims')).toBeVisible()
-    expect(screen.getByText(/partial · 1 not observed · 0 ambiguous · 1 not correlatable/)).toBeVisible()
-    expect(screen.getByText('Manifest config matches')).toBeVisible()
-    expect(screen.getByText(/partial · 1 ambiguous · 1 not correlatable/)).toBeVisible()
+    expect(
+      screen.getByText(/partial · 1 not observed · 0 ambiguous · 1 not correlatable/),
+    ).toBeVisible()
+    expect(screen.getByText('Manifest typed values')).toBeVisible()
+    expect(
+      screen.getByText(
+        /partial · 2 objects matched · 1 values mismatched · 1 values unavailable · 2 free-form unverified · 1 ambiguous · 1 not correlatable/,
+      ),
+    ).toBeVisible()
   })
 
   it('shows why manifest verification is unavailable', () => {

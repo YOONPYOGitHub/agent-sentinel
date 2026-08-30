@@ -272,14 +272,17 @@ resource is configured by this change.
   not create graph relationships.
 - Exact authoritative-object reconciliation for declared configuration
   evidence. It cites the matching first-party object without merging nodes,
-  comparing free-form claims, or letting adapter evidence override the source.
+  or letting adapter evidence override the source.
+- Exact typed comparison for adapter-declared platform, version, model,
+  approval requirement, tool type, principal type, data sensitivity and
+  classification, and MCP endpoint/approval fields when the matched first-party
+  object exposes the corresponding contract field. Mismatch, missing source
+  value, and invalid source value remain distinct results. Free-form evidence
+  claims are counted and identified by key but never compared or endorsed.
 
 **Remaining**
 
 - Activate live API ingestion only after the Administrator role, write scope, deployment write gate, and exact public-edge mutation path are separately approved and validated.
-- Structured comparison of specific non-runtime claim values when a supported
-  first-party contract exposes equivalent typed fields. Free-form claims remain
-  unverified.
 
 ---
 

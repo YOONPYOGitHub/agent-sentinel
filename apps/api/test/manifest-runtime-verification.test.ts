@@ -146,7 +146,6 @@ describe('manifest runtime verification', () => {
       reason: 'non-synthetic-runtime-observation',
       corroboratingEvidenceIds: ['observed_runtime-evidence'],
     })
-
   })
 
   it('does not use synthetic canaries to verify a runtime claim', () => {
@@ -160,7 +159,6 @@ describe('manifest runtime verification', () => {
       status: 'no-observation',
       reason: 'no-non-synthetic-runtime-observation',
     })
-
   })
 
   it('keeps missing and unmatched bindings explicitly non-correlatable', () => {
@@ -206,6 +204,112 @@ describe('manifest runtime verification', () => {
       })
       expect(estate.nodes).toHaveLength(1)
       expect(estate.edges).toHaveLength(0)
+    })
+
+    it('compares only typed declaration fields against exact authoritative values', () => {
+      const estate = snapshot([])
+      Object.assign(estate.nodes[0]!.metadata, {
+        platform: 'Azure AI Foundry Agent Service',
+        version: '17',
+        modelDeployment: 'gpt-5.4',
+        approvalRequired: 'true',
+      })
+      const claimRecord = configurationRecord()
+      Object.assign(claimRecord.envelope.agents[0]!, {
+        platform: 'Azure AI Foundry Agent Service',
+        version: '17',
+        model: 'gpt-5.4',
+        approvalRequired: true,
+      })
+
+      const result = reconcileManifestConfigurationEvidence(estate, [claimRecord])
+
+      expect(result.status).toBe('ready')
+      expect(result.counts).toMatchObject({
+        valueMatched: 4,
+        valueMismatched: 0,
+        valueUnavailable: 0,
+        freeFormUnverified: 0,
+      })
+      expect(result.claims[0]?.comparisons).toEqual([
+        {
+          field: 'agent.platform',
+          status: 'matched',
+          manifestValue: 'Azure AI Foundry Agent Service',
+          authoritativeValue: 'Azure AI Foundry Agent Service',
+          reason: 'exact-value-match',
+        },
+        {
+          field: 'agent.version',
+          status: 'matched',
+          manifestValue: '17',
+          authoritativeValue: '17',
+          reason: 'exact-value-match',
+        },
+        {
+          field: 'agent.model',
+          status: 'matched',
+          manifestValue: 'gpt-5.4',
+          authoritativeValue: 'gpt-5.4',
+          reason: 'exact-value-match',
+        },
+        {
+          field: 'agent.approvalRequired',
+          status: 'matched',
+          manifestValue: true,
+          authoritativeValue: true,
+          reason: 'exact-value-match',
+        },
+      ])
+    })
+
+    it('reports mismatched and unavailable typed values without endorsing free-form claims', () => {
+      const estate = snapshot([])
+      Object.assign(estate.nodes[0]!.metadata, {
+        version: '18',
+        approvalRequired: 'not-a-boolean',
+      })
+      const claimRecord = configurationRecord()
+      Object.assign(claimRecord.envelope.agents[0]!, {
+        version: '17',
+        model: 'gpt-5.4',
+        approvalRequired: true,
+      })
+      claimRecord.envelope.evidence[0]!.claims = {
+        approvalState: 'approved',
+        reviewedBy: 'Review board',
+      }
+
+      const result = reconcileManifestConfigurationEvidence(estate, [claimRecord])
+
+      expect(result.status).toBe('partial')
+      expect(result.counts).toMatchObject({
+        valueMatched: 0,
+        valueMismatched: 1,
+        valueUnavailable: 2,
+        freeFormUnverified: 2,
+      })
+      expect(result.claims[0]).toMatchObject({
+        unverifiedClaimKeys: ['approvalState', 'reviewedBy'],
+        comparisons: [
+          {
+            field: 'agent.version',
+            status: 'mismatched',
+            authoritativeValue: '18',
+            reason: 'value-mismatch',
+          },
+          {
+            field: 'agent.model',
+            status: 'unavailable',
+            reason: 'authoritative-value-not-exposed',
+          },
+          {
+            field: 'agent.approvalRequired',
+            status: 'unavailable',
+            reason: 'invalid-authoritative-value',
+          },
+        ],
+      })
     })
 
     it('keeps unbound and mismatched declarations explicitly uncorrelated', () => {

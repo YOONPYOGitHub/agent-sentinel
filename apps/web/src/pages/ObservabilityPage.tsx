@@ -223,12 +223,12 @@ export function ObservabilityPage() {
         />
         <ObservabilityMetric
           icon={PlugConnectedRegular}
-          label="Manifest config matches"
-          value={String(state?.manifestConfigurationReconciliation?.counts.matched ?? 0)}
+          label="Manifest typed values"
+          value={String(state?.manifestConfigurationReconciliation?.counts.valueMatched ?? 0)}
           detail={
             state?.manifestConfigurationReconciliation === undefined
               ? 'reconciliation status not reported'
-              : `${state.manifestConfigurationReconciliation.status}${state.manifestConfigurationReconciliation.reason === undefined ? '' : ` (${state.manifestConfigurationReconciliation.reason})`} · ${state.manifestConfigurationReconciliation.counts.ambiguous} ambiguous · ${state.manifestConfigurationReconciliation.counts.notCorrelatable} not correlatable`
+              : `${state.manifestConfigurationReconciliation.status}${state.manifestConfigurationReconciliation.reason === undefined ? '' : ` (${state.manifestConfigurationReconciliation.reason})`} · ${state.manifestConfigurationReconciliation.counts.matched} objects matched · ${state.manifestConfigurationReconciliation.counts.valueMismatched} values mismatched · ${state.manifestConfigurationReconciliation.counts.valueUnavailable} values unavailable · ${state.manifestConfigurationReconciliation.counts.freeFormUnverified} free-form unverified · ${state.manifestConfigurationReconciliation.counts.ambiguous} ambiguous · ${state.manifestConfigurationReconciliation.counts.notCorrelatable} not correlatable`
           }
           tone={
             state?.manifestConfigurationReconciliation?.status === 'ready'

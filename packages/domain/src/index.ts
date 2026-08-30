@@ -214,6 +214,24 @@ export const manifestRuntimeVerificationSchema = z.object({
 })
 export type ManifestRuntimeVerification = z.infer<typeof manifestRuntimeVerificationSchema>
 
+export const manifestConfigurationComparableFieldSchema = z.enum([
+  'agent.platform',
+  'agent.version',
+  'agent.model',
+  'agent.approvalRequired',
+  'tool.toolType',
+  'identity.principalType',
+  'data.sensitivity',
+  'data.classification',
+  'mcp.endpointRef',
+  'mcp.approved',
+])
+export type ManifestConfigurationComparableField = z.infer<
+  typeof manifestConfigurationComparableFieldSchema
+>
+
+const manifestConfigurationComparableValueSchema = z.union([z.string(), z.boolean()])
+
 export const manifestConfigurationReconciliationSchema = z.object({
   status: z.enum(['not-configured', 'no-claims', 'ready', 'partial', 'unavailable']),
   reason: z.enum(['repository-unavailable', 'source-limit-exceeded']).optional(),
@@ -222,6 +240,10 @@ export const manifestConfigurationReconciliationSchema = z.object({
     matched: z.number().int().min(0),
     ambiguous: z.number().int().min(0),
     notCorrelatable: z.number().int().min(0),
+    valueMatched: z.number().int().min(0),
+    valueMismatched: z.number().int().min(0),
+    valueUnavailable: z.number().int().min(0),
+    freeFormUnverified: z.number().int().min(0),
   }),
   claims: z.array(
     z.object({
@@ -239,6 +261,21 @@ export const manifestConfigurationReconciliationSchema = z.object({
         'multiple-exact-source-matches',
         'entity-kind-mismatch',
       ]),
+      comparisons: z.array(
+        z.object({
+          field: manifestConfigurationComparableFieldSchema,
+          status: z.enum(['matched', 'mismatched', 'unavailable']),
+          manifestValue: manifestConfigurationComparableValueSchema,
+          authoritativeValue: manifestConfigurationComparableValueSchema.optional(),
+          reason: z.enum([
+            'exact-value-match',
+            'value-mismatch',
+            'authoritative-value-not-exposed',
+            'invalid-authoritative-value',
+          ]),
+        }),
+      ),
+      unverifiedClaimKeys: z.array(z.string().min(1)),
     }),
   ),
 })
