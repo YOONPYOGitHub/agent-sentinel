@@ -94,6 +94,7 @@ const sampleGraph = {
       observedAt: new Date().toISOString(),
       freshness: 'live' as const,
       confidence: 1,
+      evidenceTypes: ['synthetic_validation' as const],
       summary: 'Synthetic evidence',
     },
   ],

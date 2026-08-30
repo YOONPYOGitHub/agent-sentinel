@@ -34,6 +34,7 @@ function makeObs(id: string, overrides: Partial<RuntimeObservation> = {}): Runti
     agentId: AGENT,
     environment: ENV,
     source: SOURCE,
+    synthetic: true,
     observedAt: '2026-08-10T10:00:00.000Z',
     latencyMs: 800,
     inputTokens: 300,

@@ -19,6 +19,7 @@ function observations(
     agentId: request.agentId,
     environment,
     source: 'azure-monitor-otel',
+    synthetic: false,
     observedAt:
       kind === 'baseline'
         ? `2026-08-22T${String(index).padStart(2, '0')}:00:00.000Z`
@@ -78,6 +79,33 @@ export function createFailingRuntimeTelemetryFixture(): RuntimeTelemetryConnecto
   }
 }
 
+export function createSyntheticCanaryTelemetryFixture(): RuntimeTelemetryConnector {
+  const connector = createRuntimeTelemetryFixture()
+  return {
+    id: 'azure-monitor-otel',
+    async readObservationWindows(request): Promise<RuntimeObservationWindows> {
+      const windows = await connector.readObservationWindows(request)
+      return runtimeObservationWindowsSchema.parse({
+        ...windows,
+        baseline: {
+          ...windows.baseline,
+          observations: windows.baseline.observations.map((observation) => ({
+            ...observation,
+            synthetic: true,
+          })),
+        },
+        observed: {
+          ...windows.observed,
+          observations: windows.observed.observations.map((observation) => ({
+            ...observation,
+            synthetic: true,
+          })),
+        },
+      })
+    },
+  }
+}
+
 export function createSyntheticRuntimeTelemetryFixture(): RuntimeTelemetryConnector {
   const connector = createRuntimeTelemetryFixture()
   return {
@@ -92,6 +120,7 @@ export function createSyntheticRuntimeTelemetryFixture(): RuntimeTelemetryConnec
           observations: windows.baseline.observations.map((observation) => ({
             ...observation,
             source: 'mock-synthetic',
+            synthetic: true,
           })),
         },
         observed: {
@@ -100,6 +129,7 @@ export function createSyntheticRuntimeTelemetryFixture(): RuntimeTelemetryConnec
           observations: windows.observed.observations.map((observation) => ({
             ...observation,
             source: 'mock-synthetic',
+            synthetic: true,
           })),
         },
       } as unknown as RuntimeObservationWindows

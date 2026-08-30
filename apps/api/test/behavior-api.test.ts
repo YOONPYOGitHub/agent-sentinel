@@ -5,6 +5,7 @@ import { createApp } from '../src/app.js'
 import {
   createFailingRuntimeTelemetryFixture,
   createRuntimeTelemetryFixture,
+  createSyntheticCanaryTelemetryFixture,
   createSyntheticRuntimeTelemetryFixture,
 } from './runtime-telemetry-fixture.js'
 
@@ -12,6 +13,40 @@ function makeStubRepositories(): {
   exposureRepository: ExposureFindingRepository
   snapshotRepository: SnapshotRepository
 } {
+  const snapshot = {
+    tenantId: 'tenant-demo',
+    environment: 'validation',
+    generatedAt: '2026-08-28T00:00:00.000Z',
+    nodes: [
+      {
+        id: 'live-agent',
+        kind: 'agent' as const,
+        name: 'Live agent',
+        description: 'Test agent.',
+        environment: 'production',
+        evidenceIds: ['evidence-1'],
+        metadata: {
+          sourceConnectorId: 'primary',
+          sourceTenantId: 'tenant-demo',
+          sourceEnvironment: 'production',
+          sourceObjectId: 'live-agent',
+        },
+      },
+    ],
+    edges: [],
+    evidence: [
+      {
+        id: 'evidence-1',
+        source: 'Foundry',
+        sourceObjectId: 'live-agent',
+        observedAt: '2026-08-28T00:00:00.000Z',
+        freshness: 'live' as const,
+        confidence: 1,
+        evidenceTypes: ['declared_configuration' as const],
+        summary: 'Declared configuration.',
+      },
+    ],
+  }
   const exposureRepository: ExposureFindingRepository = {
     upsert: (f) => Promise.resolve(f),
     findById: () => Promise.resolve(null),
@@ -21,9 +56,9 @@ function makeStubRepositories(): {
   }
   const snapshotRepository: SnapshotRepository = {
     save: () => Promise.resolve(),
-    findLatest: () => Promise.resolve(null),
-    findById: () => Promise.resolve(null),
-    list: () => Promise.resolve([]),
+    findLatest: () => Promise.resolve(snapshot),
+    findById: () => Promise.resolve(snapshot),
+    list: () => Promise.resolve([snapshot]),
   }
   return { exposureRepository, snapshotRepository }
 }
@@ -279,6 +314,7 @@ describe('behavior drift API — foundry/live mode', () => {
             observedAt: '2026-08-28T00:00:00.000Z',
             freshness: 'live',
             confidence: 1,
+            evidenceTypes: ['declared_configuration'],
             summary: 'Declared configuration.',
           },
         ],
@@ -321,12 +357,37 @@ describe('behavior drift API — foundry/live mode', () => {
       method: 'GET',
       url: '/api/behavior/agents/live-agent/drift',
     })
+
     const result = driftAnalysisResultSchema.parse(response.json())
 
     expect(result.status).toBe('invalid')
     expect(result.source).toBe('azure-monitor-otel')
     expect(result.anyDrift).toBe(false)
     expect(result.unavailableReason).not.toContain('provider details')
+    await app.close()
+  })
+
+  it('does not query telemetry for an agent without an authoritative source binding', async () => {
+    const fixture = createRuntimeTelemetryFixture()
+    const readObservationWindows = vi.fn(fixture.readObservationWindows.bind(fixture))
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: { id: fixture.id, readObservationWindows },
+        ...makeStubRepositories(),
+      },
+    )
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/unknown-agent/drift',
+    })
+    const result = driftAnalysisResultSchema.parse(response.json())
+
+    expect(result.status).toBe('invalid')
+    expect(result.unavailableReason).toContain('No exact runtime telemetry source binding')
+    expect(readObservationWindows).not.toHaveBeenCalled()
     await app.close()
   })
 
@@ -349,6 +410,28 @@ describe('behavior drift API — foundry/live mode', () => {
     expect(result.status).toBe('invalid')
     expect(result.source).toBe('azure-monitor-otel')
     expect(result.anyDrift).toBe(false)
+    await app.close()
+  })
+
+  it('does not use synthetic validation canaries as a live behavior baseline', async () => {
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: createSyntheticCanaryTelemetryFixture(),
+        ...makeStubRepositories(),
+      },
+    )
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/live-agent/drift',
+    })
+    const result = driftAnalysisResultSchema.parse(response.json())
+
+    expect(result.status).toBe('insufficient-data')
+    expect(result.anyDrift).toBe(false)
+    expect(result.unavailableReason).toContain('Window has 0 unique samples')
     await app.close()
   })
 

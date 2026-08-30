@@ -128,6 +128,7 @@ export function mapPowerPlatformAgentsToSnapshot(
       observedAt,
       freshness: 'live',
       confidence: 1,
+      evidenceTypes: ['declared_configuration'],
       summary: `Authoritative core agent inventory record for ${properties.displayName ?? resource.name}; no runtime, tool, channel, authentication, or entitlement behavior is inferred.`,
       metadata: {
         ...provenance,

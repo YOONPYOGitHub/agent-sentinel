@@ -202,6 +202,7 @@ export function normalizeManifest(
       observedAt: utc(entity.observedAt ?? envelope.producedAt),
       freshness: 'recent',
       confidence: ADAPTER_DEFAULT_CONFIDENCE,
+      evidenceTypes: ['declared_configuration'],
       summary: summaryFor('declared_configuration', entity.displayName),
     })
     attach(entity.id, evidenceId)
@@ -218,6 +219,11 @@ export function normalizeManifest(
       observedAt: utc(declaration.observedAt),
       freshness: resolved.freshness,
       confidence: resolved.confidence,
+      evidenceTypes: [
+        resolved.evidenceType === 'runtime_observed'
+          ? 'observed_runtime'
+          : 'declared_configuration',
+      ],
       summary: summaryFor(resolved.evidenceType, declaration.subjectId),
     })
     attach(declaration.subjectId, evidenceId)

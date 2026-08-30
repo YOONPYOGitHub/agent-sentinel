@@ -109,8 +109,6 @@ const MUTATION_TOOLS = new Set([
   'send_message',
 ])
 
-const declaredEvidenceType: EvidenceType = 'declared_configuration'
-
 interface ExposureBuildInput {
   snapshot: EstateSnapshot
   context: AgentToolContext
@@ -138,6 +136,13 @@ function buildExposureFinding(input: ExposureBuildInput): ExposureFinding {
     const toolNode = snapshot.nodes.find((node) => node.id === edge.to)
     toolNode?.evidenceIds.forEach((id) => evidenceIds.add(id))
   }
+  const evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]))
+  const evidenceTypes = new Set<EvidenceType>()
+  for (const evidenceId of evidenceIds) {
+    for (const evidenceType of evidenceById.get(evidenceId)?.evidenceTypes ?? ['unknown']) {
+      evidenceTypes.add(evidenceType)
+    }
+  }
   const blastRadius = calculateBlastRadius(snapshot, context.agentId)
   return {
     id: `exposure-${input.policyId.toLowerCase()}-${context.agentId}`,
@@ -155,7 +160,7 @@ function buildExposureFinding(input: ExposureBuildInput): ExposureFinding {
     affectedNodeIds: [...affectedNodeIds],
     affectedEdgeIds,
     evidenceIds: [...evidenceIds],
-    evidenceTypes: [declaredEvidenceType],
+    evidenceTypes: [...evidenceTypes],
     blastRadiusCount: blastRadius.length,
     blastRadiusNodeIds: blastRadius.map((node) => node.id),
     firstSeen: snapshot.generatedAt,

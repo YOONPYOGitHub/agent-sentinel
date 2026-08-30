@@ -189,4 +189,52 @@ describe('ObservabilityPage', () => {
     expect(useAgentDrift).not.toHaveBeenCalledWith('hr-policy-agent')
     expect(screen.getByText('Live telemetry evaluation')).toBeVisible()
   })
+
+  it('reports explicit runtime, synthetic, and unclassified evidence coverage', () => {
+    renderPage({
+      state: {
+        ...testState,
+        runtimeEvidence: {
+          status: 'partial',
+          queriedAt: '2026-08-30T01:00:00.000Z',
+          agentCount: 3,
+          eligibleAgentCount: 2,
+          queriedAgentCount: 1,
+          enrichedAgentCount: 1,
+          evidenceCount: 1,
+          failures: [{ agentId: 'agent-2', reason: 'query-failed' }],
+        },
+        snapshot: {
+          ...testState.snapshot,
+          evidence: [
+            ...testState.snapshot.evidence,
+            {
+              id: 'runtime-evidence',
+              source: 'Azure Monitor OpenTelemetry',
+              sourceObjectId: 'window-1',
+              observedAt: '2026-08-30T00:30:00.000Z',
+              freshness: 'live',
+              confidence: 1,
+              evidenceTypes: ['observed_runtime'],
+              summary: 'Measured runtime invocation.',
+            },
+            {
+              id: 'synthetic-evidence',
+              source: 'Azure Monitor OpenTelemetry',
+              sourceObjectId: 'window-2',
+              observedAt: '2026-08-30T00:45:00.000Z',
+              freshness: 'live',
+              confidence: 1,
+              evidenceTypes: ['synthetic_validation'],
+              summary: 'Measured synthetic canary.',
+            },
+          ],
+        },
+      },
+    })
+
+    expect(screen.getByText('Runtime evidence')).toBeVisible()
+    expect(screen.getByText(/partial · 10 declared · 1 synthetic · 0 unclassified/)).toBeVisible()
+    expect(screen.getByText(/Observed runtime · Synthetic validation/)).toBeVisible()
+  })
 })

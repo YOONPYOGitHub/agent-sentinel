@@ -96,6 +96,7 @@ export function mapAzureResourcesToSnapshot(
       observedAt,
       freshness: 'live',
       confidence: 1,
+      evidenceTypes: ['declared_configuration'],
       summary:
         'Direct Azure resource inventory only; confidence does not indicate agent classification, runtime activity, ownership, health, trust, or compliance.',
       metadata,

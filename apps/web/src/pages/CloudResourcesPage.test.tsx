@@ -21,6 +21,7 @@ const resourceEvidence: Evidence = {
   observedAt: '2026-08-29T14:00:00.000Z',
   freshness: 'live',
   confidence: 1,
+  evidenceTypes: ['declared_configuration'],
   summary: 'Direct Azure resource inventory only.',
   metadata: {
     sourceConnector: 'azure-resource-graph',

@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { CosmosClient } from '@azure/cosmos'
 import { DefaultAzureCredential } from '@azure/identity'
 import { createAzureMonitorOtelConnector } from '@agent-sentinel/azure-monitor-otel-connector'
+import { runtimeTelemetryRequestForAgent } from '@agent-sentinel/connector-sdk'
 import type {
   ManifestIngestionRepository,
   RuntimeTelemetryRequest,
@@ -57,6 +58,7 @@ const approvalSchema = z.object({
 function configuredService(
   snapshotRepository?: SnapshotRepository,
   persistedReadModelRequired = false,
+  runtimeTelemetryConnector?: RuntimeTelemetryConnector,
 ): DemoService {
   const configured = createConfiguredConnector()
   const persistedReadModel =
@@ -75,6 +77,7 @@ function configuredService(
     configured.projectEndpoint,
     persistedReadModel,
     persistedReadModelRequired,
+    runtimeTelemetryConnector,
   )
 }
 
@@ -111,25 +114,14 @@ function defaultEnvironment(): string {
 
 function telemetryRequestResolver(
   snapshotRepository: SnapshotRepository | undefined,
-): ((agentId: string) => Promise<RuntimeTelemetryRequest>) | undefined {
+): ((agentId: string) => Promise<RuntimeTelemetryRequest | undefined>) | undefined {
   if (snapshotRepository === undefined) return undefined
   return async (agentId) => {
     const tenantId = defaultTenantId()
     const snapshot = await snapshotRepository.findLatest(tenantId, defaultEnvironment())
-    const agent = snapshot?.nodes.find((node) => node.kind === 'agent' && node.id === agentId)
-    if (agent === undefined) return { tenantId, agentId }
-    const sourceConnectorId = agent.metadata['sourceConnectorId']
-    const sourceTenantId = agent.metadata['sourceTenantId']
-    const sourceAgentId = agent.metadata['sourceObjectId']
-    const sourceEnvironment = agent.metadata['sourceEnvironment']
-    return {
-      tenantId,
-      agentId,
-      ...(sourceConnectorId !== undefined ? { sourceConnectorId } : {}),
-      ...(sourceTenantId !== undefined ? { sourceTenantId } : {}),
-      ...(sourceAgentId !== undefined ? { sourceAgentId } : {}),
-      ...(sourceEnvironment !== undefined ? { sourceEnvironment } : {}),
-    }
+    if (snapshot === null) return undefined
+    const agent = snapshot.nodes.find((node) => node.kind === 'agent' && node.id === agentId)
+    return agent === undefined ? undefined : runtimeTelemetryRequestForAgent(snapshot, agent)
   }
 }
 
@@ -244,6 +236,7 @@ export async function createApp(
       ? configuredService(
           resolvedDataMode === 'live' ? snapshotRepository : undefined,
           resolvedDataMode === 'live',
+          runtimeTelemetryConnector,
         )
       : undefined
   const resolvedService = service ?? defaultService
@@ -252,7 +245,7 @@ export async function createApp(
   }
   const stateService =
     resolvedDataMode === 'live'
-      ? (defaultService ?? configuredService(snapshotRepository, true))
+      ? (defaultService ?? configuredService(snapshotRepository, true, runtimeTelemetryConnector))
       : resolvedService
 
   // Live mode: forbid non-GET writes to /api/demo/* to keep production read-only.

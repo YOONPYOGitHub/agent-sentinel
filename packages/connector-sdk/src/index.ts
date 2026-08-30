@@ -132,6 +132,13 @@ export interface RuntimeTelemetryConnector {
   getConnectorHealth?(): ConnectorHealthReport
 }
 
+export {
+  projectRuntimeEvidence,
+  runtimeTelemetryRequestForAgent,
+  withoutSyntheticObservations,
+  type RuntimeEvidenceProjection,
+} from './runtime-evidence.js'
+
 // ─── Connector Catalog Model ─────────────────────────────────────────────────
 
 /** Lifecycle state of a connector from Agent Sentinel's perspective. */

@@ -21,6 +21,7 @@ const evidence: Evidence[] = [
     observedAt,
     freshness: 'live',
     confidence: 0.98,
+    evidenceTypes: ['observed_runtime', 'synthetic_validation'],
     summary: 'External document entered the Sales Research Agent session.',
   },
   {
@@ -30,6 +31,7 @@ const evidence: Evidence[] = [
     observedAt,
     freshness: 'recent',
     confidence: 1,
+    evidenceTypes: ['declared_configuration', 'synthetic_validation'],
     summary: 'Published agent manifest and configured identity.',
   },
   {
@@ -39,6 +41,7 @@ const evidence: Evidence[] = [
     observedAt,
     freshness: 'live',
     confidence: 1,
+    evidenceTypes: ['declared_configuration', 'synthetic_validation'],
     summary: 'Agent identity holds the broad CRM.Data.Read.All application permission.',
   },
   {
@@ -48,6 +51,7 @@ const evidence: Evidence[] = [
     observedAt,
     freshness: 'recent',
     confidence: 0.97,
+    evidenceTypes: ['declared_configuration', 'synthetic_validation'],
     summary: 'Customer 360 dataset is classified Confidential.',
   },
   {
@@ -57,6 +61,7 @@ const evidence: Evidence[] = [
     observedAt,
     freshness: 'live',
     confidence: 0.99,
+    evidenceTypes: ['declared_configuration', 'synthetic_validation'],
     summary: 'Remote MCP endpoint is not present in the approved Trust Catalog.',
   },
   {
@@ -66,6 +71,7 @@ const evidence: Evidence[] = [
     observedAt,
     freshness: 'live',
     confidence: 0.96,
+    evidenceTypes: ['observed_runtime', 'synthetic_validation'],
     summary: 'CRM-derived payload can be passed to the remote MCP tool call.',
   },
   {
@@ -75,6 +81,7 @@ const evidence: Evidence[] = [
     observedAt,
     freshness: 'recent',
     confidence: 1,
+    evidenceTypes: ['declared_configuration', 'synthetic_validation'],
     summary: 'Production HR Policy Assistant deployment manifest.',
   },
   {
@@ -84,6 +91,7 @@ const evidence: Evidence[] = [
     observedAt,
     freshness: 'live',
     confidence: 1,
+    evidenceTypes: ['declared_configuration', 'synthetic_validation'],
     summary: 'HR agent identity has a scoped knowledge-reader role.',
   },
   {
@@ -93,6 +101,7 @@ const evidence: Evidence[] = [
     observedAt,
     freshness: 'recent',
     confidence: 0.99,
+    evidenceTypes: ['declared_configuration', 'synthetic_validation'],
     summary: 'HR policy knowledge is classified for internal use.',
   },
   {
@@ -102,6 +111,7 @@ const evidence: Evidence[] = [
     observedAt,
     freshness: 'recent',
     confidence: 1,
+    evidenceTypes: ['declared_configuration', 'synthetic_validation'],
     summary: 'HR SharePoint MCP is approved and trusted.',
   },
   {
@@ -111,6 +121,7 @@ const evidence: Evidence[] = [
     observedAt,
     freshness: 'recent',
     confidence: 1,
+    evidenceTypes: ['declared_configuration', 'synthetic_validation'],
     summary: 'Development Code Review Copilot extension manifest.',
   },
   {
@@ -120,6 +131,7 @@ const evidence: Evidence[] = [
     observedAt,
     freshness: 'live',
     confidence: 1,
+    evidenceTypes: ['declared_configuration', 'synthetic_validation'],
     summary: 'Code review identity has read-only repository access.',
   },
   {
@@ -129,6 +141,7 @@ const evidence: Evidence[] = [
     observedAt,
     freshness: 'recent',
     confidence: 0.98,
+    evidenceTypes: ['declared_configuration', 'synthetic_validation'],
     summary: 'Engineering codebase is classified Confidential.',
   },
   {
@@ -138,6 +151,7 @@ const evidence: Evidence[] = [
     observedAt,
     freshness: 'recent',
     confidence: 1,
+    evidenceTypes: ['declared_configuration', 'synthetic_validation'],
     summary: 'GitHub Actions MCP is approved and trusted.',
   },
 ]

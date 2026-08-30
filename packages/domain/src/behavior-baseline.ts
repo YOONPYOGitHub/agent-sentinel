@@ -36,6 +36,7 @@ export const runtimeObservationSchema = z.object({
   success: z.boolean(),
   errorCode: z.string().max(100).optional(),
   toolCallNames: z.array(z.string().min(1).max(200)).max(50).default([]),
+  synthetic: z.boolean().default(false),
 })
 export type RuntimeObservation = z.infer<typeof runtimeObservationSchema>
 

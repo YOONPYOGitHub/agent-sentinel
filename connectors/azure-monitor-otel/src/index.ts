@@ -132,6 +132,7 @@ const expectedColumns = [
   ['Success', 'bool'],
   ['ErrorCode', 'string'],
   ['ToolCallNames', 'string'],
+  ['Synthetic', 'bool'],
 ] as const
 
 const queryTableSchema = z.strictObject({
@@ -181,6 +182,7 @@ const projectedRowSchema = z.strictObject({
   Success: z.boolean(),
   ErrorCode: z.string().max(100).nullable(),
   ToolCallNames: z.string().max(20_000).nullable(),
+  Synthetic: z.boolean(),
 })
 
 function parseToolCallNames(value: string | null): string[] {
@@ -253,6 +255,7 @@ export function mapAzureMonitorRows(
       success: row.Success,
       ...(row.ErrorCode !== null && row.ErrorCode !== '' ? { errorCode: row.ErrorCode } : {}),
       toolCallNames: parseToolCallNames(row.ToolCallNames),
+      synthetic: row.Synthetic,
     })
   })
 }
@@ -301,7 +304,8 @@ export function buildAzureMonitorOtelQuery(binding: {
     '          CostUsd = todouble(OtelAttributes["agent.sentinel.cost.usd"]),',
     '          Success = tobool(Success),',
     '          ErrorCode = iff(tobool(Success), "", tostring(coalesce(OtelAttributes["error.type"], ResultCode))),',
-    '          ToolCallNames = tostring(OtelAttributes["agent.sentinel.tool_call_names"])',
+    '          ToolCallNames = tostring(OtelAttributes["agent.sentinel.tool_call_names"]),',
+    '          Synthetic = tobool(coalesce(OtelAttributes["agent.sentinel.synthetic"], false))',
     '| order by ObservedAt asc',
     `| take ${String(parsed.maximumRows)}`,
   ].join('\n')

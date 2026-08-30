@@ -22,6 +22,7 @@ import { useAgentDrift } from '../hooks/useAgentDrift'
 import { useExposures } from '../hooks/useExposures'
 import { useEvidenceDrawer } from '../hooks/useEvidenceDrawer'
 import { useTokenEconomics } from '../hooks/useTokenEconomics'
+import { formatEvidenceTypes } from '../evidence-types'
 import { buildAgentScorecard, type ScorecardPosture } from '../scorecard'
 
 function dependencyEdges(snapshot: EstateSnapshot, agentId: string): GraphEdge[] {
@@ -204,10 +205,8 @@ export function AgentDetailPage() {
                   <strong>{item.source}</strong>
                   <span>{item.summary}</span>
                   <small>
-                    {item.source.includes('Azure AI Foundry Agent Service')
-                      ? 'Declared configuration · '
-                      : 'Observed evidence · '}
-                    {item.freshness} · {Math.round(item.confidence * 100)}% confidence
+                    {formatEvidenceTypes(item.evidenceTypes)} · {item.freshness} ·{' '}
+                    {Math.round(item.confidence * 100)}% confidence
                   </small>
                 </Button>
               </li>

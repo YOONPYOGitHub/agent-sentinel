@@ -82,6 +82,7 @@ const snapshot: EstateSnapshot = {
       observedAt: '2026-08-18T09:00:00.000Z',
       freshness: 'live',
       confidence: 1,
+      evidenceTypes: ['synthetic_validation'],
       summary: 'Synthetic graph evidence',
     },
   ],

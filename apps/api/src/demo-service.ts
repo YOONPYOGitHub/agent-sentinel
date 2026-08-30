@@ -1,6 +1,14 @@
-import type { AgentConnector } from '@agent-sentinel/connector-sdk'
+import {
+  projectRuntimeEvidence,
+  runtimeObservationWindowsSchema,
+  runtimeTelemetryRequestForAgent,
+  type AgentConnector,
+  type RuntimeObservationWindows,
+  type RuntimeTelemetryConnector,
+} from '@agent-sentinel/connector-sdk'
 import type {
   AgentSentinelState,
+  EstateSnapshot,
   Finding,
   Remediation,
   SnapshotRepository,
@@ -28,12 +36,24 @@ export interface PersistedReadModel {
 }
 
 export class DemoService {
+  private runtimeProjectionCache:
+    | {
+        key: string
+        expiresAt: number
+        value: Promise<{
+          snapshot: EstateSnapshot
+          status: NonNullable<AgentSentinelState['runtimeEvidence']>
+        }>
+      }
+    | undefined
+
   constructor(
     private readonly connector: AgentConnector = new MockAgentConnector(),
     private readonly connectorMode: 'mock' | 'foundry' = 'mock',
     private readonly projectEndpoint?: string,
     private readonly persistedReadModel?: PersistedReadModel,
     private readonly persistedReadModelRequired = false,
+    private readonly runtimeTelemetryConnector?: RuntimeTelemetryConnector,
   ) {}
 
   private validations: ValidationRun[] = []
@@ -58,7 +78,8 @@ export class DemoService {
         'No persisted estate snapshot is available for the configured tenant and environment.',
       )
     }
-    const currentFindings = evaluateUncontrolledEgress(snapshot)
+    const runtimeProjection = await this.withRuntimeEvidence(snapshot)
+    const currentFindings = evaluateUncontrolledEgress(runtimeProjection.snapshot)
     if (
       this.persistedReadModel === undefined &&
       this.findingHistory === undefined &&
@@ -67,7 +88,7 @@ export class DemoService {
       this.findingHistory = currentFindings
     }
     return {
-      snapshot: structuredClone(snapshot),
+      snapshot: structuredClone(runtimeProjection.snapshot),
       findings: structuredClone(
         this.persistedReadModel === undefined
           ? (this.findingHistory ?? currentFindings)
@@ -75,6 +96,116 @@ export class DemoService {
       ),
       validations: structuredClone(this.validations),
       remediations: structuredClone(this.remediations),
+      runtimeEvidence: structuredClone(runtimeProjection.status),
+    }
+  }
+
+  private async withRuntimeEvidence(snapshot: EstateSnapshot): Promise<{
+    snapshot: EstateSnapshot
+    status: NonNullable<AgentSentinelState['runtimeEvidence']>
+  }> {
+    const agents = snapshot.nodes.filter((node) => node.kind === 'agent')
+    if (this.runtimeTelemetryConnector === undefined) {
+      return {
+        snapshot,
+        status: {
+          status: 'not-configured',
+          agentCount: agents.length,
+          eligibleAgentCount: 0,
+          queriedAgentCount: 0,
+          enrichedAgentCount: 0,
+          evidenceCount: 0,
+          failures: [],
+        },
+      }
+    }
+    const key = `${snapshot.tenantId}\0${snapshot.environment}\0${snapshot.generatedAt}`
+    if (
+      this.runtimeProjectionCache?.key === key &&
+      this.runtimeProjectionCache.expiresAt > Date.now()
+    ) {
+      return this.runtimeProjectionCache.value
+    }
+    const value = this.queryRuntimeEvidence(snapshot, agents)
+    this.runtimeProjectionCache = { key, expiresAt: Date.now() + 60_000, value }
+    return value
+  }
+
+  private async queryRuntimeEvidence(
+    snapshot: EstateSnapshot,
+    agents: EstateSnapshot['nodes'],
+  ): Promise<{
+    snapshot: EstateSnapshot
+    status: NonNullable<AgentSentinelState['runtimeEvidence']>
+  }> {
+    const connector = this.runtimeTelemetryConnector
+    if (connector === undefined) {
+      throw new Error('Runtime telemetry connector is not configured.')
+    }
+    const requests = agents.flatMap((agent) => {
+      const request = runtimeTelemetryRequestForAgent(snapshot, agent)
+      return request === undefined ? [] : [{ agent, request }]
+    })
+    const results: Array<
+      | { agentId: string; windows: RuntimeObservationWindows }
+      | { agentId: string; reason: 'query-failed' }
+    > = []
+    const concurrency = 4
+    for (let index = 0; index < requests.length; index += concurrency) {
+      results.push(
+        ...(await Promise.all(
+          requests.slice(index, index + concurrency).map(async ({ agent, request }) => {
+            try {
+              return {
+                agentId: agent.id,
+                windows: runtimeObservationWindowsSchema.parse(
+                  await connector.readObservationWindows(request),
+                ),
+              }
+            } catch {
+              return { agentId: agent.id, reason: 'query-failed' as const }
+            }
+          }),
+        )),
+      )
+    }
+
+    let projected = structuredClone(snapshot)
+    let evidenceCount = 0
+    let enrichedAgentCount = 0
+    const failures: NonNullable<AgentSentinelState['runtimeEvidence']>['failures'] = []
+    const queriedAt: string[] = []
+    for (const result of results) {
+      if ('reason' in result) {
+        failures.push(result)
+        continue
+      }
+      try {
+        const projection = projectRuntimeEvidence(projected, result.windows)
+        projected = projection.snapshot
+        evidenceCount += projection.addedEvidenceCount
+        if (projection.addedEvidenceCount > 0) enrichedAgentCount += 1
+        queriedAt.push(result.windows.queriedAt)
+      } catch {
+        failures.push({ agentId: result.agentId, reason: 'projection-failed' })
+      }
+    }
+    const successfulQueries = results.length - failures.length
+    const incompleteCoverage = requests.length < agents.length || failures.length > 0
+    const status =
+      successfulQueries === 0 ? 'unavailable' : incompleteCoverage ? 'partial' : 'ready'
+    return {
+      snapshot: projected,
+      status: {
+        status,
+        ...(queriedAt.length > 0 ? { queriedAt: queriedAt.sort().at(-1) } : {}),
+        agentCount: agents.length,
+        eligibleAgentCount: requests.length,
+        queriedAgentCount: successfulQueries,
+        enrichedAgentCount,
+        evidenceCount,
+        failures,
+      },
     }
   }
 
@@ -225,6 +356,7 @@ export class DemoService {
 
   async reset(): Promise<AgentSentinelState> {
     if (this.connector instanceof MockAgentConnector) this.connector.reset()
+    this.runtimeProjectionCache = undefined
     this.validations = []
     this.remediations = []
     this.findingHistory = undefined

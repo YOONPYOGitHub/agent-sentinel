@@ -88,6 +88,7 @@ export function mapTeamsDistributionAppsToSnapshot(
       observedAt,
       freshness: 'live',
       confidence: 1,
+      evidenceTypes: ['declared_configuration'],
       summary:
         'Direct organization catalog observation only; confidence does not indicate agent semantics, deployment, installation, distribution coverage, runtime behavior, trust, tools, entitlement, or access.',
       metadata,

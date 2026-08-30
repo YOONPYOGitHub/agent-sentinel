@@ -11,9 +11,10 @@ import {
 import { useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
-import type { DriftAnalysisResult, Evidence } from '@agent-sentinel/domain'
+import type { DriftAnalysisResult, Evidence, EvidenceType } from '@agent-sentinel/domain'
 
 import { PageHeading } from '../components/PageHeading'
+import { formatEvidenceTypes } from '../evidence-types'
 import { useDemoState } from '../hooks/useDemoState'
 import { useAgentDrift } from '../hooks/useAgentDrift'
 
@@ -37,6 +38,7 @@ function groupEvidence(evidence: Evidence[]) {
       averageConfidence:
         items.reduce((total, item) => total + item.confidence, 0) / Math.max(items.length, 1),
       stale: items.filter((item) => item.freshness === 'stale').length,
+      evidenceTypes: [...new Set(items.flatMap((item) => item.evidenceTypes))],
     }))
     .sort((left, right) => right.count - left.count || left.source.localeCompare(right.source))
 }
@@ -55,6 +57,22 @@ export function ObservabilityPage() {
   )
   const evidence = useMemo(() => snapshotEvidence ?? [], [snapshotEvidence])
   const sourceCoverage = useMemo(() => groupEvidence(evidence), [evidence])
+  const evidenceTypeCounts = useMemo(
+    () =>
+      evidence.reduce(
+        (counts, item) => {
+          for (const type of item.evidenceTypes) counts[type] += 1
+          return counts
+        },
+        {
+          declared_configuration: 0,
+          observed_runtime: 0,
+          synthetic_validation: 0,
+          unknown: 0,
+        } satisfies Record<EvidenceType, number>,
+      ),
+    [evidence],
+  )
   const freshness = useMemo(
     () => ({
       live: evidence.filter((item) => item.freshness === 'live').length,
@@ -172,6 +190,20 @@ export function ObservabilityPage() {
         />
         <ObservabilityMetric
           icon={PulseRegular}
+          label="Runtime evidence"
+          value={String(evidenceTypeCounts.observed_runtime)}
+          detail={`${state?.runtimeEvidence?.status ?? 'status not reported'} · ${evidenceTypeCounts.declared_configuration} declared · ${evidenceTypeCounts.synthetic_validation} synthetic · ${evidenceTypeCounts.unknown} unclassified`}
+          tone={
+            state?.runtimeEvidence?.status === 'partial' ||
+            state?.runtimeEvidence?.status === 'unavailable'
+              ? 'warning'
+              : evidenceTypeCounts.observed_runtime > 0
+                ? 'success'
+                : 'neutral'
+          }
+        />
+        <ObservabilityMetric
+          icon={PulseRegular}
           label="Safe validations"
           value={String(validations.length)}
           detail={validationDetail}
@@ -209,6 +241,7 @@ export function ObservabilityPage() {
                     <span>
                       {source.count} objects · Latest {formatDateTime(source.latestObservedAt)}
                     </span>
+                    <small>{formatEvidenceTypes(source.evidenceTypes)}</small>
                   </div>
                   <div>
                     <span>{Math.round(source.averageConfidence * 100)}% confidence</span>

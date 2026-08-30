@@ -100,6 +100,7 @@ export function mapEntraInventoryToSnapshot(
       observedAt,
       freshness: 'live',
       confidence: 1,
+      evidenceTypes: ['declared_configuration'],
       summary:
         principalOwners.length === 0
           ? `Authoritative service-principal inventory record for ${principal.displayName}.`
@@ -146,6 +147,7 @@ export function mapEntraInventoryToSnapshot(
         observedAt,
         freshness: 'live',
         confidence: 1,
+        evidenceTypes: ['declared_configuration'],
         summary: `Authoritative app-role assignment ${assignment.appRoleId} from ${principalId} to resource ${assignment.resourceId}.`,
       })
       edges.push({
@@ -172,6 +174,7 @@ export function mapEntraInventoryToSnapshot(
       observedAt,
       freshness: 'live',
       confidence: 0.9,
+      evidenceTypes: ['declared_configuration'],
       summary: `Preview Agent Identity classification for ${preview.displayName}; beta API evidence is isolated from stable inventory.`,
     })
     if (node === undefined) {

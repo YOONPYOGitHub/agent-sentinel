@@ -6,6 +6,7 @@ import { MockAgentConnector } from '@agent-sentinel/mock-connector'
 
 import { createApp } from '../src/app.js'
 import { DemoService } from '../src/demo-service.js'
+import { createRuntimeTelemetryFixture } from './runtime-telemetry-fixture.js'
 
 const apps: Awaited<ReturnType<typeof createApp>>[] = []
 
@@ -61,6 +62,98 @@ describe('live product read model', () => {
     expect(response.statusCode).toBe(200)
     expect(agentSentinelStateSchema.parse(response.json()).snapshot).toEqual(snapshot)
     expect(findLatest).toHaveBeenCalledWith(snapshot.tenantId, snapshot.environment)
+  })
+
+  it('projects measured runtime evidence without mutating the persisted snapshot', async () => {
+    const snapshot = await new MockAgentConnector().discover()
+    configureFoundryFor(snapshot)
+    const agent = snapshot.nodes.find((node) => node.kind === 'agent')
+    if (agent === undefined) throw new Error('Expected an agent fixture.')
+    Object.assign(agent.metadata, {
+      sourceConnectorId: 'primary',
+      sourceTenantId: snapshot.tenantId,
+      sourceObjectId: 'provider-agent-id',
+      sourceEnvironment: snapshot.environment,
+    })
+    const persisted = structuredClone(snapshot)
+    const { repository } = snapshotRepository(snapshot)
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled' },
+      {
+        dataMode: 'live',
+        snapshotRepository: repository,
+        runtimeTelemetryConnector: createRuntimeTelemetryFixture(snapshot.environment),
+      },
+    )
+    apps.push(app)
+
+    const response = await app.inject({ method: 'GET', url: '/api/demo/state' })
+    const state = agentSentinelStateSchema.parse(response.json())
+
+    expect(response.statusCode).toBe(200)
+    expect(state.runtimeEvidence).toMatchObject({
+      status: 'partial',
+      eligibleAgentCount: 1,
+      queriedAgentCount: 1,
+      enrichedAgentCount: 1,
+      evidenceCount: 2,
+      failures: [],
+    })
+    expect(state.snapshot.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'otel-observed-evidence',
+          evidenceTypes: ['observed_runtime'],
+        }),
+      ]),
+    )
+    expect(state.snapshot.nodes.find((node) => node.id === agent.id)?.evidenceIds).toContain(
+      'otel-observed-evidence',
+    )
+    expect(snapshot).toEqual(persisted)
+  })
+
+  it('surfaces telemetry projection failures without hiding the persisted estate', async () => {
+    const snapshot = await new MockAgentConnector().discover()
+    configureFoundryFor(snapshot)
+    const agent = snapshot.nodes.find((node) => node.kind === 'agent')
+    if (agent === undefined) throw new Error('Expected an agent fixture.')
+    Object.assign(agent.metadata, {
+      sourceConnectorId: 'primary',
+      sourceTenantId: snapshot.tenantId,
+      sourceObjectId: 'provider-agent-id',
+      sourceEnvironment: snapshot.environment,
+    })
+    const { repository } = snapshotRepository(snapshot)
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled' },
+      {
+        dataMode: 'live',
+        snapshotRepository: repository,
+        runtimeTelemetryConnector: {
+          id: 'azure-monitor-otel',
+          readObservationWindows: () => Promise.reject(new Error('private provider detail')),
+        },
+      },
+    )
+    apps.push(app)
+
+    const response = await app.inject({ method: 'GET', url: '/api/demo/state' })
+    const state = agentSentinelStateSchema.parse(response.json())
+
+    expect(response.statusCode).toBe(200)
+    expect(state.snapshot).toEqual(snapshot)
+    expect(state.runtimeEvidence).toMatchObject({
+      status: 'unavailable',
+      eligibleAgentCount: 1,
+      queriedAgentCount: 0,
+      enrichedAgentCount: 0,
+      evidenceCount: 0,
+      failures: [{ agentId: agent.id, reason: 'query-failed' }],
+    })
+    expect(response.body).not.toContain('private provider detail')
   })
 
   it('returns explicit unavailability instead of rediscovering or falling back to mock', async () => {

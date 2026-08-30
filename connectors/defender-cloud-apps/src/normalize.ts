@@ -138,6 +138,7 @@ function mapRecord(
       observedAt,
       freshness: 'live',
       confidence: 1,
+      evidenceTypes: ['observed_runtime'],
       summary: `Direct, unattributed Defender for Cloud Apps ${kind} observation; confidence reflects provider observation only and does not indicate agent attribution.`,
       metadata,
     },

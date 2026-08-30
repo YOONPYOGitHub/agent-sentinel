@@ -8,6 +8,7 @@ import { computeBaseline } from '@agent-sentinel/behavior-engine'
 import { MOCK_BEHAVIOR_WINDOWS } from '@agent-sentinel/mock-connector'
 import {
   runtimeObservationWindowsSchema,
+  withoutSyntheticObservations,
   type RuntimeTelemetryRequest,
   type RuntimeTelemetryConnector,
 } from '@agent-sentinel/connector-sdk'
@@ -17,7 +18,7 @@ export interface BehaviorRoutesOptions {
   mode: 'mock' | 'foundry'
   defaultTenantId: string
   runtimeTelemetryConnector?: RuntimeTelemetryConnector
-  resolveTelemetryRequest?: (agentId: string) => Promise<RuntimeTelemetryRequest>
+  resolveTelemetryRequest?: (agentId: string) => Promise<RuntimeTelemetryRequest | undefined>
 }
 
 function unavailableAnalysisId(kind: 'unavailable' | 'no-data', agentId: string): string {
@@ -52,14 +53,30 @@ export function registerBehaviorRoutes(app: FastifyInstance, opts: BehaviorRoute
       if (opts.mode === 'foundry') {
         if (opts.runtimeTelemetryConnector !== undefined) {
           try {
-            const telemetryRequest = (await opts.resolveTelemetryRequest?.(agentId)) ?? {
-              tenantId,
-              agentId,
+            const resolvedRequest = await opts.resolveTelemetryRequest?.(agentId)
+            if (opts.resolveTelemetryRequest !== undefined && resolvedRequest === undefined) {
+              const result: DriftAnalysisResult = driftAnalysisResultSchema.parse({
+                analysisId: unavailableAnalysisId('unavailable', agentId),
+                tenantId,
+                agentId,
+                environment: 'unknown',
+                source: 'azure-monitor-otel',
+                status: 'invalid',
+                computedAt: new Date().toISOString(),
+                dimensions: [],
+                anyDrift: false,
+                unavailableReason:
+                  'No exact runtime telemetry source binding exists for this discovered agent.',
+              })
+              return reply.status(200).send(result)
             }
-            const windows = runtimeObservationWindowsSchema.parse(
-              await opts.runtimeTelemetryConnector.readObservationWindows({
-                ...telemetryRequest,
-              }),
+            const telemetryRequest = resolvedRequest ?? { tenantId, agentId }
+            const windows = withoutSyntheticObservations(
+              runtimeObservationWindowsSchema.parse(
+                await opts.runtimeTelemetryConnector.readObservationWindows({
+                  ...telemetryRequest,
+                }),
+              ),
             )
             if (windows.observed.tenantId !== tenantId || windows.observed.agentId !== agentId) {
               throw new Error('Runtime telemetry response does not match the API request binding.')

@@ -14,7 +14,8 @@
         { "name": "CostUsd", "type": "real" },
         { "name": "Success", "type": "bool" },
         { "name": "ErrorCode", "type": "string" },
-        { "name": "ToolCallNames", "type": "string" }
+        { "name": "ToolCallNames", "type": "string" },
+        { "name": "Synthetic", "type": "bool" }
       ],
       "rows": [
         [
@@ -29,7 +30,8 @@
           0.012,
           true,
           "",
-          "[\"knowledge_search\",\"answer\"]"
+          "[\"knowledge_search\",\"answer\"]",
+          false
         ],
         [
           "fixture-baseline-2",
@@ -43,7 +45,8 @@
           null,
           false,
           "timeout",
-          "[\"knowledge_search\"]"
+          "[\"knowledge_search\"]",
+          true
         ],
         [
           "fixture-observed-1",
@@ -57,7 +60,8 @@
           0.013,
           true,
           "",
-          "[\"knowledge_search\",\"answer\"]"
+          "[\"knowledge_search\",\"answer\"]",
+          false
         ],
         [
           "fixture-observed-2",
@@ -71,7 +75,8 @@
           null,
           true,
           "",
-          "[]"
+          "[]",
+          false
         ]
       ]
     }

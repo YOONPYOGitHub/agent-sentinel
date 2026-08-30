@@ -13,6 +13,7 @@ function obs(id: string, overrides: Partial<RuntimeObservation> = {}): RuntimeOb
     agentId: 'test-agent',
     environment: 'test',
     source: 'mock-synthetic',
+    synthetic: true,
     observedAt: '2026-08-01T10:00:00.000Z',
     success: true,
     toolCallNames: [],

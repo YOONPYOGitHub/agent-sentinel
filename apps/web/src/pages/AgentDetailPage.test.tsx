@@ -244,6 +244,36 @@ describe('AgentDetailPage', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('labels runtime evidence from its explicit type instead of the source name', async () => {
+    const runtimeEvidence = {
+      id: 'runtime-evidence',
+      source: 'Custom telemetry source',
+      sourceObjectId: 'window-1',
+      observedAt: '2026-08-29T12:00:00.000Z',
+      freshness: 'live' as const,
+      confidence: 1,
+      evidenceTypes: ['observed_runtime' as const],
+      summary: 'Measured runtime invocation evidence.',
+    }
+    const nodes = testState.snapshot.nodes.map((node) =>
+      node.id === 'hr-policy-agent'
+        ? { ...node, evidenceIds: [...node.evidenceIds, runtimeEvidence.id] }
+        : node,
+    )
+    vi.mocked(demoApi.getState).mockResolvedValue({
+      ...testState,
+      snapshot: {
+        ...testState.snapshot,
+        nodes,
+        evidence: [...testState.snapshot.evidence, runtimeEvidence],
+      },
+    })
+
+    renderDetail('hr-policy-agent')
+
+    expect(await screen.findByText(/Observed runtime · live · 100% confidence/)).toBeVisible()
+  })
+
   it('shows Unknown header badge while live exposures are loading', async () => {
     vi.spyOn(exposureApi, 'listAll').mockReturnValue(new Promise<never>(() => undefined))
     renderDetail('hr-policy-agent')

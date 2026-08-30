@@ -109,7 +109,17 @@ properties:
 | `gen_ai.usage.output_tokens`     | Optional measured output tokens             |
 | `agent.sentinel.cost.usd`        | Optional measured USD cost; never estimated |
 | `agent.sentinel.tool_call_names` | Optional JSON string array of ordered tools |
+| `agent.sentinel.synthetic`       | Optional provenance flag for validation canaries; defaults false |
 | `error.type`                     | Optional error code                         |
+
+The live read model maps non-empty telemetry windows onto the already
+discovered agent node. Tool and `CAN_CALL` edge evidence is added only when a
+tool-call name has exactly one existing outgoing tool match; unmatched or
+ambiguous names are reported as coverage gaps and never create graph objects.
+This is a request-time projection with a short cache: the jobs-persisted
+configuration snapshot remains unchanged. Synthetic validation spans are
+typed separately and excluded from behavior-baseline and token-economics
+analysis.
 
 The checked-in Azure Monitor response fixture is local-only and contract-tested:
 

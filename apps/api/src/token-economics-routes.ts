@@ -8,6 +8,7 @@ import { computeBaseline } from '@agent-sentinel/behavior-engine'
 import { MOCK_TOKEN_ECONOMICS_WINDOWS } from '@agent-sentinel/mock-connector'
 import {
   runtimeObservationWindowsSchema,
+  withoutSyntheticObservations,
   type RuntimeTelemetryRequest,
   type RuntimeTelemetryConnector,
 } from '@agent-sentinel/connector-sdk'
@@ -16,7 +17,7 @@ export interface TokenEconomicsRoutesOptions {
   mode: 'mock' | 'foundry'
   defaultTenantId: string
   runtimeTelemetryConnector?: RuntimeTelemetryConnector
-  resolveTelemetryRequest?: (agentId: string) => Promise<RuntimeTelemetryRequest>
+  resolveTelemetryRequest?: (agentId: string) => Promise<RuntimeTelemetryRequest | undefined>
 }
 
 function unavailableReportId(agentId: string): string {
@@ -50,14 +51,31 @@ export function registerTokenEconomicsRoutes(
       if (opts.mode === 'foundry') {
         if (opts.runtimeTelemetryConnector !== undefined) {
           try {
-            const telemetryRequest = (await opts.resolveTelemetryRequest?.(agentId)) ?? {
-              tenantId,
-              agentId,
+            const resolvedRequest = await opts.resolveTelemetryRequest?.(agentId)
+            if (opts.resolveTelemetryRequest !== undefined && resolvedRequest === undefined) {
+              const now = new Date().toISOString()
+              const result: TokenEconomicsReport = tokenEconomicsReportSchema.parse({
+                reportId: unavailableReportId(agentId),
+                tenantId,
+                agentId,
+                environment: 'unknown',
+                source: 'azure-monitor-otel',
+                windowStart: new Date(0).toISOString(),
+                windowEnd: now,
+                computedAt: now,
+                status: 'unavailable',
+                unavailableReason:
+                  'No exact runtime telemetry source binding exists for this discovered agent.',
+              })
+              return reply.status(200).send(result)
             }
-            const windows = runtimeObservationWindowsSchema.parse(
-              await opts.runtimeTelemetryConnector.readObservationWindows({
-                ...telemetryRequest,
-              }),
+            const telemetryRequest = resolvedRequest ?? { tenantId, agentId }
+            const windows = withoutSyntheticObservations(
+              runtimeObservationWindowsSchema.parse(
+                await opts.runtimeTelemetryConnector.readObservationWindows({
+                  ...telemetryRequest,
+                }),
+              ),
             )
             if (windows.observed.tenantId !== tenantId || windows.observed.agentId !== agentId) {
               throw new Error('Runtime telemetry response does not match the API request binding.')

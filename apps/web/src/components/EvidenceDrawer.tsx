@@ -4,6 +4,8 @@ import type { KeyboardEventHandler, RefObject } from 'react'
 
 import type { Evidence } from '@agent-sentinel/domain'
 
+import { formatEvidenceTypes } from '../evidence-types'
+
 interface EvidenceDrawerProps {
   evidence: Evidence | undefined
   drawerRef: RefObject<HTMLElement | null>
@@ -41,11 +43,16 @@ export function EvidenceDrawer({ evidence, drawerRef, onClose, onKeyDown }: Evid
         <Badge color={evidence.freshness === 'stale' ? 'warning' : 'success'} appearance="tint">
           {evidence.freshness} · {Math.round(evidence.confidence * 100)}% confidence
         </Badge>
+        <Badge appearance="outline">{formatEvidenceTypes(evidence.evidenceTypes)}</Badge>
         <p className="evidence-lead">{evidence.summary}</p>
         <dl>
           <div>
             <dt>Source object</dt>
             <dd>{evidence.sourceObjectId}</dd>
+          </div>
+          <div>
+            <dt>Evidence type</dt>
+            <dd>{formatEvidenceTypes(evidence.evidenceTypes)}</dd>
           </div>
           <div>
             <dt>Observed</dt>

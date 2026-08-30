@@ -149,8 +149,8 @@ The connector and engine bridge are implemented. Deployment prerequisites and th
 - [x] Resolve aggregate agents to source-specific workspace, tenant, environment, and provider agent id; rebind measured windows to the aggregate estate identity.
 - [x] Support multiple workspace sources with independent default or secretless federated credentials and per-source health.
 - [ ] Instrument the target agents, inject workspace/tenant/environment configuration, and grant read-only query permission.
-- [ ] Map runtime spans to existing graph nodes and edges without inventing relationships.
-- [ ] Distinguish observed runtime behavior from declared configuration at the evidence-type level.
+- [x] Map runtime spans to existing graph nodes and edges without inventing relationships.
+- [x] Distinguish observed runtime behavior from declared configuration at the evidence-type level.
 
 **Definition of done**
 

@@ -5,12 +5,47 @@ import type { ExposureFindingRepository, SnapshotRepository } from '@agent-senti
 import {
   createFailingRuntimeTelemetryFixture,
   createRuntimeTelemetryFixture,
+  createSyntheticCanaryTelemetryFixture,
 } from './runtime-telemetry-fixture.js'
 
 function makeStubRepositories(): {
   exposureRepository: ExposureFindingRepository
   snapshotRepository: SnapshotRepository
 } {
+  const snapshot = {
+    tenantId: 'tenant-demo',
+    environment: 'validation',
+    generatedAt: '2026-08-28T00:00:00.000Z',
+    nodes: [
+      {
+        id: 'live-agent',
+        kind: 'agent' as const,
+        name: 'Live agent',
+        description: 'Test agent.',
+        environment: 'production',
+        evidenceIds: ['evidence-1'],
+        metadata: {
+          sourceConnectorId: 'primary',
+          sourceTenantId: 'tenant-demo',
+          sourceEnvironment: 'production',
+          sourceObjectId: 'live-agent',
+        },
+      },
+    ],
+    edges: [],
+    evidence: [
+      {
+        id: 'evidence-1',
+        source: 'Foundry',
+        sourceObjectId: 'live-agent',
+        observedAt: '2026-08-28T00:00:00.000Z',
+        freshness: 'live' as const,
+        confidence: 1,
+        evidenceTypes: ['declared_configuration' as const],
+        summary: 'Declared configuration.',
+      },
+    ],
+  }
   return {
     exposureRepository: {
       upsert: (f) => Promise.resolve(f),
@@ -21,9 +56,9 @@ function makeStubRepositories(): {
     },
     snapshotRepository: {
       save: () => Promise.resolve(),
-      findLatest: () => Promise.resolve(null),
-      findById: () => Promise.resolve(null),
-      list: () => Promise.resolve([]),
+      findLatest: () => Promise.resolve(snapshot),
+      findById: () => Promise.resolve(snapshot),
+      list: () => Promise.resolve([snapshot]),
     },
   }
 }
@@ -211,6 +246,28 @@ describe('token economics API - foundry mode', () => {
     expect(result.source).toBe('azure-monitor-otel')
     expect(result.coverage).toBeUndefined()
     expect(result.unavailableReason).not.toContain('provider details')
+    await app.close()
+  })
+
+  it('does not include synthetic validation canaries in live token economics', async () => {
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: createSyntheticCanaryTelemetryFixture(),
+        ...makeStubRepositories(),
+      },
+    )
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/token-economics/agents/live-agent',
+    })
+    const result = tokenEconomicsReportSchema.parse(response.json())
+
+    expect(result.status).toBe('insufficient-data')
+    expect(result.coverage).toBeUndefined()
+    expect(result.unavailableReason).toContain('Window has 0 unique samples')
     await app.close()
   })
 })

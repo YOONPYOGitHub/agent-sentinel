@@ -16,6 +16,7 @@ const evidence = {
   observedAt: '2026-08-14T12:00:00.000Z',
   freshness: 'live' as const,
   confidence: 1,
+  evidenceTypes: ['synthetic_validation' as const],
   summary: 'Synthetic evidence',
 }
 

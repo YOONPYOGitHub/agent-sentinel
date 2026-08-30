@@ -78,6 +78,7 @@ const context: AdvisoryContext = {
         observedAt: '2026-08-20T00:00:00.000Z',
         freshness: 'live',
         confidence: 1,
+        evidenceTypes: ['synthetic_validation'],
         summary:
           'Synthetic declared-configuration evidence for an external transfer capability without approval.',
       },

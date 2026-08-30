@@ -133,6 +133,7 @@ export function mapAgent365PackagesToSnapshot(
       observedAt,
       freshness: 'live',
       confidence: 1,
+      evidenceTypes: ['declared_configuration'],
       summary: agent
         ? `Authoritative package catalog record for ${item.displayName}; agent-package classification uses documented host and element types, while runtime behavior, trust, tools, identity, entitlement, and access are not inferred.`
         : `Authoritative non-agent extension package record for ${item.displayName}; no agent semantics, runtime behavior, trust, tools, identity, entitlement, or access is inferred.`,

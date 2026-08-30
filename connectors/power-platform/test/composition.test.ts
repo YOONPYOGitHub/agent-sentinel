@@ -36,6 +36,7 @@ const baseSnapshot: EstateSnapshot = {
       observedAt: '2026-08-27T00:00:00Z',
       freshness: 'live',
       confidence: 1,
+      evidenceTypes: ['declared_configuration'],
       summary: 'Base evidence.',
     },
   ],

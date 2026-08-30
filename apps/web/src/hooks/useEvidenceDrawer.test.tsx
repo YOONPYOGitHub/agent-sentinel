@@ -16,6 +16,7 @@ const evidence: Evidence = {
   observedAt: '2026-08-14T12:00:00.000Z',
   freshness: 'recent',
   confidence: 1,
+  evidenceTypes: ['declared_configuration'],
   summary: 'Manifest.',
 }
 

@@ -18,6 +18,7 @@ function evidence(id: string, source: string): Evidence {
     observedAt,
     freshness: 'recent',
     confidence: 1,
+    evidenceTypes: ['declared_configuration'],
     summary: `${source} evidence.`,
   }
 }

@@ -93,6 +93,7 @@ export function mapPurviewLabelsToSnapshot(
       observedAt,
       freshness: 'live',
       confidence: 1,
+      evidenceTypes: ['declared_configuration'],
       summary:
         'Direct tenant sensitivity-label catalog observation only; confidence does not indicate label usage, content classification, agent attribution, trust, or compliance.',
       metadata,

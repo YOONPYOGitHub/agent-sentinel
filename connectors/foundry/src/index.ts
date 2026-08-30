@@ -356,6 +356,7 @@ export function mapAgentToSnapshot(
       observedAt: generatedAt,
       freshness: 'live',
       confidence: 1,
+      evidenceTypes: ['declared_configuration'],
       summary: `Declared configuration for ${agent.name ?? agent.id}; this is not observed runtime behavior.`,
     })
   }

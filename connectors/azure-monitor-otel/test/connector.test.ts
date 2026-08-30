@@ -26,6 +26,7 @@ const columns = [
   ['Success', 'bool'],
   ['ErrorCode', 'string'],
   ['ToolCallNames', 'string'],
+  ['Synthetic', 'bool'],
 ].map(([name, type]) => ({ name, type }))
 
 class Credential implements TokenCredential {
@@ -63,6 +64,7 @@ function row(
     true,
     '',
     '["knowledge_search","answer"]',
+    false,
   ]
 }
 
@@ -88,11 +90,13 @@ describe('Azure Monitor OTel connector', () => {
       costUsd: 0.012,
       success: true,
       toolCallNames: ['knowledge_search', 'answer'],
+      synthetic: false,
     })
     expect(observations[1]).toMatchObject({
       success: false,
       errorCode: 'timeout',
       toolCallNames: ['knowledge_search'],
+      synthetic: true,
     })
     expect(observations[1]?.costUsd).toBeUndefined()
   })

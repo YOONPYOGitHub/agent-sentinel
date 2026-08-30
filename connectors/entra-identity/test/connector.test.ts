@@ -75,6 +75,7 @@ function baseSnapshot(metadata: Record<string, string>): EstateSnapshot {
         observedAt,
         freshness: 'live',
         confidence: 1,
+        evidenceTypes: ['declared_configuration'],
         summary: 'Declared configuration.',
       },
     ],
@@ -511,6 +512,7 @@ describe('composite enrichment connector', () => {
           observedAt,
           freshness: 'live' as const,
           confidence: 1,
+          evidenceTypes: ['declared_configuration' as const],
           summary: 'Declared configuration.',
         })),
       }

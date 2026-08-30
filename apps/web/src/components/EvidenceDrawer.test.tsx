@@ -15,6 +15,7 @@ const evidence: Evidence = {
   observedAt: '2026-08-14T12:00:00.000Z',
   freshness: 'live',
   confidence: 1,
+  evidenceTypes: ['declared_configuration'],
   summary: 'Verified assignment.',
 }
 
@@ -37,6 +38,7 @@ describe('EvidenceDrawer', () => {
     render(<DrawerHarness onClose={onClose} />)
     expect(screen.getByRole('dialog', { name: 'Microsoft Entra ID' })).toBeVisible()
     expect(screen.getByText('Verified assignment.')).toBeVisible()
+    expect(screen.getAllByText('Declared configuration')).toHaveLength(2)
     await user.click(screen.getByRole('button', { name: 'Close evidence' }))
     expect(onClose).toHaveBeenCalledOnce()
   })
