@@ -270,12 +270,16 @@ resource is configured by this change.
   verification against non-synthetic Azure Monitor evidence. Missing,
   ambiguous, unavailable, and no-observation outcomes remain explicit and do
   not create graph relationships.
+- Exact authoritative-object reconciliation for declared configuration
+  evidence. It cites the matching first-party object without merging nodes,
+  comparing free-form claims, or letting adapter evidence override the source.
 
 **Remaining**
 
 - Activate live API ingestion only after the Administrator role, write scope, deployment write gate, and exact public-edge mutation path are separately approved and validated.
-- Correlation of non-runtime adapter claims against first-party connectors so
-  overlapping configuration evidence is reconciled rather than duplicated.
+- Structured comparison of specific non-runtime claim values when a supported
+  first-party contract exposes equivalent typed fields. Free-form claims remain
+  unverified.
 
 ---
 

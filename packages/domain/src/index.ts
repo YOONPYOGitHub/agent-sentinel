@@ -238,6 +238,38 @@ export const manifestRuntimeVerificationSchema = z.object({
 })
 export type ManifestRuntimeVerification = z.infer<typeof manifestRuntimeVerificationSchema>
 
+export const manifestConfigurationReconciliationSchema = z.object({
+  status: z.enum(['not-configured', 'no-claims', 'ready', 'partial', 'unavailable']),
+  reason: z.enum(['repository-unavailable', 'source-limit-exceeded']).optional(),
+  checkedAt: z.iso.datetime(),
+  counts: z.object({
+    matched: z.number().int().min(0),
+    ambiguous: z.number().int().min(0),
+    notCorrelatable: z.number().int().min(0),
+  }),
+  claims: z.array(
+    z.object({
+      manifestId: z.string().min(1),
+      evidenceId: z.string().min(1),
+      subjectId: z.string().min(1),
+      status: z.enum(['matched-authoritative-object', 'ambiguous', 'not-correlatable']),
+      matchedNodeId: z.string().min(1).optional(),
+      authoritativeEvidenceIds: z.array(z.string().min(1)),
+      reason: z.enum([
+        'exact-authoritative-object-match',
+        'missing-source-binding',
+        'subject-binding-mismatch',
+        'no-exact-source-match',
+        'multiple-exact-source-matches',
+        'entity-kind-mismatch',
+      ]),
+    }),
+  ),
+})
+export type ManifestConfigurationReconciliation = z.infer<
+  typeof manifestConfigurationReconciliationSchema
+>
+
 export const agentSentinelStateSchema = z.object({
   snapshot: estateSnapshotSchema,
   findings: z.array(findingSchema),
@@ -261,6 +293,7 @@ export const agentSentinelStateSchema = z.object({
     })
     .optional(),
   manifestRuntimeVerification: manifestRuntimeVerificationSchema.optional(),
+  manifestConfigurationReconciliation: manifestConfigurationReconciliationSchema.optional(),
 })
 
 export type AgentSentinelState = z.infer<typeof agentSentinelStateSchema>

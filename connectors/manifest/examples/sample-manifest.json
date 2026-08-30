@@ -122,6 +122,12 @@
       "id": "invoice-triage-config",
       "subjectId": "invoice-triage-agent",
       "evidenceType": "declared_configuration",
+      "sourceBinding": {
+        "sourceConnectorId": "primary",
+        "sourceTenantId": "contoso-ai-lab",
+        "sourceObjectId": "invoice-triage-agent",
+        "sourceEnvironment": "production"
+      },
       "confidence": 0.6,
       "observedAt": "2026-08-20T08:55:00.000Z",
       "claims": {

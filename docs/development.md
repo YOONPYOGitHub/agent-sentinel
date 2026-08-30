@@ -65,17 +65,20 @@ after runtime discovery. JSON is the default for CI; add `--format text` for an
 author explanation or `--fail-on warn` for a stricter gate. Exit codes are `0`
 accepted, `1` policy gate failed, `2` invalid input, and `3` unexpected failure.
 
-`runtime_observed` evidence may include an optional `sourceBinding` with
+Manifest evidence may include an optional `sourceBinding` with
 `sourceConnectorId`, `sourceTenantId`, `sourceObjectId`, and
 `sourceEnvironment`. The live read model uses only an exact four-field match to
 an authoritative agent or tool, and the manifest `subjectId` must equal the
 provider `sourceObjectId`. It never merges nodes or infers relationships.
-Only non-synthetic Azure Monitor evidence verifies the claim; missing,
+For `runtime_observed` evidence, only non-synthetic Azure Monitor evidence
+verifies the claim; missing,
 ambiguous, unavailable, and successfully queried-but-unobserved states remain
 explicit. Lack of an observation is never reported as a contradiction. Runtime
 verification is bounded to the latest 500 manifest sources for an environment;
 exceeding that cap reports `source-limit-exceeded` rather than masquerading as
-a repository outage.
+a repository outage. Declared-configuration reconciliation reports only an
+exact authoritative object match and its cited evidence. It does not compare or
+endorse free-form manifest claims.
 
 When changing the envelope:
 

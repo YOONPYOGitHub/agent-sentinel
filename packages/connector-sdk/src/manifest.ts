@@ -259,29 +259,19 @@ export const manifestSourceBindingSchema = z.strictObject({
 })
 export type ManifestSourceBinding = z.infer<typeof manifestSourceBindingSchema>
 
-export const evidenceDeclarationSchema = z
-  .strictObject({
-    id: localIdSchema,
-    subjectId: localIdSchema,
-    evidenceType: manifestEvidenceTypeSchema,
-    sourceBinding: manifestSourceBindingSchema.optional(),
-    confidence: z.number().min(0).max(1).default(ADAPTER_DEFAULT_CONFIDENCE),
-    observedAt: isoTimestampSchema,
-    claims: boundedRecord(
-      MANIFEST_LIMITS.maxClaimKeys,
-      MANIFEST_LIMITS.maxClaimValueLength,
-      'claims',
-    ).default({}),
-  })
-  .superRefine((evidence, context) => {
-    if (evidence.sourceBinding !== undefined && evidence.evidenceType !== 'runtime_observed') {
-      context.addIssue({
-        code: 'custom',
-        path: ['sourceBinding'],
-        message: 'sourceBinding is accepted only for runtime_observed evidence.',
-      })
-    }
-  })
+export const evidenceDeclarationSchema = z.strictObject({
+  id: localIdSchema,
+  subjectId: localIdSchema,
+  evidenceType: manifestEvidenceTypeSchema,
+  sourceBinding: manifestSourceBindingSchema.optional(),
+  confidence: z.number().min(0).max(1).default(ADAPTER_DEFAULT_CONFIDENCE),
+  observedAt: isoTimestampSchema,
+  claims: boundedRecord(
+    MANIFEST_LIMITS.maxClaimKeys,
+    MANIFEST_LIMITS.maxClaimValueLength,
+    'claims',
+  ).default({}),
+})
 export type EvidenceDeclaration = z.infer<typeof evidenceDeclarationSchema>
 
 // ─── Envelope ────────────────────────────────────────────────────────────────

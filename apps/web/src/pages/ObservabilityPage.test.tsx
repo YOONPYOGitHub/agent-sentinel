@@ -216,6 +216,16 @@ describe('ObservabilityPage', () => {
           },
           claims: [],
         },
+        manifestConfigurationReconciliation: {
+          status: 'partial',
+          checkedAt: '2026-08-30T01:00:00.000Z',
+          counts: {
+            matched: 2,
+            ambiguous: 1,
+            notCorrelatable: 1,
+          },
+          claims: [],
+        },
         snapshot: {
           ...testState.snapshot,
           evidence: [
@@ -250,6 +260,8 @@ describe('ObservabilityPage', () => {
     expect(screen.getByText(/Observed runtime · Synthetic validation/)).toBeVisible()
     expect(screen.getByText('Manifest runtime claims')).toBeVisible()
     expect(screen.getByText(/partial · 1 not observed · 0 ambiguous · 1 not correlatable/)).toBeVisible()
+    expect(screen.getByText('Manifest config matches')).toBeVisible()
+    expect(screen.getByText(/partial · 1 ambiguous · 1 not correlatable/)).toBeVisible()
   })
 
   it('shows why manifest verification is unavailable', () => {

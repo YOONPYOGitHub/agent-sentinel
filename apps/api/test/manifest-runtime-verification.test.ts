@@ -7,7 +7,10 @@ import {
 } from '@agent-sentinel/connector-sdk'
 import { estateSnapshotSchema, type EstateSnapshot } from '@agent-sentinel/domain'
 
-import { verifyManifestRuntimeClaims } from '../src/manifest-runtime-verification.js'
+import {
+  reconcileManifestConfigurationEvidence,
+  verifyManifestRuntimeClaims,
+} from '../src/manifest-runtime-verification.js'
 
 const binding = {
   sourceConnectorId: 'primary',
@@ -50,6 +53,7 @@ function record(sourceBinding: typeof binding | null = binding): ManifestIngesti
     ],
     metadata: {},
   }
+
   return manifestIngestionRecordSchema.parse({
     tenantId: envelope.tenantId,
     environmentId: envelope.environmentId,
@@ -67,6 +71,12 @@ function record(sourceBinding: typeof binding | null = binding): ManifestIngesti
       evidence: [],
     },
   })
+}
+
+function configurationRecord(sourceBinding: typeof binding | null = binding) {
+  const value = record(sourceBinding)
+  value.envelope.evidence[0]!.evidenceType = 'declared_configuration'
+  return value
 }
 
 function snapshot(
@@ -136,6 +146,7 @@ describe('manifest runtime verification', () => {
       reason: 'non-synthetic-runtime-observation',
       corroboratingEvidenceIds: ['observed_runtime-evidence'],
     })
+
   })
 
   it('does not use synthetic canaries to verify a runtime claim', () => {
@@ -149,6 +160,7 @@ describe('manifest runtime verification', () => {
       status: 'no-observation',
       reason: 'no-non-synthetic-runtime-observation',
     })
+
   })
 
   it('keeps missing and unmatched bindings explicitly non-correlatable', () => {
@@ -173,6 +185,44 @@ describe('manifest runtime verification', () => {
     expect(result.claims[0]).toMatchObject({
       status: 'not-correlatable',
       reason: 'entity-kind-mismatch',
+    })
+  })
+
+  describe('manifest configuration reconciliation', () => {
+    it('matches one exact authoritative object without merging graph objects', () => {
+      const estate = snapshot([])
+      const result = reconcileManifestConfigurationEvidence(
+        estate,
+        [configurationRecord()],
+        '2026-08-30T01:00:00.000Z',
+      )
+
+      expect(result.status).toBe('ready')
+      expect(result.claims[0]).toMatchObject({
+        status: 'matched-authoritative-object',
+        matchedNodeId: 'authoritative-agent',
+        authoritativeEvidenceIds: ['declared-evidence'],
+        reason: 'exact-authoritative-object-match',
+      })
+      expect(estate.nodes).toHaveLength(1)
+      expect(estate.edges).toHaveLength(0)
+    })
+
+    it('keeps unbound and mismatched declarations explicitly uncorrelated', () => {
+      const missing = reconcileManifestConfigurationEvidence(snapshot([]), [
+        configurationRecord(null),
+      ])
+      const mismatched = configurationRecord()
+      mismatched.envelope.agents = [{ id: 'different-local-agent', displayName: 'Other agent' }]
+      mismatched.envelope.evidence[0]!.subjectId = 'different-local-agent'
+
+      expect(missing.claims[0]?.reason).toBe('missing-source-binding')
+      expect(
+        reconcileManifestConfigurationEvidence(snapshot([]), [mismatched]).claims[0],
+      ).toMatchObject({
+        status: 'not-correlatable',
+        reason: 'subject-binding-mismatch',
+      })
     })
   })
 

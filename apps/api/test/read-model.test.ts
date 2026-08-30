@@ -104,6 +104,15 @@ describe('live product read model', () => {
       },
       claims: [],
     })
+    expect(state.manifestConfigurationReconciliation).toMatchObject({
+      status: 'no-claims',
+      counts: {
+        matched: 0,
+        ambiguous: 0,
+        notCorrelatable: 0,
+      },
+      claims: [],
+    })
 
     expect(listLatest).toHaveBeenCalledWith(snapshot.environment, MAX_MANIFEST_SOURCES)
     expect(state.snapshot).toEqual(snapshot)
@@ -134,6 +143,10 @@ describe('live product read model', () => {
 
     expect(response.statusCode).toBe(200)
     expect(state.manifestRuntimeVerification).toMatchObject({
+      status: 'unavailable',
+      reason: 'source-limit-exceeded',
+    })
+    expect(state.manifestConfigurationReconciliation).toMatchObject({
       status: 'unavailable',
       reason: 'source-limit-exceeded',
     })

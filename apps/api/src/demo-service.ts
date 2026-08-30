@@ -13,6 +13,7 @@ import type {
   AgentSentinelState,
   EstateSnapshot,
   Finding,
+  ManifestConfigurationReconciliation,
   ManifestRuntimeVerification,
   Remediation,
   SnapshotRepository,
@@ -22,6 +23,7 @@ import { MockAgentConnector } from '@agent-sentinel/mock-connector'
 import { evaluateUncontrolledEgress } from '@agent-sentinel/policy-engine'
 
 import {
+  reconcileManifestConfigurationEvidence,
   verifyManifestRuntimeClaims,
   type RuntimeQueryCoverage,
 } from './manifest-runtime-verification.js'
@@ -90,7 +92,7 @@ export class DemoService {
       )
     }
     const runtimeProjection = await this.withRuntimeEvidence(snapshot)
-    const manifestRuntimeVerification = await this.verifyManifestRuntime(
+    const manifestAnalysis = await this.analyzeManifestEvidence(
       runtimeProjection.snapshot,
       runtimeProjection.coverage,
     )
@@ -112,7 +114,8 @@ export class DemoService {
       validations: structuredClone(this.validations),
       remediations: structuredClone(this.remediations),
       runtimeEvidence: structuredClone(runtimeProjection.status),
-      manifestRuntimeVerification: structuredClone(manifestRuntimeVerification),
+      manifestRuntimeVerification: structuredClone(manifestAnalysis.runtime),
+      manifestConfigurationReconciliation: structuredClone(manifestAnalysis.configuration),
     }
   }
 
@@ -250,23 +253,38 @@ export class DemoService {
     }
   }
 
-  private async verifyManifestRuntime(
+  private async analyzeManifestEvidence(
     snapshot: EstateSnapshot,
     coverage: RuntimeQueryCoverage,
-  ): Promise<ManifestRuntimeVerification> {
+  ): Promise<{
+    runtime: ManifestRuntimeVerification
+    configuration: ManifestConfigurationReconciliation
+  }> {
     const checkedAt = new Date().toISOString()
     if (this.manifestIngestionRepository === undefined) {
       return {
-        status: 'not-configured',
-        checkedAt,
-        counts: {
-          verified: 0,
-          noObservation: 0,
-          ambiguous: 0,
-          notCorrelatable: 0,
-          unavailable: 0,
+        runtime: {
+          status: 'not-configured',
+          checkedAt,
+          counts: {
+            verified: 0,
+            noObservation: 0,
+            ambiguous: 0,
+            notCorrelatable: 0,
+            unavailable: 0,
+          },
+          claims: [],
         },
-        claims: [],
+        configuration: {
+          status: 'not-configured',
+          checkedAt,
+          counts: {
+            matched: 0,
+            ambiguous: 0,
+            notCorrelatable: 0,
+          },
+          claims: [],
+        },
       }
     }
     try {
@@ -274,23 +292,40 @@ export class DemoService {
         snapshot.environment,
         MAX_MANIFEST_SOURCES,
       )
-      return verifyManifestRuntimeClaims(snapshot, records, coverage, checkedAt)
-    } catch (error) {
       return {
-        status: 'unavailable',
-        reason:
-          error instanceof ManifestIngestionSourceLimitError
-            ? 'source-limit-exceeded'
-            : 'repository-unavailable',
-        checkedAt,
-        counts: {
-          verified: 0,
-          noObservation: 0,
-          ambiguous: 0,
-          notCorrelatable: 0,
-          unavailable: 0,
+        runtime: verifyManifestRuntimeClaims(snapshot, records, coverage, checkedAt),
+        configuration: reconcileManifestConfigurationEvidence(snapshot, records, checkedAt),
+      }
+    } catch (error) {
+      const reason =
+        error instanceof ManifestIngestionSourceLimitError
+          ? 'source-limit-exceeded'
+          : 'repository-unavailable'
+      return {
+        runtime: {
+          status: 'unavailable',
+          reason,
+          checkedAt,
+          counts: {
+            verified: 0,
+            noObservation: 0,
+            ambiguous: 0,
+            notCorrelatable: 0,
+            unavailable: 0,
+          },
+          claims: [],
         },
-        claims: [],
+        configuration: {
+          status: 'unavailable',
+          reason,
+          checkedAt,
+          counts: {
+            matched: 0,
+            ambiguous: 0,
+            notCorrelatable: 0,
+          },
+          claims: [],
+        },
       }
     }
   }

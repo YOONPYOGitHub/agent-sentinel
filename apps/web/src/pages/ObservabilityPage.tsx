@@ -4,6 +4,7 @@ import {
   CheckmarkCircleRegular,
   ClockRegular,
   DataUsageRegular,
+  PlugConnectedRegular,
   PulseRegular,
   SparkleRegular,
   WarningRegular,
@@ -216,6 +217,24 @@ export function ObservabilityPage() {
               ? 'success'
               : state?.manifestRuntimeVerification?.status === 'partial' ||
                   state?.manifestRuntimeVerification?.status === 'unavailable'
+                ? 'warning'
+                : 'neutral'
+          }
+        />
+        <ObservabilityMetric
+          icon={PlugConnectedRegular}
+          label="Manifest config matches"
+          value={String(state?.manifestConfigurationReconciliation?.counts.matched ?? 0)}
+          detail={
+            state?.manifestConfigurationReconciliation === undefined
+              ? 'reconciliation status not reported'
+              : `${state.manifestConfigurationReconciliation.status}${state.manifestConfigurationReconciliation.reason === undefined ? '' : ` (${state.manifestConfigurationReconciliation.reason})`} · ${state.manifestConfigurationReconciliation.counts.ambiguous} ambiguous · ${state.manifestConfigurationReconciliation.counts.notCorrelatable} not correlatable`
+          }
+          tone={
+            state?.manifestConfigurationReconciliation?.status === 'ready'
+              ? 'success'
+              : state?.manifestConfigurationReconciliation?.status === 'partial' ||
+                  state?.manifestConfigurationReconciliation?.status === 'unavailable'
                 ? 'warning'
                 : 'neutral'
           }

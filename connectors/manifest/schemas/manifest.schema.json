@@ -228,16 +228,6 @@
     "evidenceDeclaration": {
       "type": "object",
       "additionalProperties": false,
-      "allOf": [
-        {
-          "if": { "required": ["sourceBinding"] },
-          "then": {
-            "properties": {
-              "evidenceType": { "const": "runtime_observed" }
-            }
-          }
-        }
-      ],
       "required": ["id", "subjectId", "evidenceType", "observedAt"],
       "properties": {
         "id": { "$ref": "#/$defs/localId" },

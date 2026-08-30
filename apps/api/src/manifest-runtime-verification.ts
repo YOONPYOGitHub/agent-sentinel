@@ -1,8 +1,10 @@
 import { stableId, type ManifestIngestionRecord } from '@agent-sentinel/connector-sdk'
 import {
+  manifestConfigurationReconciliationSchema,
   manifestRuntimeVerificationSchema,
   type EstateSnapshot,
   type GraphNode,
+  type ManifestConfigurationReconciliation,
   type ManifestRuntimeClaimVerificationStatus,
   type ManifestRuntimeVerification,
 } from '@agent-sentinel/domain'
@@ -15,6 +17,7 @@ export interface RuntimeQueryCoverage {
 }
 
 type VerificationClaim = ManifestRuntimeVerification['claims'][number]
+type ReconciliationClaim = ManifestConfigurationReconciliation['claims'][number]
 
 function manifestSubjectKind(
   record: ManifestIngestionRecord,
@@ -176,6 +179,96 @@ export function verifyManifestRuntimeClaims(
           : 'ready'
   return manifestRuntimeVerificationSchema.parse({
     status,
+    checkedAt,
+    counts,
+    claims,
+  })
+}
+
+function reconcileClaim(
+  snapshot: EstateSnapshot,
+  record: ManifestIngestionRecord,
+  declaration: ManifestIngestionRecord['envelope']['evidence'][number],
+): ReconciliationClaim {
+  const base = {
+    manifestId: record.manifestId,
+    evidenceId: stableId('manifest', `${record.manifestId}::evidence::${declaration.id}`),
+    subjectId: declaration.subjectId,
+    authoritativeEvidenceIds: [] as string[],
+  }
+  const binding = declaration.sourceBinding
+  if (binding === undefined) {
+    return {
+      ...base,
+      status: 'not-correlatable',
+      reason: 'missing-source-binding',
+    }
+  }
+  if (declaration.subjectId !== binding.sourceObjectId) {
+    return {
+      ...base,
+      status: 'not-correlatable',
+      reason: 'subject-binding-mismatch',
+    }
+  }
+  const candidates = exactCandidates(snapshot, binding)
+  if (candidates.length === 0) {
+    return {
+      ...base,
+      status: 'not-correlatable',
+      reason: 'no-exact-source-match',
+    }
+  }
+  if (candidates.length > 1) {
+    return {
+      ...base,
+      status: 'ambiguous',
+      reason: 'multiple-exact-source-matches',
+    }
+  }
+  const node = candidates[0]!
+  if (manifestSubjectKind(record, declaration.subjectId) !== node.kind) {
+    return {
+      ...base,
+      status: 'not-correlatable',
+      matchedNodeId: node.id,
+      reason: 'entity-kind-mismatch',
+    }
+  }
+  const evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]))
+  return {
+    ...base,
+    status: 'matched-authoritative-object',
+    matchedNodeId: node.id,
+    authoritativeEvidenceIds: node.evidenceIds.filter(
+      (id) => evidenceById.get(id)?.evidenceTypes.includes('declared_configuration') === true,
+    ),
+    reason: 'exact-authoritative-object-match',
+  }
+}
+
+export function reconcileManifestConfigurationEvidence(
+  snapshot: EstateSnapshot,
+  records: readonly ManifestIngestionRecord[],
+  checkedAt = new Date().toISOString(),
+): ManifestConfigurationReconciliation {
+  const claims = records.flatMap((record) =>
+    record.envelope.evidence
+      .filter((declaration) => declaration.evidenceType === 'declared_configuration')
+      .map((declaration) => reconcileClaim(snapshot, record, declaration)),
+  )
+  const counts = {
+    matched: claims.filter((item) => item.status === 'matched-authoritative-object').length,
+    ambiguous: claims.filter((item) => item.status === 'ambiguous').length,
+    notCorrelatable: claims.filter((item) => item.status === 'not-correlatable').length,
+  }
+  return manifestConfigurationReconciliationSchema.parse({
+    status:
+      claims.length === 0
+        ? 'no-claims'
+        : counts.ambiguous + counts.notCorrelatable > 0
+          ? 'partial'
+          : 'ready',
     checkedAt,
     counts,
     claims,

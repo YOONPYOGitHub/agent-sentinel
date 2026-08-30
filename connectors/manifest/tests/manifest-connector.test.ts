@@ -85,6 +85,12 @@ function baseManifest(): Raw {
         id: 'ev-config',
         subjectId: 'agent-a',
         evidenceType: 'declared_configuration',
+        sourceBinding: {
+          sourceConnectorId: 'primary',
+          sourceTenantId: TENANT,
+          sourceObjectId: 'agent-a',
+          sourceEnvironment: ENVIRONMENT,
+        },
         confidence: 0.6,
         observedAt: '2026-08-20T08:55:00.000Z',
         claims: { registryRecord: 'agents/agent-a/9' },
@@ -179,19 +185,11 @@ describe('manifest normalization', () => {
         }),
       ),
     ).toContain('sourceEnvironment')
-    expect(
-      errorText(
-        withPatch((manifest) => {
-          const evidence = manifest['evidence'] as Raw[]
-          evidence[0]!['sourceBinding'] = {
-            sourceConnectorId: 'primary',
-            sourceTenantId: TENANT,
-            sourceObjectId: 'provider-agent-a',
-            sourceEnvironment: ENVIRONMENT,
-          }
-        }),
-      ),
-    ).toContain('only for runtime_observed')
+    const declaredBinding = validateManifest(baseManifest())
+    expect(declaredBinding.ok).toBe(true)
+    if (declaredBinding.ok) {
+      expect(declaredBinding.envelope.evidence[0]?.sourceBinding?.sourceObjectId).toBe('agent-a')
+    }
   })
 
   it('namespaces every identifier with the manifest stable id prefix', async () => {
