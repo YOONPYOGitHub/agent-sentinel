@@ -500,7 +500,7 @@ describe('capability boundaries', () => {
       method: 'POST',
       url: `/api/demo/remediations/${remId}/approve`,
       headers: { authorization: 'Bearer tok' },
-      payload: { approvedBy: 'User' },
+      payload: { approvedBy: 'User', reason: 'Approval reason supplied by the caller.' },
     })
     expect(approveR.statusCode).toBe(403)
   })
@@ -550,11 +550,17 @@ describe('capability boundaries', () => {
       method: 'POST',
       url: `/api/demo/remediations/${remId}/approve`,
       headers: { authorization: 'Bearer tok' },
-      payload: { approvedBy: 'forged@contoso.com' },
+      payload: {
+        approvedBy: 'forged@contoso.com',
+        reason: 'Reviewed the validated finding and reversible response plan.',
+      },
     })
     expect(approveR.statusCode).toBe(200)
     expect(agentSentinelStateSchema.parse(approveR.json()).remediations[0]?.approvedBy).toBe(
       'approver@contoso.com',
+    )
+    expect(agentSentinelStateSchema.parse(approveR.json()).remediations[0]?.approvalReason).toBe(
+      'Reviewed the validated finding and reversible response plan.',
     )
     const executeR = await app.inject({
       method: 'POST',
@@ -603,6 +609,7 @@ describe('capability boundaries', () => {
     await app.inject({
       method: 'POST',
       url: `/api/demo/remediations/${remId}/approve`,
+      payload: { reason: 'Administrator approved the reversible containment plan.' },
       headers: { authorization: 'Bearer tok' },
     })
     const executeR = await app.inject({

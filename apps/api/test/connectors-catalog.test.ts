@@ -768,7 +768,11 @@ describe('connector write status', () => {
     const proposed = await service.proposeRemediation(findingId)
     const remediationId = proposed.remediations[0]?.id
     if (remediationId === undefined) throw new Error('Expected a proposed remediation.')
-    await service.approveRemediation(remediationId, 'approver')
+    await service.approveRemediation(
+      remediationId,
+      'approver',
+      'Reviewed validated evidence and approved the reversible plan.',
+    )
 
     const app = await createApp(service, { mode: 'disabled' }, { dataMode: 'mock' })
     apps.push(app)

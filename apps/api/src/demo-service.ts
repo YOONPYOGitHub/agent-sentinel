@@ -431,7 +431,11 @@ export class DemoService {
     return this.getState()
   }
 
-  async approveRemediation(remediationId: string, approvedBy: string): Promise<AgentSentinelState> {
+  async approveRemediation(
+    remediationId: string,
+    approvedBy: string,
+    approvalReason: string,
+  ): Promise<AgentSentinelState> {
     const remediation = this.requireRemediation(remediationId)
     if (remediation.status !== 'proposed') {
       throw new StateConflictError('Only proposed remediations can be approved.')
@@ -443,6 +447,7 @@ export class DemoService {
             status: 'approved',
             approvedBy,
             approvedAt: new Date().toISOString(),
+            approvalReason,
           }
         : candidate,
     )
@@ -454,7 +459,8 @@ export class DemoService {
     if (
       remediation.status !== 'approved' ||
       remediation.approvedBy === undefined ||
-      remediation.approvedAt === undefined
+      remediation.approvedAt === undefined ||
+      remediation.approvalReason === undefined
     ) {
       throw new StateConflictError('Remediation requires a complete approval before execution.')
     }
@@ -467,7 +473,7 @@ export class DemoService {
     const result = await this.connector.execute(remediation, {
       approvedBy: remediation.approvedBy,
       approvedAt: remediation.approvedAt,
-      reason: 'Validated critical exposure with low-disruption containment available.',
+      reason: remediation.approvalReason,
     })
     this.remediations = [result.remediation]
     this.findingHistory = (this.findingHistory ?? []).map((finding) =>

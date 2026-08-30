@@ -62,14 +62,27 @@ describe('demo API', () => {
       ?.id
     expect(remediationId).toBeDefined()
 
-    const approvedResponse = await app.inject({
+    const missingReasonResponse = await app.inject({
       method: 'POST',
       url: `/api/demo/remediations/${String(remediationId)}/approve`,
       payload: { approvedBy: 'Avery Morgan' },
     })
+    expect(missingReasonResponse.statusCode).toBe(400)
+
+    const approvedResponse = await app.inject({
+      method: 'POST',
+      url: `/api/demo/remediations/${String(remediationId)}/approve`,
+      payload: {
+        approvedBy: 'Avery Morgan',
+        reason: 'Validated critical exposure with a reversible containment plan.',
+      },
+    })
     expect(agentSentinelStateSchema.parse(approvedResponse.json()).remediations[0]?.status).toBe(
       'approved',
     )
+    expect(
+      agentSentinelStateSchema.parse(approvedResponse.json()).remediations[0]?.approvalReason,
+    ).toBe('Validated critical exposure with a reversible containment plan.')
 
     const completedResponse = await app.inject({
       method: 'POST',

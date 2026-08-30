@@ -70,6 +70,7 @@ describe('MockAgentConnector', () => {
       businessDisruption: 'low',
       approvedBy: 'Avery Morgan',
       approvedAt: '2026-08-14T12:01:00.000Z',
+      approvalReason: 'Validated critical exposure',
       rollbackAvailable: true,
     }
     const result = await connector.execute(remediation, {

@@ -51,8 +51,14 @@ import { registerBehaviorRoutes } from './behavior-routes.js'
 import { registerTokenEconomicsRoutes } from './token-economics-routes.js'
 import { registerManifestIngestionRoutes } from './manifest-ingestion-routes.js'
 
-const approvalSchema = z.object({
+const localApprovalSchema = z.object({
   approvedBy: z.string().trim().min(2).max(100),
+  reason: z.string().trim().min(10).max(500),
+})
+
+const authenticatedApprovalSchema = z.object({
+  approvedBy: z.string().trim().min(2).max(100).optional(),
+  reason: z.string().trim().min(10).max(500),
 })
 
 function configuredService(
@@ -373,14 +379,25 @@ export async function createApp(
     { preHandler: requireCapability(authConfig, 'approveRemediation') },
     async (request) => {
       const principal = request.authPrincipal
-      const approvedBy =
-        authConfig.mode === 'jwt' && principal !== undefined
-          ? (principal.preferredUsername ??
-            principal.displayName ??
-            principal.objectId ??
-            principal.subject)
-          : approvalSchema.parse(request.body).approvedBy
-      return resolvedService.approveRemediation(request.params.remediationId, approvedBy)
+      if (authConfig.mode === 'jwt' && principal !== undefined) {
+        const approval = authenticatedApprovalSchema.parse(request.body)
+        const approvedBy =
+          principal.preferredUsername ??
+          principal.displayName ??
+          principal.objectId ??
+          principal.subject
+        return resolvedService.approveRemediation(
+          request.params.remediationId,
+          approvedBy,
+          approval.reason,
+        )
+      }
+      const approval = localApprovalSchema.parse(request.body)
+      return resolvedService.approveRemediation(
+        request.params.remediationId,
+        approval.approvedBy,
+        approval.reason,
+      )
     },
   )
 

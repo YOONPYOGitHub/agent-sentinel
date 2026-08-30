@@ -47,10 +47,10 @@ export const demoApi = {
     request(`/api/demo/findings/${findingId}/validate`, { method: 'POST' }),
   proposeRemediation: (findingId: string) =>
     request(`/api/demo/findings/${findingId}/remediations`, { method: 'POST' }),
-  approveRemediation: (remediationId: string, approvedBy: string) =>
+  approveRemediation: (remediationId: string, approvedBy: string, reason: string) =>
     request(`/api/demo/remediations/${remediationId}/approve`, {
       method: 'POST',
-      body: JSON.stringify({ approvedBy }),
+      body: JSON.stringify({ approvedBy, reason }),
     }),
   executeRemediation: (remediationId: string) =>
     request(`/api/demo/remediations/${remediationId}/execute`, { method: 'POST' }),

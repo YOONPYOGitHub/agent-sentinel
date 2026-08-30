@@ -1,4 +1,4 @@
-import { Badge, Button, ProgressBar, Tooltip } from '@fluentui/react-components'
+import { Badge, Button, ProgressBar, Textarea, Tooltip } from '@fluentui/react-components'
 import {
   AlertRegular,
   ArrowResetRegular,
@@ -84,6 +84,7 @@ export function OverviewPage() {
   const [liveExposure, setLiveExposure] = useState<ExposurePageDto>()
   const [liveExposureError, setLiveExposureError] = useState<string>()
   const [liveExposureLoading, setLiveExposureLoading] = useState(false)
+  const [approvalReason, setApprovalReason] = useState('')
   const remediation = state?.remediations[0]
   const validation = state?.validations[0]
   const pathStatus = finding?.path.status ?? 'theoretical'
@@ -153,6 +154,10 @@ export function OverviewPage() {
     if (liveFoundry || finding === undefined) void loadLiveExposure()
   }, [finding, liveFoundry, loadLiveExposure])
 
+  useEffect(() => {
+    if (remediation?.status !== 'proposed') setApprovalReason('')
+  }, [remediation?.status])
+
   const primaryAction = useMemo(() => {
     if (finding === undefined) return undefined
     if (pathStatus === 'theoretical')
@@ -183,6 +188,7 @@ export function OverviewPage() {
                 principal?.objectId ??
                 principal?.subject ??
                 'Local demo operator',
+              approvalReason.trim(),
             ),
           ),
       }
@@ -199,7 +205,7 @@ export function OverviewPage() {
       busy: operation === 'resetting',
       onClick: () => run('resetting', demoApi.reset),
     }
-  }, [finding, operation, pathStatus, principal, remediation, run])
+  }, [approvalReason, finding, operation, pathStatus, principal, remediation, run])
 
   if (state === undefined) {
     return (
@@ -264,6 +270,15 @@ export function OverviewPage() {
                 Reset
               </Button>
             )}
+            {remediation?.status === 'proposed' ? (
+              <Textarea
+                aria-label="Approval reason"
+                placeholder="State why this response plan is approved"
+                value={approvalReason}
+                resize="vertical"
+                onChange={(_event, data) => setApprovalReason(data.value)}
+              />
+            ) : null}
             {primaryAction === undefined
               ? null
               : (() => {
@@ -281,7 +296,13 @@ export function OverviewPage() {
                     <Button
                       appearance="primary"
                       icon={<primaryAction.icon />}
-                      disabled={!writeEnabled || operation !== undefined || !cap.can}
+                      disabled={
+                        !writeEnabled ||
+                        operation !== undefined ||
+                        !cap.can ||
+                        (primaryAction.label === 'Approve response' &&
+                          approvalReason.trim().length < 10)
+                      }
                       onClick={() => void primaryAction.onClick()}
                     >
                       {primaryAction.busy ? 'Working…' : primaryAction.label}
@@ -731,7 +752,12 @@ function RemediationCard({ remediation }: { remediation: Remediation }) {
       {remediation.approvedBy === undefined ? null : (
         <div className="approval-line">
           <PersonRegular />
-          Approved by {remediation.approvedBy}
+          <span>
+            Approved by {remediation.approvedBy}
+            {remediation.approvalReason === undefined
+              ? null
+              : ` · ${remediation.approvalReason}`}
+          </span>
         </div>
       )}
     </div>

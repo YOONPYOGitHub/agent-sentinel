@@ -103,6 +103,65 @@ describe('application routing', () => {
     expect(exposureApi.list).toHaveBeenCalled()
   })
 
+  it('requires and submits a bounded remediation approval reason', async () => {
+    const proposedState = {
+      ...testState,
+      findings: testState.findings.map((finding) => ({
+        ...finding,
+        path: { ...finding.path, status: 'validated' as const },
+      })),
+      remediations: [
+        {
+          id: 'remediation-1',
+          findingId: testState.findings[0]!.id,
+          title: 'Block route',
+          description: 'Block the unsafe route.',
+          targetEdgeId: 'edge-data-mcp',
+          status: 'proposed' as const,
+          expectedRiskReduction: 91,
+          businessDisruption: 'low' as const,
+          rollbackAvailable: true,
+        },
+      ],
+    }
+    vi.mocked(demoApi.getState).mockResolvedValue(proposedState)
+    vi.mocked(connectorApi.getConnectorStatus).mockResolvedValue({
+      source: 'mock',
+      connectorId: 'mock-agent-estate',
+      mode: 'mock',
+      writeEnabled: true,
+    })
+    vi.mocked(demoApi.approveRemediation).mockResolvedValue({
+      ...proposedState,
+      remediations: [
+        {
+          ...proposedState.remediations[0]!,
+          status: 'approved',
+          approvedBy: 'Local demo operator',
+          approvedAt: '2026-08-30T13:00:00.000Z',
+          approvalReason: 'Validated evidence supports this reversible containment.',
+        },
+      ],
+    })
+    await renderRoute('/overview')
+
+    const approve = await screen.findByRole('button', { name: 'Approve response' })
+    expect(approve).toBeDisabled()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Approval reason' }), {
+      target: { value: 'Validated evidence supports this reversible containment.' },
+    })
+    expect(approve).toBeEnabled()
+    fireEvent.click(approve)
+
+    await waitFor(() =>
+      expect(demoApi.approveRemediation).toHaveBeenCalledWith(
+        'remediation-1',
+        'Local demo operator',
+        'Validated evidence supports this reversible containment.',
+      ),
+    )
+  })
+
   it('renders the inventory and direct detail routes', async () => {
     await renderRoute('/agent-inventory')
     expect(await screen.findByText('3 of 3 agents')).toBeVisible()

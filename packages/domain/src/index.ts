@@ -182,6 +182,7 @@ export const remediationSchema = z.object({
   businessDisruption: z.enum(['none', 'low', 'medium', 'high']),
   approvedBy: z.string().min(1).optional(),
   approvedAt: z.iso.datetime().optional(),
+  approvalReason: z.string().min(10).max(500).optional(),
   executedAt: z.iso.datetime().optional(),
   rollbackAvailable: z.boolean(),
 })
