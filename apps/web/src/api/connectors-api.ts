@@ -16,6 +16,7 @@ export const connectorCapabilityKindSchema = z.enum([
   'identity',
   'entitlement',
   'runtime-telemetry',
+  'business-outcomes',
   'security-alerts',
   'data-governance',
   'lifecycle-admin',

@@ -9,11 +9,13 @@ import App from '../App'
 import { connectorApi, demoApi } from '../api'
 import { exposureApi } from '../api/exposure-api'
 import { useTokenEconomics } from '../hooks/useTokenEconomics'
+import { useBusinessValue } from '../hooks/useBusinessValue'
 import { salesExposureFinding, testState } from '../test-fixture'
 
 vi.mock('../api')
 vi.mock('../api/exposure-api')
 vi.mock('../hooks/useTokenEconomics')
+vi.mock('../hooks/useBusinessValue')
 afterEach(cleanup)
 beforeEach(() => {
   vi.mocked(demoApi.getState).mockResolvedValue(testState)
@@ -24,6 +26,21 @@ beforeEach(() => {
   })
   vi.spyOn(exposureApi, 'listAll').mockResolvedValue([])
   vi.mocked(useTokenEconomics).mockReturnValue({ status: 'loading' })
+  vi.mocked(useBusinessValue).mockReturnValue({
+    status: 'done',
+    assessment: {
+      assessmentId: 'business-value-unknown',
+      tenantId: 'test',
+      agentId: 'unknown',
+      environment: 'unknown',
+      status: 'unknown',
+      reason: 'no-outcome-source-configured',
+      computedAt: '2026-08-31T00:00:00.000Z',
+      sourcesChecked: [],
+      claims: [],
+      evidence: [],
+    },
+  })
 })
 
 function renderDetail(agentId: string) {
@@ -102,6 +119,64 @@ describe('AgentDetailPage', () => {
     expect(costCard).not.toBeNull()
     expect(within(costCard!).getByText('Healthy')).toBeVisible()
     expect(within(costCard!).getByText(/\[SYNTHETIC\]/)).toBeVisible()
+  })
+
+  it('shows source-cited synthetic business outcomes without estimating value', async () => {
+    vi.mocked(useBusinessValue).mockReturnValue({
+      status: 'done',
+      assessment: {
+        assessmentId: 'business-value-1',
+        tenantId: 'test',
+        agentId: 'hr-policy-agent',
+        environment: 'production',
+        status: 'sourced',
+        computedAt: '2026-08-31T00:00:00.000Z',
+        sourcesChecked: ['mock-business-outcomes'],
+        claims: [
+          {
+            id: 'outcome-1',
+            outcomeName: 'Resolved policy inquiries',
+            value: 18,
+            unit: 'count',
+            source: 'Synthetic business outcome fixture',
+            sourceObjectId: 'batch-12',
+            observedAt: '2026-08-30T12:00:00.000Z',
+            correlation: { kind: 'agent-version', value: '12' },
+            evidenceId: 'outcome-evidence-1',
+            confidence: 1,
+            freshness: 'recent',
+            synthetic: true,
+          },
+        ],
+        evidence: [
+          {
+            id: 'outcome-evidence-1',
+            source: 'Synthetic business outcome fixture',
+            sourceObjectId: 'batch-12',
+            observedAt: '2026-08-30T12:00:00.000Z',
+            freshness: 'recent',
+            confidence: 1,
+            evidenceTypes: ['synthetic_validation'],
+            summary: 'Synthetic business outcome.',
+          },
+        ],
+      },
+    })
+    renderDetail('hr-policy-agent')
+
+    expect(await screen.findByRole('heading', { name: 'Business outcome evidence' })).toBeVisible()
+    expect(screen.getByText('[SYNTHETIC] Demonstration outcome evidence only')).toBeVisible()
+    expect(screen.getByText('18 Resolved policy inquiries')).toBeVisible()
+    expect(screen.getByText(/Exact agent-version: 12/)).toBeVisible()
+    expect(screen.queryByText(/\$/)).not.toBeInTheDocument()
+  })
+
+  it('keeps business value unknown without an outcome source', async () => {
+    renderDetail('hr-policy-agent')
+    expect(await screen.findByText('Business value unknown')).toBeVisible()
+    expect(
+      screen.getByText('No authoritative business outcome source is configured.'),
+    ).toBeVisible()
   })
 
   it('shows token economics anomaly evidence in agent detail', async () => {

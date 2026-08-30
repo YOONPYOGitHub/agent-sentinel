@@ -1,34 +1,9 @@
 import { z } from 'zod'
 
-export const evidenceTypeSchema = z.enum([
-  'declared_configuration',
-  'observed_runtime',
-  'synthetic_validation',
-  'unknown',
-])
-export type EvidenceType = z.infer<typeof evidenceTypeSchema>
+import { evidenceSchema, evidenceTypeSchema } from './evidence.js'
 
-export const evidenceSchema = z.object({
-  id: z.string().min(1),
-  source: z.string().min(1),
-  sourceObjectId: z.string().min(1),
-  observedAt: z.iso.datetime(),
-  freshness: z.enum(['live', 'recent', 'stale']),
-  confidence: z.number().min(0).max(1),
-  evidenceTypes: z
-    .array(evidenceTypeSchema)
-    .min(1)
-    .max(evidenceTypeSchema.options.length)
-    .default(['unknown'])
-    .refine((types) => new Set(types).size === types.length, {
-      message: 'Evidence types must be unique.',
-    }),
-  uri: z.url().optional(),
-  summary: z.string().min(1),
-  metadata: z.record(z.string(), z.string()).optional(),
-})
-
-export type Evidence = z.infer<typeof evidenceSchema>
+export { evidenceSchema, evidenceTypeSchema } from './evidence.js'
+export type { Evidence, EvidenceType } from './evidence.js'
 
 export const nodeKindSchema = z.enum([
   'input',
@@ -309,6 +284,23 @@ export type {
   EvidenceRepository,
   ValidationRunRepository,
 } from './repositories.js'
+
+export {
+  businessOutcomeUnitSchema,
+  outcomeCorrelationSchema,
+  businessOutcomeObservationSchema,
+  businessOutcomeEvidenceBundleSchema,
+  businessValueClaimSchema,
+  businessValueAssessmentSchema,
+} from './business-value.js'
+export type {
+  BusinessOutcomeUnit,
+  OutcomeCorrelation,
+  BusinessOutcomeObservation,
+  BusinessOutcomeEvidenceBundle,
+  BusinessValueClaim,
+  BusinessValueAssessment,
+} from './business-value.js'
 
 export const exposureFindingStatusSchema = z.enum(['open', 'validated', 'mitigated', 'resolved'])
 export type ExposureFindingStatus = z.infer<typeof exposureFindingStatusSchema>

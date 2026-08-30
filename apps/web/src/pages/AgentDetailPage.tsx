@@ -2,6 +2,7 @@ import { Badge, Button } from '@fluentui/react-components'
 import {
   ArrowLeftRegular,
   BotRegular,
+  DataUsageRegular,
   KeyRegular,
   LinkRegular,
   ShieldCheckmarkRegular,
@@ -9,6 +10,7 @@ import {
 import { Link, useParams } from 'react-router-dom'
 
 import type {
+  BusinessValueAssessment,
   DriftAnalysisResult,
   EstateSnapshot,
   GraphEdge,
@@ -19,6 +21,7 @@ import { EvidenceDrawer } from '../components/EvidenceDrawer'
 import { PageHeading } from '../components/PageHeading'
 import { useDemoState } from '../hooks/useDemoState'
 import { useAgentDrift } from '../hooks/useAgentDrift'
+import { useBusinessValue, type BusinessValueState } from '../hooks/useBusinessValue'
 import { useExposures } from '../hooks/useExposures'
 import { useEvidenceDrawer } from '../hooks/useEvidenceDrawer'
 import { useTokenEconomics } from '../hooks/useTokenEconomics'
@@ -50,6 +53,7 @@ export function AgentDetailPage() {
   const { selectedEvidence, setSelectedEvidence, drawerRef, trapFocus } = useEvidenceDrawer()
   const liveExposures = useExposures(agentId)
   const agentDrift = useAgentDrift(agentId ?? '')
+  const businessValueState = useBusinessValue(agentId ?? '')
   const tokenEconomicsState = useTokenEconomics(agentId ?? '')
   const agent = state?.snapshot.nodes.find((node) => node.kind === 'agent' && node.id === agentId)
 
@@ -329,6 +333,7 @@ export function AgentDetailPage() {
       </section>
       <AgentDriftSection drift={agentDrift} />
       <AgentTokenEconomicsSummary agentId={agent.id} state={tokenEconomicsState} />
+      <AgentBusinessValueSummary agentId={agent.id} state={businessValueState} />
       <EvidenceDrawer
         evidence={selectedEvidence}
         drawerRef={drawerRef}
@@ -495,6 +500,87 @@ function AgentTokenEconomicsSummary({
           </p>
         )}
     </section>
+  )
+}
+
+function AgentBusinessValueSummary({
+  agentId,
+  state,
+}: {
+  agentId: string
+  state: BusinessValueState
+}) {
+  return (
+    <section
+      className="surface-card agent-token-economics-section"
+      aria-labelledby={`agent-business-value-title-${agentId}`}
+    >
+      <h2 id={`agent-business-value-title-${agentId}`}>Business outcome evidence</h2>
+      {state.status === 'loading' ? (
+        <p className="muted" role="status">
+          Loading business outcome evidence…
+        </p>
+      ) : state.status === 'error' ? (
+        <p className="muted" role="alert">
+          {state.message}
+        </p>
+      ) : (
+        <BusinessValueAssessmentView assessment={state.assessment} />
+      )}
+    </section>
+  )
+}
+
+function BusinessValueAssessmentView({ assessment }: { assessment: BusinessValueAssessment }) {
+  if (assessment.status === 'unknown') {
+    return (
+      <div className="healthy-empty">
+        <DataUsageRegular aria-hidden="true" />
+        <div>
+          <strong>Business value unknown</strong>
+          <span>
+            {assessment.reason === 'no-outcome-source-configured'
+              ? 'No authoritative business outcome source is configured.'
+              : assessment.reason === 'no-outcome-observations'
+                ? 'The configured source returned no exactly correlated outcome observations.'
+                : assessment.reason === 'outcome-binding-unavailable'
+                  ? 'The authoritative agent binding could not be read.'
+                  : 'Business outcome evidence could not be validated.'}
+          </span>
+        </div>
+      </div>
+    )
+  }
+  const synthetic = assessment.claims.every((claim) => claim.synthetic)
+  return (
+    <>
+      {synthetic ? (
+        <div className="drift-badge drift-badge--synthetic" role="note">
+          [SYNTHETIC] Demonstration outcome evidence only
+        </div>
+      ) : null}
+      <p className="muted">
+        Claims are preserved from exact outcome-source evidence. Invocation counts and estimated
+        monetary value are not used.
+      </p>
+      <ul className="finding-list" aria-label="Business outcome claims">
+        {assessment.claims.map((claim) => (
+          <li key={claim.id}>
+            <Badge appearance="outline">{claim.unit}</Badge>
+            <div>
+              <strong>
+                {claim.value} {claim.outcomeName}
+              </strong>
+              <span>{claim.source}</span>
+              <small>
+                Exact {claim.correlation.kind}: {claim.correlation.value} · evidence{' '}
+                {claim.evidenceId}
+              </small>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </>
   )
 }
 

@@ -458,3 +458,5 @@ export type { MockBehaviorWindows } from './behavior-observations.js'
 
 export { MOCK_TOKEN_ECONOMICS_WINDOWS } from './token-economics-observations.js'
 export type { MockTokenEconomicsWindows } from './token-economics-observations.js'
+
+export { MockBusinessOutcomeConnector } from './business-outcomes.js'

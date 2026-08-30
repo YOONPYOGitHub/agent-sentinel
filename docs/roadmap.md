@@ -301,9 +301,26 @@ resource is configured by this change.
 
 ---
 
-## Phase 9 — Business-value evidence · _depends on Phase 4_
+## Phase 9 — Business-value evidence · _foundation complete; live source pending_
 
 **Scope:** connect agent activity to business outcomes so value is evidenced rather than inferred from invocation counts.
+
+**Delivered**
+
+- Strict source-cited outcome observations with run, correlation ID, or agent
+  version identifiers; the current product resolver accepts only an exact
+  discovered agent version.
+- Read-only outcome connector contract plus clearly labeled mock-only fixtures.
+- Agent-level API and detail UI that preserve source-authored values without
+  aggregation, monetary estimates, or invocation-count proxies.
+- Live mode returns typed `unknown` when no outcome source is configured,
+  returns no mock fallback, and rejects synthetic or contract-invalid live
+  observations.
+
+**Remaining**
+
+- Configure an authoritative business outcome source with exact correlation
+  identifiers for the target agents.
 
 **Definition of done**
 

@@ -62,6 +62,15 @@ const mockCollection: ConnectorsCollection = {
       sourceOfTruth: true,
       ownershipModel: 'consumes',
     },
+    {
+      id: 'business-outcome-source',
+      name: 'Business Outcome Source',
+      description: 'Source-authored exact-correlated business outcomes.',
+      lifecycleState: 'available-to-configure',
+      capabilities: ['business-outcomes'],
+      sourceOfTruth: true,
+      ownershipModel: 'consumes',
+    },
   ],
 }
 

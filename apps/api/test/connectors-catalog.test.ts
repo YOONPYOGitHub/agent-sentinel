@@ -688,6 +688,7 @@ describe('buildConnectorsCollection', () => {
       'identity',
       'entitlement',
       'runtime-telemetry',
+      'business-outcomes',
       'security-alerts',
       'data-governance',
       'lifecycle-admin',
@@ -731,6 +732,20 @@ describe('buildConnectorsCollection', () => {
     expect(result.catalog.find((entry) => entry.id === 'azure-ai-foundry')?.lifecycleState).toBe(
       'unavailable',
     )
+  })
+
+  it('catalogs business outcomes without claiming an unconfigured live source', () => {
+    const unconfigured = buildConnectorsCollection('foundry', {
+      connectorId: 'foundry-test',
+    }).catalog.find((entry) => entry.id === 'business-outcome-source')
+    const configured = buildConnectorsCollection('foundry', {
+      connectorId: 'foundry-test',
+      businessOutcomeConfigured: true,
+    }).catalog.find((entry) => entry.id === 'business-outcome-source')
+
+    expect(unconfigured?.lifecycleState).toBe('available-to-configure')
+    expect(configured?.lifecycleState).toBe('connected')
+    expect(configured?.capabilities).toContain('business-outcomes')
   })
 })
 

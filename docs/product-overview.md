@@ -187,7 +187,7 @@ There are **no production customer agents** in the environment. The Foundry conn
 
 ## Token economics scope
 
-**Measured analysis is implemented; live activation is pending.**
+**Measured analysis and business-outcome evidence contracts are implemented; live activation is pending.**
 
 Agent-level measured token totals, measured cost-per-success, coverage, and deterministic anomalies are implemented. Owner/business-unit attribution and broader business-outcome economics remain planned.
 

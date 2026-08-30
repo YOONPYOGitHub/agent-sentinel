@@ -1,5 +1,11 @@
 import { observationWindowSchema } from '@agent-sentinel/domain'
-import type { EstateSnapshot, Evidence, Remediation } from '@agent-sentinel/domain'
+import type {
+  BusinessOutcomeEvidenceBundle,
+  EstateSnapshot,
+  Evidence,
+  OutcomeCorrelation,
+  Remediation,
+} from '@agent-sentinel/domain'
 import { z } from 'zod'
 
 export type ConnectorCapability =
@@ -132,6 +138,22 @@ export interface RuntimeTelemetryConnector {
   getConnectorHealth?(): ConnectorHealthReport
 }
 
+export interface BusinessOutcomeRequest {
+  tenantId: string
+  agentId: string
+  environment: string
+  acceptedCorrelations: readonly OutcomeCorrelation[]
+}
+
+/**
+ * Read-only source of business outcomes that are explicitly correlated to an
+ * agent run, correlation ID, or exact agent version.
+ */
+export interface BusinessOutcomeConnector {
+  readonly id: string
+  readBusinessOutcomes(request: BusinessOutcomeRequest): Promise<BusinessOutcomeEvidenceBundle>
+}
+
 export {
   projectRuntimeEvidence,
   runtimeTelemetryRequestForAgent,
@@ -157,6 +179,7 @@ export type ConnectorCapabilityKind =
   | 'identity'
   | 'entitlement'
   | 'runtime-telemetry'
+  | 'business-outcomes'
   | 'security-alerts'
   | 'data-governance'
   | 'lifecycle-admin'

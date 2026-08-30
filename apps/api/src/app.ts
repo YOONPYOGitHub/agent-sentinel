@@ -7,6 +7,8 @@ import { DefaultAzureCredential } from '@azure/identity'
 import { createAzureMonitorOtelConnector } from '@agent-sentinel/azure-monitor-otel-connector'
 import { runtimeTelemetryRequestForAgent } from '@agent-sentinel/connector-sdk'
 import type {
+  BusinessOutcomeConnector,
+  BusinessOutcomeRequest,
   ManifestIngestionRepository,
   RuntimeTelemetryRequest,
   RuntimeTelemetryConnector,
@@ -24,6 +26,7 @@ import {
   CosmosSnapshotRepository,
   InMemoryManifestIngestionRepository,
 } from '@agent-sentinel/persistence'
+import { MockBusinessOutcomeConnector } from '@agent-sentinel/mock-connector'
 
 import {
   buildAuthConfig,
@@ -50,6 +53,7 @@ import { buildConnectorsCollection } from './connectors-catalog.js'
 import { registerBehaviorRoutes } from './behavior-routes.js'
 import { registerTokenEconomicsRoutes } from './token-economics-routes.js'
 import { registerManifestIngestionRoutes } from './manifest-ingestion-routes.js'
+import { registerBusinessValueRoutes } from './business-value-routes.js'
 
 const localApprovalSchema = z.object({
   approvedBy: z.string().trim().min(2).max(100),
@@ -188,6 +192,8 @@ export interface CreateAppOptions {
   dataMode?: 'mock' | 'live'
   /** `null` explicitly keeps live telemetry unconfigured, including in tests. */
   runtimeTelemetryConnector?: RuntimeTelemetryConnector | null
+  /** `null` explicitly keeps business outcomes unconfigured. */
+  businessOutcomeConnector?: BusinessOutcomeConnector | null
 }
 
 export async function createApp(
@@ -218,6 +224,11 @@ export async function createApp(
         ? undefined
         : (options.runtimeTelemetryConnector ?? createAzureMonitorOtelConnector())
       : undefined
+  const businessOutcomeConnector =
+    options.businessOutcomeConnector === null
+      ? undefined
+      : (options.businessOutcomeConnector ??
+        (resolvedDataMode === 'mock' ? new MockBusinessOutcomeConnector() : undefined))
   const exposureMode: 'mock' | 'foundry' = resolvedDataMode === 'live' ? 'foundry' : 'mock'
   const writeEnabled = defaultWriteEnabled(resolvedDataMode, authConfig)
   const liveRepositories =
@@ -350,6 +361,8 @@ export async function createApp(
       ...(status.writeEnabled !== undefined ? { writeEnabled: status.writeEnabled } : {}),
       ...(status.projectEndpoint !== undefined ? { projectEndpoint: status.projectEndpoint } : {}),
       runtimeTelemetryConfigured: runtimeTelemetryConnector !== undefined,
+      businessOutcomeConfigured:
+        resolvedDataMode === 'live' && businessOutcomeConnector !== undefined,
       ...(runtimeTelemetryHealth !== undefined ? { runtimeTelemetryHealth } : {}),
       ...(connectorHealth ? { connectorHealth } : {}),
     })
@@ -439,6 +452,34 @@ export async function createApp(
     defaultTenantId: defaultTenantId(),
     ...(runtimeTelemetryConnector !== undefined ? { runtimeTelemetryConnector } : {}),
     ...(resolveTelemetryRequest !== undefined ? { resolveTelemetryRequest } : {}),
+  })
+  const resolveBusinessOutcomeRequest = async (
+    agentId: string,
+  ): Promise<BusinessOutcomeRequest | undefined> => {
+    const snapshot =
+      resolvedDataMode === 'live'
+        ? await snapshotRepository?.findLatest(defaultTenantId(), defaultEnvironment())
+        : (await stateService.getState()).snapshot
+    if (snapshot === undefined || snapshot === null) return undefined
+    const agent = snapshot.nodes.find((node) => node.kind === 'agent' && node.id === agentId)
+    const agentVersion = agent?.metadata['version']
+    return agent === undefined
+      ? undefined
+      : {
+          tenantId: snapshot.tenantId,
+          agentId: agent.id,
+          environment: agent.environment,
+          acceptedCorrelations:
+            agentVersion === undefined
+              ? []
+              : [{ kind: 'agent-version' as const, value: agentVersion }],
+        }
+  }
+  registerBusinessValueRoutes(app, {
+    mode: exposureMode,
+    defaultTenantId: defaultTenantId(),
+    ...(businessOutcomeConnector !== undefined ? { connector: businessOutcomeConnector } : {}),
+    resolveRequest: resolveBusinessOutcomeRequest,
   })
   const manifestEnvironmentId =
     process.env['AGENT_SENTINEL_ENVIRONMENT']?.trim() || process.env['FOUNDRY_ENVIRONMENT']?.trim()

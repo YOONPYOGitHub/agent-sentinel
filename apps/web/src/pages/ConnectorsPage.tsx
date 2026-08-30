@@ -26,6 +26,7 @@ const CAPABILITY_LABELS: Record<string, string> = {
   identity: 'Identity',
   entitlement: 'Entitlement',
   'runtime-telemetry': 'Runtime telemetry',
+  'business-outcomes': 'Business outcomes',
   'security-alerts': 'Security alerts',
   'data-governance': 'Data governance',
   'lifecycle-admin': 'Lifecycle & admin',

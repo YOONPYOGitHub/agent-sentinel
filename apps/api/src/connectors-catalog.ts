@@ -155,6 +155,19 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
       'Local/operator-supplied read-only manifest, non-authoritative evidence, no live API ingestion. Manifests are loaded from an absolute local path or supplied inline; remote URLs are rejected and the adapter performs no actions.',
     unlocksScorecard: ['security', 'governance', 'lifecycle'],
   },
+  {
+    id: 'business-outcome-source',
+    name: 'Business Outcome Source',
+    description:
+      'Reads source-authored business outcomes with an exact agent run, correlation ID, or agent-version binding. Values are preserved without aggregation, monetary estimation, or invocation-count proxies.',
+    lifecycleState: 'available-to-configure',
+    capabilities: ['business-outcomes'],
+    sourceOfTruth: true,
+    ownershipModel: 'consumes',
+    prerequisiteNote:
+      'The Phase 9 connector contract and fail-closed API are implemented. Live activation requires an authoritative outcome system that supplies exact correlation identifiers and direct evidence.',
+    unlocksScorecard: ['cost'],
+  },
 ]
 
 /** Derive the Azure AI Foundry lifecycle state from the active connector mode. */
@@ -171,6 +184,7 @@ export function buildConnectorsCollection(
     writeEnabled?: boolean
     projectEndpoint?: string
     runtimeTelemetryConfigured?: boolean
+    businessOutcomeConfigured?: boolean
     runtimeTelemetryHealth?: ConnectorHealthReport
     connectorHealth?: ConnectorHealthReport
   },
@@ -231,6 +245,9 @@ export function buildConnectorsCollection(
   const catalog: CatalogConnectorEntry[] = BASE_CATALOG.map((entry) => {
     if (entry.id === 'azure-ai-foundry') {
       return { ...entry, lifecycleState: foundryLifecycle }
+    }
+    if (entry.id === 'business-outcome-source' && opts.businessOutcomeConfigured === true) {
+      return { ...entry, lifecycleState: 'connected' }
     }
     if (entry.id === 'entra-agent-id' && enabledEntraSources.length > 0) {
       const ready = enabledEntraSources.filter((source) => source.readiness === 'ready').length
