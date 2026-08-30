@@ -64,7 +64,7 @@ in [connector-availability.md](connector-availability.md).
 | Universal custom manifest adapter          | **Implementation complete, activation pending.** Strict offline input, immutable ingestion, jobs composition, exact source-bound runtime verification, and authoritative-object reconciliation for declared configuration are implemented. No graph relationship or free-form claim equivalence is inferred. Live ingestion stays blocked by writes-false and the public mutation posture. |
 | Deterministic behavior-baseline engine     | **Current.** `@agent-sentinel/behavior-engine` implements median/MAD statistics, drift analysis, evidence coverage, and typed `DriftAnalysisResult`; mock mode uses labeled fixtures and live mode accepts only validated Azure Monitor OTel windows.                                                                                                                                      |
 | Token Economics foundation                 | **Current.** `analyzeTokenEconomics()` uses measured-only populations, reconciled coverage, evidence-linked MAD anomalies, and same-population cost per success. Mock fixtures cover healthy, cost-anomaly, and missing-cost scenarios; live mode accepts validated Azure Monitor OTel windows and remains `unknown` while deployment telemetry is unconfigured.                           |
-| Governance workflow and durable repository | **Current.** Valid transitions, explicit assignment, separation of duties, source/actor/timestamp audit evidence, bounded policy exceptions, and promote/drift-acknowledge/rollback/retire evidence transitions are enforced, Cosmos-backed, and covered through API and Playwright lifecycle tests.                                                                                       |
+| Governance workflow and durable repository | **Current.** Valid transitions, explicit assignment, separation of duties, source/actor/timestamp audit evidence, bounded policy exceptions, and promote/drift-acknowledge/rollback/retire evidence transitions are enforced. Remediation approvals require and preserve a bounded rationale through connector execution; unsupported connector execution returns a controlled rejection. |
 | Phase 10 shift-left scanner                | **Current, offline.** `@agent-sentinel/shift-left-scanner` and `pnpm manifest:scan` evaluate validated manifests with the unchanged runtime policy catalog and finding/evidence shapes. Deterministic pass/warn/block output and CI exit codes are available without Entra, ingestion, deployment, or network access.                                                                      |
 
 ---
@@ -130,8 +130,8 @@ Corporate onboarding is tracked separately in [internal-onboarding.md](internal-
 
 ## Deployment routing verification
 
-- CI run `33292915300` produced immutable web, API, and jobs images for
-  `4b59cfb`; all three healthy revisions were deployed on 2026-08-30.
+- CI run `33316045414` produced immutable web, API, and jobs images for
+  `8eb1bd6`; all three healthy revisions were deployed on 2026-08-30.
 - The registered `agent-sentinel` Front Door endpoint returns HTTP 200 for the
   web root and public connector-status/auth-configuration routes. Anonymous
   protected requests return the expected `401`.
@@ -183,7 +183,7 @@ These boundaries are what keep the product honest. They are enforced in code, no
 | Write posture             | `writeEnabled=false`; anonymous mutations are denied by authentication before route execution, and Front Door WAF remains in Prevention mode.                                                              |
 | Advisory model            | `gpt-5.6-terra`, `GlobalStandard`, `NoAutoUpgrade`. Advisory output on the public edge remains **mock** until the grounded provider path is activated.                                                     |
 | Build path                | Private self-hosted GitHub Actions runner inside the VNet. May be deallocated and must be started before a build.                                                                                          |
-| Deploy path               | CI run `33292915300` built immutable `4b59cfb` images; reviewed surgical ACA revisions for web, API, and jobs are healthy on that tag. Full Bicep remains gated by production approval and what-if review. |
+| Deploy path               | CI run `33316045414` built immutable `8eb1bd6` images; reviewed surgical ACA revisions for web, API, and jobs are healthy on that tag. Full Bicep remains gated by production approval and what-if review. |
 
 Endpoint host names, resource names, and operational commands are in [deployment.md](deployment.md) and [runbooks.md](runbooks.md). No subscription, tenant, or credential values are recorded in documentation.
 
