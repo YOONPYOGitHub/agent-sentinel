@@ -36,6 +36,9 @@ describe('agent provisioning', () => {
     expect(foundry.getAgent).not.toHaveBeenCalled()
     expect(foundry.createAgent).toHaveBeenCalledOnce()
     expect(foundry.createAgent.mock.calls[0]?.[0]).toBe(agent.name)
+    expect(foundry.createAgent.mock.calls[0]?.[1]).toMatchObject({
+      metadata: { version: agent.version, manifestHash: agent.manifestHash },
+    })
   })
 
   it('confirms an unchanged version by immutable ID and creates nothing', async () => {

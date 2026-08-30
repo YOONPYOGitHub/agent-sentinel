@@ -52,19 +52,24 @@ function sortedJson(value: unknown): string {
   return JSON.stringify(value)
 }
 export function computeManifestHash(
-  agent: Pick<
-    AgentDefinition,
-    'name' | 'version' | 'modelDeployment' | 'instructions' | 'functions'
-  >,
+  agent: Omit<AgentDefinition, 'manifestHash' | 'displayName' | 'platform'>,
 ): string {
   return createHash('sha256')
     .update(
       sortedJson({
         name: agent.name,
         version: agent.version,
+        description: agent.description,
         modelDeployment: agent.modelDeployment,
         instructions: agent.instructions,
         functions: agent.functions,
+        owner: agent.owner,
+        environment: agent.environment,
+        lifecycle: agent.lifecycle,
+        approvalRequired: agent.approvalRequired,
+        expectedRisk: agent.expectedRisk,
+        expectedTrust: agent.expectedTrust,
+        syntheticOnly: agent.syntheticOnly,
       }),
     )
     .digest('hex')

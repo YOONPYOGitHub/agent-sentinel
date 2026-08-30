@@ -59,6 +59,7 @@ export async function provisionAgents(
       metadata: {
         managedBy: 'agent-sentinel',
         manifestHash: hash,
+        version: agent.version,
         owner: agent.owner,
         environment: agent.environment,
         lifecycle: agent.lifecycle,
