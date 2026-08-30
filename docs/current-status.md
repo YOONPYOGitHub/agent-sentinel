@@ -15,6 +15,8 @@ in [connector-availability.md](connector-availability.md).
 
 | Commit    | Change                                             | Effect                                                                                                                                                              |
 | --------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `97d959c` | Measured-cost attribution                          | Attaches source-cited owner and business-unit context only from the exact authoritative agent while keeping missing boundaries typed `partial` or `unknown`.        |
+| `f8cf4e9` | Typed manifest configuration verification          | Compares supported typed adapter declarations with exact authoritative values while keeping free-form claims explicitly unverified.                                 |
 | `c938766` | Logout redirect transaction completion             | Processes the MSAL redirect response before login is available; production logout followed by login completes without stale interaction state.                      |
 | `3cb3851` | Governance lifecycle browser coverage              | Covers approve, reject, expire, re-evaluate, and immutable transition evidence across the full Playwright suite.                                                    |
 | `6b3f103` | Durable governance ordering index                  | Persists the Cosmos composite index required by governance case ordering.                                                                                           |
@@ -130,8 +132,8 @@ Corporate onboarding is tracked separately in [internal-onboarding.md](internal-
 
 ## Deployment routing verification
 
-- CI run `33327042389` produced immutable web, API, and jobs images for
-  `f8cf4e9`; all three healthy revisions were deployed on 2026-08-31.
+- CI run `33329060162` produced immutable web, API, and jobs images for
+  `97d959c`; all three healthy revisions were deployed on 2026-08-31.
 - The registered `agent-sentinel` Front Door endpoint returns HTTP 200 for the
   web root and public connector-status/auth-configuration routes. Anonymous
   protected requests return the expected `401`.
