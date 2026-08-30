@@ -130,8 +130,8 @@ Corporate onboarding is tracked separately in [internal-onboarding.md](internal-
 
 ## Deployment routing verification
 
-- CI run `33260110723` produced immutable web, API, and jobs images for
-  `5feffda`; all three healthy revisions were deployed on 2026-08-30.
+- CI run `33292915300` produced immutable web, API, and jobs images for
+  `4b59cfb`; all three healthy revisions were deployed on 2026-08-30.
 - The registered `agent-sentinel` Front Door endpoint returns HTTP 200 for the
   web root and public connector-status/auth-configuration routes. Anonymous
   protected requests return the expected `401`.
@@ -183,7 +183,7 @@ These boundaries are what keep the product honest. They are enforced in code, no
 | Write posture             | `writeEnabled=false`; anonymous mutations are denied by authentication before route execution, and Front Door WAF remains in Prevention mode.                                                              |
 | Advisory model            | `gpt-5.6-terra`, `GlobalStandard`, `NoAutoUpgrade`. Advisory output on the public edge remains **mock** until the grounded provider path is activated.                                                     |
 | Build path                | Private self-hosted GitHub Actions runner inside the VNet. May be deallocated and must be started before a build.                                                                                          |
-| Deploy path               | CI run `33260110723` built immutable `5feffda` images; reviewed surgical ACA revisions for web, API, and jobs are healthy on that tag. Full Bicep remains gated by production approval and what-if review. |
+| Deploy path               | CI run `33292915300` built immutable `4b59cfb` images; reviewed surgical ACA revisions for web, API, and jobs are healthy on that tag. Full Bicep remains gated by production approval and what-if review. |
 
 Endpoint host names, resource names, and operational commands are in [deployment.md](deployment.md) and [runbooks.md](runbooks.md). No subscription, tenant, or credential values are recorded in documentation.
 
