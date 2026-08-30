@@ -154,12 +154,13 @@ the connector runbooks rather than ARM/Bicep assignments.
 
 Add text-embedding-3-large deployment (only this module touches AIServices).
 
-### Phase D ? Container Apps + Application Gateway
+### Phase D ? Container Apps + Regional Diagnostic Gateway
 
 After ACR is provisioned and images are pushed. The platform.bicep deploys:
 
 - Container Apps (API with internal ingress, web with VNet-accessible ingress, jobs with no ingress)
-- Application Gateway WAF v2 (`appgw-as-260814`) as the public edge
+- Application Gateway WAF v2 (`appgw-as-260814`) as an optional regional
+  diagnostic edge
 
 ### Phase E ? Front Door (Active)
 
@@ -211,26 +212,33 @@ az deployment group what-if \
 - `Delete` on any existing subnet (only adds are expected)
 - `Delete` on `fd-as-260814` (primary Front Door profile)
 
-## Application Gateway Smoke Test
+## Front Door Smoke Test
 
-After deployment, verify the App Gateway endpoint:
+After deployment, verify the active Front Door endpoint:
 
 ```bash
-# Get public IP
-AG_IP=$(az network public-ip show -g rg-agent-sentinel -n pip-appgw-as-260814 \
-  --query ipAddress -o tsv)
+# Resolve the generated endpoint instead of pinning a tenant-specific hostname
+FD_HOST=$(az afd endpoint show -g rg-agent-sentinel \
+  --profile-name fd-as-260814 \
+  --endpoint-name agent-sentinel \
+  --query hostName -o tsv)
 
 # Test root (SPA)
-curl -sI "http://${AG_IP}/" | grep "HTTP/"
-# Expected: HTTP/1.1 200 OK
+curl -sI "https://${FD_HOST}/" | grep "HTTP/"
+# Expected: HTTP/2 200
 
 # Test health probe path
-curl -s "http://${AG_IP}/health"
+curl -s "https://${FD_HOST}/health"
 # Expected: ok
 
 # Test API proxy path
-curl -s "http://${AG_IP}/api/connector/status"
+curl -s "https://${FD_HOST}/api/connector/status"
 # Expected: JSON response from API (not a network error)
+
+# Anonymous mutations must fail closed at WAF or authentication
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -X POST "https://${FD_HOST}/api/demo/reset"
+# Expected: 401 or 403
 
 # Verify API is NOT publicly reachable directly
 API_FQDN=$(az containerapp show -g rg-agent-sentinel -n api-as-260814 \
@@ -273,7 +281,7 @@ Apps revision. See RB-011 and RB-012 in [runbooks.md](runbooks.md).
 - What-if shows Delete/Modify on existing AIServices account, project, or model deployments
 - What-if shows Delete on existing subnets
 - What-if shows Delete on `fd-as-260814`
-- App Gateway backend health probe fails after deploy (check AG backend health)
+- Front Door origin health or any SPA/API smoke route fails after deploy
 - What-if shows Delete on `aca-env-260814` or `web-as-260814` or `api-as-260814`
 
 ## TLS / Custom Domain Next Steps

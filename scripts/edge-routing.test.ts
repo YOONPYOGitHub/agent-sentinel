@@ -30,6 +30,16 @@ describe('public edge routing safety', () => {
     expect(containerApps).toContain("{ name: 'API_UPSTREAM',")
   })
 
+  it('smoke-tests the active Front Door endpoint returned by deployment', () => {
+    const workflow = rootFile('.github/workflows/ci-build-deploy.yml')
+
+    expect(workflow).toContain('properties.outputs.frontDoorEndpointHostName.value')
+    expect(workflow).toContain('/api/connector/status')
+    expect(workflow).toContain('"https://${FRONT_DOOR_HOST}${path}"')
+    expect(workflow).not.toContain('4.230.67.93')
+    expect(workflow).not.toContain('Smoke test - App Gateway')
+  })
+
   it('derives replacement-tenant names while preserving explicit existing names', () => {
     const platform = rootFile('infra/platform.bicep')
     const parameters = rootFile('infra/environments/dev.parameters.bicepparam')

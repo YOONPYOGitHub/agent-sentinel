@@ -550,10 +550,10 @@ output foundryProjectId string = foundry.outputs.projectId
 output apiFqdn string = containerApps.outputs.apiFqdn
 output webFqdn string = containerApps.outputs.webFqdn
 
-// Active public edge: Application Gateway
+// Regional diagnostic edge (may be stopped when not in use)
 output appGatewayPublicIp string = appGateway.outputs.publicIpAddress
 output appGatewayHttpEndpoint string = appGateway.outputs.httpEndpoint
 output appGatewayPublicFqdn string = appGateway.outputs.publicIpFqdn
 
-// Front Door endpoint retained (inactive / not routing production traffic)
+// Active HTTPS public edge
 output frontDoorEndpointHostName string = frontdoor.outputs.endpointHostName

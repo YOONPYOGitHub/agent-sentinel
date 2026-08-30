@@ -1,6 +1,6 @@
 # Current status
 
-**Status date: 2026-08-29** · Branch: `feature/multi-source-otel`
+**Status date: 2026-08-30** · Branch: `feature/multi-source-otel`
 
 This is the authoritative dated ledger for the Agent Sentinel control plane. Every row states what is true today, not what is intended. Where a capability is absent, the ledger says so rather than describing it as pending success.
 
@@ -130,11 +130,11 @@ Corporate onboarding is tracked separately in [internal-onboarding.md](internal-
 
 ## Deployment routing verification
 
-- CI produced and deployed the latest immutable web, API, and jobs images on
-  2026-08-29.
+- CI run `33260110723` produced immutable web, API, and jobs images for
+  `5feffda`; all three healthy revisions were deployed on 2026-08-30.
 - The registered `agent-sentinel` Front Door endpoint returns HTTP 200 for the
-  web root and public API health/configuration routes. Protected connector reads
-  return the expected unauthenticated `401`.
+  web root and public connector-status/auth-configuration routes. Anonymous
+  protected requests return the expected `401`.
 - A separate unused `default` endpoint produced `404 Unavailable` during an
   initial probe. It is not the registered application or authentication origin.
 - Desired state now declares only the active endpoint's architecture: one web
@@ -169,21 +169,21 @@ These boundaries are what keep the product honest. They are enforced in code, no
 
 ## Current Azure state
 
-| Component                 | State on 2026-08-27                                                                                                                                              |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Container Apps            | `web` (external within the internal ACA environment), `api` (environment-internal only), `jobs` (no ingress). Reviewed surgical revisions are active.            |
-| ACA environment           | Internal, VNet-integrated, private.                                                                                                                              |
-| Data services             | Cosmos DB, PostgreSQL Flexible Server, Azure AI Search, Service Bus — all behind private endpoints or a delegated subnet.                                        |
-| Manifest persistence      | Cosmos `manifest-ingestions` exists with `/tenantId` partitioning and unique `(manifestId, envelope.producedAt)` versions. No live manifest has been admitted.   |
-| Platform services         | Key Vault, Azure Container Registry (public network access disabled), Application Insights.                                                                      |
-| Public edge — App Gateway | **Active.** WAF v2 in Prevention mode, HTTP on port 80 only, no custom domain or TLS. Management-automated and may stop.                                         |
-| Public edge — Front Door  | **Active.** Routes web and API over HTTPS and is the registered SPA redirect and logout origin.                                                                  |
-| Data mode                 | `live` — the API and jobs use the Foundry connector against Cosmos.                                                                                              |
-| Auth mode                 | `jwt`; employee login and Viewer read-only boundaries validated.                                                                                                 |
-| Write posture             | `writeEnabled=false`, and the WAF blocks pre-auth mutations under `/api/`.                                                                                       |
-| Advisory model            | `gpt-5.6-terra`, `GlobalStandard`, `NoAutoUpgrade`. Advisory output on the public edge remains **mock** until the grounded provider path is activated.           |
-| Build path                | Private self-hosted GitHub Actions runner inside the VNet. May be deallocated and must be started before a build.                                                |
-| Deploy path               | The runner is deallocated after CI run `33073661639`. Full Bicep is blocked by unrelated what-if modifications; use only reviewed surgical ACA revision updates. |
+| Component                 | State on 2026-08-30                                                                                                                                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Container Apps            | `web` (external within the internal ACA environment), `api` (environment-internal only), `jobs` (no ingress). Reviewed surgical revisions are active.                                                      |
+| ACA environment           | Internal, VNet-integrated, private.                                                                                                                                                                        |
+| Data services             | Cosmos DB, PostgreSQL Flexible Server, Azure AI Search, Service Bus — all behind private endpoints or a delegated subnet.                                                                                  |
+| Manifest persistence      | Cosmos `manifest-ingestions` exists with `/tenantId` partitioning and unique `(manifestId, envelope.producedAt)` versions. No live manifest has been admitted.                                             |
+| Platform services         | Key Vault, Azure Container Registry (public network access disabled), Application Insights.                                                                                                                |
+| Public edge — App Gateway | **Diagnostic and currently stopped.** WAF v2 remains available for bounded regional HTTP diagnostics when explicitly started.                                                                              |
+| Public edge — Front Door  | **Active.** Routes web and API over HTTPS and is the registered SPA redirect and logout origin.                                                                                                            |
+| Data mode                 | `live` — the API and jobs use the Foundry connector against Cosmos.                                                                                                                                        |
+| Auth mode                 | `jwt`; employee login and Viewer read-only boundaries validated.                                                                                                                                           |
+| Write posture             | `writeEnabled=false`; anonymous mutations are denied by authentication before route execution, and Front Door WAF remains in Prevention mode.                                                              |
+| Advisory model            | `gpt-5.6-terra`, `GlobalStandard`, `NoAutoUpgrade`. Advisory output on the public edge remains **mock** until the grounded provider path is activated.                                                     |
+| Build path                | Private self-hosted GitHub Actions runner inside the VNet. May be deallocated and must be started before a build.                                                                                          |
+| Deploy path               | CI run `33260110723` built immutable `5feffda` images; reviewed surgical ACA revisions for web, API, and jobs are healthy on that tag. Full Bicep remains gated by production approval and what-if review. |
 
 Endpoint host names, resource names, and operational commands are in [deployment.md](deployment.md) and [runbooks.md](runbooks.md). No subscription, tenant, or credential values are recorded in documentation.
 

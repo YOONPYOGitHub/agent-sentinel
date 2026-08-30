@@ -7,7 +7,7 @@
 # Deploy: environment protection on "production" environment requires manual approval
 #
 # Triggers:
-#   - push to feature/platform-foundation (build + validate only)
+#   - push to feature/** (build + validate only)
 #   - workflow_dispatch (full build + deploy, with imageTag override)
 
 name: CI Build & Deploy (Private Runner)
@@ -45,11 +45,11 @@ jobs:
     runs-on: [self-hosted, linux, x64, agent-sentinel-private]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         # GITHUB_TOKEN automatically authenticates for private repos on self-hosted runners
 
       - name: Setup Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
 
@@ -85,7 +85,7 @@ jobs:
       imageTag: ${{ steps.set-tag.outputs.imageTag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # Checkout the explicit SHA when imageTag is provided via workflow_dispatch
           ref: ${{ github.event.inputs.imageTag || github.sha }}
@@ -162,7 +162,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, agent-sentinel-private]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Login to Azure
         run: az login --identity --client-id "${{ env.RUNNER_UAMI_CLIENT_ID }}" --allow-no-subscriptions
@@ -185,7 +185,7 @@ jobs:
     environment: production # Requires manual approval via GitHub environment protection
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ needs.build-push.outputs.imageTag }}
 
@@ -194,22 +194,35 @@ jobs:
 
       - name: Deploy platform.bicep
         run: |
-          az deployment group create \
+          FRONT_DOOR_HOST=$(az deployment group create \
             -g "${{ env.RG }}" \
             -f infra/platform.bicep \
             -p infra/environments/dev.parameters.bicepparam \
             -p imageTag="${{ needs.build-push.outputs.imageTag }}" \
             --mode Incremental \
-            --rollback-on-error
+            --rollback-on-error \
+            --query 'properties.outputs.frontDoorEndpointHostName.value' \
+            -o tsv)
+          if [ -z "${FRONT_DOOR_HOST}" ]; then
+            echo "ERROR: deployment did not return the Front Door endpoint hostname"
+            exit 1
+          fi
+          echo "FRONT_DOOR_HOST=${FRONT_DOOR_HOST}" >> "$GITHUB_ENV"
 
-      - name: Smoke test - App Gateway GET /
+      - name: Smoke test - Front Door SPA and API
         run: |
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://4.230.67.93/)
-          echo "App Gateway GET /: ${STATUS}"
-          [ "$STATUS" = "200" ] || exit 1
+          for path in / /health /api/connector/status; do
+            STATUS=$(curl -sS -o /dev/null -w '%{http_code}' "https://${FRONT_DOOR_HOST}${path}")
+            echo "Front Door GET ${path}: ${STATUS}"
+            [ "$STATUS" = "200" ] || exit 1
+          done
 
-      - name: Smoke test - WAF blocks POST /api/demo/reset
+      - name: Smoke test - anonymous mutation stays blocked
         run: |
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://4.230.67.93/api/demo/reset)
-          echo "WAF POST /api/demo/reset: ${STATUS}"
-          [ "$STATUS" = "403" ] || { echo "Expected 403, got ${STATUS}"; exit 1; }
+          STATUS=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -X POST "https://${FRONT_DOOR_HOST}/api/demo/reset")
+          echo "Anonymous POST /api/demo/reset: ${STATUS}"
+          case "${STATUS}" in
+            401|403) ;;
+            *) echo "Expected 401 or 403, got ${STATUS}"; exit 1 ;;
+          esac
