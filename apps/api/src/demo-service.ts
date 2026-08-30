@@ -458,7 +458,10 @@ export class DemoService {
     ) {
       throw new StateConflictError('Remediation requires a complete approval before execution.')
     }
-    if (this.connector.execute === undefined) {
+    if (
+      !this.connector.descriptor.capabilities.includes('remediation-execution') ||
+      this.connector.execute === undefined
+    ) {
       throw new StateConflictError('The selected connector does not support remediation execution.')
     }
     const result = await this.connector.execute(remediation, {

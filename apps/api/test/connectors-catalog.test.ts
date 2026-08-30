@@ -747,4 +747,40 @@ describe('connector write status', () => {
     process.env['AGENT_SENTINEL_WRITE_ENABLED'] = 'true'
     await expect(service.getConnectorStatus()).resolves.toMatchObject({ writeEnabled: true })
   })
+
+  it('rejects execution when a connector method exists without execution capability', async () => {
+    const base = new MockAgentConnector()
+    const connector = {
+      descriptor: {
+        ...base.descriptor,
+        capabilities: ['discovery', 'evidence'] as const,
+      },
+      testConnection: base.testConnection.bind(base),
+      discover: base.discover.bind(base),
+      getEvidence: base.getEvidence.bind(base),
+      execute: base.execute.bind(base),
+    }
+    const service = new DemoService(connector, 'foundry')
+    const initial = await service.getState()
+    const findingId = initial.findings[0]?.id
+    if (findingId === undefined) throw new Error('Expected a mock finding.')
+    await service.validateFinding(findingId)
+    const proposed = await service.proposeRemediation(findingId)
+    const remediationId = proposed.remediations[0]?.id
+    if (remediationId === undefined) throw new Error('Expected a proposed remediation.')
+    await service.approveRemediation(remediationId, 'approver')
+
+    const app = await createApp(service, { mode: 'disabled' }, { dataMode: 'mock' })
+    apps.push(app)
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/demo/remediations/${remediationId}/execute`,
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json()).toEqual({
+      error: 'operation_rejected',
+      message: 'The selected connector does not support remediation execution.',
+    })
+  })
 })
