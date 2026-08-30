@@ -2,6 +2,8 @@ import type { Container, CosmosClient } from '@azure/cosmos'
 
 import {
   manifestIngestionRecordSchema,
+  ManifestIngestionSourceLimitError,
+  MAX_MANIFEST_SOURCES,
   type ManifestIngestionRecord,
   type ManifestIngestionRepository,
 } from '@agent-sentinel/connector-sdk'
@@ -81,13 +83,15 @@ export class CosmosManifestIngestionRepository implements ManifestIngestionRepos
     }
   }
 
-  async listLatest(environmentId: string, limit = 100): Promise<ManifestIngestionRecord[]> {
-    const boundedLimit = Math.min(Math.max(limit, 1), 500)
+  async listLatest(
+    environmentId: string,
+    limit = MAX_MANIFEST_SOURCES,
+  ): Promise<ManifestIngestionRecord[]> {
+    const boundedLimit = Math.min(Math.max(limit, 1), MAX_MANIFEST_SOURCES)
     const { resources: manifestIds } = await this.container.items
       .query<string>(
         {
-          query:
-            'SELECT DISTINCT VALUE c.manifestId FROM c WHERE c.documentType = @documentType AND c.environmentId = @environmentId',
+          query: `SELECT DISTINCT TOP ${boundedLimit + 1} VALUE c.manifestId FROM c WHERE c.documentType = @documentType AND c.environmentId = @environmentId`,
           parameters: [
             { name: '@documentType', value: DOCUMENT_TYPE },
             { name: '@environmentId', value: environmentId },
@@ -97,7 +101,7 @@ export class CosmosManifestIngestionRepository implements ManifestIngestionRepos
       )
       .fetchAll()
     if (manifestIds.length > boundedLimit) {
-      throw new Error(`Manifest ingestion source limit (${boundedLimit}) exceeded.`)
+      throw new ManifestIngestionSourceLimitError(boundedLimit)
     }
     const records = await Promise.all(
       manifestIds.sort().map(async (manifestId) => {

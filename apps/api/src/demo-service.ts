@@ -2,7 +2,10 @@ import {
   projectRuntimeEvidence,
   runtimeObservationWindowsSchema,
   runtimeTelemetryRequestForAgent,
+  ManifestIngestionSourceLimitError,
+  MAX_MANIFEST_SOURCES,
   type AgentConnector,
+  type ManifestIngestionRepository,
   type RuntimeObservationWindows,
   type RuntimeTelemetryConnector,
 } from '@agent-sentinel/connector-sdk'
@@ -10,12 +13,18 @@ import type {
   AgentSentinelState,
   EstateSnapshot,
   Finding,
+  ManifestRuntimeVerification,
   Remediation,
   SnapshotRepository,
   ValidationRun,
 } from '@agent-sentinel/domain'
 import { MockAgentConnector } from '@agent-sentinel/mock-connector'
 import { evaluateUncontrolledEgress } from '@agent-sentinel/policy-engine'
+
+import {
+  verifyManifestRuntimeClaims,
+  type RuntimeQueryCoverage,
+} from './manifest-runtime-verification.js'
 
 export class NotFoundError extends Error {
   override readonly name = 'NotFoundError'
@@ -43,6 +52,7 @@ export class DemoService {
         value: Promise<{
           snapshot: EstateSnapshot
           status: NonNullable<AgentSentinelState['runtimeEvidence']>
+          coverage: RuntimeQueryCoverage
         }>
       }
     | undefined
@@ -54,6 +64,7 @@ export class DemoService {
     private readonly persistedReadModel?: PersistedReadModel,
     private readonly persistedReadModelRequired = false,
     private readonly runtimeTelemetryConnector?: RuntimeTelemetryConnector,
+    private readonly manifestIngestionRepository?: ManifestIngestionRepository,
   ) {}
 
   private validations: ValidationRun[] = []
@@ -79,6 +90,10 @@ export class DemoService {
       )
     }
     const runtimeProjection = await this.withRuntimeEvidence(snapshot)
+    const manifestRuntimeVerification = await this.verifyManifestRuntime(
+      runtimeProjection.snapshot,
+      runtimeProjection.coverage,
+    )
     const currentFindings = evaluateUncontrolledEgress(runtimeProjection.snapshot)
     if (
       this.persistedReadModel === undefined &&
@@ -97,12 +112,14 @@ export class DemoService {
       validations: structuredClone(this.validations),
       remediations: structuredClone(this.remediations),
       runtimeEvidence: structuredClone(runtimeProjection.status),
+      manifestRuntimeVerification: structuredClone(manifestRuntimeVerification),
     }
   }
 
   private async withRuntimeEvidence(snapshot: EstateSnapshot): Promise<{
     snapshot: EstateSnapshot
     status: NonNullable<AgentSentinelState['runtimeEvidence']>
+    coverage: RuntimeQueryCoverage
   }> {
     const agents = snapshot.nodes.filter((node) => node.kind === 'agent')
     if (this.runtimeTelemetryConnector === undefined) {
@@ -116,6 +133,12 @@ export class DemoService {
           enrichedAgentCount: 0,
           evidenceCount: 0,
           failures: [],
+        },
+        coverage: {
+          configured: false,
+          queriedAgentIds: new Set<string>(),
+          failedAgentIds: new Set<string>(),
+          projectionFailedAgentIds: new Set<string>(),
         },
       }
     }
@@ -137,6 +160,7 @@ export class DemoService {
   ): Promise<{
     snapshot: EstateSnapshot
     status: NonNullable<AgentSentinelState['runtimeEvidence']>
+    coverage: RuntimeQueryCoverage
   }> {
     const connector = this.runtimeTelemetryConnector
     if (connector === undefined) {
@@ -174,26 +198,37 @@ export class DemoService {
     let evidenceCount = 0
     let enrichedAgentCount = 0
     const failures: NonNullable<AgentSentinelState['runtimeEvidence']>['failures'] = []
+    const queriedAgentIds = new Set<string>()
+    const failedAgentIds = new Set<string>()
+    const projectionSucceededAgentIds = new Set<string>()
+    const projectionFailedAgentIds = new Set<string>()
     const queriedAt: string[] = []
     for (const result of results) {
       if ('reason' in result) {
         failures.push(result)
+        failedAgentIds.add(result.agentId)
         continue
       }
+      queriedAgentIds.add(result.agentId)
       try {
         const projection = projectRuntimeEvidence(projected, result.windows)
         projected = projection.snapshot
         evidenceCount += projection.addedEvidenceCount
         if (projection.addedEvidenceCount > 0) enrichedAgentCount += 1
+        projectionSucceededAgentIds.add(result.agentId)
         queriedAt.push(result.windows.queriedAt)
       } catch {
         failures.push({ agentId: result.agentId, reason: 'projection-failed' })
+        projectionFailedAgentIds.add(result.agentId)
       }
     }
-    const successfulQueries = results.length - failures.length
     const incompleteCoverage = requests.length < agents.length || failures.length > 0
     const status =
-      successfulQueries === 0 ? 'unavailable' : incompleteCoverage ? 'partial' : 'ready'
+      projectionSucceededAgentIds.size === 0
+        ? 'unavailable'
+        : incompleteCoverage
+          ? 'partial'
+          : 'ready'
     return {
       snapshot: projected,
       status: {
@@ -201,11 +236,62 @@ export class DemoService {
         ...(queriedAt.length > 0 ? { queriedAt: queriedAt.sort().at(-1) } : {}),
         agentCount: agents.length,
         eligibleAgentCount: requests.length,
-        queriedAgentCount: successfulQueries,
+        queriedAgentCount: queriedAgentIds.size,
         enrichedAgentCount,
         evidenceCount,
         failures,
       },
+      coverage: {
+        configured: true,
+        queriedAgentIds,
+        failedAgentIds,
+        projectionFailedAgentIds,
+      },
+    }
+  }
+
+  private async verifyManifestRuntime(
+    snapshot: EstateSnapshot,
+    coverage: RuntimeQueryCoverage,
+  ): Promise<ManifestRuntimeVerification> {
+    const checkedAt = new Date().toISOString()
+    if (this.manifestIngestionRepository === undefined) {
+      return {
+        status: 'not-configured',
+        checkedAt,
+        counts: {
+          verified: 0,
+          noObservation: 0,
+          ambiguous: 0,
+          notCorrelatable: 0,
+          unavailable: 0,
+        },
+        claims: [],
+      }
+    }
+    try {
+      const records = await this.manifestIngestionRepository.listLatest(
+        snapshot.environment,
+        MAX_MANIFEST_SOURCES,
+      )
+      return verifyManifestRuntimeClaims(snapshot, records, coverage, checkedAt)
+    } catch (error) {
+      return {
+        status: 'unavailable',
+        reason:
+          error instanceof ManifestIngestionSourceLimitError
+            ? 'source-limit-exceeded'
+            : 'repository-unavailable',
+        checkedAt,
+        counts: {
+          verified: 0,
+          noObservation: 0,
+          ambiguous: 0,
+          notCorrelatable: 0,
+          unavailable: 0,
+        },
+        claims: [],
+      }
     }
   }
 

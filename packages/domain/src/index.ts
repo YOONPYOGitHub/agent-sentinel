@@ -188,6 +188,56 @@ export const remediationSchema = z.object({
 
 export type Remediation = z.infer<typeof remediationSchema>
 
+export const manifestRuntimeClaimVerificationStatusSchema = z.enum([
+  'verified',
+  'no-observation',
+  'ambiguous',
+  'not-correlatable',
+  'unavailable',
+])
+export type ManifestRuntimeClaimVerificationStatus = z.infer<
+  typeof manifestRuntimeClaimVerificationStatusSchema
+>
+
+export const manifestRuntimeVerificationSchema = z.object({
+  status: z.enum(['not-configured', 'no-claims', 'ready', 'partial', 'unavailable']),
+  reason: z.enum(['repository-unavailable', 'source-limit-exceeded']).optional(),
+  checkedAt: z.iso.datetime(),
+  counts: z.object({
+    verified: z.number().int().min(0),
+    noObservation: z.number().int().min(0),
+    ambiguous: z.number().int().min(0),
+    notCorrelatable: z.number().int().min(0),
+    unavailable: z.number().int().min(0),
+  }),
+  claims: z.array(
+    z.object({
+      manifestId: z.string().min(1),
+      evidenceId: z.string().min(1),
+      subjectId: z.string().min(1),
+      status: manifestRuntimeClaimVerificationStatusSchema,
+      matchedNodeId: z.string().min(1).optional(),
+      corroboratingEvidenceIds: z.array(z.string().min(1)),
+      reason: z.enum([
+        'missing-source-binding',
+        'subject-binding-mismatch',
+        'no-exact-source-match',
+        'multiple-exact-source-matches',
+        'entity-kind-mismatch',
+        'unsupported-node-kind',
+        'no-owning-agent',
+        'ambiguous-owning-agent',
+        'telemetry-not-queried',
+        'telemetry-query-failed',
+        'telemetry-projection-failed',
+        'no-non-synthetic-runtime-observation',
+        'non-synthetic-runtime-observation',
+      ]),
+    }),
+  ),
+})
+export type ManifestRuntimeVerification = z.infer<typeof manifestRuntimeVerificationSchema>
+
 export const agentSentinelStateSchema = z.object({
   snapshot: estateSnapshotSchema,
   findings: z.array(findingSchema),
@@ -210,6 +260,7 @@ export const agentSentinelStateSchema = z.object({
       ),
     })
     .optional(),
+  manifestRuntimeVerification: manifestRuntimeVerificationSchema.optional(),
 })
 
 export type AgentSentinelState = z.infer<typeof agentSentinelStateSchema>

@@ -59,6 +59,7 @@ function configuredService(
   snapshotRepository?: SnapshotRepository,
   persistedReadModelRequired = false,
   runtimeTelemetryConnector?: RuntimeTelemetryConnector,
+  manifestIngestionRepository?: ManifestIngestionRepository,
 ): DemoService {
   const configured = createConfiguredConnector()
   const persistedReadModel =
@@ -78,6 +79,7 @@ function configuredService(
     persistedReadModel,
     persistedReadModelRequired,
     runtimeTelemetryConnector,
+    manifestIngestionRepository,
   )
 }
 
@@ -237,6 +239,7 @@ export async function createApp(
           resolvedDataMode === 'live' ? snapshotRepository : undefined,
           resolvedDataMode === 'live',
           runtimeTelemetryConnector,
+          manifestIngestionRepository,
         )
       : undefined
   const resolvedService = service ?? defaultService
@@ -245,7 +248,13 @@ export async function createApp(
   }
   const stateService =
     resolvedDataMode === 'live'
-      ? (defaultService ?? configuredService(snapshotRepository, true, runtimeTelemetryConnector))
+      ? (defaultService ??
+        configuredService(
+          snapshotRepository,
+          true,
+          runtimeTelemetryConnector,
+          manifestIngestionRepository,
+        ))
       : resolvedService
 
   // Live mode: forbid non-GET writes to /api/demo/* to keep production read-only.

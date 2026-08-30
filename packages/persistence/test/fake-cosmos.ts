@@ -141,8 +141,9 @@ export class FakeCosmosStore {
       documents = documents.filter(
         (document) => document.environmentId === parameters.get('@environmentId'),
       )
-      if (query.query.startsWith('SELECT DISTINCT VALUE c.manifestId')) {
-        return [...new Set(documents.map((document) => document.manifestId))]
+      if (query.query.startsWith('SELECT DISTINCT')) {
+        const limit = Number.parseInt(query.query.match(/TOP (\d+)/)?.[1] ?? '500', 10)
+        return [...new Set(documents.map((document) => document.manifestId))].slice(0, limit)
       }
       documents = documents.filter(
         (document) => document.manifestId === parameters.get('@manifestId'),

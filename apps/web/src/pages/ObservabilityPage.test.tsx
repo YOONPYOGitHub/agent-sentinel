@@ -204,6 +204,18 @@ describe('ObservabilityPage', () => {
           evidenceCount: 1,
           failures: [{ agentId: 'agent-2', reason: 'query-failed' }],
         },
+        manifestRuntimeVerification: {
+          status: 'partial',
+          checkedAt: '2026-08-30T01:00:00.000Z',
+          counts: {
+            verified: 1,
+            noObservation: 1,
+            ambiguous: 0,
+            notCorrelatable: 1,
+            unavailable: 0,
+          },
+          claims: [],
+        },
         snapshot: {
           ...testState.snapshot,
           evidence: [
@@ -236,5 +248,30 @@ describe('ObservabilityPage', () => {
     expect(screen.getByText('Runtime evidence')).toBeVisible()
     expect(screen.getByText(/partial · 10 declared · 1 synthetic · 0 unclassified/)).toBeVisible()
     expect(screen.getByText(/Observed runtime · Synthetic validation/)).toBeVisible()
+    expect(screen.getByText('Manifest runtime claims')).toBeVisible()
+    expect(screen.getByText(/partial · 1 not observed · 0 ambiguous · 1 not correlatable/)).toBeVisible()
+  })
+
+  it('shows why manifest verification is unavailable', () => {
+    renderPage({
+      state: {
+        ...testState,
+        manifestRuntimeVerification: {
+          status: 'unavailable',
+          reason: 'source-limit-exceeded',
+          checkedAt: '2026-08-30T01:00:00.000Z',
+          counts: {
+            verified: 0,
+            noObservation: 0,
+            ambiguous: 0,
+            notCorrelatable: 0,
+            unavailable: 0,
+          },
+          claims: [],
+        },
+      },
+    })
+
+    expect(screen.getByText(/unavailable \(source-limit-exceeded\)/)).toBeVisible()
   })
 })

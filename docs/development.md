@@ -65,6 +65,18 @@ after runtime discovery. JSON is the default for CI; add `--format text` for an
 author explanation or `--fail-on warn` for a stricter gate. Exit codes are `0`
 accepted, `1` policy gate failed, `2` invalid input, and `3` unexpected failure.
 
+`runtime_observed` evidence may include an optional `sourceBinding` with
+`sourceConnectorId`, `sourceTenantId`, `sourceObjectId`, and
+`sourceEnvironment`. The live read model uses only an exact four-field match to
+an authoritative agent or tool, and the manifest `subjectId` must equal the
+provider `sourceObjectId`. It never merges nodes or infers relationships.
+Only non-synthetic Azure Monitor evidence verifies the claim; missing,
+ambiguous, unavailable, and successfully queried-but-unobserved states remain
+explicit. Lack of an observation is never reported as a contradiction. Runtime
+verification is bounded to the latest 500 manifest sources for an environment;
+exceeding that cap reports `source-limit-exceeded` rather than masquerading as
+a repository outage.
+
 When changing the envelope:
 
 - Update `manifest.ts`, `connectors/manifest/schemas/manifest.schema.json`, and
@@ -99,18 +111,18 @@ Analytics Reader) on the target workspace. No shared key is accepted.
 Instrumented request spans must reach `AppRequests` with these OTel/custom
 properties:
 
-| Property                         | Mapping                                     |
-| -------------------------------- | ------------------------------------------- |
-| `agent.sentinel.tenant_id`       | Required tenant binding                     |
-| `gen_ai.agent.id`                | Required agent binding                      |
-| `deployment.environment.name`    | Required environment binding                |
-| `agent.sentinel.observation_id`  | Observation id (falls back to request id)   |
-| `gen_ai.usage.input_tokens`      | Optional measured input tokens              |
-| `gen_ai.usage.output_tokens`     | Optional measured output tokens             |
-| `agent.sentinel.cost.usd`        | Optional measured USD cost; never estimated |
-| `agent.sentinel.tool_call_names` | Optional JSON string array of ordered tools |
+| Property                         | Mapping                                                          |
+| -------------------------------- | ---------------------------------------------------------------- |
+| `agent.sentinel.tenant_id`       | Required tenant binding                                          |
+| `gen_ai.agent.id`                | Required agent binding                                           |
+| `deployment.environment.name`    | Required environment binding                                     |
+| `agent.sentinel.observation_id`  | Observation id (falls back to request id)                        |
+| `gen_ai.usage.input_tokens`      | Optional measured input tokens                                   |
+| `gen_ai.usage.output_tokens`     | Optional measured output tokens                                  |
+| `agent.sentinel.cost.usd`        | Optional measured USD cost; never estimated                      |
+| `agent.sentinel.tool_call_names` | Optional JSON string array of ordered tools                      |
 | `agent.sentinel.synthetic`       | Optional provenance flag for validation canaries; defaults false |
-| `error.type`                     | Optional error code                         |
+| `error.type`                     | Optional error code                                              |
 
 The live read model maps non-empty telemetry windows onto the already
 discovered agent node. Tool and `CAN_CALL` edge evidence is added only when a

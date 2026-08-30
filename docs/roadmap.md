@@ -266,12 +266,16 @@ resource is configured by this change.
 - Authenticated Administrator-only ingestion API, immutable `manifest-ingestions` Cosmos versions, deterministic content-hash retries, and unique `(manifestId, producedAt)` versions.
 - Jobs composition of the latest manifest version per estate tenant/environment. Adapter failures cannot block authoritative Foundry snapshot persistence, and manifest-derived findings retain `sourceMode=manifest`.
 - The dedicated container and API/jobs images are deployed with live writes disabled. Anonymous ingestion returns `401`; no manifest has been admitted.
+- Optional exact source bindings for `runtime_observed` claims plus transient
+  verification against non-synthetic Azure Monitor evidence. Missing,
+  ambiguous, unavailable, and no-observation outcomes remain explicit and do
+  not create graph relationships.
 
 **Remaining**
 
 - Activate live API ingestion only after the Administrator role, write scope, deployment write gate, and exact public-edge mutation path are separately approved and validated.
-- Correlation of adapter claims against first-party connectors so overlapping evidence is reconciled rather than duplicated.
-- Independent verification of `runtime_observed` manifest claims, which depends on Phase 4.
+- Correlation of non-runtime adapter claims against first-party connectors so
+  overlapping configuration evidence is reconciled rather than duplicated.
 
 ---
 

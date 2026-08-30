@@ -1,0 +1,183 @@
+import { stableId, type ManifestIngestionRecord } from '@agent-sentinel/connector-sdk'
+import {
+  manifestRuntimeVerificationSchema,
+  type EstateSnapshot,
+  type GraphNode,
+  type ManifestRuntimeClaimVerificationStatus,
+  type ManifestRuntimeVerification,
+} from '@agent-sentinel/domain'
+
+export interface RuntimeQueryCoverage {
+  configured: boolean
+  queriedAgentIds: ReadonlySet<string>
+  failedAgentIds: ReadonlySet<string>
+  projectionFailedAgentIds: ReadonlySet<string>
+}
+
+type VerificationClaim = ManifestRuntimeVerification['claims'][number]
+
+function manifestSubjectKind(
+  record: ManifestIngestionRecord,
+  subjectId: string,
+): GraphNode['kind'] | undefined {
+  if (record.envelope.agents.some((item) => item.id === subjectId)) return 'agent'
+  if (record.envelope.tools.some((item) => item.id === subjectId)) return 'tool'
+  if (record.envelope.identities.some((item) => item.id === subjectId)) return 'identity'
+  if (record.envelope.dataSources.some((item) => item.id === subjectId)) return 'data'
+  if (record.envelope.mcpDependencies?.some((item) => item.id === subjectId) === true) return 'mcp'
+  return undefined
+}
+
+function authoritative(node: GraphNode): boolean {
+  return (
+    node.metadata['sourceOfTruth'] !== 'false' && node.metadata['isNonAuthoritative'] !== 'true'
+  )
+}
+
+function exactCandidates(
+  snapshot: EstateSnapshot,
+  binding: NonNullable<ManifestIngestionRecord['envelope']['evidence'][number]['sourceBinding']>,
+): GraphNode[] {
+  return snapshot.nodes.filter(
+    (node) =>
+      authoritative(node) &&
+      node.metadata['sourceConnectorId'] === binding.sourceConnectorId &&
+      node.metadata['sourceTenantId'] === binding.sourceTenantId &&
+      node.metadata['sourceObjectId'] === binding.sourceObjectId &&
+      node.metadata['sourceEnvironment'] === binding.sourceEnvironment,
+  )
+}
+
+function owningAgentIds(snapshot: EstateSnapshot, node: GraphNode): string[] {
+  if (node.kind === 'agent') return [node.id]
+  if (node.kind !== 'tool') return []
+  return [
+    ...new Set(
+      snapshot.edges.flatMap((edge) => {
+        if (edge.to !== node.id || edge.relationship !== 'CAN_CALL') return []
+        const agent = snapshot.nodes.find(
+          (candidate) => candidate.id === edge.from && candidate.kind === 'agent',
+        )
+        return agent !== undefined && authoritative(agent) ? [agent.id] : []
+      }),
+    ),
+  ]
+}
+
+function claim(
+  record: ManifestIngestionRecord,
+  declaration: ManifestIngestionRecord['envelope']['evidence'][number],
+  status: ManifestRuntimeClaimVerificationStatus,
+  reason: VerificationClaim['reason'],
+  matchedNodeId?: string,
+  corroboratingEvidenceIds: string[] = [],
+): VerificationClaim {
+  return {
+    manifestId: record.manifestId,
+    evidenceId: stableId('manifest', `${record.manifestId}::evidence::${declaration.id}`),
+    subjectId: declaration.subjectId,
+    status,
+    ...(matchedNodeId !== undefined ? { matchedNodeId } : {}),
+    corroboratingEvidenceIds,
+    reason,
+  }
+}
+
+function verifyClaim(
+  snapshot: EstateSnapshot,
+  record: ManifestIngestionRecord,
+  declaration: ManifestIngestionRecord['envelope']['evidence'][number],
+  coverage: RuntimeQueryCoverage,
+): VerificationClaim {
+  const binding = declaration.sourceBinding
+  if (binding === undefined) {
+    return claim(record, declaration, 'not-correlatable', 'missing-source-binding')
+  }
+  if (declaration.subjectId !== binding.sourceObjectId) {
+    return claim(record, declaration, 'not-correlatable', 'subject-binding-mismatch')
+  }
+  const candidates = exactCandidates(snapshot, binding)
+  if (candidates.length === 0) {
+    return claim(record, declaration, 'not-correlatable', 'no-exact-source-match')
+  }
+  if (candidates.length > 1) {
+    return claim(record, declaration, 'ambiguous', 'multiple-exact-source-matches')
+  }
+  const node = candidates[0]!
+  if (manifestSubjectKind(record, declaration.subjectId) !== node.kind) {
+    return claim(record, declaration, 'not-correlatable', 'entity-kind-mismatch', node.id)
+  }
+  if (node.kind !== 'agent' && node.kind !== 'tool') {
+    return claim(record, declaration, 'not-correlatable', 'unsupported-node-kind', node.id)
+  }
+  const owners = owningAgentIds(snapshot, node)
+  if (owners.length === 0) {
+    return claim(record, declaration, 'not-correlatable', 'no-owning-agent', node.id)
+  }
+  if (owners.length > 1) {
+    return claim(record, declaration, 'ambiguous', 'ambiguous-owning-agent', node.id)
+  }
+  const ownerId = owners[0]!
+  if (coverage.failedAgentIds.has(ownerId)) {
+    return claim(record, declaration, 'unavailable', 'telemetry-query-failed', node.id)
+  }
+  if (coverage.projectionFailedAgentIds.has(ownerId)) {
+    return claim(record, declaration, 'unavailable', 'telemetry-projection-failed', node.id)
+  }
+  if (!coverage.configured || !coverage.queriedAgentIds.has(ownerId)) {
+    return claim(record, declaration, 'unavailable', 'telemetry-not-queried', node.id)
+  }
+  const evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]))
+  const corroboratingEvidenceIds = node.evidenceIds.filter((id) => {
+    const evidence = evidenceById.get(id)
+    return (
+      evidence?.evidenceTypes.includes('observed_runtime') === true &&
+      evidence.metadata?.['sourceConnector'] === 'azure-monitor-otel'
+    )
+  })
+  return corroboratingEvidenceIds.length > 0
+    ? claim(
+        record,
+        declaration,
+        'verified',
+        'non-synthetic-runtime-observation',
+        node.id,
+        corroboratingEvidenceIds,
+      )
+    : claim(record, declaration, 'no-observation', 'no-non-synthetic-runtime-observation', node.id)
+}
+
+export function verifyManifestRuntimeClaims(
+  snapshot: EstateSnapshot,
+  records: readonly ManifestIngestionRecord[],
+  coverage: RuntimeQueryCoverage,
+  checkedAt = new Date().toISOString(),
+): ManifestRuntimeVerification {
+  const claims = records.flatMap((record) =>
+    record.envelope.evidence
+      .filter((declaration) => declaration.evidenceType === 'runtime_observed')
+      .map((declaration) => verifyClaim(snapshot, record, declaration, coverage)),
+  )
+  const counts = {
+    verified: claims.filter((item) => item.status === 'verified').length,
+    noObservation: claims.filter((item) => item.status === 'no-observation').length,
+    ambiguous: claims.filter((item) => item.status === 'ambiguous').length,
+    notCorrelatable: claims.filter((item) => item.status === 'not-correlatable').length,
+    unavailable: claims.filter((item) => item.status === 'unavailable').length,
+  }
+  const unresolved = counts.ambiguous + counts.notCorrelatable + counts.unavailable
+  const status =
+    claims.length === 0
+      ? 'no-claims'
+      : counts.unavailable === claims.length
+        ? 'unavailable'
+        : unresolved > 0
+          ? 'partial'
+          : 'ready'
+  return manifestRuntimeVerificationSchema.parse({
+    status,
+    checkedAt,
+    counts,
+    claims,
+  })
+}

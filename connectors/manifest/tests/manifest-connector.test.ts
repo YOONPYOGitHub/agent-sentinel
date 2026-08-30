@@ -13,6 +13,7 @@ import {
   MANIFEST_SCHEMA_VERSION,
   manifestEntityKindSchema,
   manifestEvidenceTypeSchema,
+  manifestSourceBindingSchema,
   SUPPORTED_MANIFEST_RELATIONSHIPS,
   SUPPORTED_MANIFEST_VERSIONS,
   stableId,
@@ -92,6 +93,12 @@ function baseManifest(): Raw {
         id: 'ev-runtime',
         subjectId: 'tool-b',
         evidenceType: 'runtime_observed',
+        sourceBinding: {
+          sourceConnectorId: 'primary',
+          sourceTenantId: TENANT,
+          sourceObjectId: 'provider-tool-b',
+          sourceEnvironment: ENVIRONMENT,
+        },
         confidence: 0.9,
         observedAt: '2026-08-20T08:58:00.000Z',
         claims: {},
@@ -152,6 +159,39 @@ describe('manifest normalization', () => {
       'CAN_CALL',
     ])
     expect(snapshot.nodes.find((node) => node.name === 'Ledger')?.sensitivity).toBe('confidential')
+  })
+
+  it('keeps exact runtime source binding optional for backward-compatible v1 manifests', () => {
+    const withoutBinding = withPatch((manifest) => {
+      const evidence = manifest['evidence'] as Raw[]
+      delete evidence[1]?.['sourceBinding']
+    })
+    expect(validateManifest(withoutBinding).ok).toBe(true)
+    expect(
+      errorText(
+        withPatch((manifest) => {
+          const evidence = manifest['evidence'] as Raw[]
+          evidence[1]!['sourceBinding'] = {
+            sourceConnectorId: 'primary',
+            sourceTenantId: TENANT,
+            sourceObjectId: 'provider-tool-b',
+          }
+        }),
+      ),
+    ).toContain('sourceEnvironment')
+    expect(
+      errorText(
+        withPatch((manifest) => {
+          const evidence = manifest['evidence'] as Raw[]
+          evidence[0]!['sourceBinding'] = {
+            sourceConnectorId: 'primary',
+            sourceTenantId: TENANT,
+            sourceObjectId: 'provider-agent-a',
+            sourceEnvironment: ENVIRONMENT,
+          }
+        }),
+      ),
+    ).toContain('only for runtime_observed')
   })
 
   it('namespaces every identifier with the manifest stable id prefix', async () => {
@@ -864,6 +904,9 @@ describe('published artefacts', () => {
     expect(defs['actionDepth']?.['enum']).toEqual(actionDepthSchema.options)
     expect(defs['entityKind']?.['enum']).toEqual(manifestEntityKindSchema.options)
     expect(defs['evidenceType']?.['enum']).toEqual(manifestEvidenceTypeSchema.options)
+    expect(defs['sourceBinding']?.['required']).toEqual(
+      Object.keys(manifestSourceBindingSchema.shape),
+    )
     expect(defs['relationship']?.['enum']).toEqual([...SUPPORTED_MANIFEST_RELATIONSHIPS])
     expect(edgeDeclarationSchema.shape.relationship.options).toEqual([
       ...SUPPORTED_MANIFEST_RELATIONSHIPS,

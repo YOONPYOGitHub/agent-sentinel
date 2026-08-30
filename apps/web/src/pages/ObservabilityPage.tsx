@@ -203,6 +203,24 @@ export function ObservabilityPage() {
           }
         />
         <ObservabilityMetric
+          icon={CheckmarkCircleRegular}
+          label="Manifest runtime claims"
+          value={String(state?.manifestRuntimeVerification?.counts.verified ?? 0)}
+          detail={
+            state?.manifestRuntimeVerification === undefined
+              ? 'verification status not reported'
+              : `${state.manifestRuntimeVerification.status}${state.manifestRuntimeVerification.reason === undefined ? '' : ` (${state.manifestRuntimeVerification.reason})`} · ${state.manifestRuntimeVerification.counts.noObservation} not observed · ${state.manifestRuntimeVerification.counts.ambiguous} ambiguous · ${state.manifestRuntimeVerification.counts.notCorrelatable} not correlatable`
+          }
+          tone={
+            state?.manifestRuntimeVerification?.status === 'ready'
+              ? 'success'
+              : state?.manifestRuntimeVerification?.status === 'partial' ||
+                  state?.manifestRuntimeVerification?.status === 'unavailable'
+                ? 'warning'
+                : 'neutral'
+          }
+        />
+        <ObservabilityMetric
           icon={PulseRegular}
           label="Safe validations"
           value={String(validations.length)}

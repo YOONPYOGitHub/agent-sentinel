@@ -1,5 +1,7 @@
 import {
   manifestIngestionRecordSchema,
+  ManifestIngestionSourceLimitError,
+  MAX_MANIFEST_SOURCES,
   type ManifestIngestionRecord,
   type ManifestIngestionRepository,
 } from '@agent-sentinel/connector-sdk'
@@ -36,8 +38,11 @@ export class InMemoryManifestIngestionRepository implements ManifestIngestionRep
     return Promise.resolve({ record: structuredClone(record), created: true })
   }
 
-  listLatest(environmentId: string, limit = 100): Promise<ManifestIngestionRecord[]> {
-    const boundedLimit = Math.min(Math.max(limit, 1), 500)
+  listLatest(
+    environmentId: string,
+    limit = MAX_MANIFEST_SOURCES,
+  ): Promise<ManifestIngestionRecord[]> {
+    const boundedLimit = Math.min(Math.max(limit, 1), MAX_MANIFEST_SOURCES)
     const records = [...this.records.values()]
       .filter((record) => record.environmentId === environmentId)
       .sort(
@@ -50,7 +55,7 @@ export class InMemoryManifestIngestionRepository implements ManifestIngestionRep
       if (!latest.has(record.manifestId)) latest.set(record.manifestId, record)
     }
     if (latest.size > boundedLimit) {
-      throw new Error(`Manifest ingestion source limit (${boundedLimit}) exceeded.`)
+      throw new ManifestIngestionSourceLimitError(boundedLimit)
     }
     return Promise.resolve(structuredClone([...latest.values()]))
   }

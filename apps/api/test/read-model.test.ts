@@ -2,6 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { SnapshotRepository } from '@agent-sentinel/domain'
 import { agentSentinelStateSchema } from '@agent-sentinel/domain'
+import {
+  ManifestIngestionSourceLimitError,
+  MAX_MANIFEST_SOURCES,
+} from '@agent-sentinel/connector-sdk'
+import type { ManifestIngestionRepository } from '@agent-sentinel/connector-sdk'
 import { MockAgentConnector } from '@agent-sentinel/mock-connector'
 
 import { createApp } from '../src/app.js'
@@ -62,6 +67,76 @@ describe('live product read model', () => {
     expect(response.statusCode).toBe(200)
     expect(agentSentinelStateSchema.parse(response.json()).snapshot).toEqual(snapshot)
     expect(findLatest).toHaveBeenCalledWith(snapshot.tenantId, snapshot.environment)
+  })
+
+  it('reports manifest runtime verification separately from the persisted snapshot', async () => {
+    const snapshot = await new MockAgentConnector().discover()
+    configureFoundryFor(snapshot)
+    const { repository } = snapshotRepository(snapshot)
+    const listLatest = vi.fn<ManifestIngestionRepository['listLatest']>().mockResolvedValue([])
+    const manifestIngestionRepository: ManifestIngestionRepository = {
+      save: vi.fn(),
+      listLatest,
+    }
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled' },
+      {
+        dataMode: 'live',
+        snapshotRepository: repository,
+        runtimeTelemetryConnector: null,
+        manifestIngestionRepository,
+      },
+    )
+    apps.push(app)
+
+    const response = await app.inject({ method: 'GET', url: '/api/demo/state' })
+    const state = agentSentinelStateSchema.parse(response.json())
+
+    expect(state.manifestRuntimeVerification).toMatchObject({
+      status: 'no-claims',
+      counts: {
+        verified: 0,
+        noObservation: 0,
+        ambiguous: 0,
+        notCorrelatable: 0,
+        unavailable: 0,
+      },
+      claims: [],
+    })
+
+    expect(listLatest).toHaveBeenCalledWith(snapshot.environment, MAX_MANIFEST_SOURCES)
+    expect(state.snapshot).toEqual(snapshot)
+  })
+
+  it('distinguishes the manifest source cap from a repository outage', async () => {
+    const snapshot = await new MockAgentConnector().discover()
+    configureFoundryFor(snapshot)
+    const { repository } = snapshotRepository(snapshot)
+    const manifestIngestionRepository: ManifestIngestionRepository = {
+      save: vi.fn(),
+      listLatest: () => Promise.reject(new ManifestIngestionSourceLimitError(500)),
+    }
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled' },
+      {
+        dataMode: 'live',
+        snapshotRepository: repository,
+        runtimeTelemetryConnector: null,
+        manifestIngestionRepository,
+      },
+    )
+    apps.push(app)
+
+    const response = await app.inject({ method: 'GET', url: '/api/demo/state' })
+    const state = agentSentinelStateSchema.parse(response.json())
+
+    expect(response.statusCode).toBe(200)
+    expect(state.manifestRuntimeVerification).toMatchObject({
+      status: 'unavailable',
+      reason: 'source-limit-exceeded',
+    })
   })
 
   it('projects measured runtime evidence without mutating the persisted snapshot', async () => {

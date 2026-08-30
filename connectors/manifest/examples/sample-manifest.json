@@ -134,6 +134,12 @@
       "id": "supplier-notify-invocation",
       "subjectId": "supplier-notify",
       "evidenceType": "runtime_observed",
+      "sourceBinding": {
+        "sourceConnectorId": "primary",
+        "sourceTenantId": "contoso-ai-lab",
+        "sourceObjectId": "supplier-notify",
+        "sourceEnvironment": "production"
+      },
       "confidence": 0.85,
       "observedAt": "2026-08-20T08:58:30.000Z",
       "claims": {

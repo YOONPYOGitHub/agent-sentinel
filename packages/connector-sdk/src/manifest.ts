@@ -66,6 +66,16 @@ export const MANIFEST_LIMITS = {
   maxTextLength: 1024,
 } as const
 
+export const MAX_MANIFEST_SOURCES = 500
+
+export class ManifestIngestionSourceLimitError extends Error {
+  override readonly name = 'ManifestIngestionSourceLimitError'
+
+  constructor(readonly limit: number) {
+    super(`Manifest ingestion source limit (${limit}) exceeded.`)
+  }
+}
+
 // ─── Stable identifiers ──────────────────────────────────────────────────────
 
 /** Prefix applied to every identifier that originates from an operator manifest. */
@@ -241,18 +251,37 @@ export function normalizeManifestRelationship(value: string): Relationship | und
 export const manifestEvidenceTypeSchema = z.enum(['declared_configuration', 'runtime_observed'])
 export type ManifestEvidenceType = z.infer<typeof manifestEvidenceTypeSchema>
 
-export const evidenceDeclarationSchema = z.strictObject({
-  id: localIdSchema,
-  subjectId: localIdSchema,
-  evidenceType: manifestEvidenceTypeSchema,
-  confidence: z.number().min(0).max(1).default(ADAPTER_DEFAULT_CONFIDENCE),
-  observedAt: isoTimestampSchema,
-  claims: boundedRecord(
-    MANIFEST_LIMITS.maxClaimKeys,
-    MANIFEST_LIMITS.maxClaimValueLength,
-    'claims',
-  ).default({}),
+export const manifestSourceBindingSchema = z.strictObject({
+  sourceConnectorId: z.string().min(1).max(MANIFEST_LIMITS.maxIdLength),
+  sourceTenantId: z.string().min(1).max(MANIFEST_LIMITS.maxIdLength),
+  sourceObjectId: z.string().min(1).max(MANIFEST_LIMITS.maxIdLength),
+  sourceEnvironment: z.string().min(1).max(128),
 })
+export type ManifestSourceBinding = z.infer<typeof manifestSourceBindingSchema>
+
+export const evidenceDeclarationSchema = z
+  .strictObject({
+    id: localIdSchema,
+    subjectId: localIdSchema,
+    evidenceType: manifestEvidenceTypeSchema,
+    sourceBinding: manifestSourceBindingSchema.optional(),
+    confidence: z.number().min(0).max(1).default(ADAPTER_DEFAULT_CONFIDENCE),
+    observedAt: isoTimestampSchema,
+    claims: boundedRecord(
+      MANIFEST_LIMITS.maxClaimKeys,
+      MANIFEST_LIMITS.maxClaimValueLength,
+      'claims',
+    ).default({}),
+  })
+  .superRefine((evidence, context) => {
+    if (evidence.sourceBinding !== undefined && evidence.evidenceType !== 'runtime_observed') {
+      context.addIssue({
+        code: 'custom',
+        path: ['sourceBinding'],
+        message: 'sourceBinding is accepted only for runtime_observed evidence.',
+      })
+    }
+  })
 export type EvidenceDeclaration = z.infer<typeof evidenceDeclarationSchema>
 
 // ─── Envelope ────────────────────────────────────────────────────────────────
