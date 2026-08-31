@@ -362,11 +362,12 @@ proliferation. `@agent-sentinel/ui` now provides the first production package:
 
 - Semantic color, spacing, radius, elevation, and motion tokens
 - Reusable KPI, status, freshness, loading, empty, degraded, denied, and error states
+- One accessible page header and breadcrumb contract used by every current product page
 - Fluent dark-theme Storybook with accessibility checks and realistic synthetic states
-- Observability and Optimization metric surfaces migrated from duplicate local components
+- Observability and Optimization metric surfaces plus Optimization operational states migrated from duplicate local components
 
-**Remaining:** migrate page headers, connector cards, timelines, approval panels,
-and remediation comparisons incrementally; add graph primitives only when the
+**Remaining:** migrate connector cards, timelines, approval panels, and
+remediation comparisons incrementally; add graph primitives only when the
 existing exposure graph contracts can be preserved.
 
 ---

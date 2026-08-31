@@ -1511,33 +1511,6 @@ button {
   font-size: 0.78rem;
 }
 
-.optimization-state {
-  min-height: 180px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  padding: 24px;
-  color: #cbd3df;
-  background: #0d141f;
-  border: 1px solid #202b3e;
-  border-radius: 9px;
-}
-
-.optimization-state--error {
-  justify-content: flex-start;
-  color: #ffd8dc;
-  background: #35171c;
-  border-color: #71313b;
-}
-
-.optimization-state--error > div {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
 .optimization-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1672,27 +1645,6 @@ button {
   background: #4f6bed;
   border-radius: 6px;
   white-space: nowrap;
-}
-
-.optimization-empty {
-  min-height: 220px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: #8f9bb0;
-  background: #0d141f;
-  border: 1px dashed #354158;
-  border-radius: 9px;
-}
-
-.optimization-empty h2 {
-  margin: 8px 0 4px;
-  color: #d6dce7;
-}
-
-.optimization-empty p {
-  margin: 0;
 }
 
 .live-overview-boundary {
@@ -1905,47 +1857,6 @@ button {
 
 .connector-blind-spots {
   padding-top: 20px;
-}
-
-.page-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 18px;
-}
-
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 8px;
-  color: #7f8ca2;
-  font-size: 11px;
-}
-
-.breadcrumb svg {
-  width: 12px;
-  height: 12px;
-}
-
-.page-heading h1 {
-  margin: 0;
-  font-size: clamp(25px, 2vw, 32px);
-  font-weight: 650;
-  letter-spacing: -0.025em;
-}
-
-.page-heading p {
-  margin: 7px 0 0;
-  color: #97a3b7;
-  font-size: 13px;
-}
-
-.page-heading__actions {
-  display: flex;
-  align-items: center;
-  gap: 9px;
 }
 
 .refresh-status {
@@ -3149,13 +3060,6 @@ button {
   }
   .global-search {
     width: min(55vw, 320px);
-  }
-  .page-heading {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .page-heading__actions {
-    flex-wrap: wrap;
   }
   .journey-strip {
     overflow-x: auto;

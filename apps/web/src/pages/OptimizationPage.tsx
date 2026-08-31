@@ -1,9 +1,7 @@
-import { Badge, Button, Select, Spinner } from '@fluentui/react-components'
+import { Badge, Button, Select } from '@fluentui/react-components'
 import {
-  AlertRegular,
   ArrowClockwiseRegular,
   ArrowTrendingRegular,
-  CheckmarkCircleRegular,
   DataUsageRegular,
   LockClosedRegular,
   PersonRegular,
@@ -18,7 +16,7 @@ import type {
   TokenEconomicsAttributionValue,
   TokenEconomicsReport,
 } from '@agent-sentinel/domain'
-import { KpiCard } from '@agent-sentinel/ui'
+import { DataState, KpiCard } from '@agent-sentinel/ui'
 
 import { exposureApi } from '../api/exposure-api'
 import { PageHeading } from '../components/PageHeading'
@@ -250,24 +248,24 @@ export function OptimizationPage() {
       <TokenEconomicsSection agents={tokenEconomicsAgents} />
 
       {loading && exposure === undefined ? (
-        <div className="optimization-state" role="status">
-          <Spinner size="medium" label="Ranking evidence-backed recommendations…" />
-        </div>
+        <DataState
+          variant="loading"
+          title="Ranking evidence-backed recommendations…"
+          description="Evaluating current findings, ownership, lifecycle, and evidence gaps."
+        />
       ) : (
         <>
           {error ? (
-            <div className="optimization-state optimization-state--error" role="alert">
-              <AlertRegular />
-              <div>
-                <strong>Finding recommendations unavailable</strong>
-                <span>
-                  {error} · Graph-derived recommendations, when available, remain visible.
-                </span>
-              </div>
-              <Button appearance="primary" onClick={() => void loadFindings()}>
-                Try again
-              </Button>
-            </div>
+            <DataState
+              variant="error"
+              title="Finding recommendations unavailable"
+              description={`${error} · Graph-derived recommendations, when available, remain visible.`}
+              action={
+                <Button appearance="primary" onClick={() => void loadFindings()}>
+                  Try again
+                </Button>
+              }
+            />
           ) : null}
           <section className="optimization-summary" aria-label="Recommendation summary">
             <KpiCard
@@ -336,11 +334,11 @@ export function OptimizationPage() {
           </div>
 
           {filtered.length === 0 ? (
-            <div className="optimization-empty">
-              <CheckmarkCircleRegular />
-              <h2>No recommendations match</h2>
-              <p>No evidence-backed action matches the selected category and priority.</p>
-            </div>
+            <DataState
+              variant="empty"
+              title="No recommendations match"
+              description="No evidence-backed action matches the selected category and priority."
+            />
           ) : (
             <section className="recommendation-list" aria-label="Optimization recommendations">
               {filtered.map((recommendation) => {

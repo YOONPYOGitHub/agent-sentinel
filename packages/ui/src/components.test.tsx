@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { DataFreshnessIndicator } from './DataFreshnessIndicator.js'
 import { DataState } from './DataState.js'
 import { KpiCard } from './KpiCard.js'
+import { PageHeader } from './PageHeader.js'
 import { StatusBadge } from './StatusBadge.js'
 
 describe('shared UI primitives', () => {
@@ -34,5 +35,20 @@ describe('shared UI primitives', () => {
     const { container } = render(<DataFreshnessIndicator freshness="unknown" />)
     expect(screen.getByText('Observation time unavailable').tagName).toBe('SPAN')
     expect(container.querySelector('time')).not.toBeInTheDocument()
+  })
+
+  it('renders one page title and an accessible breadcrumb', () => {
+    render(
+      <PageHeader
+        section="Observability"
+        title="Evidence operations"
+        description="Current source coverage."
+      />,
+    )
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Evidence operations')
+    expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toHaveTextContent(
+      'Agent Sentinel',
+    )
+    expect(screen.getByText('Observability')).toHaveAttribute('aria-current', 'page')
   })
 })

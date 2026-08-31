@@ -31,7 +31,7 @@ export function DataState({ variant, title, description, action }: DataStateProp
     <section className={`as-data-state as-data-state--${variant}`} role={role}>
       <Icon aria-hidden="true" />
       <div>
-        <strong>{title}</strong>
+        <h2>{title}</h2>
         <p>{description}</p>
       </div>
       {action === undefined ? null : <div className="as-data-state__action">{action}</div>}
