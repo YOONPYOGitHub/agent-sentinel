@@ -892,46 +892,6 @@ button {
   margin-bottom: 14px;
 }
 
-.observability-metric {
-  min-height: 126px;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 6px;
-  padding: 16px;
-  background: #111925;
-  border: 1px solid #202b3e;
-  border-radius: 8px;
-}
-
-.observability-metric > svg {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  color: #8da2fb;
-}
-
-.observability-metric > span,
-.observability-metric > small {
-  color: #8f9bb0;
-  font-size: 0.78rem;
-}
-
-.observability-metric > strong {
-  color: #f5f7fb;
-  font-size: 1.65rem;
-}
-
-.observability-metric > small {
-  grid-column: 1 / -1;
-}
-
-.observability-metric--success {
-  border-top: 3px solid #54b17a;
-}
-
-.observability-metric--warning {
-  border-top: 3px solid #f9a825;
-}
-
 .observability-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.75fr);
@@ -1583,28 +1543,6 @@ button {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 14px;
-}
-
-.optimization-metric {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-height: 112px;
-  padding: 16px;
-  background: #111925;
-  border: 1px solid #202b3e;
-  border-radius: 8px;
-}
-
-.optimization-metric span,
-.optimization-metric small {
-  color: #8f9bb0;
-  font-size: 0.78rem;
-}
-
-.optimization-metric strong {
-  color: #f5f7fb;
-  font-size: 1.65rem;
 }
 
 .optimization-toolbar {

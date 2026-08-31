@@ -18,6 +18,7 @@ import type {
   TokenEconomicsAttributionValue,
   TokenEconomicsReport,
 } from '@agent-sentinel/domain'
+import { KpiCard } from '@agent-sentinel/ui'
 
 import { exposureApi } from '../api/exposure-api'
 import { PageHeading } from '../components/PageHeading'
@@ -269,25 +270,32 @@ export function OptimizationPage() {
             </div>
           ) : null}
           <section className="optimization-summary" aria-label="Recommendation summary">
-            <OptimizationMetric
+            <KpiCard
               label="Recommendations"
               value={summary.total}
               detail="Evidence-backed actions"
+              compact
             />
-            <OptimizationMetric
+            <KpiCard
               label="Critical priority"
               value={summary.critical}
               detail="Address first"
+              tone={summary.critical > 0 ? 'danger' : 'neutral'}
+              compact
             />
-            <OptimizationMetric
+            <KpiCard
               label="What-if available"
               value={summary.simulated}
               detail="Non-destructive preview"
+              tone="informative"
+              compact
             />
-            <OptimizationMetric
+            <KpiCard
               label="Approval required"
               value={summary.approvals}
               detail="Before target changes"
+              tone={summary.approvals > 0 ? 'warning' : 'neutral'}
+              compact
             />
           </section>
 
@@ -574,23 +582,5 @@ function TokenEconomicsCardContent({
         </div>
       )}
     </>
-  )
-}
-
-function OptimizationMetric({
-  label,
-  value,
-  detail,
-}: {
-  label: string
-  value: number
-  detail: string
-}) {
-  return (
-    <article className="optimization-metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{detail}</small>
-    </article>
   )
 }

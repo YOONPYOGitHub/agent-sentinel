@@ -89,6 +89,7 @@ Gateway remains available only as the bounded regional diagnostic edge.
 - **@agent-sentinel/manifest-connector** ? Read-only custom manifest validation, normalization, and non-authoritative estate composition
 - **@agent-sentinel/azure-monitor-otel-connector** - Read-only Azure Monitor Logs query adapter that strictly maps OTel `AppRequests` rows into tenant/agent/environment/time-bound `ObservationWindow` objects. It performs no ingestion or Azure resource mutation.
 - **@agent-sentinel/behavior-engine** - Deterministic behavior-baseline, drift, and measured-only token economics engine (median/MAD statistics, tool-sequence drift, reconciled coverage, evidence-linked cost anomalies). Depends on `@agent-sentinel/domain`. No network I/O, pricing lookup, or LLM.
+- **@agent-sentinel/ui** - Shared Agent Sentinel design tokens and typed React primitives for KPI, status, freshness, and data-state presentation. Storybook provides isolated realistic states with accessibility checks.
 - **@agent-sentinel/tools** ? Offline developer CLIs (manifest validation)
 
 ## Custom Manifest Adapter

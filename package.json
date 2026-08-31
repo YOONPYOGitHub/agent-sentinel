@@ -15,6 +15,8 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:e2e": "pnpm --filter @agent-sentinel/web test:e2e",
+    "storybook": "pnpm --filter @agent-sentinel/ui storybook",
+    "storybook:build": "pnpm --filter @agent-sentinel/ui storybook:build",
     "typecheck": "turbo run typecheck",
     "foundry:provision": "pnpm --filter @agent-sentinel/scripts provision-agents",
     "foundry:cleanup": "pnpm --filter @agent-sentinel/scripts cleanup-agents",

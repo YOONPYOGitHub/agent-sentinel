@@ -13,6 +13,7 @@ import { useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import type { DriftAnalysisResult, Evidence, EvidenceType } from '@agent-sentinel/domain'
+import { KpiCard } from '@agent-sentinel/ui'
 
 import { PageHeading } from '../components/PageHeading'
 import { formatEvidenceTypes } from '../evidence-types'
@@ -156,15 +157,15 @@ export function ObservabilityPage() {
       ) : null}
 
       <section className="observability-summary" aria-label="Evidence operations summary">
-        <ObservabilityMetric
-          icon={DataUsageRegular}
+        <KpiCard
+          icon={<DataUsageRegular />}
           label="Evidence objects"
           value={String(evidence.length)}
           detail={`${sourceCoverage.length} evidence source systems`}
           tone="neutral"
         />
-        <ObservabilityMetric
-          icon={CheckmarkCircleRegular}
+        <KpiCard
+          icon={<CheckmarkCircleRegular />}
           label="Average confidence"
           value={
             averageConfidence === undefined
@@ -178,8 +179,8 @@ export function ObservabilityPage() {
           }
           tone={averageConfidence === undefined ? 'neutral' : 'success'}
         />
-        <ObservabilityMetric
-          icon={freshness.stale > 0 ? WarningRegular : ClockRegular}
+        <KpiCard
+          icon={freshness.stale > 0 ? <WarningRegular /> : <ClockRegular />}
           label="Stale evidence"
           value={evidence.length === 0 ? 'Unavailable' : String(freshness.stale)}
           detail={
@@ -189,8 +190,8 @@ export function ObservabilityPage() {
           }
           tone={evidence.length === 0 ? 'neutral' : freshness.stale > 0 ? 'warning' : 'success'}
         />
-        <ObservabilityMetric
-          icon={PulseRegular}
+        <KpiCard
+          icon={<PulseRegular />}
           label="Runtime evidence"
           value={String(evidenceTypeCounts.observed_runtime)}
           detail={`${state?.runtimeEvidence?.status ?? 'status not reported'} · ${evidenceTypeCounts.declared_configuration} declared · ${evidenceTypeCounts.synthetic_validation} synthetic · ${evidenceTypeCounts.unknown} unclassified`}
@@ -203,8 +204,8 @@ export function ObservabilityPage() {
                 : 'neutral'
           }
         />
-        <ObservabilityMetric
-          icon={CheckmarkCircleRegular}
+        <KpiCard
+          icon={<CheckmarkCircleRegular />}
           label="Manifest runtime claims"
           value={String(state?.manifestRuntimeVerification?.counts.verified ?? 0)}
           detail={
@@ -221,8 +222,8 @@ export function ObservabilityPage() {
                 : 'neutral'
           }
         />
-        <ObservabilityMetric
-          icon={PlugConnectedRegular}
+        <KpiCard
+          icon={<PlugConnectedRegular />}
           label="Manifest typed values"
           value={String(state?.manifestConfigurationReconciliation?.counts.valueMatched ?? 0)}
           detail={
@@ -239,8 +240,8 @@ export function ObservabilityPage() {
                 : 'neutral'
           }
         />
-        <ObservabilityMetric
-          icon={PulseRegular}
+        <KpiCard
+          icon={<PulseRegular />}
           label="Safe validations"
           value={String(validations.length)}
           detail={validationDetail}
@@ -497,29 +498,6 @@ function DriftAgentCard({ result, agentName }: { result: DriftAnalysisResult; ag
       ) : (
         <p className="muted">No drift detected across {result.dimensions.length} dimensions.</p>
       )}
-    </article>
-  )
-}
-
-function ObservabilityMetric({
-  icon: Icon,
-  label,
-  value,
-  detail,
-  tone,
-}: {
-  icon: typeof PulseRegular
-  label: string
-  value: string
-  detail: string
-  tone: 'neutral' | 'success' | 'warning'
-}) {
-  return (
-    <article className={`observability-metric observability-metric--${tone}`}>
-      <Icon />
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{detail}</small>
     </article>
   )
 }

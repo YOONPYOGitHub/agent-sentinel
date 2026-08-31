@@ -3,6 +3,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import '@xyflow/react/dist/style.css'
+import '@agent-sentinel/ui/styles.css'
 
 import App from './App'
 import './styles.css'

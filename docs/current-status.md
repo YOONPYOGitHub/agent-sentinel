@@ -69,6 +69,7 @@ in [connector-availability.md](connector-availability.md).
 | Business-value evidence foundation         | **Current.** Outcome contracts carry run/correlation/version identifiers; the current resolver accepts only the exact discovered agent version. Source-authored values and evidence are preserved without aggregation, monetary estimates, or invocation proxies. Mock outcomes are explicitly synthetic; live mode remains `unknown` until an authoritative source is configured.                                                                                                 |
 | Governance workflow and durable repository | **Current.** Valid transitions, explicit assignment, separation of duties, source/actor/timestamp audit evidence, bounded policy exceptions, and promote/drift-acknowledge/rollback/retire evidence transitions are enforced. Remediation approvals require and preserve a bounded rationale through connector execution; unsupported connector execution returns a controlled rejection.                                                                                          |
 | Phase 10 shift-left scanner                | **Current, offline.** `@agent-sentinel/shift-left-scanner` and `pnpm manifest:scan` evaluate validated manifests with the unchanged runtime policy catalog and finding/evidence shapes. Deterministic pass/warn/block output and CI exit codes are available without Entra, ingestion, deployment, or network access.                                                                                                                                                              |
+| Shared UI and Storybook foundation         | **Current.** `@agent-sentinel/ui` owns semantic design tokens plus reusable KPI, status, freshness, and data-state components. Storybook covers realistic loading, empty, degraded, denied, error, synthetic, and healthy states with accessibility checks; Observability and Optimization consume shared KPI cards.                                                                                                                                                               |
 
 ---
 
@@ -196,25 +197,27 @@ Endpoint host names, resource names, and operational commands are in [deployment
 
 ## Validation baseline
 
-Measured on 2026-08-27 on `feature/governance-phase1-completion` with Node 22.
+Measured on 2026-08-31 on `feature/multi-source-otel` with Node 22.
 
 | Suite                         | Command                                                           | Result                                              |
 | ----------------------------- | ----------------------------------------------------------------- | --------------------------------------------------- |
-| Azure Monitor connector tests | `pnpm --filter @agent-sentinel/azure-monitor-otel-connector test` | **6 passing**, 1 file                               |
-| Behavior engine tests         | `pnpm --filter @agent-sentinel/behavior-engine test`              | **72 passing**, 3 files                             |
-| API unit tests                | `pnpm --filter @agent-sentinel/api test`                          | **139 passing**, 11 files                           |
-| Manifest connector tests      | `pnpm --filter @agent-sentinel/manifest-connector test`           | **53 passing**, 1 file                              |
+| Azure Monitor connector tests | `pnpm --filter @agent-sentinel/azure-monitor-otel-connector test` | **9 passing**, 1 file                               |
+| Behavior engine tests         | `pnpm --filter @agent-sentinel/behavior-engine test`              | **73 passing**, 3 files                             |
+| API unit tests                | `pnpm --filter @agent-sentinel/api test`                          | **222 passing**, 15 files                           |
+| Manifest connector tests      | `pnpm --filter @agent-sentinel/manifest-connector test`           | **57 passing**, 1 file                              |
 | Shift-left scanner tests      | `pnpm --filter @agent-sentinel/shift-left-scanner test`           | **6 passing**, 1 file                               |
-| Web unit and component tests  | `pnpm --filter @agent-sentinel/web test`                          | **197 passing**, 26 files                           |
+| Shared UI component tests     | `pnpm --filter @agent-sentinel/ui test`                           | **4 passing**, 1 file                               |
+| Web unit and component tests  | `pnpm --filter @agent-sentinel/web test`                          | **215 passing**, 27 files                           |
 | End-to-end                    | `pnpm test:e2e`                                                   | **23 tests** across 10 Playwright specs             |
 | Changed-file format check     | `pnpm exec prettier --check <changed files>`                      | **Passes**                                          |
 | Repository format check       | `pnpm format:check`                                               | **Fails on 14 pre-existing unrelated files**        |
-| Workspace lint and typecheck  | `pnpm lint`; `pnpm typecheck`                                     | **32 of 32 tasks pass** for each                    |
-| Auth live-validator tests     | `pnpm --filter @agent-sentinel/scripts test`                      | **20 passing**, 4 files                             |
-| Workspace tests               | `pnpm test`                                                       | **539 passing**, 61 files; 1 test skipped           |
-| Workspace build               | `pnpm build`                                                      | **17 of 17 tasks pass**                             |
+| Workspace lint and typecheck  | `pnpm lint`; `pnpm typecheck`                                     | **48 of 48 tasks pass** for each                    |
+| Auth live-validator tests     | `pnpm --filter @agent-sentinel/scripts test`                      | **23 passing**, 5 files                             |
+| Workspace tests               | `pnpm test`                                                       | **901 passing** across package suites               |
+| Workspace build               | `pnpm build`                                                      | **25 of 25 tasks pass**                             |
 | Bicep                         | `az bicep build`                                                  | Builds, with baseline linter warnings               |
 | Web production build          | `pnpm --filter @agent-sentinel/web build`                         | Succeeds with a Rollup chunk-size warning (>500 kB) |
+| Storybook static build        | `pnpm storybook:build`                                            | Succeeds with accessibility addon enabled           |
 
 ---
 

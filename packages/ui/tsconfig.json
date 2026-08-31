@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node", "vitest/globals", "@testing-library/jest-dom"]
+  },
+  "files": [".storybook/main.ts", ".storybook/preview.tsx", "vitest.config.ts"],
+  "include": ["src"]
+}

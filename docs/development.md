@@ -150,6 +150,26 @@ The checked-in Azure Monitor response fixture is local-only and contract-tested:
 pnpm --filter @agent-sentinel/azure-monitor-otel-connector test
 ```
 
+## Shared UI and Storybook
+
+`@agent-sentinel/ui` owns design tokens and reusable operational primitives.
+Start Storybook for isolated component work:
+
+```bash
+pnpm storybook
+```
+
+Build the static catalog and run the component contract tests:
+
+```bash
+pnpm storybook:build
+pnpm --filter @agent-sentinel/ui test
+```
+
+Storybook wraps stories in the production Fluent dark theme. The accessibility
+addon runs in `error` mode so violations fail supported Storybook test flows.
+Stories use synthetic operational states only and do not call APIs.
+
 If configuration is absent, credentials fail, the provider rejects the query,
 or any row violates its tenant/agent/environment/time binding, the API returns
 typed unknown. It never reads the mock fixtures in live mode.

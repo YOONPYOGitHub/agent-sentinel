@@ -355,6 +355,22 @@ Deliberately sequenced after the governance lifecycle workflow so that pre-publi
 
 ---
 
+## UI design system and Storybook · _foundation complete_
+
+The product specification requires shared UI primitives before further page
+proliferation. `@agent-sentinel/ui` now provides the first production package:
+
+- Semantic color, spacing, radius, elevation, and motion tokens
+- Reusable KPI, status, freshness, loading, empty, degraded, denied, and error states
+- Fluent dark-theme Storybook with accessibility checks and realistic synthetic states
+- Observability and Optimization metric surfaces migrated from duplicate local components
+
+**Remaining:** migrate page headers, connector cards, timelines, approval panels,
+and remediation comparisons incrementally; add graph primitives only when the
+existing exposure graph contracts can be preserved.
+
+---
+
 ## Public edge hardening · _continuous, independent_
 
 Not a numbered phase; it constrains several of them.
