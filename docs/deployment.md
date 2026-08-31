@@ -46,6 +46,28 @@ This is a clean IaC recreation, not an in-place tenant migration. Do not copy
 tenant IDs, principal IDs, federated credentials, Graph consent, or license state
 from the existing tenant.
 
+The Data AI Lab replacement tenant is represented by two checked-in, non-secret
+parameter files:
+
+- `infra/environments/mngenvmcap098047-foundry.parameters.bicepparam` creates the
+  tenant-local Foundry account and project first.
+- `infra/environments/mngenvmcap098047.parameters.bicepparam` describes the
+  platform with a new suffix and tenant boundary. Writes, authentication, and
+  every consent-gated connector remain disabled.
+
+Do not run either deployment from an Azure CLI context that still targets the
+historical tenant. Confirm the exact tenant, subscription, and account first.
+The platform parameter file intentionally contains no subscription ID because
+the target subscription is selected by the deployment command.
+
+The API and SPA registrations are also recreated, not transferred. Create both
+as single-tenant applications in the replacement tenant after the new Front Door
+HTTPS origin is known. Preserve the exact scopes and roles from
+`security-authentication.md`, register the new origin on the SPA only, and inject
+the new IDs through the `auth*` parameters. Keep `authMode = 'disabled'` and
+`agentSentinelWriteEnabled = false` until the replacement registration and
+read-only sign-in checks pass.
+
 ## Infrastructure Deployment (reference only while drift is unresolved)
 
 ### Phase A ? Foundation (Network, Identity, Observability, KV, ACR)

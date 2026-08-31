@@ -43,6 +43,7 @@ resource advisoryModel 'Microsoft.CognitiveServices/accounts/deployments@2024-10
     }
     versionUpgradeOption: 'NoAutoUpgrade'
   }
+  dependsOn: [embedding]
 }
 
 output aiAccountId string = aiAccount.id

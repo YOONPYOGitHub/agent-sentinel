@@ -40,9 +40,21 @@ describe('public edge routing safety', () => {
     expect(workflow).not.toContain('Smoke test - App Gateway')
   })
 
+  it('serializes Foundry model deployments on the shared account', () => {
+    const foundry = rootFile('infra/modules/foundry.bicep')
+
+    expect(foundry).toMatch(/resource advisoryModel[\s\S]*?dependsOn:\s*\[\s*embedding\s*\]/)
+  })
+
   it('derives replacement-tenant names while preserving explicit existing names', () => {
     const platform = rootFile('infra/platform.bicep')
     const parameters = rootFile('infra/environments/dev.parameters.bicepparam')
+    const replacementParameters = rootFile(
+      'infra/environments/mngenvmcap098047.parameters.bicepparam',
+    )
+    const replacementFoundryParameters = rootFile(
+      'infra/environments/mngenvmcap098047-foundry.parameters.bicepparam',
+    )
     const identity = rootFile('infra/modules/identity.bicep')
     const postgres = rootFile('infra/modules/postgres.bicep')
     const ci = rootFile('infra/ci-foundation.bicep')
@@ -56,6 +68,18 @@ describe('public edge routing safety', () => {
       "effectiveFoundryAccountName = empty(foundryAccountName) ? 'ais-agent-sentinel-${suffix}'",
     )
     expect(parameters).toContain("connectorIdentityName = 'id-agent-sentinel-connectors-260829'")
+    expect(replacementParameters).toContain("suffix = 'm098047'")
+    expect(replacementParameters).toContain(
+      "foundryTenantId = 'ef7d55d6-c61d-4085-9064-4e83adf15ee3'",
+    )
+    expect(replacementParameters).toContain('agentSentinelWriteEnabled = false')
+    expect(replacementParameters).toContain("authMode = 'disabled'")
+    expect(replacementParameters).not.toContain('4dfc2b10-8eb6-4454-a9ee-9f337141b596')
+    expect(replacementParameters).not.toContain('applicationIdentityName')
+    expect(replacementParameters).not.toContain('connectorIdentityName')
+    expect(replacementParameters).not.toContain('teamsIdentityName')
+    expect(replacementParameters).not.toContain('foundryAccountName')
+    expect(replacementFoundryParameters).toContain("suffix = 'm098047'")
     expect(identity).not.toContain("name: 'id-agent-sentinel-260814'")
     expect(postgres).not.toContain("principalName: 'id-agent-sentinel-260814'")
     expect(ci).toContain("runnerIdentityName: 'id-ci-runner-${suffix}'")
