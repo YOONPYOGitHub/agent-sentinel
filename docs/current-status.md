@@ -15,6 +15,10 @@ in [connector-availability.md](connector-availability.md).
 
 | Commit    | Change                                             | Effect                                                                                                                                                              |
 | --------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `31495ef` | Shared UI container build integration              | Includes and builds the new workspace UI package inside the isolated web image context.                                                                             |
+| `2fe089b` | Shared page header and operational states          | Routes every page through one accessible header contract and migrates Optimization loading, error, and empty states.                                                |
+| `5d72f54` | Agent Sentinel UI and Storybook foundation         | Adds semantic design tokens, reusable KPI/status/freshness/data-state primitives, accessibility-enabled stories, and operational-page adoption.                     |
+| `9e7735e` | Exact runtime correlation preservation             | Preserves bounded direct run, operation-correlation, and version context from OTel while reporting linkability separately from outcome joins.                       |
 | `97d959c` | Measured-cost attribution                          | Attaches source-cited owner and business-unit context only from the exact authoritative agent while keeping missing boundaries typed `partial` or `unknown`.        |
 | `f8cf4e9` | Typed manifest configuration verification          | Compares supported typed adapter declarations with exact authoritative values while keeping free-form claims explicitly unverified.                                 |
 | `c938766` | Logout redirect transaction completion             | Processes the MSAL redirect response before login is available; production logout followed by login completes without stale interaction state.                      |
@@ -133,8 +137,8 @@ Corporate onboarding is tracked separately in [internal-onboarding.md](internal-
 
 ## Deployment routing verification
 
-- CI run `33329060162` produced immutable web, API, and jobs images for
-  `97d959c`; all three healthy revisions were deployed on 2026-08-31.
+- CI run `33351314784` produced immutable web, API, and jobs images for
+  `31495ef`; all three healthy revisions were deployed on 2026-08-31.
 - The registered `agent-sentinel` Front Door endpoint returns HTTP 200 for the
   web root and public connector-status/auth-configuration routes. Anonymous
   protected requests return the expected `401`.
