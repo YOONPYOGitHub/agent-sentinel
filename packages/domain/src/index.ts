@@ -2,6 +2,9 @@ import { z } from 'zod'
 
 import { evidenceSchema, evidenceTypeSchema } from './evidence.js'
 
+export { agentCorrelationKindSchema, agentCorrelationSchema } from './correlation.js'
+export type { AgentCorrelationKind, AgentCorrelation } from './correlation.js'
+
 export { evidenceSchema, evidenceTypeSchema } from './evidence.js'
 export type { Evidence, EvidenceType } from './evidence.js'
 

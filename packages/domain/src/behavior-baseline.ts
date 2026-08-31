@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { agentCorrelationSchema } from './correlation.js'
+
 // ---------------------------------------------------------------------------
 // Identity & Source
 // ---------------------------------------------------------------------------
@@ -37,6 +39,15 @@ export const runtimeObservationSchema = z.object({
   errorCode: z.string().max(100).optional(),
   toolCallNames: z.array(z.string().min(1).max(200)).max(50).default([]),
   synthetic: z.boolean().default(false),
+  correlations: z
+    .array(agentCorrelationSchema)
+    .max(3)
+    .refine(
+      (correlations) =>
+        new Set(correlations.map((correlation) => correlation.kind)).size === correlations.length,
+      'Runtime observation correlation kinds must be unique.',
+    )
+    .optional(),
 })
 export type RuntimeObservation = z.infer<typeof runtimeObservationSchema>
 

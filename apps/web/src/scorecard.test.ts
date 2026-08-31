@@ -87,6 +87,8 @@ function readyTokenEconomics(overrides: Partial<TokenEconomicsReport> = {}): Tok
       totalTokenMeasuredCount: 20,
       costMeasuredCount: 20,
       costCoverage: 1,
+      exactCorrelationCount: 0,
+      exactCorrelationCoverage: 0,
     },
     totalInputTokens: 5200,
     totalOutputTokens: 3760,

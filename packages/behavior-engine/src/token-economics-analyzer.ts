@@ -310,6 +310,15 @@ export function analyzeTokenEconomics(
   const measuredSuccessCount = costMeasuredObservations.filter((o) => o.success).length
   const costMeasuredCount = costValues.length
   const costCoverage = deduplicated.length > 0 ? costMeasuredCount / deduplicated.length : 0
+  const exactCorrelationCount = deduplicated.filter(
+    (observation) =>
+      observation.correlations?.some(
+        (correlation) =>
+          correlation.kind === 'agent-run-id' || correlation.kind === 'correlation-id',
+      ) === true,
+  ).length
+  const exactCorrelationCoverage =
+    deduplicated.length > 0 ? exactCorrelationCount / deduplicated.length : 0
 
   const coverage: TokenEconomicsCoverage = {
     totalObservations: observed.observations.length,
@@ -322,6 +331,8 @@ export function analyzeTokenEconomics(
     totalTokenMeasuredCount: totalValues.length,
     costMeasuredCount,
     costCoverage,
+    exactCorrelationCount,
+    exactCorrelationCoverage,
   }
 
   const inputStats = computeDistributionStats(inputValues)

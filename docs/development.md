@@ -114,18 +114,22 @@ Analytics Reader) on the target workspace. No shared key is accepted.
 Instrumented request spans must reach `AppRequests` with these OTel/custom
 properties:
 
-| Property                         | Mapping                                                          |
-| -------------------------------- | ---------------------------------------------------------------- |
-| `agent.sentinel.tenant_id`       | Required tenant binding                                          |
-| `gen_ai.agent.id`                | Required agent binding                                           |
-| `deployment.environment.name`    | Required environment binding                                     |
-| `agent.sentinel.observation_id`  | Observation id (falls back to request id)                        |
-| `gen_ai.usage.input_tokens`      | Optional measured input tokens                                   |
-| `gen_ai.usage.output_tokens`     | Optional measured output tokens                                  |
-| `agent.sentinel.cost.usd`        | Optional measured USD cost; never estimated                      |
-| `agent.sentinel.tool_call_names` | Optional JSON string array of ordered tools                      |
-| `agent.sentinel.synthetic`       | Optional provenance flag for validation canaries; defaults false |
-| `error.type`                     | Optional error code                                              |
+| Property                         | Mapping                                                           |
+| -------------------------------- | ----------------------------------------------------------------- |
+| `agent.sentinel.tenant_id`       | Required tenant binding                                           |
+| `gen_ai.agent.id`                | Required agent binding                                            |
+| `deployment.environment.name`    | Required environment binding                                      |
+| `agent.sentinel.observation_id`  | Observation id (falls back to request id)                         |
+| `gen_ai.agent.run.id`            | Optional exact agent-run identifier                               |
+| `agent.sentinel.run_id`          | Optional fallback exact agent-run identifier                      |
+| `agent.sentinel.correlation_id`  | Optional exact correlation identifier (falls back to operation)   |
+| `gen_ai.agent.version`           | Optional broad agent-version context; not counted as an exact run |
+| `gen_ai.usage.input_tokens`      | Optional measured input tokens                                    |
+| `gen_ai.usage.output_tokens`     | Optional measured output tokens                                   |
+| `agent.sentinel.cost.usd`        | Optional measured USD cost; never estimated                       |
+| `agent.sentinel.tool_call_names` | Optional JSON string array of ordered tools                       |
+| `agent.sentinel.synthetic`       | Optional provenance flag for validation canaries; defaults false  |
+| `error.type`                     | Optional error code                                               |
 
 The live read model maps non-empty telemetry windows onto the already
 discovered agent node. Tool and `CAN_CALL` edge evidence is added only when a
@@ -134,7 +138,11 @@ ambiguous names are reported as coverage gaps and never create graph objects.
 This is a request-time projection with a short cache: the jobs-persisted
 configuration snapshot remains unchanged. Synthetic validation spans are
 typed separately and excluded from behavior-baseline and token-economics
-analysis.
+analysis. Token Economics reports runtime correlation-ID availability as the
+fraction of measured observations carrying an agent-run or correlation
+identifier. This is linkability, not evidence that an outcome was actually
+joined. Agent-version context is preserved but is not counted as exact because
+one version can span many unrelated runs and outcomes.
 
 The checked-in Azure Monitor response fixture is local-only and contract-tested:
 

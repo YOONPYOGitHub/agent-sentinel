@@ -25,6 +25,8 @@ const mockReport = {
     totalTokenMeasuredCount: 20,
     costMeasuredCount: 20,
     costCoverage: 1,
+    exactCorrelationCount: 15,
+    exactCorrelationCoverage: 0.75,
   },
   totalInputTokens: 5200,
   totalOutputTokens: 3760,

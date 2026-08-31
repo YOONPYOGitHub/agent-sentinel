@@ -125,6 +125,9 @@ const expectedColumns = [
   ['TenantId', 'string'],
   ['AgentId', 'string'],
   ['Environment', 'string'],
+  ['AgentRunId', 'string'],
+  ['CorrelationId', 'string'],
+  ['AgentVersion', 'string'],
   ['LatencyMs', 'long'],
   ['InputTokens', 'long'],
   ['OutputTokens', 'long'],
@@ -175,6 +178,9 @@ const projectedRowSchema = z.strictObject({
   TenantId: bindingSchema,
   AgentId: bindingSchema,
   Environment: bindingSchema,
+  AgentRunId: z.string().trim().max(200).nullable(),
+  CorrelationId: z.string().trim().max(200).nullable(),
+  AgentVersion: z.string().trim().max(200).nullable(),
   LatencyMs: z.number().int().min(0).max(300_000).nullable(),
   InputTokens: z.number().int().min(0).max(1_000_000).nullable(),
   OutputTokens: z.number().int().min(0).max(1_000_000).nullable(),
@@ -194,6 +200,16 @@ function parseToolCallNames(value: string | null): string[] {
     throw new AzureMonitorOtelConnectorError('ToolCallNames must be a JSON string array.')
   }
   return z.array(z.string().trim().min(1).max(200)).max(50).parse(parsed)
+}
+
+function rowCorrelations(
+  row: Pick<z.infer<typeof projectedRowSchema>, 'AgentRunId' | 'CorrelationId' | 'AgentVersion'>,
+) {
+  return [
+    ...(row.AgentRunId ? [{ kind: 'agent-run-id' as const, value: row.AgentRunId }] : []),
+    ...(row.CorrelationId ? [{ kind: 'correlation-id' as const, value: row.CorrelationId }] : []),
+    ...(row.AgentVersion ? [{ kind: 'agent-version' as const, value: row.AgentVersion }] : []),
+  ]
 }
 
 export function mapAzureMonitorRows(
@@ -248,6 +264,7 @@ export function mapAzureMonitorRows(
       environment: row.Environment,
       source: 'azure-monitor-otel',
       observedAt: row.ObservedAt,
+      correlations: rowCorrelations(row),
       ...(row.LatencyMs !== null ? { latencyMs: row.LatencyMs } : {}),
       ...(row.InputTokens !== null ? { inputTokens: row.InputTokens } : {}),
       ...(row.OutputTokens !== null ? { outputTokens: row.OutputTokens } : {}),
@@ -298,6 +315,9 @@ export function buildAzureMonitorOtelQuery(binding: {
     `| where Environment == ${kqlString(parsed.environment)}`,
     '| project ObservationId = coalesce(tostring(OtelAttributes["agent.sentinel.observation_id"]), Id, OperationId),',
     '          ObservedAt = TimeGenerated, TenantId, AgentId, Environment,',
+    '          AgentRunId = tostring(coalesce(OtelAttributes["gen_ai.agent.run.id"], OtelAttributes["agent.sentinel.run_id"])),',
+    '          CorrelationId = tostring(coalesce(OtelAttributes["agent.sentinel.correlation_id"], OperationId)),',
+    '          AgentVersion = tostring(OtelAttributes["gen_ai.agent.version"]),',
     '          LatencyMs = tolong(round(DurationMs)),',
     '          InputTokens = tolong(coalesce(OtelAttributes["gen_ai.usage.input_tokens"], OtelAttributes["gen_ai.usage.prompt_tokens"])),',
     '          OutputTokens = tolong(coalesce(OtelAttributes["gen_ai.usage.output_tokens"], OtelAttributes["gen_ai.usage.completion_tokens"])),',

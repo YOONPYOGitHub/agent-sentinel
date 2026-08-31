@@ -462,6 +462,15 @@ function AgentTokenEconomicsSummary({
               </div>
             )}
             <div>
+              <dt>Runtime correlation IDs</dt>
+              <dd>
+                {state.report.coverage?.exactCorrelationCount ?? 0} of{' '}
+                {state.report.coverage?.deduplicatedObservations ?? 0} observations ·{' '}
+                {Math.round((state.report.coverage?.exactCorrelationCoverage ?? 0) * 100)}%
+                run/correlation coverage · matching outcome source required
+              </dd>
+            </div>
+            <div>
               <dt>Cost owner</dt>
               <dd>
                 {state.report.attribution?.owner === undefined

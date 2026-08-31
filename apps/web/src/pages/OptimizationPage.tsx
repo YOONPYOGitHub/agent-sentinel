@@ -529,6 +529,15 @@ function TokenEconomicsCardContent({
           </dd>
         </div>
         <div>
+          <dt>Runtime correlation IDs</dt>
+          <dd>
+            {report.coverage?.exactCorrelationCount ?? 0} of{' '}
+            {report.coverage?.deduplicatedObservations ?? 0} observations ·{' '}
+            {Math.round((report.coverage?.exactCorrelationCoverage ?? 0) * 100)}% run/correlation
+            coverage · matching outcome source required
+          </dd>
+        </div>
+        <div>
           <dt>Cost owner</dt>
           <dd>{attributionLabel(report.attribution?.owner)}</dd>
         </div>

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { agentCorrelationSchema, type AgentCorrelation } from './correlation.js'
 import { evidenceSchema } from './evidence.js'
 
 export const businessOutcomeUnitSchema = z.enum([
@@ -11,11 +12,8 @@ export const businessOutcomeUnitSchema = z.enum([
 ])
 export type BusinessOutcomeUnit = z.infer<typeof businessOutcomeUnitSchema>
 
-export const outcomeCorrelationSchema = z.strictObject({
-  kind: z.enum(['agent-run-id', 'correlation-id', 'agent-version']),
-  value: z.string().trim().min(1).max(200),
-})
-export type OutcomeCorrelation = z.infer<typeof outcomeCorrelationSchema>
+export const outcomeCorrelationSchema = agentCorrelationSchema
+export type OutcomeCorrelation = AgentCorrelation
 
 export const businessOutcomeObservationSchema = z.strictObject({
   id: z.string().min(1).max(200),

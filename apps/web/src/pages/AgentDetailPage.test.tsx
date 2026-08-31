@@ -103,6 +103,8 @@ describe('AgentDetailPage', () => {
         totalTokenMeasuredCount: 20,
         costMeasuredCount: 20,
         costCoverage: 1,
+        exactCorrelationCount: 15,
+        exactCorrelationCoverage: 0.75,
       },
       totalInputTokens: 5200,
       totalOutputTokens: 3760,
@@ -120,6 +122,11 @@ describe('AgentDetailPage', () => {
       screen.getByText('[SYNTHETIC] Mock demonstration — no live telemetry connected'),
     ).toBeVisible()
     expect(screen.getAllByText(/\$0\.4400/).length).toBeGreaterThanOrEqual(1)
+    expect(
+      screen.getByText(
+        /15 of 20 observations · 75% run\/correlation coverage · matching outcome source required/,
+      ),
+    ).toBeVisible()
     expect(screen.getByText(/People Platform · 1 cited evidence/)).toBeVisible()
     expect(screen.getByText(/People · 1 cited evidence/)).toBeVisible()
     const costCard = screen.getByRole('heading', { name: 'Cost / Efficiency' }).closest('article')
@@ -212,6 +219,8 @@ describe('AgentDetailPage', () => {
           totalTokenMeasuredCount: 20,
           costMeasuredCount: 20,
           costCoverage: 1,
+          exactCorrelationCount: 15,
+          exactCorrelationCoverage: 0.75,
         },
         totalInputTokens: 5200,
         totalOutputTokens: 3760,

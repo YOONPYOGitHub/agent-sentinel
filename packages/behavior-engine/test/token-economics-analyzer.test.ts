@@ -140,6 +140,27 @@ describe('analyzeTokenEconomics', () => {
     expect(result.coverage?.deduplicatedObservations).toBe(MIN_SAMPLES)
   })
 
+  it('reports exact run/correlation coverage without treating agent version as exact', () => {
+    const observations = enoughObs(MIN_SAMPLES).map((observation, index) => ({
+      ...observation,
+      correlations:
+        index < 4
+          ? [{ kind: 'correlation-id' as const, value: `correlation-${index}` }]
+          : index < 6
+            ? [{ kind: 'agent-run-id' as const, value: `run-${index}` }]
+            : index === 6
+              ? [{ kind: 'agent-version' as const, value: '17' }]
+              : undefined,
+    }))
+
+    const result = analyzeTokenEconomics(makeWindow(observations))
+
+    expect(result.coverage).toMatchObject({
+      exactCorrelationCount: 6,
+      exactCorrelationCoverage: 0.6,
+    })
+  })
+
   it('returns unavailable when duplicate ratio exceeds threshold', () => {
     // All observations have the same id -> all duplicates
     const obs: RuntimeObservation[] = Array.from({ length: 20 }, () => makeObs('same-id'))

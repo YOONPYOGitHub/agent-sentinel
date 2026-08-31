@@ -137,6 +137,8 @@ describe('OptimizationPage', () => {
         totalTokenMeasuredCount: 20,
         costMeasuredCount: 20,
         costCoverage: 1,
+        exactCorrelationCount: 15,
+        exactCorrelationCoverage: 0.75,
       },
       totalInputTokens: 5200,
       totalOutputTokens: 3760,
@@ -160,6 +162,11 @@ describe('OptimizationPage', () => {
       screen.getAllByText('[SYNTHETIC] Mock demonstration — no live telemetry connected').length,
     ).toBeGreaterThan(0)
     expect(screen.getByText(/100% coverage/)).toBeVisible()
+    expect(
+      screen.getByText(
+        /15 of 20 observations · 75% run\/correlation coverage · matching outcome source required/,
+      ),
+    ).toBeVisible()
     expect(screen.getByText(/People Platform · 1 cited evidence/)).toBeVisible()
     expect(screen.getByText(/People · 1 cited evidence/)).toBeVisible()
   })
@@ -211,6 +218,8 @@ describe('OptimizationPage', () => {
         totalTokenMeasuredCount: 20,
         costMeasuredCount: 20,
         costCoverage: 1,
+        exactCorrelationCount: 15,
+        exactCorrelationCoverage: 0.75,
       },
       totalInputTokens: 5200,
       totalOutputTokens: 3760,

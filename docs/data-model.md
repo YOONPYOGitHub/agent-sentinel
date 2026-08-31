@@ -222,7 +222,7 @@ Labels every result with its provenance. `mock-synthetic` is never present in li
 
 ### RuntimeObservation
 
-One sampled invocation. Fields: `id`, `tenantId`, `agentId`, `environment`, `source`, `observedAt` (ISO 8601), `latencyMs` (integer ≥ 0), `inputTokens` (integer ≥ 0), `outputTokens` (integer ≥ 0), `costUsd` (number ≥ 0, optional), `success` (boolean), `toolCallNames` (bounded string array ≤ 50). No raw prompts or unbounded payloads.
+One sampled invocation. Fields: `id`, `tenantId`, `agentId`, `environment`, `source`, `observedAt` (ISO 8601), `latencyMs` (integer ≥ 0), `inputTokens` (integer ≥ 0), `outputTokens` (integer ≥ 0), `costUsd` (number ≥ 0, optional), `success` (boolean), `toolCallNames` (bounded string array ≤ 50), and optional `correlations` (at most one each of `agent-run-id`, `correlation-id`, and `agent-version`). No raw prompts or unbounded payloads.
 
 ### ObservationWindow
 
@@ -296,6 +296,9 @@ Bounded report for one agent in one observation window.
 - `totalObservations`, `deduplicatedObservations`, `duplicatesRemoved`
 - `successCount`, `measuredSuccessCount`, token-dimension measured counts, `costMeasuredCount`
 - `costCoverage`: fraction 0-1; partial (< 1) when not all observations have measured cost
+- `exactCorrelationCount`, `exactCorrelationCoverage`: observations carrying an
+  agent-run or correlation identifier; this reports runtime linkability, not an
+  outcome join, and agent-version alone is not exact
 
 ### TokenEconomicsAnomaly
 

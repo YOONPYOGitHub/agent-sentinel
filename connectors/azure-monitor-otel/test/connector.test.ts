@@ -19,6 +19,9 @@ const columns = [
   ['TenantId', 'string'],
   ['AgentId', 'string'],
   ['Environment', 'string'],
+  ['AgentRunId', 'string'],
+  ['CorrelationId', 'string'],
+  ['AgentVersion', 'string'],
   ['LatencyMs', 'long'],
   ['InputTokens', 'long'],
   ['OutputTokens', 'long'],
@@ -57,6 +60,9 @@ function row(
     tenantId,
     agentId,
     environment,
+    `run-${id}`.slice(0, 200),
+    `correlation-${id}`.slice(0, 200),
+    '17',
     800 + index,
     300 + index,
     100 + index,
@@ -91,12 +97,21 @@ describe('Azure Monitor OTel connector', () => {
       success: true,
       toolCallNames: ['knowledge_search', 'answer'],
       synthetic: false,
+      correlations: [
+        { kind: 'agent-run-id', value: 'run-baseline-1' },
+        { kind: 'correlation-id', value: 'correlation-baseline-1' },
+        { kind: 'agent-version', value: '17' },
+      ],
     })
     expect(observations[1]).toMatchObject({
       success: false,
       errorCode: 'timeout',
       toolCallNames: ['knowledge_search'],
       synthetic: true,
+      correlations: [
+        { kind: 'correlation-id', value: 'operation-baseline-2' },
+        { kind: 'agent-version', value: '17' },
+      ],
     })
     expect(observations[1]?.costUsd).toBeUndefined()
   })
@@ -125,7 +140,7 @@ describe('Azure Monitor OTel connector', () => {
     }
 
     const malformedTools = structuredClone(fixture)
-    malformedTools.tables[0]!.rows[0]![11] = '{"tool":"not-an-array"}'
+    malformedTools.tables[0]!.rows[0]![14] = '{"tool":"not-an-array"}'
     expect(() => mapAzureMonitorRows(malformedTools, binding)).toThrow()
 
     const unexpectedColumn = structuredClone(fixture)
@@ -173,6 +188,8 @@ describe('Azure Monitor OTel connector', () => {
     const body = JSON.parse(init.body) as { query: string; timespan: string }
     expect(body.query).toMatch(/^AppRequests\n/)
     expect(body.query).toContain('| take 10001')
+    expect(body.query).toContain('CorrelationId')
+    expect(body.query).toContain('OperationId')
     expect(body.query).not.toMatch(/\b(delete|drop|set|ingest)\b/i)
     expect(body.timespan).toBe('2026-08-22T12:00:00.000Z/2026-08-24T12:00:00.000Z')
   })

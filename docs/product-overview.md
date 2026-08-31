@@ -189,7 +189,12 @@ There are **no production customer agents** in the environment. The Foundry conn
 
 **Measured analysis and business-outcome evidence contracts are implemented; live activation is pending.**
 
-Agent-level measured token totals, measured cost-per-success, coverage, and deterministic anomalies are implemented. Owner/business-unit attribution and broader business-outcome economics remain planned.
+Agent-level measured token totals, measured cost-per-success, coverage,
+deterministic anomalies, and source-cited owner/business-unit attribution are
+implemented. Exact agent-run/correlation identifiers are preserved from OTel
+and their coverage is visible; broader business-outcome economics remains
+unknown until an authoritative outcome source supplies matching identifiers and
+period semantics.
 
 It is gated on configured runtime telemetry. The read-only `azure-monitor-otel` connector is implemented and is the intended measured source for behavior drift and token economics; deployment activation still requires instrumented request spans, workspace configuration, and least-privilege query access. Until those prerequisites are injected:
 

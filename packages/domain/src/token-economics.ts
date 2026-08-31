@@ -72,6 +72,8 @@ export const tokenEconomicsCoverageSchema = z
     totalTokenMeasuredCount: z.number().int().min(0),
     costMeasuredCount: z.number().int().min(0),
     costCoverage: z.number().min(0).max(1),
+    exactCorrelationCount: z.number().int().min(0),
+    exactCorrelationCoverage: z.number().min(0).max(1),
   })
   .superRefine((coverage, context) => {
     const boundedCounts = [
@@ -80,6 +82,7 @@ export const tokenEconomicsCoverageSchema = z
       ['outputTokenMeasuredCount', coverage.outputTokenMeasuredCount],
       ['totalTokenMeasuredCount', coverage.totalTokenMeasuredCount],
       ['costMeasuredCount', coverage.costMeasuredCount],
+      ['exactCorrelationCount', coverage.exactCorrelationCount],
     ] as const
     if (
       coverage.deduplicatedObservations > coverage.totalObservations ||
@@ -118,6 +121,18 @@ export const tokenEconomicsCoverageSchema = z
         code: 'custom',
         path: ['costCoverage'],
         message: 'costCoverage must equal costMeasuredCount / deduplicatedObservations.',
+      })
+    }
+    const expectedCorrelationCoverage =
+      coverage.deduplicatedObservations === 0
+        ? 0
+        : coverage.exactCorrelationCount / coverage.deduplicatedObservations
+    if (Math.abs(coverage.exactCorrelationCoverage - expectedCorrelationCoverage) > 1e-9) {
+      context.addIssue({
+        code: 'custom',
+        path: ['exactCorrelationCoverage'],
+        message:
+          'exactCorrelationCoverage must equal exactCorrelationCount / deduplicatedObservations.',
       })
     }
   })
