@@ -97,14 +97,14 @@ Governance posture is derived from the same Cosmos-backed findings the Exposure 
 
 Each agent gets an assurance scorecard with **six independent dimensions**, each with its own posture, coverage, and plain-language explanation:
 
-| Dimension       | Source today                                         | State                                                                  |
-| --------------- | ---------------------------------------------------- | ---------------------------------------------------------------------- |
-| **Security**    | Live exposure findings for that agent                | **Current.** Reports `unknown` when live exposures fail to load.       |
-| **Governance**  | Policy posture and approval evidence                 | **Current.**                                                           |
-| **Lifecycle**   | Release-readiness checks over declared configuration | **Current.**                                                           |
-| **Quality**     | Evaluation results                                   | **Unknown by design** — no evaluation connector is connected.          |
-| **Reliability** | Runtime availability and failure telemetry           | **Unknown by design** — no runtime telemetry connector.                |
-| **Cost**        | Agent-level token usage and cost telemetry           | **Unknown by design** — see [token economics](#token-economics-scope). |
+| Dimension       | Source today                                              | State                                                                            |
+| --------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **Security**    | Live exposure findings for that agent                     | **Current.** Reports `unknown` when live exposures fail to load.                 |
+| **Governance**  | Policy posture and approval evidence                      | **Current.**                                                                     |
+| **Lifecycle**   | Release-readiness checks over declared configuration      | **Current.**                                                                     |
+| **Quality**     | Evaluation results                                        | **Unknown by design** — no evaluation connector is connected.                    |
+| **Reliability** | Exact Azure Monitor baseline/observed error-rate evidence | **Live, evidence-gated** — unknown until both windows meet the ten-sample floor. |
+| **Cost**        | Agent-level token usage and cost telemetry                | **Unknown by design** — see [token economics](#token-economics-scope).           |
 
 Dimensions are deliberately **not** collapsed into a single number. An unknown dimension stays visibly unknown; it is never averaged away into a comfortable score.
 

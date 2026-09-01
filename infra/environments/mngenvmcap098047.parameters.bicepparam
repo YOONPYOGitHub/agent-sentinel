@@ -2,7 +2,7 @@ using '../platform.bicep'
 
 param location = 'koreacentral'
 param suffix = 'm098047'
-param imageTag = '5d48113'
+param imageTag = '24f5353'
 param tags = {
   application: 'agent-sentinel'
   environment: 'replacement-validation'

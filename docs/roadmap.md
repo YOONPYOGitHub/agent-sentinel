@@ -287,7 +287,7 @@ organization entries.
 
 ---
 
-## Phase 8 — Behavioral drift and token economics · _engine and connector integration done; activation pending_
+## Phase 8 — Behavioral drift and token economics · _live reliability deployed; sample coverage pending_
 
 **Scope**
 

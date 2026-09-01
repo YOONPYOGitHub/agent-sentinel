@@ -29,7 +29,12 @@ Agent Sentinel gives an organization one explainable view of every AI agent it r
 - **Separate explainable per-agent assurance dimensions** — security, governance, lifecycle, quality, reliability, and cost are scored and explained independently, and report `unknown` rather than guessing.
 - **Cross-domain governance workflow** — one evidence set shared by security, platform, and business stakeholders.
 
-Implemented but not activated in the deployed environment: authenticated custom-manifest ingestion and the Power Platform, Agent 365, Defender, Purview, and Teams tenant app catalog connectors. Teams evidence is catalog-only and does not prove installation coverage. The offline shift-left scanner is available for local and CI publish gates. See [docs/roadmap.md](docs/roadmap.md).
+The replacement environment has live read-only Foundry, Entra, Defender for
+Cloud Apps, Purview, Azure Resource Graph, Teams organization catalog, and Azure
+Monitor OTel sources. Power Platform lacks supported unattended inventory
+authorization, Agent 365 is deferred, and authenticated manifest ingestion
+remains write-gated. Empty Defender or Teams results do not prove broader
+coverage. See [docs/roadmap.md](docs/roadmap.md).
 
 ---
 
