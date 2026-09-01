@@ -74,6 +74,8 @@ describe('public edge routing safety', () => {
     )
     expect(replacementParameters).toContain('agentSentinelWriteEnabled = false')
     expect(replacementParameters).toContain("authMode = 'disabled'")
+    expect(replacementParameters).toContain('azureResourceGraphConnectorEnabled = true')
+    expect(replacementParameters).toContain('azureMonitorConnectorEnabled = true')
     expect(replacementParameters).not.toContain('4dfc2b10-8eb6-4454-a9ee-9f337141b596')
     expect(replacementParameters).not.toContain('applicationIdentityName')
     expect(replacementParameters).not.toContain('connectorIdentityName')

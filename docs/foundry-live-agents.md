@@ -11,7 +11,9 @@ operator-invoked scripts.
 - Azure CLI sign-in or another `DefaultAzureCredential` source
 - The deployed Foundry project endpoint from the `foundryProjectEndpoint`
   infrastructure output
-- `Azure AI User` access scoped to the project
+- `Foundry User` access scoped to the project for the operator running agent
+  provisioning or cleanup. Azure Resource Manager `Owner` alone does not grant
+  Foundry agent data-plane access.
 
 Copy `.env.example` values into your shell. Do not put credentials or API keys
 in source files. The integration uses Microsoft Entra tokens.
@@ -41,11 +43,21 @@ pnpm foundry:cleanup          # dry-run; makes no changes
 pnpm foundry:cleanup -- --apply
 ```
 
+Provision only after the target project and every model deployment referenced by
+the manifest exist. A replacement tenant gets new agent identities and version
+IDs; never copy historical agent identity IDs or old versions. The manifest
+recreates only the six current synthetic definitions and does not require
+unreferenced experimental model deployments.
+
 Provisioning confirms matching agents by immutable ID. A matching owned version
 is unchanged; a definition change creates a new version and never patches an
 existing agent. Cleanup defaults to dry-run and requires both an exact manifest
 name and the ownership marker. Metadata or a matching name alone can never make
 an unrelated agent eligible for deletion.
+
+The provisioning operator role is tenant-local. Assign it to the operator in the
+replacement project; never add a replacement-tenant account to the historical
+tenant as part of migration.
 
 ## API selection and connector health
 

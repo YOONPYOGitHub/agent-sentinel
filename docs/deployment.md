@@ -68,6 +68,26 @@ the new IDs through the `auth*` parameters. Keep `authMode = 'disabled'` and
 `agentSentinelWriteEnabled = false` until the replacement registration and
 read-only sign-in checks pass.
 
+Foundry agents are workload data and are not created by Bicep. After the
+replacement project and its manifest-referenced model deployments are ready,
+grant the provisioning operator `Foundry User` on that project and run:
+
+```bash
+FOUNDRY_PROJECT_ENDPOINT='https://ais-agent-sentinel-m098047.services.ai.azure.com/api/projects/agent-sentinel-pjt' \
+  pnpm foundry:provision
+```
+
+This creates only the six current repository-managed synthetic definitions.
+Do not migrate historical version IDs, agent identity IDs, or unreferenced
+experimental models from the old tenant. Confirm jobs persists a six-agent
+snapshot before treating the replacement application as functionally ready.
+
+The replacement environment enables only the Azure Resource Graph and Azure
+Monitor read paths after their resource-scoped RBAC exists. Tenant-admin or
+license-gated connectors remain disabled until their replacement-tenant
+prerequisites are approved; historical Graph app-role assignments never transfer
+to the new managed identities.
+
 ## Infrastructure Deployment (reference only while drift is unresolved)
 
 ### Phase A ? Foundation (Network, Identity, Observability, KV, ACR)

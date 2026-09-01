@@ -25,9 +25,9 @@ param powerPlatformConnectorEnabled = false
 param agent365ConnectorEnabled = false
 param defenderCloudAppsConnectorEnabled = false
 param purviewConnectorEnabled = false
-param azureResourceGraphConnectorEnabled = false
+param azureResourceGraphConnectorEnabled = true
 param teamsDistributionConnectorEnabled = false
-param azureMonitorConnectorEnabled = false
+param azureMonitorConnectorEnabled = true
 
 // Create the replacement-tenant API and SPA registrations after the Front Door
 // origin exists. Keep authentication and every write path closed until validated.
