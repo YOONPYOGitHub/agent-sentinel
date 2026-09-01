@@ -249,6 +249,8 @@ function analyseToolSequence(
 export interface DriftAnalysisOptions {
   /** Override the minimum sample count. Defaults to MIN_SAMPLES. */
   minSamples?: number
+  /** Original observation-window ID backing the computed baseline. */
+  baselineWindowId?: string
   /** Evidence ID for the observed window. Required for immutable evidence reference. */
   observedEvidenceId: string
   /** Injectable clock for deterministic tests and fixed synthetic demonstrations. */
@@ -519,7 +521,7 @@ export function analyzeDrift(
     source: observed.source,
     status: 'ready',
     computedAt,
-    baselineWindowId: baseline.baselineId,
+    baselineWindowId: opts.baselineWindowId ?? baseline.baselineId,
     observedWindowId: observed.windowId,
     baselineEvidenceId: baseline.evidenceId,
     observedEvidenceId: opts.observedEvidenceId,

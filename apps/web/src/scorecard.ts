@@ -1,6 +1,8 @@
 import {
+  driftAnalysisResultSchema,
   tokenEconomicsReportSchema,
   type AgentSentinelState,
+  type DriftAnalysisResult,
   type ExposureFinding,
   type GraphNode,
   type TokenEconomicsReport,
@@ -11,6 +13,8 @@ export type ScorecardCoverage = 'observed' | 'derived' | 'unknown'
 export type ScorecardDimensionId =
   'security' | 'governance' | 'lifecycle' | 'quality' | 'reliability' | 'cost'
 export type ExposureLoadState = 'loading' | 'error'
+const MIN_RELIABILITY_SAMPLES = 10
+const CRITICAL_OBSERVED_ERROR_RATE = 0.5
 
 export interface ScorecardDimension {
   id: ScorecardDimensionId
@@ -205,11 +209,180 @@ function costDimensionFromTokenEconomics(
   }
 }
 
+function unknownReliabilityDimension(
+  explanation: string,
+  missingConnector?: string,
+): ScorecardDimension {
+  return {
+    id: 'reliability',
+    label: 'Reliability',
+    posture: 'unknown',
+    coverage: 'unknown',
+    explanation,
+    findingIds: [],
+    ...(missingConnector !== undefined ? { missingConnector } : {}),
+  }
+}
+
+function reliabilityDimensionFromDrift(
+  agent: GraphNode,
+  state: AgentSentinelState,
+  result: DriftAnalysisResult | null | undefined,
+): ScorecardDimension {
+  if (result === undefined) {
+    return unknownReliabilityDimension(
+      'Runtime availability and failure telemetry are not connected, so no reliability posture is inferred.',
+      'Azure Monitor runtime telemetry',
+    )
+  }
+  if (result === null) {
+    return unknownReliabilityDimension(
+      'Live runtime reliability evidence is loading or could not be loaded, so no reliability posture is inferred.',
+    )
+  }
+
+  const parsed = driftAnalysisResultSchema.safeParse(result)
+  if (!parsed.success) {
+    return unknownReliabilityDimension(
+      'The runtime drift result failed contract validation, so the reliability posture is unknown.',
+    )
+  }
+
+  const validated = parsed.data
+  const snapshotAgent = state.snapshot.nodes.find(
+    (node) => node.kind === 'agent' && node.id === agent.id,
+  )
+  if (snapshotAgent === undefined) {
+    return unknownReliabilityDimension(
+      'The runtime drift result cannot be matched to exactly one agent in the estate snapshot, so no reliability posture is inferred.',
+    )
+  }
+  const expectedEnvironment = snapshotAgent.metadata.sourceEnvironment ?? snapshotAgent.environment
+  if (
+    validated.tenantId !== state.snapshot.tenantId ||
+    validated.agentId !== agent.id ||
+    validated.environment !== expectedEnvironment
+  ) {
+    return unknownReliabilityDimension(
+      'The runtime drift result does not match this agent, tenant, or environment, so it was rejected.',
+    )
+  }
+  if (validated.status !== 'ready') {
+    return unknownReliabilityDimension(
+      validated.unavailableReason ??
+        'Runtime drift analysis is not ready, so no reliability posture is inferred.',
+    )
+  }
+  if (
+    validated.baselineWindowId === undefined ||
+    validated.baselineWindowId.trim() === '' ||
+    validated.observedWindowId === undefined ||
+    validated.observedWindowId.trim() === '' ||
+    validated.baselineEvidenceId === undefined ||
+    validated.baselineEvidenceId.trim() === '' ||
+    validated.observedEvidenceId === undefined ||
+    validated.observedEvidenceId.trim() === ''
+  ) {
+    return unknownReliabilityDimension(
+      'Runtime error-rate analysis is ready, but baseline and observed evidence references are incomplete, so no reliability posture is inferred.',
+    )
+  }
+  if (
+    validated.coverage === undefined ||
+    validated.coverage.baselineSamples < MIN_RELIABILITY_SAMPLES ||
+    validated.coverage.observedSamples < MIN_RELIABILITY_SAMPLES ||
+    !validated.coverage.metricsWithData.includes('error-rate')
+  ) {
+    return unknownReliabilityDimension(
+      `Runtime error-rate coverage does not meet the required ${MIN_RELIABILITY_SAMPLES} baseline and observed samples, so no reliability posture is inferred.`,
+    )
+  }
+
+  const synthetic = validated.source === 'mock-synthetic'
+  const expectedEvidenceType = synthetic ? 'synthetic_validation' : 'observed_runtime'
+  const expectedEvidence = [
+    {
+      id: synthetic ? `${validated.baselineEvidenceId}-synthetic` : validated.baselineEvidenceId,
+      windowKind: 'baseline',
+      sourceObjectId: validated.baselineWindowId,
+    },
+    {
+      id: synthetic ? `${validated.observedEvidenceId}-synthetic` : validated.observedEvidenceId,
+      windowKind: 'observed',
+      sourceObjectId: validated.observedWindowId,
+    },
+  ] as const
+  const evidenceMatches = expectedEvidence.every(({ id, sourceObjectId, windowKind }) => {
+    const evidence = state.snapshot.evidence.find((item) => item.id === id)
+    return (
+      snapshotAgent.evidenceIds.includes(id) &&
+      evidence?.sourceObjectId === sourceObjectId &&
+      evidence?.evidenceTypes.includes(expectedEvidenceType) === true &&
+      evidence.metadata?.sourceConnector === 'azure-monitor-otel' &&
+      evidence.metadata.windowKind === windowKind
+    )
+  })
+  if (!evidenceMatches) {
+    return unknownReliabilityDimension(
+      'The estate snapshot does not contain the exact baseline and observed runtime evidence linked to this agent, so no reliability posture is inferred.',
+    )
+  }
+
+  const errorRate = validated.dimensions.find((dimension) => dimension.dimension === 'error-rate')
+  if (
+    errorRate === undefined ||
+    errorRate.baselineRate === undefined ||
+    errorRate.observedRate === undefined
+  ) {
+    return unknownReliabilityDimension(
+      'Runtime drift analysis does not contain a measured baseline and observed error rate, so no reliability posture is inferred.',
+    )
+  }
+
+  const posture: ScorecardPosture =
+    errorRate.observedRate >= CRITICAL_OBSERVED_ERROR_RATE
+      ? 'critical'
+      : errorRate.observedRate > 0
+        ? 'attention'
+        : 'healthy'
+  const provenance =
+    validated.source === 'mock-synthetic'
+      ? '[SYNTHETIC] Measured mock observations'
+      : 'Measured runtime observations'
+  const coverage =
+    validated.coverage === undefined
+      ? ''
+      : ` Coverage: ${validated.coverage.baselineSamples} baseline and ${validated.coverage.observedSamples} observed samples.`
+  const direction =
+    errorRate.observedRate > errorRate.baselineRate
+      ? 'increased'
+      : errorRate.observedRate < errorRate.baselineRate
+        ? 'decreased'
+        : 'remained unchanged'
+  const explanation = `${provenance} show the error rate ${direction} from ${(errorRate.baselineRate * 100).toFixed(1)}% to ${(errorRate.observedRate * 100).toFixed(1)}%.${coverage} ${
+    posture === 'critical'
+      ? `The observed error rate meets or exceeds the ${(CRITICAL_OBSERVED_ERROR_RATE * 100).toFixed(0)}% critical reliability threshold.`
+      : posture === 'attention'
+        ? 'Measured failures are present, so the reliability posture requires attention.'
+        : 'No measured failures are present in the observed window.'
+  }`
+
+  return {
+    id: 'reliability',
+    label: 'Reliability',
+    posture,
+    coverage: validated.source === 'azure-monitor-otel' ? 'observed' : 'derived',
+    explanation,
+    findingIds: [],
+  }
+}
+
 export function buildAgentScorecard(
   agent: GraphNode,
   state: AgentSentinelState,
   exposureEvidence: ExposureFinding[] | ExposureLoadState = 'loading',
   tokenEconomicsReport?: TokenEconomicsReport,
+  driftAnalysis?: DriftAnalysisResult | null,
 ): AgentScorecard {
   const liveActiveExposures = Array.isArray(exposureEvidence)
     ? exposureEvidence.filter(
@@ -295,16 +468,7 @@ export function buildAgentScorecard(
       findingIds: [],
       missingConnector: 'Azure AI Foundry Evaluation telemetry',
     },
-    {
-      id: 'reliability',
-      label: 'Reliability',
-      posture: 'unknown',
-      coverage: 'unknown',
-      explanation:
-        'Runtime availability and failure telemetry are not connected, so no reliability posture is inferred.',
-      findingIds: [],
-      missingConnector: 'Azure Monitor runtime telemetry',
-    },
+    reliabilityDimensionFromDrift(agent, state, driftAnalysis),
     costDimensionFromTokenEconomics(agent, state, tokenEconomicsReport),
   ]
 

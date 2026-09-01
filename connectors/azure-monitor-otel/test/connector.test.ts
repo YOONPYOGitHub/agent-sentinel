@@ -194,6 +194,71 @@ describe('Azure Monitor OTel connector', () => {
     expect(body.timespan).toBe('2026-08-22T12:00:00.000Z/2026-08-24T12:00:00.000Z')
   })
 
+  it('stabilizes evidence IDs within a five-minute query window', async () => {
+    let now = new Date('2026-08-24T12:01:15.000Z')
+    let rows: unknown[][] = []
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation(() =>
+        Promise.resolve(Response.json({ tables: [{ name: 'PrimaryResult', columns, rows }] })),
+      )
+    const connector = new AzureMonitorOtelConnector(config, new Credential(), fetcher, () => now)
+
+    const first = await connector.readObservationWindows({
+      tenantId: 'tenant-a',
+      agentId: 'agent-a',
+    })
+    now = new Date('2026-08-24T12:04:59.000Z')
+    const second = await connector.readObservationWindows({
+      tenantId: 'tenant-a',
+      agentId: 'agent-a',
+    })
+    rows = [row('late-observation', '2026-08-24T11:59:00.000Z', 1)]
+    const lateArrival = await connector.readObservationWindows({
+      tenantId: 'tenant-a',
+      agentId: 'agent-a',
+    })
+
+    expect(second.baselineEvidenceId).toBe(first.baselineEvidenceId)
+    expect(second.observedEvidenceId).toBe(first.observedEvidenceId)
+    expect(lateArrival.baselineEvidenceId).toBe(first.baselineEvidenceId)
+    expect(lateArrival.observedEvidenceId).not.toBe(first.observedEvidenceId)
+    expect(first.observed.windowEnd).toBe('2026-08-24T12:00:00.000Z')
+    for (const call of fetcher.mock.calls) {
+      const init = call[1]
+      if (typeof init?.body !== 'string') throw new Error('Expected a JSON request body.')
+      const body = JSON.parse(init.body) as { timespan: string }
+      expect(body.timespan).toBe('2026-08-22T12:00:00.000Z/2026-08-24T12:00:00.000Z')
+    }
+  })
+
+  it('hashes observation content independently of row order and locale collation', async () => {
+    let rows = [row('é', '2026-08-24T11:58:00.000Z', 1), row('é', '2026-08-24T11:59:00.000Z', 2)]
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation(() =>
+        Promise.resolve(Response.json({ tables: [{ name: 'PrimaryResult', columns, rows }] })),
+      )
+    const connector = new AzureMonitorOtelConnector(
+      config,
+      new Credential(),
+      fetcher,
+      () => new Date('2026-08-24T12:01:00.000Z'),
+    )
+
+    const first = await connector.readObservationWindows({
+      tenantId: 'tenant-a',
+      agentId: 'agent-a',
+    })
+    rows = [...rows].reverse()
+    const reversed = await connector.readObservationWindows({
+      tenantId: 'tenant-a',
+      agentId: 'agent-a',
+    })
+
+    expect(reversed.observedEvidenceId).toBe(first.observedEvidenceId)
+  })
+
   it('activates only for complete injected configuration', () => {
     expect(createAzureMonitorOtelConnector({}, new Credential())).toBeUndefined()
     expect(

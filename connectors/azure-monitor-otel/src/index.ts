@@ -24,6 +24,7 @@ const LOGS_SCOPE = 'https://api.loganalytics.io/.default'
 const LOGS_ORIGIN = 'https://api.loganalytics.io'
 const MAX_QUERY_ROWS = 10_000
 const MAX_QUERY_HOURS = 24 * 31
+const WINDOW_ALIGNMENT_MS = 5 * 60 * 1_000
 const SAFE_BINDING = /^[A-Za-z0-9][A-Za-z0-9._:/ -]{0,199}$/
 
 const bindingSchema = z.string().trim().min(1).max(200).regex(SAFE_BINDING)
@@ -331,8 +332,41 @@ export function buildAzureMonitorOtelQuery(binding: {
   ].join('\n')
 }
 
-function evidenceId(kind: 'baseline' | 'observed', windowId: string): string {
-  return `otel-${kind}-${createHash('sha256').update(windowId).digest('hex').slice(0, 16)}`
+function evidenceId(
+  kind: 'baseline' | 'observed',
+  windowId: string,
+  observations: RuntimeObservation[],
+): string {
+  const compareCodeUnits = (left: string, right: string): number =>
+    left < right ? -1 : left > right ? 1 : 0
+  const canonicalObservations = observations
+    .map((observation) => [
+      observation.id,
+      observation.tenantId,
+      observation.agentId,
+      observation.environment,
+      observation.source,
+      observation.observedAt,
+      observation.latencyMs ?? null,
+      observation.inputTokens ?? null,
+      observation.outputTokens ?? null,
+      observation.costUsd ?? null,
+      observation.success,
+      observation.errorCode ?? null,
+      observation.toolCallNames,
+      observation.synthetic,
+      observation.correlations === undefined
+        ? null
+        : [...observation.correlations]
+            .sort((left, right) => compareCodeUnits(left.kind, right.kind))
+            .map((correlation) => [correlation.kind, correlation.value]),
+    ])
+    .map((observation) => JSON.stringify(observation))
+    .sort(compareCodeUnits)
+  return `otel-${kind}-${createHash('sha256')
+    .update(`${windowId}\0${JSON.stringify(canonicalObservations)}`)
+    .digest('hex')
+    .slice(0, 16)}`
 }
 
 function windowId(
@@ -387,8 +421,11 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
       )
     }
 
-    const queriedAt = this.clock().toISOString()
-    const observedEnd = queriedAt
+    const queryTime = this.clock()
+    const queriedAt = queryTime.toISOString()
+    const observedEnd = new Date(
+      Math.floor(queryTime.getTime() / WINDOW_ALIGNMENT_MS) * WINDOW_ALIGNMENT_MS,
+    ).toISOString()
     const observedStart = new Date(
       new Date(observedEnd).getTime() - this.config.observedWindowHours * 60 * 60 * 1000,
     ).toISOString()
@@ -468,8 +505,8 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
     return runtimeObservationWindowsSchema.parse({
       baseline,
       observed,
-      baselineEvidenceId: evidenceId('baseline', baselineWindowId),
-      observedEvidenceId: evidenceId('observed', observedWindowId),
+      baselineEvidenceId: evidenceId('baseline', baselineWindowId, baseline.observations),
+      observedEvidenceId: evidenceId('observed', observedWindowId, observed.observations),
       queriedAt,
     })
   }

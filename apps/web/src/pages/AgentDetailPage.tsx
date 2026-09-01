@@ -104,6 +104,7 @@ export function AgentDetailPage() {
     state,
     liveExposures,
     tokenEconomicsState.status === 'done' ? tokenEconomicsState.report : undefined,
+    agentDrift,
   )
 
   return (

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type {
   AgentSentinelState,
+  DriftAnalysisResult,
   ExposureFinding,
   GraphNode,
   TokenEconomicsReport,
@@ -57,10 +58,15 @@ function dimension(
   id: string,
   exposures: ExposureFinding[] | ExposureLoadState = 'loading',
   tokenEconomicsReport?: TokenEconomicsReport,
+  driftAnalysis?: DriftAnalysisResult | null,
 ) {
-  return buildAgentScorecard(agent, state, exposures, tokenEconomicsReport).dimensions.find(
-    (item) => item.id === id,
-  )!
+  return buildAgentScorecard(
+    agent,
+    state,
+    exposures,
+    tokenEconomicsReport,
+    driftAnalysis,
+  ).dimensions.find((item) => item.id === id)!
 }
 
 function readyTokenEconomics(overrides: Partial<TokenEconomicsReport> = {}): TokenEconomicsReport {
@@ -101,6 +107,93 @@ function readyTokenEconomics(overrides: Partial<TokenEconomicsReport> = {}): Tok
     costPerSuccessUsd: 0.022,
     anomalies: [],
     ...overrides,
+  }
+}
+
+function readyDrift(overrides: Partial<DriftAnalysisResult> = {}): DriftAnalysisResult {
+  return {
+    analysisId: 'drift-scorecard',
+    tenantId: testState.snapshot.tenantId,
+    agentId: hrAgent.id,
+    environment: hrAgent.environment,
+    source: 'azure-monitor-otel',
+    status: 'ready',
+    computedAt: '2026-09-01T00:00:00.000Z',
+    baselineWindowId: 'baseline-window',
+    observedWindowId: 'observed-window',
+    baselineEvidenceId: 'baseline-evidence',
+    observedEvidenceId: 'observed-evidence',
+    dimensions: [
+      {
+        dimension: 'error-rate',
+        drifted: false,
+        baselineRate: 0,
+        observedRate: 0,
+        absoluteDelta: 0,
+        explanation: 'Error rate within baseline range.',
+      },
+    ],
+    coverage: {
+      baselineSamples: 20,
+      observedSamples: 20,
+      coverageScore: 0.17,
+      metricsWithData: ['error-rate'],
+    },
+    anyDrift: false,
+    ...overrides,
+  }
+}
+
+function withRuntimeEvidence(
+  agent: GraphNode,
+  state: AgentSentinelState = testState,
+): AgentSentinelState {
+  const baselineEvidenceId = 'baseline-evidence'
+  const observedEvidenceId = 'observed-evidence'
+  return {
+    ...state,
+    snapshot: {
+      ...state.snapshot,
+      nodes: state.snapshot.nodes.map((node) =>
+        node.id === agent.id
+          ? {
+              ...node,
+              evidenceIds: [...node.evidenceIds, baselineEvidenceId, observedEvidenceId],
+            }
+          : node,
+      ),
+      evidence: [
+        ...state.snapshot.evidence,
+        {
+          id: baselineEvidenceId,
+          source: 'Azure Monitor OpenTelemetry',
+          sourceObjectId: 'baseline-window',
+          observedAt: '2026-08-31T00:00:00.000Z',
+          freshness: 'recent',
+          confidence: 1,
+          evidenceTypes: ['observed_runtime'],
+          summary: 'Measured baseline runtime evidence.',
+          metadata: {
+            sourceConnector: 'azure-monitor-otel',
+            windowKind: 'baseline',
+          },
+        },
+        {
+          id: observedEvidenceId,
+          source: 'Azure Monitor OpenTelemetry',
+          sourceObjectId: 'observed-window',
+          observedAt: '2026-09-01T00:00:00.000Z',
+          freshness: 'live',
+          confidence: 1,
+          evidenceTypes: ['observed_runtime'],
+          summary: 'Measured observed runtime evidence.',
+          metadata: {
+            sourceConnector: 'azure-monitor-otel',
+            windowKind: 'observed',
+          },
+        },
+      ],
+    },
   }
 }
 
@@ -326,6 +419,218 @@ describe('buildAgentScorecard', () => {
       expect(item).toMatchObject({ posture: 'unknown', coverage: 'unknown' })
       expect(item?.missingConnector).toBeTruthy()
     }
+  })
+
+  it('derives observed Reliability from ready live error-rate telemetry', () => {
+    const reliability = dimension(
+      hrAgent,
+      withRuntimeEvidence(hrAgent),
+      'reliability',
+      [],
+      undefined,
+      readyDrift(),
+    )
+
+    expect(reliability).toMatchObject({
+      posture: 'healthy',
+      coverage: 'observed',
+    })
+    expect(reliability.missingConnector).toBeUndefined()
+    expect(reliability.explanation).toContain('0.0% to 0.0%')
+    expect(reliability.explanation).toContain('20 baseline and 20 observed samples')
+  })
+
+  it('maps measured failures and critical adverse error-rate drift without treating improvement as critical', () => {
+    const criticalIncrease = readyDrift({
+      dimensions: [
+        {
+          dimension: 'error-rate',
+          drifted: true,
+          severity: 'critical',
+          baselineRate: 0,
+          observedRate: 0.6,
+          absoluteDelta: 0.6,
+          explanation: 'Error rate drift detected.',
+        },
+      ],
+      anyDrift: true,
+      highestSeverity: 'critical',
+    })
+    const criticalImprovement = {
+      ...criticalIncrease,
+      dimensions: [
+        {
+          ...criticalIncrease.dimensions[0]!,
+          baselineRate: 0.6,
+          observedRate: 0,
+        },
+      ],
+    }
+
+    expect(
+      dimension(
+        hrAgent,
+        withRuntimeEvidence(hrAgent),
+        'reliability',
+        [],
+        undefined,
+        criticalIncrease,
+      ).posture,
+    ).toBe('critical')
+    expect(
+      dimension(
+        hrAgent,
+        withRuntimeEvidence(hrAgent),
+        'reliability',
+        [],
+        undefined,
+        criticalImprovement,
+      ).posture,
+    ).toBe('healthy')
+    expect(
+      dimension(
+        hrAgent,
+        withRuntimeEvidence(hrAgent),
+        'reliability',
+        [],
+        undefined,
+        readyDrift({
+          dimensions: [
+            {
+              dimension: 'error-rate',
+              drifted: false,
+              baselineRate: 0.02,
+              observedRate: 0.03,
+              absoluteDelta: 0.01,
+              explanation: 'Error rate within baseline range.',
+            },
+          ],
+        }),
+      ).posture,
+    ).toBe('attention')
+  })
+
+  it('keeps Reliability unknown for insufficient or incomplete drift evidence', () => {
+    const insufficient = readyDrift({
+      status: 'insufficient-data',
+      dimensions: [],
+      coverage: {
+        baselineSamples: 0,
+        observedSamples: 6,
+        coverageScore: 0,
+        metricsWithData: [],
+      },
+      unavailableReason: 'Baseline requires at least 10 measured samples.',
+    })
+    expect(
+      dimension(hrAgent, withRuntimeEvidence(hrAgent), 'reliability', [], undefined, insufficient),
+    ).toMatchObject({
+      posture: 'unknown',
+      coverage: 'unknown',
+      explanation: 'Baseline requires at least 10 measured samples.',
+    })
+
+    const missingErrorRate = readyDrift({ dimensions: [], anyDrift: false })
+    expect(
+      dimension(
+        hrAgent,
+        withRuntimeEvidence(hrAgent),
+        'reliability',
+        [],
+        undefined,
+        missingErrorRate,
+      ).explanation,
+    ).toContain('does not contain a measured baseline and observed error rate')
+  })
+
+  it('keeps Reliability unknown without sufficient coverage or linked runtime evidence', () => {
+    expect(
+      dimension(
+        hrAgent,
+        withRuntimeEvidence(hrAgent),
+        'reliability',
+        [],
+        undefined,
+        readyDrift({
+          coverage: {
+            baselineSamples: 9,
+            observedSamples: 20,
+            coverageScore: 0.17,
+            metricsWithData: ['error-rate'],
+          },
+        }),
+      ).explanation,
+    ).toContain('required 10 baseline and observed samples')
+
+    expect(
+      dimension(hrAgent, testState, 'reliability', [], undefined, readyDrift()).explanation,
+    ).toContain('does not contain the exact baseline and observed runtime evidence')
+
+    const wrongWindowState = withRuntimeEvidence(hrAgent)
+    wrongWindowState.snapshot.evidence = wrongWindowState.snapshot.evidence.map((evidence) =>
+      evidence.id === 'observed-evidence'
+        ? { ...evidence, sourceObjectId: 'different-window' }
+        : evidence,
+    )
+    expect(
+      dimension(hrAgent, wrongWindowState, 'reliability', [], undefined, readyDrift()).explanation,
+    ).toContain('does not contain the exact baseline and observed runtime evidence')
+
+    expect(
+      dimension(
+        hrAgent,
+        withRuntimeEvidence(hrAgent),
+        'reliability',
+        [],
+        undefined,
+        readyDrift({ baselineEvidenceId: '' }),
+      ).explanation,
+    ).toContain('failed contract validation')
+  })
+
+  it('uses source environment and classifies stable or improving high error rates from current state', () => {
+    const sourceBoundAgent = {
+      ...hrAgent,
+      metadata: { ...hrAgent.metadata, sourceEnvironment: 'source-production' },
+    }
+    const sourceBoundState = withRuntimeEvidence(sourceBoundAgent, withAgent(sourceBoundAgent))
+    const stableHigh = readyDrift({
+      environment: 'source-production',
+      dimensions: [
+        {
+          dimension: 'error-rate',
+          drifted: false,
+          baselineRate: 0.8,
+          observedRate: 0.8,
+          absoluteDelta: 0,
+          explanation: 'Error rate within baseline range.',
+        },
+      ],
+    })
+    const improvingHigh = {
+      ...stableHigh,
+      dimensions: [
+        {
+          ...stableHigh.dimensions[0]!,
+          drifted: true,
+          severity: 'medium' as const,
+          baselineRate: 0.8,
+          observedRate: 0.6,
+          absoluteDelta: 0.2,
+        },
+      ],
+      anyDrift: true,
+      highestSeverity: 'medium' as const,
+    }
+
+    expect(
+      dimension(sourceBoundAgent, sourceBoundState, 'reliability', [], undefined, stableHigh)
+        .posture,
+    ).toBe('critical')
+    expect(
+      dimension(sourceBoundAgent, sourceBoundState, 'reliability', [], undefined, improvingHigh)
+        .posture,
+    ).toBe('critical')
   })
 
   it('derives a healthy Cost posture from a fully measured validated report', () => {

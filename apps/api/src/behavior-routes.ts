@@ -84,6 +84,7 @@ export function registerBehaviorRoutes(app: FastifyInstance, opts: BehaviorRoute
             const baselineResult = computeBaseline(windows.baseline, windows.baselineEvidenceId)
             if ('baseline' in baselineResult) {
               const driftResult = analyzeDrift(baselineResult.baseline, windows.observed, {
+                baselineWindowId: windows.baseline.windowId,
                 observedEvidenceId: windows.observedEvidenceId,
                 clock: () => new Date(windows.queriedAt),
               })

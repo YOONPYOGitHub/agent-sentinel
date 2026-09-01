@@ -10,12 +10,14 @@ import { connectorApi, demoApi } from '../api'
 import { exposureApi } from '../api/exposure-api'
 import { useTokenEconomics } from '../hooks/useTokenEconomics'
 import { useBusinessValue } from '../hooks/useBusinessValue'
+import { useAgentDrift } from '../hooks/useAgentDrift'
 import { salesExposureFinding, testState } from '../test-fixture'
 
 vi.mock('../api')
 vi.mock('../api/exposure-api')
 vi.mock('../hooks/useTokenEconomics')
 vi.mock('../hooks/useBusinessValue')
+vi.mock('../hooks/useAgentDrift')
 afterEach(cleanup)
 beforeEach(() => {
   vi.mocked(demoApi.getState).mockResolvedValue(testState)
@@ -26,6 +28,7 @@ beforeEach(() => {
   })
   vi.spyOn(exposureApi, 'listAll').mockResolvedValue([])
   vi.mocked(useTokenEconomics).mockReturnValue({ status: 'loading' })
+  vi.mocked(useAgentDrift).mockReturnValue(null)
   vi.mocked(useBusinessValue).mockReturnValue({
     status: 'done',
     assessment: {
@@ -286,6 +289,95 @@ describe('AgentDetailPage', () => {
     expect(screen.getByRole('heading', { name: 'Quality' })).toBeVisible()
     expect(screen.getByRole('heading', { name: 'Reliability' })).toBeVisible()
     expect(screen.getByRole('heading', { name: 'Cost / Efficiency' })).toBeVisible()
+  })
+
+  it('shows observed Reliability from live Azure Monitor error-rate evidence', async () => {
+    const baselineEvidenceId = 'baseline-evidence'
+    const observedEvidenceId = 'observed-evidence'
+    vi.mocked(demoApi.getState).mockResolvedValue({
+      ...testState,
+      snapshot: {
+        ...testState.snapshot,
+        nodes: testState.snapshot.nodes.map((node) =>
+          node.id === 'hr-policy-agent'
+            ? {
+                ...node,
+                evidenceIds: [...node.evidenceIds, baselineEvidenceId, observedEvidenceId],
+              }
+            : node,
+        ),
+        evidence: [
+          ...testState.snapshot.evidence,
+          {
+            id: baselineEvidenceId,
+            source: 'Azure Monitor OpenTelemetry',
+            sourceObjectId: 'baseline-window',
+            observedAt: '2026-08-31T00:00:00.000Z',
+            freshness: 'recent',
+            confidence: 1,
+            evidenceTypes: ['observed_runtime'],
+            summary: 'Measured baseline runtime evidence.',
+            metadata: {
+              sourceConnector: 'azure-monitor-otel',
+              windowKind: 'baseline',
+            },
+          },
+          {
+            id: observedEvidenceId,
+            source: 'Azure Monitor OpenTelemetry',
+            sourceObjectId: 'observed-window',
+            observedAt: '2026-09-01T00:00:00.000Z',
+            freshness: 'live',
+            confidence: 1,
+            evidenceTypes: ['observed_runtime'],
+            summary: 'Measured observed runtime evidence.',
+            metadata: {
+              sourceConnector: 'azure-monitor-otel',
+              windowKind: 'observed',
+            },
+          },
+        ],
+      },
+    })
+    vi.mocked(useAgentDrift).mockReturnValue({
+      analysisId: 'live-reliability',
+      tenantId: 'test',
+      agentId: 'hr-policy-agent',
+      environment: 'production',
+      source: 'azure-monitor-otel',
+      status: 'ready',
+      computedAt: '2026-09-01T00:00:00.000Z',
+      baselineWindowId: 'baseline-window',
+      observedWindowId: 'observed-window',
+      baselineEvidenceId: 'baseline-evidence',
+      observedEvidenceId: 'observed-evidence',
+      dimensions: [
+        {
+          dimension: 'error-rate',
+          drifted: false,
+          baselineRate: 0,
+          observedRate: 0,
+          absoluteDelta: 0,
+          explanation: 'Error rate within baseline range.',
+        },
+      ],
+      coverage: {
+        baselineSamples: 20,
+        observedSamples: 20,
+        coverageScore: 0.17,
+        metricsWithData: ['error-rate'],
+      },
+      anyDrift: false,
+    })
+    renderDetail('hr-policy-agent')
+
+    const reliabilityCard = (await screen.findByRole('heading', { name: 'Reliability' })).closest(
+      'article',
+    )!
+    expect(within(reliabilityCard).getByText('Healthy')).toBeVisible()
+    expect(within(reliabilityCard).getByText('Coverage: observed')).toBeVisible()
+    expect(within(reliabilityCard).getByText(/0\.0% to 0\.0%/)).toBeVisible()
+    expect(within(reliabilityCard).queryByText(/Missing connector/)).not.toBeInTheDocument()
   })
 
   it('shows unknown security while live exposures are loading', async () => {

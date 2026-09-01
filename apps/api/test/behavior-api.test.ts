@@ -270,6 +270,8 @@ describe('behavior drift API — foundry/live mode', () => {
     expect(result.status).toBe('ready')
     expect(result.source).toBe('azure-monitor-otel')
     expect(result.environment).toBe('production')
+    expect(result.baselineWindowId).toBe('baseline-window')
+    expect(result.observedWindowId).toBe('observed-window')
     expect(result.baselineEvidenceId).toBe('otel-baseline-evidence')
     expect(result.observedEvidenceId).toBe('otel-observed-evidence')
     expect(result.anyDrift).toBe(true)

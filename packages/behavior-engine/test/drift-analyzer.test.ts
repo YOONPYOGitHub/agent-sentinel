@@ -501,6 +501,18 @@ describe('analyzeDrift', () => {
     expect(result.observedEvidenceId).toBe('ev-observed-ref')
   })
 
+  it('preserves the original baseline observation-window id when supplied', () => {
+    const baseline = makeBaseline(healthyObs(MIN_SAMPLES + 5))
+    const observed = makeWindow('obs-w-source-id', healthyObs(MIN_SAMPLES + 5))
+    const result = analyzeDrift(baseline, observed, {
+      baselineWindowId: 'baseline-observation-window',
+      observedEvidenceId: 'ev-observed-source-id',
+    })
+
+    expect(result.status).toBe('ready')
+    expect(result.baselineWindowId).toBe('baseline-observation-window')
+  })
+
   it('zero-variance baseline does not cause division-by-zero', () => {
     // All observations have exactly the same latency → MAD = 0
     const stableObs = Array.from({ length: 15 }, (_, i) => makeObs(`b${i}`, { latencyMs: 1000 }))
