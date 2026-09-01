@@ -133,9 +133,12 @@ independent source IDs, or the legacy `powerPlatformTenantId` and
 `powerPlatformEnvironment` pair. The only allowed base is
 `https://api.powerplatform.com`; paging, item count, retries, timeout, and
 response bytes are bounded by the corresponding `powerPlatform*` parameters.
-Do not enable it or add an IaC role assignment until **Power Platform Reader**
-(or an approved least-privilege ResourceQuery read RBAC role) is approved at
-the intended tenant scope. See [Power Platform connector](power-platform-connector.md).
+Do not enable it or add an IaC role assignment while Microsoft documents only
+delegated `ResourceQuery.Resources.Read` plus a supported Entra role for
+inventory. Preview Power Platform RBAC roles, including Power Platform Reader,
+are explicitly unsupported for inventory access, and an environment query
+filter is not an authorization boundary. See
+[Power Platform connector](power-platform-connector.md).
 
 Microsoft Agent 365 package catalog inventory is independently disabled by
 `agent365ConnectorEnabled=false`. Configure `agent365SourcesJson`, or the legacy

@@ -182,11 +182,12 @@ become agents or edges. The application UAMI currently persists five resources
 under its existing resource-scoped roles. A broader Reader assignment remains a
 separate approval decision.
 
-**Multi-source Power Platform inventory — implemented, activation pending:**
+**Multi-source Power Platform inventory — implemented, activation blocked:**
 the official ResourceQuery API supplies bounded Copilot Studio and Microsoft
 365 Copilot Agent Builder core inventory. Sources are independent of Foundry
 IDs and compose after Entra without inferred identity edges. The connector is
-disabled until tenant-scope read RBAC is separately approved.
+disabled because Microsoft currently documents delegated inventory access only
+and explicitly excludes preview Power Platform RBAC roles from inventory.
 
 **Microsoft Agent 365 package catalog foundation — implemented, authorization pending:**
 the official Microsoft Graph v1.0 list API supplies bounded tenant package
@@ -227,7 +228,7 @@ resource is configured by this change.
 | Azure Resource Graph                        | `connected`              | Five resources are visible through existing UAMI roles; broader Reader coverage requires separate approval |
 | Microsoft Purview                           | `connected`              | Primary label-definition catalog is live; catalog evidence does not prove usage                            |
 | Microsoft Defender for Cloud Apps           | `authorization-required` | Licensing/API availability, tenant portal URL, and tenant-admin `Investigation.Read` application consent   |
-| Microsoft Copilot Studio / Agent Builder    | `authorization-required` | Power Platform Reader (or approved ResourceQuery read RBAC); schema is preview                             |
+| Microsoft Copilot Studio / Agent Builder    | `authorization-required` | No supported unattended ResourceQuery inventory authorization; schema is preview                           |
 | Microsoft 365 and SharePoint agents         | `authorization-required` | Covered without duplication by Agent 365 packages; M365 E5 and Agent 365 licensing remain pending          |
 | Microsoft Teams distribution                | `unavailable`            | `AppCatalog.Read.All` is assigned, but tenant Teams licensing/backend provisioning remains pending         |
 

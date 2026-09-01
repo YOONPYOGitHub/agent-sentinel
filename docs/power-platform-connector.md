@@ -1,6 +1,9 @@
 # Power Platform ResourceQuery connector
 
-**Implementation status:** complete on `feature/multi-source-otel`; disabled and not activated in the live deployment. The Copilot Studio resource schema is preview overall.
+**Implementation status:** complete on `feature/multi-source-otel`; disabled and
+not activated in the live deployment. The Copilot Studio resource schema is
+preview overall, and Microsoft does not currently document a supported
+unattended authorization path for ResourceQuery inventory.
 
 ## Evidence boundary
 
@@ -18,7 +21,24 @@ Each record becomes one authoritative agent node and one live evidence record at
 
 ## Authorization
 
-Service-principal access uses Power Platform RBAC, not a Microsoft Graph application permission. Each intended tenant scope requires **Power Platform Reader**, or an approved least-privilege ResourceQuery read RBAC role. This repository creates no role assignment. Activation must remain off until the scope and assignment receive separate approval.
+The supported inventory contract currently uses delegated Power Platform API
+permission `ResourceQuery.Resources.Read` plus a supported Microsoft Entra role.
+For agent-only inventory, **AI Reader** is the least-privileged listed role.
+
+Power Platform RBAC is preview, its current built-in roles are tenant-scoped,
+and Microsoft explicitly states that those roles are not supported for Power
+Platform inventory access. Consequently, **Power Platform Reader does not
+authorize this connector's ResourceQuery inventory call**. A request-body
+environment filter limits returned records but is not an authorization
+boundary.
+
+See the official
+[inventory access requirements](https://learn.microsoft.com/power-platform/admin/power-platform-inventory#access-requirements),
+[permission reference](https://learn.microsoft.com/power-platform/admin/programmability-permission-reference),
+and
+[Power Platform RBAC limitations](https://learn.microsoft.com/power-platform/admin/security/role-based-access-control).
+This repository creates no Power Platform role assignment and must not use the
+legacy over-privileged `New-PowerAppManagementApp` registration as a workaround.
 
 ## Configuration
 
@@ -62,10 +82,17 @@ Composition order is Foundry, then Entra, then Power Platform. This prevents Pow
 
 ## Activation checklist
 
-1. Obtain approval for the exact tenant scope and least-privilege read role.
-2. Configure all intended source boundaries and secretless credentials.
-3. Run connection and bounded inventory validation without changing source resources.
-4. Review per-source health and provenance.
-5. Enable through a separately reviewed Container Apps configuration change.
+1. Wait for Microsoft to document production-supported app-only inventory
+   authorization.
+2. Confirm that the supported authorization can enforce the intended tenant and
+   environment boundary; a query filter alone is insufficient.
+3. Configure all intended source boundaries and secretless credentials.
+4. Run connection and bounded inventory validation without changing source
+   resources.
+5. Review per-source health and provenance.
+6. Enable through a separately reviewed Container Apps configuration change.
 
-No live activation has occurred.
+Delegated operator validation may use `ResourceQuery.Resources.Read` and AI
+Reader with a one-record, fixed-type, fixed-environment query, but it does not
+prove that the unattended Agent Sentinel runtime is authorized. No live
+activation has occurred.
