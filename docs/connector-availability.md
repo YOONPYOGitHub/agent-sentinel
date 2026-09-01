@@ -6,6 +6,13 @@ This ledger separates implementation state from live availability. A connector
 is not described as connected merely because its code exists or an application
 permission was assigned.
 
+Latest live revalidation: **2026-09-01 14:23 KST**. Excluding the intentionally
+deferred Agent 365 path, all seven configured sources are `ready` with no
+partial failure. The remaining catalog entries are not missed connections:
+Power Platform lacks supported unattended authorization, manifest ingestion is
+write/auth-gated, the business-outcome source has no authoritative provider,
+and MCP gateway telemetry has no selected provider contract.
+
 ## State definitions
 
 | State                         | Meaning                                                                                                      |

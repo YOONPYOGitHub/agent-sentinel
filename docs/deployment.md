@@ -93,6 +93,14 @@ Identity APIs, Agent 365, Power Platform, authentication, and writes remain
 disabled. Historical app-role assignments never transfer to the new managed
 identities.
 
+The latest replacement validation on **2026-09-01 14:23 KST** reports all seven
+configured read sources as `ready`: Foundry, Entra, Defender for Cloud Apps,
+Purview, Azure Resource Graph, Teams organization catalog, and Azure Monitor
+OTel. Agent 365 is intentionally excluded. Power Platform, manifest ingestion,
+and business outcomes are not activation omissions: they remain blocked by,
+respectively, unsupported unattended authorization, the write/auth safety gate,
+and absence of an authoritative source.
+
 ## Infrastructure Deployment (reference only while drift is unresolved)
 
 ### Phase A ? Foundation (Network, Identity, Observability, KV, ACR)

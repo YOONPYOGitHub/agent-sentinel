@@ -1,6 +1,6 @@
 # Current status
 
-**Status date: 2026-08-31** · Branch: `feature/multi-source-otel`
+**Status date: 2026-09-01** · Branch: `feature/multi-source-otel`
 
 This is the authoritative dated ledger for the Agent Sentinel control plane. Every row states what is true today, not what is intended. Where a capability is absent, the ledger says so rather than describing it as pending success.
 
@@ -8,6 +8,29 @@ This document contains no secrets, tokens, subscription or tenant identifiers, p
 
 Connector implementation, blocker type, and activation conditions are tracked
 in [connector-availability.md](connector-availability.md).
+
+---
+
+## Replacement connector revalidation
+
+Live state was revalidated at **2026-09-01 14:23 KST**:
+
+- All seven configured sources report `ready`: Foundry, Entra, Defender for
+  Cloud Apps, Purview, Azure Resource Graph, Teams organization catalog, and
+  Azure Monitor OTel. Aggregate health is `ready` with `partial=false`.
+- The latest complete jobs snapshot contains 349 nodes: 6 agents, 11 tools,
+  315 identities, and 17 controls, with 338 evidence records.
+- Defender alert/activity and Teams organization-catalog reads are valid empty
+  results. They are connected, but zero records do not prove broader coverage.
+- The three runtime identities retain only the approved reads:
+  `Application.Read.All`, `SensitivityLabel.Read`, `Investigation.Read`, and
+  `AppCatalog.Read.All`. Global Reader is the only active directory role.
+- Agent 365 remains intentionally excluded. Power Platform remains disabled
+  because Microsoft does not support unattended ResourceQuery inventory
+  authorization. The manifest adapter remains write/auth-gated, and the
+  business-outcome connector has no authoritative source to configure.
+- API and jobs keep authentication disabled and writes false. No additional
+  connector can be safely activated from the current implemented catalog.
 
 ---
 
