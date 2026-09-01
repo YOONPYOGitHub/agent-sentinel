@@ -82,11 +82,14 @@ Do not migrate historical version IDs, agent identity IDs, or unreferenced
 experimental models from the old tenant. Confirm jobs persists a six-agent
 snapshot before treating the replacement application as functionally ready.
 
-The replacement environment enables only the Azure Resource Graph and Azure
-Monitor read paths after their resource-scoped RBAC exists. Tenant-admin or
-license-gated connectors remain disabled until their replacement-tenant
-prerequisites are approved; historical Graph app-role assignments never transfer
-to the new managed identities.
+The replacement environment enables Azure Resource Graph and Azure Monitor after
+their resource-scoped RBAC exists. It also enables bounded Entra service
+principal, Purview sensitivity-label, and Teams organization-catalog reads only
+after their exact replacement-tenant application permissions are assigned to
+the three separate managed identities. Owners, app-role enrichment, preview
+Agent Identity APIs, Agent 365, Defender, Power Platform, authentication, and
+writes remain disabled. Historical Graph app-role assignments never transfer to
+the new managed identities.
 
 ## Infrastructure Deployment (reference only while drift is unresolved)
 

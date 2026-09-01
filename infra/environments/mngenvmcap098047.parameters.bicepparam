@@ -20,13 +20,19 @@ param agentSentinelEnvironment = 'replacement-validation'
 param acaEnvDomain = 'kindflower-ef2d40f6.koreacentral.azurecontainerapps.io'
 
 // Tenant consent, workload identity federation, and bounded probes are separate gates.
-param entraConnectorEnabled = false
+param entraConnectorEnabled = true
+param entraConnectorTenantId = 'ef7d55d6-c61d-4085-9064-4e83adf15ee3'
+param entraConnectorEnvironment = 'replacement-validation'
 param powerPlatformConnectorEnabled = false
 param agent365ConnectorEnabled = false
 param defenderCloudAppsConnectorEnabled = false
-param purviewConnectorEnabled = false
+param purviewConnectorEnabled = true
+param purviewTenantId = 'ef7d55d6-c61d-4085-9064-4e83adf15ee3'
+param purviewEnvironment = 'replacement-validation'
 param azureResourceGraphConnectorEnabled = true
-param teamsDistributionConnectorEnabled = false
+param teamsDistributionConnectorEnabled = true
+param teamsDistributionTenantId = 'ef7d55d6-c61d-4085-9064-4e83adf15ee3'
+param teamsDistributionEnvironment = 'replacement-validation'
 param azureMonitorConnectorEnabled = true
 
 // Create the replacement-tenant API and SPA registrations after the Front Door
