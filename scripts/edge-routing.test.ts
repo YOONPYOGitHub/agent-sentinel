@@ -77,6 +77,8 @@ describe('public edge routing safety', () => {
     expect(replacementParameters).toContain('entraConnectorEnabled = true')
     expect(replacementParameters).toContain('purviewConnectorEnabled = true')
     expect(replacementParameters).toContain('teamsDistributionConnectorEnabled = true')
+    expect(replacementParameters).toContain('defenderCloudAppsConnectorEnabled = true')
+    expect(replacementParameters).toContain('mngenvmcap098047.us2.portal.cloudappsecurity.com')
     expect(replacementParameters).toContain('azureResourceGraphConnectorEnabled = true')
     expect(replacementParameters).toContain('azureMonitorConnectorEnabled = true')
     expect(replacementParameters).not.toContain('4dfc2b10-8eb6-4454-a9ee-9f337141b596')

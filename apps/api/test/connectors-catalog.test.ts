@@ -147,7 +147,7 @@ describe('buildConnectorsCollection', () => {
     expect(entra?.prerequisiteNote).toContain('Application.Read.All')
   })
 
-  it('describes Power Platform core inventory honestly and requires RBAC authorization', () => {
+  it('describes the unsupported unattended Power Platform authorization boundary', () => {
     const result = buildConnectorsCollection('mock', { connectorId: 'mock-agent-estate' })
     const powerPlatform = result.catalog.find((entry) => entry.id === 'copilot-studio')
     expect(powerPlatform).toMatchObject({
@@ -157,8 +157,9 @@ describe('buildConnectorsCollection', () => {
     })
     expect(powerPlatform?.description).toContain('Microsoft 365 Copilot Agent Builder')
     expect(powerPlatform?.description).toContain('preview')
-    expect(powerPlatform?.prerequisiteNote).toContain('Power Platform Reader')
-    expect(powerPlatform?.prerequisiteNote).not.toContain('PowerPlatform.Read')
+    expect(powerPlatform?.prerequisiteNote).toContain('ResourceQuery.Resources.Read')
+    expect(powerPlatform?.prerequisiteNote).toContain('No supported unattended authorization path')
+    expect(powerPlatform?.prerequisiteNote).not.toContain('requires Power Platform Reader')
   })
 
   it('maps enabled Power Platform source health without degrading Foundry catalog state', () => {

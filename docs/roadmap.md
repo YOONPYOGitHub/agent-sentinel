@@ -196,30 +196,30 @@ disabled. Activation still requires separate Microsoft Agent 365 licensing and
 tenant-admin `CopilotPackages.Read.All` application consent; no live tenant is
 configured by this change.
 
-**Microsoft Defender for Cloud Apps evidence — implemented, authorization pending:**
+**Microsoft Defender for Cloud Apps evidence — live for the primary source:**
 the official tenant-specific v1 alert and activity GET lists are consumed with
 OAuth application context after Agent 365 composition. Evidence is bounded,
 privacy-reduced, tenant-level, and explicitly unattributed because no supported
-agent correlation key exists. Activation requires licensing/API availability,
-the exact tenant portal URL, and tenant-admin `Investigation.Read` application
-consent; no live tenant or permission is configured by this change.
+agent correlation key exists. The replacement source is ready on API/jobs after
+Defender XDR provisioning, exact About-page URL discovery, and tenant-admin
+`Investigation.Read`; the current bounded lists are empty.
 
-**Microsoft Purview sensitivity-label catalog — implemented, authorization pending:**
+**Microsoft Purview sensitivity-label catalog — live for the primary source:**
 the official Global Microsoft Graph v1.0 tenant label list is consumed after
 Defender for Cloud Apps. Evidence contains only bounded label-definition
 metadata, remains explicitly unattributed, and makes no usage, content,
-agent-correlation, trust, or compliance claim. Activation requires
-tenant-admin `SensitivityLabel.Read` application consent; no live tenant,
-permission, or resource is configured by this change.
+agent-correlation, trust, or compliance claim. The replacement primary source
+persists 12 bounded label controls through tenant-admin
+`SensitivityLabel.Read`.
 
-**Microsoft Teams tenant app catalog — implemented, authorization pending:**
+**Microsoft Teams tenant app catalog — live for the primary source:**
 the official Global Microsoft Graph v1.0 `appCatalogs/teamsApps` list is
 consumed after Purview with the documented fixed `organization` filter and
 four-field select. Records become control/evidence pairs, never agents, and
 make no deployment, installation, sideloading, distribution coverage, trust,
-tool, entitlement, or access claim. Activation requires tenant-admin
-`AppCatalog.Read.All` application consent; no live tenant, permission, or
-resource is configured by this change.
+tool, entitlement, or access claim. The replacement primary source is ready
+through tenant-admin `AppCatalog.Read.All` and currently returns zero
+organization entries.
 
 | Connector                                   | Catalogued state         | Gate                                                                                                       |
 | ------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------- |
@@ -227,10 +227,10 @@ resource is configured by this change.
 | Microsoft Entra identity and entitlements   | `connected`              | Primary stable v1.0 inventory is live; each additional tenant requires consent                             |
 | Azure Resource Graph                        | `connected`              | Five resources are visible through existing UAMI roles; broader Reader coverage requires separate approval |
 | Microsoft Purview                           | `connected`              | Primary label-definition catalog is live; catalog evidence does not prove usage                            |
-| Microsoft Defender for Cloud Apps           | `authorization-required` | Licensing/API availability, tenant portal URL, and tenant-admin `Investigation.Read` application consent   |
+| Microsoft Defender for Cloud Apps           | `connected`              | Primary bounded alert/activity lists are ready; current result is empty                                    |
 | Microsoft Copilot Studio / Agent Builder    | `authorization-required` | No supported unattended ResourceQuery inventory authorization; schema is preview                           |
-| Microsoft 365 and SharePoint agents         | `authorization-required` | Covered without duplication by Agent 365 packages; M365 E5 and Agent 365 licensing remain pending          |
-| Microsoft Teams distribution                | `unavailable`            | `AppCatalog.Read.All` is assigned, but tenant Teams licensing/backend provisioning remains pending         |
+| Microsoft 365 and SharePoint agents         | `authorization-required` | Covered without duplication by Agent 365 packages; Agent 365 product licensing remains pending             |
+| Microsoft Teams distribution                | `connected`              | Organization-catalog source is ready; current result is empty                                              |
 
 **Definition of done, per connector**
 

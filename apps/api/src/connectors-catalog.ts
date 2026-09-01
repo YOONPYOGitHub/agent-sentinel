@@ -71,7 +71,7 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     sourceOfTruth: true,
     ownershipModel: 'consumes',
     prerequisiteNote:
-      'Implemented read-only and disabled by default. Each intended tenant scope requires Power Platform Reader (or approved least-privilege ResourceQuery read RBAC); no Graph application permission or RBAC assignment is created by Agent Sentinel.',
+      'Implemented read-only and disabled by default. Microsoft currently documents delegated ResourceQuery.Resources.Read plus a supported Entra role for inventory and explicitly excludes preview Power Platform RBAC roles from inventory access. No supported unattended authorization path or environment-scoped authorization boundary is available.',
     unlocksScorecard: ['security', 'lifecycle'],
   },
   {

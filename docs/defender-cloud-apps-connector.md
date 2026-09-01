@@ -1,8 +1,9 @@
 # Microsoft Defender for Cloud Apps connector
 
-**Status:** implemented, read-only, multi-source, and disabled by default. No live
-tenant, permission, role, token, secret, license, or other Microsoft 365/Azure
-resource is created by this connector or its IaC.
+**Status:** implemented, read-only, and multi-source. The replacement primary
+source is live on API/jobs; other environments remain disabled by default. The
+connector IaC creates no tenant, permission, role, token, secret, license, or
+other Microsoft 365/Azure resource.
 
 ## Verified official contract
 
@@ -135,3 +136,16 @@ Activation requires a separate approval for licensing/API availability, exact
 tenant portal URLs, target-tenant application consent, and the existing
 secretless credential. Do not enable the gate until a bounded connection test
 and privacy review pass.
+
+The replacement tenant activation completed on **2026-09-01**:
+
+- Defender XDR reports `Provisioned`.
+- The exact API URL was read from **Settings > Cloud Apps > System > About**.
+- The connector UAMI has only the approved Microsoft Cloud App Security
+  `Investigation.Read` role in addition to its existing Purview label read.
+- API and jobs report `defender-cloud-apps:primary` as `ready`.
+- The current 24-hour lists contain zero alerts and activities. This is a valid
+  empty result and adds no Defender control/evidence nodes.
+- Security Administrator and Privileged Role Administrator were deactivated
+  immediately after their bounded setup tasks; Global Reader is the only active
+  directory role.

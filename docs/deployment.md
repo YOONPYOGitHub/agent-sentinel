@@ -86,10 +86,12 @@ The replacement environment enables Azure Resource Graph and Azure Monitor after
 their resource-scoped RBAC exists. It also enables bounded Entra service
 principal, Purview sensitivity-label, and Teams organization-catalog reads only
 after their exact replacement-tenant application permissions are assigned to
-the three separate managed identities. Owners, app-role enrichment, preview
-Agent Identity APIs, Agent 365, Defender, Power Platform, authentication, and
-writes remain disabled. Historical Graph app-role assignments never transfer to
-the new managed identities.
+the three separate managed identities. Defender for Cloud Apps is enabled only
+after Defender XDR tenant provisioning, exact About-page API discovery, and its
+separately approved application role. Owners, app-role enrichment, preview Agent
+Identity APIs, Agent 365, Power Platform, authentication, and writes remain
+disabled. Historical app-role assignments never transfer to the new managed
+identities.
 
 ## Infrastructure Deployment (reference only while drift is unresolved)
 
@@ -150,14 +152,15 @@ consent. The Bicep parameters only inject disabled configuration: they do not
 grant a Graph app role, assign a license, or create tenant resources. See
 [Agent 365 connector](agent365-connector.md).
 
-Microsoft Defender for Cloud Apps evidence is independently disabled by
-`defenderCloudAppsConnectorEnabled=false`. Configure
+Microsoft Defender for Cloud Apps evidence remains independently default-disabled
+by `defenderCloudAppsConnectorEnabled=false`. Configure
 `defenderCloudAppsSourcesJson`, or the legacy tenant/environment and exact
-tenant portal URL values. The IaC only injects gated, empty-by-default
-configuration; it creates no permission, app role, token, secret, license, or
-M365 resource. Do not enable until `Investigation.Read` application consent,
-licensing/API availability, exact portal URLs, and the secretless credential
-are separately approved. See
+tenant portal URL values. The replacement environment enables its approved
+source with the exact About-page hostname and connector UAMI. The IaC creates no
+permission, app role, token, secret, license, or M365 resource. Do not enable
+another source until `Investigation.Read` application consent, licensing/API
+availability, exact portal URL, and the secretless credential are separately
+approved. See
 [Defender for Cloud Apps connector](defender-cloud-apps-connector.md).
 
 Microsoft Purview sensitivity-label catalog evidence is independently disabled
