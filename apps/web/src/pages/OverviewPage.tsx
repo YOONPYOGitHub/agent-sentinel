@@ -30,37 +30,22 @@ import { useDemoState } from '../hooks/useDemoState'
 import { usePermission, usePermissionMessage } from '../hooks/usePermission'
 import { useAuth } from '../hooks/useAuth'
 import { useEvidenceDrawer } from '../hooks/useEvidenceDrawer'
+import {
+  overviewCapabilityPosture,
+  overviewEntraIdentityCount,
+  overviewEstateHealth,
+  overviewExposureDisplayState,
+  overviewExposureMetric,
+  overviewPortfolioMetrics,
+  overviewSnapshotPresentation,
+} from '../overview-posture'
 
-const portfolioMetrics = [
-  {
-    label: 'Managed agents',
-    value: '3',
-    detail: '3 platforms connected',
-    tone: 'neutral',
-    icon: BotRegular,
-  },
-  {
-    label: 'Critical paths',
-    value: '1',
-    detail: '1 available to validate',
-    tone: 'danger',
-    icon: AlertRegular,
-  },
-  {
-    label: 'Sensitive assets reached',
-    value: '1',
-    detail: 'Customer 360',
-    tone: 'warning',
-    icon: DataUsageRegular,
-  },
-  {
-    label: 'Governance coverage',
-    value: '91%',
-    detail: '+4.2% in 30 days',
-    tone: 'success',
-    icon: ShieldCheckmarkRegular,
-  },
-]
+const portfolioMetricIcons = {
+  agents: BotRegular,
+  paths: AlertRegular,
+  data: DataUsageRegular,
+  owners: PersonRegular,
+}
 
 export function OverviewPage() {
   const { state, connectorStatus, operation, error, clearError, load, run } = useDemoState()
@@ -88,6 +73,18 @@ export function OverviewPage() {
   const remediation = state?.remediations[0]
   const validation = state?.validations[0]
   const pathStatus = finding?.path.status ?? 'theoretical'
+  const portfolioMetrics = useMemo(
+    () => (state === undefined ? [] : overviewPortfolioMetrics(state)),
+    [state],
+  )
+  const estateHealth = useMemo(
+    () => (state === undefined ? [] : overviewEstateHealth(state)),
+    [state],
+  )
+  const capabilityPosture = useMemo(
+    () => (state === undefined ? [] : overviewCapabilityPosture(state)),
+    [state],
+  )
   const pathSnapshot = useMemo(() => {
     if (state === undefined || finding === undefined) return undefined
 
@@ -244,8 +241,8 @@ export function OverviewPage() {
         actions={
           <>
             <span className="refresh-status">
-              <span className="status-dot status-dot--healthy" />
-              Updated 18 sec ago
+              <span className="status-dot status-dot--neutral" />
+              Synthetic snapshot {new Date(state.snapshot.generatedAt).toLocaleString()}
             </span>
             {resetMsg !== null ? (
               <Tooltip content={resetMsg} relationship="label">
@@ -354,7 +351,7 @@ export function OverviewPage() {
 
       <section className="metric-grid" aria-label="Agent estate metrics">
         {portfolioMetrics.map((metric) => {
-          const Icon = metric.icon
+          const Icon = portfolioMetricIcons[metric.icon]
           return (
             <article className={`metric-card metric-card--${metric.tone}`} key={metric.label}>
               <div className="metric-card__top">
@@ -374,12 +371,21 @@ export function OverviewPage() {
           pathStatus={pathStatus}
           onEvidenceSelect={setSelectedEvidence}
         />
-        <aside className="finding-panel" aria-label="Critical finding details">
+        <aside className="finding-panel" aria-label="Finding details">
           <div className="finding-panel__header">
             <div>
-              <span className="eyebrow">CRITICAL FINDING</span>
-              <Badge appearance="filled" color={pathStatus === 'mitigated' ? 'success' : 'danger'}>
-                {pathStatus === 'mitigated' ? 'Mitigated' : 'Critical'}
+              <span className="eyebrow">FINDING</span>
+              <Badge
+                appearance="filled"
+                color={
+                  pathStatus === 'mitigated'
+                    ? 'success'
+                    : finding.severity === 'critical'
+                      ? 'danger'
+                      : 'warning'
+                }
+              >
+                {pathStatus === 'mitigated' ? 'Mitigated' : finding.severity}
               </Badge>
             </div>
             <Button
@@ -392,15 +398,17 @@ export function OverviewPage() {
           <p>{finding.summary}</p>
           <div className="risk-score">
             <div className="risk-score__dial">
-              <strong>{pathStatus === 'mitigated' ? 4 : finding.path.riskScore}</strong>
-              <span>/ 100</span>
+              <strong>{pathStatus === 'mitigated' ? '—' : finding.path.riskScore}</strong>
+              <span>{pathStatus === 'mitigated' ? '' : '/ 100'}</span>
             </div>
             <div>
-              <strong>{pathStatus === 'mitigated' ? 'Residual risk' : 'Exposure score'}</strong>
+              <strong>
+                {pathStatus === 'mitigated' ? 'Residual risk unknown' : 'Exposure risk score'}
+              </strong>
               <span>
                 {pathStatus === 'mitigated'
-                  ? 'Critical route removed'
-                  : 'High confidence · active in last 24h'}
+                  ? 'Mitigation status does not recalculate risk'
+                  : `${Math.round(finding.path.factors.confidence * 100)}% evidence confidence · detected ${new Date(finding.detectedAt).toLocaleString()}`}
               </span>
             </div>
           </div>
@@ -416,11 +424,7 @@ export function OverviewPage() {
                   <span>{label}</span>
                   <strong>{Math.round(Number(value) * 100)}%</strong>
                 </div>
-                <ProgressBar
-                  value={pathStatus === 'mitigated' ? Number(value) * 0.08 : Number(value)}
-                  color={pathStatus === 'mitigated' ? 'success' : 'error'}
-                  thickness="medium"
-                />
+                <ProgressBar value={Number(value)} color="error" thickness="medium" />
               </div>
             ))}
           </div>
@@ -471,26 +475,30 @@ export function OverviewPage() {
           <div className="surface-card__header">
             <div>
               <span className="eyebrow">OPERATIONS</span>
-              <h2>Estate health</h2>
+              <h2>Evidence posture</h2>
             </div>
-            <Badge appearance="outline">Last 30 days</Badge>
+            <Badge appearance="outline">Synthetic fixture</Badge>
           </div>
           <div className="health-bars">
-            {[
-              ['Security', 82, '1 critical path'],
-              ['Governance', 91, '1 exception'],
-              ['Reliability', 97, '99.94% availability'],
-              ['Quality', 88, '4.6 / 5 task score'],
-              ['Cost efficiency', 76, '2 recommendations'],
-              ['Lifecycle', 84, '1 stale version'],
-            ].map(([label, value, detail]) => (
-              <div className="health-row" key={String(label)}>
-                <span>{label}</span>
-                <div className="health-track">
-                  <i style={{ width: `${String(value)}%` }} />
-                </div>
-                <strong>{value}%</strong>
-                <small>{detail}</small>
+            {estateHealth.map((item) => (
+              <div className="health-row" key={item.label}>
+                <span>{item.label}</span>
+                <Badge
+                  appearance="tint"
+                  color={
+                    item.status === 'Critical'
+                      ? 'danger'
+                      : item.status === 'Attention'
+                        ? 'warning'
+                        : item.status === 'Healthy'
+                          ? 'success'
+                          : 'informative'
+                  }
+                >
+                  {item.status}
+                </Badge>
+                <strong>{item.coverage}</strong>
+                <small>{item.detail}</small>
               </div>
             ))}
           </div>
@@ -504,12 +512,7 @@ export function OverviewPage() {
             <Badge appearance="outline">Current</Badge>
           </div>
           <div className="catalog-list">
-            {[
-              ['Approved MCP servers', '2', 'Reviews current', 'safe'],
-              ['Verified tools', '4', '100% provenance coverage', 'safe'],
-              ['Conditional capabilities', '1', 'Approval required', 'warning'],
-              ['Unapproved discoveries', '1', 'Used by Sales Research', 'danger'],
-            ].map(([label, value, detail, tone]) => (
+            {capabilityPosture.map(([label, value, detail, tone]) => (
               <div className="catalog-row" key={label}>
                 <span className={`catalog-dot catalog-dot--${tone}`} />
                 <div>
@@ -554,9 +557,16 @@ function LiveEstateOverview({
 }) {
   const agents = state.snapshot.nodes.filter((node) => node.kind === 'agent')
   const evidenceSources = new Set(state.snapshot.evidence.map((item) => item.source))
-  const critical = exposure?.findings.filter((item) => item.severity === 'critical').length ?? 0
-  const high = exposure?.findings.filter((item) => item.severity === 'high').length ?? 0
   const trusted = agents.filter((agent) => agent.trust === 'trusted').length
+  const entraIdentityCount = overviewEntraIdentityCount(state)
+  const runtimeStatus = state.runtimeEvidence?.status ?? 'not-reported'
+  const exposureDisplayState = overviewExposureDisplayState(
+    exposure,
+    exposureError,
+    exposureLoading,
+  )
+  const exposureMetric = overviewExposureMetric(exposure, exposureError, exposureLoading)
+  const snapshotPresentation = overviewSnapshotPresentation(providerError, providerLoading)
 
   return (
     <>
@@ -591,7 +601,12 @@ function LiveEstateOverview({
       {exposureError ? (
         <div className="inline-error" role="alert">
           <AlertRegular />
-          <span>{exposureError} · Inventory and evidence remain available.</span>
+          <span>
+            {exposureError} ·{' '}
+            {exposure === undefined
+              ? 'Exposure results are unavailable.'
+              : 'Last-known exposure results are marked stale below.'}
+          </span>
         </div>
       ) : null}
       {providerError ? (
@@ -614,11 +629,9 @@ function LiveEstateOverview({
           },
           {
             label: 'Open exposures',
-            value: exposure?.total ?? '—',
-            detail: exposureLoading
-              ? 'Loading live findings'
-              : `${critical} critical · ${high} high`,
-            tone: critical > 0 ? 'danger' : 'neutral',
+            value: exposureMetric.value,
+            detail: exposureMetric.detail,
+            tone: exposureMetric.tone,
             icon: AlertRegular,
           },
           {
@@ -657,11 +670,22 @@ function LiveEstateOverview({
               <span className="eyebrow">EXPOSURE POSTURE</span>
               <h2>Declared-configuration findings</h2>
             </div>
+            {exposureLoading && exposure !== undefined ? (
+              <Badge appearance="tint" color="warning">
+                Refreshing last-known
+              </Badge>
+            ) : exposureError && exposure !== undefined ? (
+              <Badge appearance="tint" color="warning">
+                Last-known
+              </Badge>
+            ) : null}
             <Link to="/exposure">Open Exposure</Link>
           </div>
-          {exposureLoading && exposure === undefined ? (
+          {exposureDisplayState === 'loading' ? (
             <div className="live-overview-state">Loading live findings…</div>
-          ) : exposureError && exposure === undefined ? (
+          ) : exposureDisplayState === 'unloaded' ? (
+            <div className="live-overview-state">Exposure findings have not been loaded yet.</div>
+          ) : exposureDisplayState === 'unavailable' ? (
             <div className="live-overview-state live-overview-state--error">
               Active exposure posture is unavailable.
             </div>
@@ -695,8 +719,14 @@ function LiveEstateOverview({
           <div className="surface-card__header">
             <div>
               <span className="eyebrow">EVIDENCE COVERAGE</span>
-              <h2>Current discovery snapshot</h2>
+              <h2>{snapshotPresentation.heading}</h2>
             </div>
+            <Badge
+              appearance="tint"
+              color={providerError || providerLoading ? 'warning' : 'success'}
+            >
+              {snapshotPresentation.badge}
+            </Badge>
             <Link to="/observability">Open Observability</Link>
           </div>
           <dl className="live-evidence-summary">
@@ -718,8 +748,13 @@ function LiveEstateOverview({
             </div>
           </dl>
           <p className="live-overview-note">
-            Identity privilege, sensitive-data reachability, runtime activity, reliability, quality,
-            and cost remain unavailable until their authoritative connectors are added.
+            {entraIdentityCount > 0
+              ? `${entraIdentityCount} Microsoft Entra identity records are present.`
+              : 'No Microsoft Entra identity records are present.'}{' '}
+            Runtime evidence status: {runtimeStatus}. Agent-specific identity correlation,
+            sensitive-data reachability, and reliability remain unknown where exact evidence is
+            absent; quality and cost still require authoritative evaluation and measured-cost
+            coverage.
           </p>
         </article>
       </section>
@@ -754,9 +789,7 @@ function RemediationCard({ remediation }: { remediation: Remediation }) {
           <PersonRegular />
           <span>
             Approved by {remediation.approvedBy}
-            {remediation.approvalReason === undefined
-              ? null
-              : ` · ${remediation.approvalReason}`}
+            {remediation.approvalReason === undefined ? null : ` · ${remediation.approvalReason}`}
           </span>
         </div>
       )}
