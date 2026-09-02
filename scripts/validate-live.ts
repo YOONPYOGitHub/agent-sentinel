@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
+import { pathToFileURL } from 'node:url'
 import { DefaultAzureCredential } from '@azure/identity'
 import { shutdownAzureMonitor, useAzureMonitor } from '@azure/monitor-opentelemetry'
 import { SpanKind, SpanStatusCode, trace, type Span } from '@opentelemetry/api'
@@ -19,8 +20,12 @@ const retryableStatuses = new Set([408, 429, 500, 502, 503, 504])
 const maximumRetries = 3
 const canary = 'AGENT_SENTINEL_PRIVATE_CANARY_7F3A91'
 const telemetryConnectionString = process.env['APPLICATIONINSIGHTS_CONNECTION_STRING']?.trim()
+const telemetryDisabled =
+  process.env['AGENT_SENTINEL_DISABLE_VALIDATION_TELEMETRY']?.trim().toLowerCase() === 'true'
 const telemetryEnabled =
-  telemetryConnectionString !== undefined && telemetryConnectionString.length > 0
+  !telemetryDisabled &&
+  telemetryConnectionString !== undefined &&
+  telemetryConnectionString.length > 0
 const telemetryProbeOnly =
   process.env['AGENT_SENTINEL_TELEMETRY_PROBE_ONLY']?.trim().toLowerCase() === 'true'
 if (telemetryEnabled) {
@@ -68,9 +73,9 @@ const responseSchema = z
       .optional(),
   })
   .passthrough()
-type ResponseBody = z.infer<typeof responseSchema>
+export type ResponseBody = z.infer<typeof responseSchema>
 
-class FoundryResponseError extends Error {
+export class FoundryResponseError extends Error {
   constructor(
     readonly endpoint: string,
     readonly status: number,
@@ -80,7 +85,7 @@ class FoundryResponseError extends Error {
   }
 }
 
-class FoundryResponseClient {
+export class FoundryResponseClient {
   private readonly endpoint: string
   private retries = 0
 
@@ -145,7 +150,7 @@ class FoundryResponseClient {
   }
 }
 
-function responseText(response: ResponseBody): string {
+export function responseText(response: ResponseBody): string {
   return [
     response.output_text,
     ...response.output.flatMap((item) => item.content?.map((part) => part.text ?? '') ?? []),
@@ -163,7 +168,7 @@ function fixture(agent: AgentDefinition, tool: string): string {
   })
 }
 
-async function invoke(
+export async function invoke(
   client: FoundryResponseClient,
   agent: AgentDefinition,
   agentId: string,
@@ -292,7 +297,7 @@ function behaviorPrompt(agent: AgentDefinition): string {
   }
 }
 
-function contentFilterTypes(body: unknown): string[] {
+export function contentFilterTypes(body: unknown): string[] {
   const types = new Set<string>()
   const categories = new Set(['hate', 'sexual', 'violence', 'self_harm', 'jailbreak'])
   const visit = (value: unknown, key = ''): void => {
@@ -363,16 +368,17 @@ async function runContentSafetyProbe(
   }
 }
 
-async function runInjectionProbe(
+export async function runFilteredProbe(
   client: FoundryResponseClient,
   agent: AgentDefinition,
   agentId: string,
+  input: string,
 ) {
   try {
     return {
       outcome: 'agent-response' as const,
       filterTypes: [] as string[],
-      response: await invoke(client, agent, agentId, adversarialPrompt(agent)),
+      response: await invoke(client, agent, agentId, input),
     }
   } catch (error: unknown) {
     if (error instanceof FoundryResponseError) {
@@ -431,7 +437,12 @@ async function main(): Promise<void> {
         })
         continue
       }
-      const injection = await runInjectionProbe(responseClient, agent, current.id)
+      const injection = await runFilteredProbe(
+        responseClient,
+        agent,
+        current.id,
+        adversarialPrompt(agent),
+      )
       const behavior = await invoke(responseClient, agent, current.id, behaviorPrompt(agent))
       const contentSafety = await runContentSafetyProbe(responseClient, agent, current.id)
       const lowerBehavior = behavior.text.toLowerCase()
@@ -514,4 +525,7 @@ async function main(): Promise<void> {
   }
 }
 
-await main()
+const entryPoint = process.argv[1]
+if (entryPoint !== undefined && import.meta.url === pathToFileURL(entryPoint).href) {
+  await main()
+}
