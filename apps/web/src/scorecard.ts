@@ -7,6 +7,7 @@ import {
   type GraphNode,
   type TokenEconomicsReport,
 } from '@agent-sentinel/domain'
+import type { AgentDriftState } from './hooks/useAgentDrift'
 
 export type ScorecardPosture = 'healthy' | 'attention' | 'critical' | 'unknown'
 export type ScorecardCoverage = 'observed' | 'derived' | 'unknown'
@@ -227,19 +228,25 @@ function unknownReliabilityDimension(
 function reliabilityDimensionFromDrift(
   agent: GraphNode,
   state: AgentSentinelState,
-  result: DriftAnalysisResult | null | undefined,
+  drift: DriftAnalysisResult | AgentDriftState | null | undefined,
 ): ScorecardDimension {
-  if (result === undefined) {
+  if (drift === undefined) {
     return unknownReliabilityDimension(
       'Runtime availability and failure telemetry are not connected, so no reliability posture is inferred.',
       'Azure Monitor runtime telemetry',
     )
   }
-  if (result === null) {
+  if (drift === null || drift.status === 'loading') {
     return unknownReliabilityDimension(
-      'Live runtime reliability evidence is loading or could not be loaded, so no reliability posture is inferred.',
+      'Live runtime reliability evidence is loading, so no reliability posture is inferred.',
     )
   }
+  if (drift.status === 'error') {
+    return unknownReliabilityDimension(
+      `Live runtime reliability evidence could not be loaded: ${drift.message}`,
+    )
+  }
+  const result = drift.status === 'done' ? drift.result : drift
 
   const parsed = driftAnalysisResultSchema.safeParse(result)
   if (!parsed.success) {
@@ -382,7 +389,7 @@ export function buildAgentScorecard(
   state: AgentSentinelState,
   exposureEvidence: ExposureFinding[] | ExposureLoadState = 'loading',
   tokenEconomicsReport?: TokenEconomicsReport,
-  driftAnalysis?: DriftAnalysisResult | null,
+  driftAnalysis?: DriftAnalysisResult | AgentDriftState | null,
 ): AgentScorecard {
   const liveActiveExposures = Array.isArray(exposureEvidence)
     ? exposureEvidence.filter(

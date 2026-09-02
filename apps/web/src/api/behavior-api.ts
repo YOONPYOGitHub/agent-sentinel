@@ -13,8 +13,9 @@ function responseMessage(value: unknown): string | undefined {
 }
 
 export const behaviorApi = {
-  async getDrift(agentId: string): Promise<DriftAnalysisResult> {
-    const response = await apiFetch(`/api/behavior/agents/${encodeURIComponent(agentId)}/drift`)
+  async getDrift(agentId: string, signal?: AbortSignal): Promise<DriftAnalysisResult> {
+    const path = `/api/behavior/agents/${encodeURIComponent(agentId)}/drift`
+    const response = await (signal === undefined ? apiFetch(path) : apiFetch(path, { signal }))
     const body: unknown = await response.json().catch(() => undefined)
     if (!response.ok) {
       throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)

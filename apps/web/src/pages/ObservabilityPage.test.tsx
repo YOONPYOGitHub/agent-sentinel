@@ -5,14 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import { DemoStateContext, type DemoStateValue } from '../hooks/DemoStateContext'
-import { useAgentDrift } from '../hooks/useAgentDrift'
+import { useAgentDriftPortfolio } from '../hooks/useAgentDrift'
 import { testState } from '../test-fixture'
 import { ObservabilityPage } from './ObservabilityPage'
 
 vi.mock('../hooks/useAgentDrift')
 
 beforeEach(() => {
-  vi.mocked(useAgentDrift).mockReturnValue(null)
+  vi.mocked(useAgentDriftPortfolio).mockReturnValue({})
 })
 
 afterEach(() => {
@@ -185,9 +185,73 @@ describe('ObservabilityPage', () => {
       },
     })
 
-    expect(useAgentDrift).toHaveBeenCalledWith('foundry-primary--agent-provider-id')
-    expect(useAgentDrift).not.toHaveBeenCalledWith('hr-policy-agent')
+    expect(useAgentDriftPortfolio).toHaveBeenCalledWith(
+      ['foundry-primary--agent-provider-id'],
+      `foundry:${testState.snapshot.tenantId}:${testState.snapshot.generatedAt}`,
+    )
     expect(screen.getByText('Live telemetry evaluation')).toBeVisible()
+  })
+
+  it('queries and renders every discovered agent with explicit drift states', () => {
+    const agents = testState.snapshot.nodes.filter((node) => node.kind === 'agent')
+    vi.mocked(useAgentDriftPortfolio).mockReturnValue({
+      [agents[0]!.id]: { status: 'loading' },
+      [agents[1]!.id]: { status: 'error', message: 'Logs query timed out.' },
+      [agents[2]!.id]: {
+        status: 'done',
+        result: {
+          analysisId: 'insufficient-agent-3',
+          tenantId: testState.snapshot.tenantId,
+          agentId: agents[2]!.id,
+          environment: agents[2]!.environment,
+          source: 'azure-monitor-otel',
+          status: 'insufficient-data',
+          computedAt: '2026-09-02T00:00:00.000Z',
+          dimensions: [],
+          anyDrift: false,
+          unavailableReason: 'Window has 0 unique samples; minimum required is 10.',
+        },
+      },
+    })
+
+    renderPage()
+
+    expect(useAgentDriftPortfolio).toHaveBeenCalledWith(
+      agents.map((agent) => agent.id),
+      `mock:${testState.snapshot.tenantId}:${testState.snapshot.generatedAt}`,
+    )
+    expect(screen.getByText('Querying measured runtime windows.')).toBeVisible()
+    expect(screen.getByText('Query failed')).toBeVisible()
+    expect(screen.getByText('Logs query timed out.')).toBeVisible()
+    expect(screen.getByText('insufficient data')).toBeVisible()
+    expect(screen.getByText('Window has 0 unique samples; minimum required is 10.')).toBeVisible()
+  })
+
+  it('queries only the visible 12-agent page', () => {
+    const template = testState.snapshot.nodes.find((node) => node.kind === 'agent')!
+    const agents = Array.from({ length: 13 }, (_, index) => ({
+      ...template,
+      id: `agent-${index + 1}`,
+      name: `Agent ${index + 1}`,
+    }))
+    renderPage({
+      state: {
+        ...testState,
+        snapshot: { ...testState.snapshot, nodes: agents },
+      },
+    })
+
+    const scope = `mock:${testState.snapshot.tenantId}:${testState.snapshot.generatedAt}`
+    expect(useAgentDriftPortfolio).toHaveBeenLastCalledWith(
+      agents.slice(0, 12).map((agent) => agent.id),
+      scope,
+    )
+    expect(screen.getByText('Agents 1–12 of 13')).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+
+    expect(useAgentDriftPortfolio).toHaveBeenLastCalledWith(['agent-13'], scope)
+    expect(screen.getByText('Agents 13–13 of 13')).toBeVisible()
   })
 
   it('reports explicit runtime, synthetic, and unclassified evidence coverage', () => {

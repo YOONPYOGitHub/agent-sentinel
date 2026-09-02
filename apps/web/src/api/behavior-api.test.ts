@@ -56,6 +56,17 @@ describe('behaviorApi.getDrift', () => {
     vi.unstubAllGlobals()
   })
 
+  it('forwards an abort signal to the request', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonOk(makeDriftResult()))
+    const controller = new AbortController()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await behaviorApi.getDrift('sales-research-agent', controller.signal)
+
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(controller.signal)
+    vi.unstubAllGlobals()
+  })
+
   it('throws when the response is not ok', async () => {
     vi.stubGlobal(
       'fetch',
@@ -80,7 +91,9 @@ describe('behaviorApi.getDrift', () => {
         }),
       ),
     )
-    await expect(behaviorApi.getDrift('bad-agent')).rejects.toThrow('Request failed with status 500')
+    await expect(behaviorApi.getDrift('bad-agent')).rejects.toThrow(
+      'Request failed with status 500',
+    )
     vi.unstubAllGlobals()
   })
 

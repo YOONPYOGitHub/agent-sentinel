@@ -28,7 +28,7 @@ beforeEach(() => {
   })
   vi.spyOn(exposureApi, 'listAll').mockResolvedValue([])
   vi.mocked(useTokenEconomics).mockReturnValue({ status: 'loading' })
-  vi.mocked(useAgentDrift).mockReturnValue(null)
+  vi.mocked(useAgentDrift).mockReturnValue({ status: 'loading' })
   vi.mocked(useBusinessValue).mockReturnValue({
     status: 'done',
     assessment: {
@@ -340,34 +340,37 @@ describe('AgentDetailPage', () => {
       },
     })
     vi.mocked(useAgentDrift).mockReturnValue({
-      analysisId: 'live-reliability',
-      tenantId: 'test',
-      agentId: 'hr-policy-agent',
-      environment: 'production',
-      source: 'azure-monitor-otel',
-      status: 'ready',
-      computedAt: '2026-09-01T00:00:00.000Z',
-      baselineWindowId: 'baseline-window',
-      observedWindowId: 'observed-window',
-      baselineEvidenceId: 'baseline-evidence',
-      observedEvidenceId: 'observed-evidence',
-      dimensions: [
-        {
-          dimension: 'error-rate',
-          drifted: false,
-          baselineRate: 0,
-          observedRate: 0,
-          absoluteDelta: 0,
-          explanation: 'Error rate within baseline range.',
+      status: 'done',
+      result: {
+        analysisId: 'live-reliability',
+        tenantId: 'test',
+        agentId: 'hr-policy-agent',
+        environment: 'production',
+        source: 'azure-monitor-otel',
+        status: 'ready',
+        computedAt: '2026-09-01T00:00:00.000Z',
+        baselineWindowId: 'baseline-window',
+        observedWindowId: 'observed-window',
+        baselineEvidenceId: 'baseline-evidence',
+        observedEvidenceId: 'observed-evidence',
+        dimensions: [
+          {
+            dimension: 'error-rate',
+            drifted: false,
+            baselineRate: 0,
+            observedRate: 0,
+            absoluteDelta: 0,
+            explanation: 'Error rate within baseline range.',
+          },
+        ],
+        coverage: {
+          baselineSamples: 20,
+          observedSamples: 20,
+          coverageScore: 0.17,
+          metricsWithData: ['error-rate'],
         },
-      ],
-      coverage: {
-        baselineSamples: 20,
-        observedSamples: 20,
-        coverageScore: 0.17,
-        metricsWithData: ['error-rate'],
+        anyDrift: false,
       },
-      anyDrift: false,
     })
     renderDetail('hr-policy-agent')
 

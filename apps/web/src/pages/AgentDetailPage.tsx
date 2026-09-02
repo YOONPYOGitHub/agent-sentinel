@@ -11,7 +11,6 @@ import { Link, useParams } from 'react-router-dom'
 
 import type {
   BusinessValueAssessment,
-  DriftAnalysisResult,
   EstateSnapshot,
   GraphEdge,
   TokenEconomicsReport,
@@ -49,10 +48,11 @@ function dependencyEdges(snapshot: EstateSnapshot, agentId: string): GraphEdge[]
 
 export function AgentDetailPage() {
   const { agentId } = useParams()
-  const { state } = useDemoState()
+  const { connectorStatus, state } = useDemoState()
   const { selectedEvidence, setSelectedEvidence, drawerRef, trapFocus } = useEvidenceDrawer()
   const liveExposures = useExposures(agentId)
-  const agentDrift = useAgentDrift(agentId ?? '')
+  const driftScope = `${connectorStatus?.mode ?? 'unknown'}:${state?.snapshot.tenantId ?? 'unloaded'}:${state?.snapshot.generatedAt ?? 'unloaded'}`
+  const agentDriftState = useAgentDrift(agentId ?? '', driftScope)
   const businessValueState = useBusinessValue(agentId ?? '')
   const tokenEconomicsState = useTokenEconomics(agentId ?? '')
   const agent = state?.snapshot.nodes.find((node) => node.kind === 'agent' && node.id === agentId)
@@ -104,7 +104,7 @@ export function AgentDetailPage() {
     state,
     liveExposures,
     tokenEconomicsState.status === 'done' ? tokenEconomicsState.report : undefined,
-    agentDrift,
+    agentDriftState,
   )
 
   return (
@@ -332,7 +332,7 @@ export function AgentDetailPage() {
           })}
         </div>
       </section>
-      <AgentDriftSection drift={agentDrift} />
+      <AgentDriftSection state={agentDriftState} />
       <AgentTokenEconomicsSummary agentId={agent.id} state={tokenEconomicsState} />
       <AgentBusinessValueSummary agentId={agent.id} state={businessValueState} />
       <EvidenceDrawer
@@ -345,8 +345,26 @@ export function AgentDetailPage() {
   )
 }
 
-function AgentDriftSection({ drift }: { drift: DriftAnalysisResult | null }) {
-  if (drift === null) return null
+function AgentDriftSection({ state }: { state: ReturnType<typeof useAgentDrift> }) {
+  if (state.status === 'loading') {
+    return (
+      <section className="surface-card agent-drift-section" aria-labelledby="agent-drift-title">
+        <h2 id="agent-drift-title">Runtime behavior drift</h2>
+        <p className="muted">Loading measured runtime telemetry…</p>
+      </section>
+    )
+  }
+  if (state.status === 'error') {
+    return (
+      <section className="surface-card agent-drift-section" aria-labelledby="agent-drift-title">
+        <h2 id="agent-drift-title">Runtime behavior drift</h2>
+        <p className="muted" role="alert">
+          Runtime telemetry query failed: {state.message}
+        </p>
+      </section>
+    )
+  }
+  const drift = state.result
 
   const isSynthetic = drift.source === 'mock-synthetic'
   const isUnavailable = drift.source === 'azure-monitor-otel' && drift.status !== 'ready'

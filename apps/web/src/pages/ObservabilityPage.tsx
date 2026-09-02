@@ -9,7 +9,7 @@ import {
   SparkleRegular,
   WarningRegular,
 } from '@fluentui/react-icons'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import type { DriftAnalysisResult, Evidence, EvidenceType } from '@agent-sentinel/domain'
@@ -18,7 +18,9 @@ import { KpiCard } from '@agent-sentinel/ui'
 import { PageHeading } from '../components/PageHeading'
 import { formatEvidenceTypes } from '../evidence-types'
 import { useDemoState } from '../hooks/useDemoState'
-import { useAgentDrift } from '../hooks/useAgentDrift'
+import { useAgentDriftPortfolio, type AgentDriftState } from '../hooks/useAgentDrift'
+
+const DRIFT_PAGE_SIZE = 12
 
 function formatDateTime(value: string): string {
   const date = new Date(value)
@@ -53,11 +55,11 @@ export function ObservabilityPage() {
     () =>
       (state?.snapshot.nodes ?? [])
         .filter((node) => node.kind === 'agent')
-        .slice(0, 3)
         .map((node) => ({ id: node.id, name: node.name })),
     [state?.snapshot.nodes],
   )
   const evidence = useMemo(() => snapshotEvidence ?? [], [snapshotEvidence])
+  const driftScope = `${connectorStatus?.mode ?? 'unknown'}:${state?.snapshot.tenantId ?? 'unloaded'}:${state?.snapshot.generatedAt ?? 'unloaded'}`
   const sourceCoverage = useMemo(() => groupEvidence(evidence), [evidence])
   const evidenceTypeCounts = useMemo(
     () =>
@@ -342,17 +344,69 @@ export function ObservabilityPage() {
         </aside>
       </section>
 
-      <BehaviorDriftSummary agents={observedAgents} mode={connectorStatus?.mode} />
+      <BehaviorDriftPortfolio
+        key={driftScope}
+        agents={observedAgents}
+        mode={connectorStatus?.mode}
+        scope={driftScope}
+      />
     </>
+  )
+}
+
+function BehaviorDriftPortfolio({
+  agents,
+  mode,
+  scope,
+}: {
+  agents: Array<{ id: string; name: string }>
+  mode: 'mock' | 'foundry' | undefined
+  scope: string
+}) {
+  const [currentPage, setCurrentPage] = useState(0)
+  const pageCount = Math.max(1, Math.ceil(agents.length / DRIFT_PAGE_SIZE))
+  const visibleAgents = agents.slice(
+    currentPage * DRIFT_PAGE_SIZE,
+    (currentPage + 1) * DRIFT_PAGE_SIZE,
+  )
+  const driftStates = useAgentDriftPortfolio(
+    visibleAgents.map((agent) => agent.id),
+    scope,
+  )
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, pageCount - 1))
+  }, [pageCount])
+
+  return (
+    <BehaviorDriftSummary
+      agents={visibleAgents}
+      currentPage={currentPage}
+      driftStates={driftStates}
+      mode={mode}
+      onPageChange={setCurrentPage}
+      pageCount={pageCount}
+      totalAgents={agents.length}
+    />
   )
 }
 
 function BehaviorDriftSummary({
   agents,
+  currentPage,
+  driftStates,
   mode,
+  onPageChange,
+  pageCount,
+  totalAgents,
 }: {
   agents: Array<{ id: string; name: string }>
+  currentPage: number
+  driftStates: Readonly<Record<string, AgentDriftState>>
   mode: 'mock' | 'foundry' | undefined
+  onPageChange: (page: number) => void
+  pageCount: number
+  totalAgents: number
 }) {
   return (
     <section
@@ -404,28 +458,80 @@ function BehaviorDriftSummary({
           )}
           <div className="drift-results-grid">
             {agents.map((agent) => (
-              <AgentDriftCard key={agent.id} agent={agent} />
+              <AgentDriftCard
+                key={agent.id}
+                agent={agent}
+                state={driftStates[agent.id] ?? { status: 'loading' }}
+              />
             ))}
           </div>
+          {pageCount > 1 ? (
+            <nav className="drift-pagination" aria-label="Agent runtime behavior pages">
+              <span>
+                Agents {currentPage * DRIFT_PAGE_SIZE + 1}–
+                {Math.min((currentPage + 1) * DRIFT_PAGE_SIZE, totalAgents)} of {totalAgents}
+              </span>
+              <div>
+                <Button
+                  appearance="secondary"
+                  disabled={currentPage === 0}
+                  onClick={() => onPageChange(currentPage - 1)}
+                  size="small"
+                >
+                  Previous
+                </Button>
+                <Button
+                  appearance="secondary"
+                  disabled={currentPage >= pageCount - 1}
+                  onClick={() => onPageChange(currentPage + 1)}
+                  size="small"
+                >
+                  Next
+                </Button>
+              </div>
+            </nav>
+          ) : null}
         </>
       )}
     </section>
   )
 }
 
-function AgentDriftCard({ agent }: { agent: { id: string; name: string } }) {
-  const result = useAgentDrift(agent.id)
-  if (result === null) {
+function AgentDriftCard({
+  agent,
+  state,
+}: {
+  agent: { id: string; name: string }
+  state: AgentDriftState
+}) {
+  if (state.status === 'loading') {
     return (
       <article className="drift-card" aria-label={`Drift summary for ${agent.name}`}>
         <div className="drift-card__header">
           <strong>{agent.name}</strong>
-          <Badge appearance="outline">Loading or unavailable</Badge>
+          <Badge appearance="outline">Loading</Badge>
         </div>
+        <p className="muted">Querying measured runtime windows.</p>
       </article>
     )
   }
-  return <DriftAgentCard result={result} agentName={agent.name} />
+  if (state.status === 'error') {
+    return (
+      <article
+        className="drift-card drift-card--neutral"
+        aria-label={`Drift summary for ${agent.name}`}
+      >
+        <div className="drift-card__header">
+          <strong>{agent.name}</strong>
+          <Badge appearance="filled" color="danger">
+            Query failed
+          </Badge>
+        </div>
+        <p className="muted">{state.message}</p>
+      </article>
+    )
+  }
+  return <DriftAgentCard result={state.result} agentName={agent.name} />
 }
 
 function DriftAgentCard({ result, agentName }: { result: DriftAnalysisResult; agentName: string }) {

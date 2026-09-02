@@ -1033,6 +1033,21 @@ button {
   font-size: 0.76rem;
 }
 
+.drift-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  color: #8f9bb0;
+  font-size: 0.78rem;
+}
+
+.drift-pagination > div {
+  display: flex;
+  gap: 8px;
+}
+
 .catalog-boundary {
   display: flex;
   align-items: center;
