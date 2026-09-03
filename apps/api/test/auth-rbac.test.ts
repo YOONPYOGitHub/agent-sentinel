@@ -10,6 +10,7 @@ vi.mock('jose', () => jose)
 import { buildAuthConfig, sanitizePrincipal, CAPABILITIES, type AuthConfig } from '../src/auth.js'
 import { agentSentinelStateSchema } from '@agent-sentinel/domain'
 import { createApp } from '../src/app.js'
+import { buildEstateRegistry } from '../src/estate-config.js'
 
 // Auth configuration
 
@@ -317,6 +318,120 @@ describe('GET /api/auth/me', () => {
     expect(r.json()).toMatchObject({ error: 'unauthorized' })
   })
 
+  describe('estate authorization', () => {
+    const estateRegistry = buildEstateRegistry(
+      {
+        AGENT_SENTINEL_ESTATES_JSON: JSON.stringify([
+          {
+            id: 'default',
+            name: 'Default',
+            tenantId: 'data-default',
+            environment: 'production',
+            isDefault: true,
+            allowedAuthTenantIds: ['tenant-id'],
+          },
+          {
+            id: 'lab',
+            name: 'Lab',
+            tenantId: 'data-lab',
+            environment: 'validation',
+            isDefault: false,
+            allowedAuthTenantIds: ['tenant-id'],
+          },
+        ]),
+      },
+      {
+        id: 'default',
+        tenantId: 'unused',
+        environment: 'unused',
+        authTenantId: 'tenant-id',
+      },
+    )
+
+    it('lists only estates authorized for the authenticated tenant', async () => {
+      jose.jwtVerify.mockResolvedValue({
+        payload: {
+          sub: 'viewer',
+          tid: 'tenant-id',
+          roles: ['AgentSentinel.Viewer'],
+        },
+      })
+      const app = await createApp(undefined, jwtConfig, { estateRegistry })
+      apps.push(app)
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/estates',
+        headers: { authorization: 'Bearer valid-token' },
+      })
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toMatchObject({
+        defaultEstateId: 'default',
+        estates: [{ id: 'default' }, { id: 'lab' }],
+      })
+    })
+
+    it('selects an authorized estate by opaque header and rejects unknown estates', async () => {
+      jose.jwtVerify.mockResolvedValue({
+        payload: {
+          sub: 'viewer',
+          tid: 'tenant-id',
+          roles: ['AgentSentinel.Viewer'],
+        },
+      })
+      const app = await createApp(undefined, jwtConfig, { estateRegistry })
+      apps.push(app)
+      const selected = await app.inject({
+        method: 'GET',
+        url: '/api/exposures/status',
+        headers: {
+          authorization: 'Bearer valid-token',
+          'x-agent-sentinel-estate-id': 'lab',
+        },
+      })
+      expect(selected.statusCode).toBe(200)
+      expect(selected.json()).toMatchObject({
+        id: 'lab',
+        tenantId: 'data-lab',
+        environment: 'validation',
+      })
+
+      const rejected = await app.inject({
+        method: 'GET',
+        url: '/api/exposures/status',
+        headers: {
+          authorization: 'Bearer valid-token',
+          'x-agent-sentinel-estate-id': 'unknown',
+        },
+      })
+      expect(rejected.statusCode).toBe(403)
+    })
+
+    it('blocks non-default estates on APIs that are not yet estate-aware', async () => {
+      jose.jwtVerify.mockResolvedValue({
+        payload: {
+          sub: 'viewer',
+          tid: 'tenant-id',
+          roles: ['AgentSentinel.Viewer'],
+        },
+      })
+      const app = await createApp(undefined, jwtConfig, { estateRegistry })
+      apps.push(app)
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/demo/state',
+        headers: {
+          authorization: 'Bearer valid-token',
+          'x-agent-sentinel-estate-id': 'lab',
+        },
+      })
+      expect(response.statusCode).toBe(403)
+      expect(response.json()).toMatchObject({
+        error: 'forbidden',
+        message: 'This API is not yet enabled for non-default estates.',
+      })
+    })
+  })
+
   it('returns sanitized principal in jwt mode with valid token', async () => {
     jose.jwtVerify.mockResolvedValue({
       payload: {
@@ -404,6 +519,13 @@ describe('capability boundaries', () => {
     const app = await createApp(undefined, jwtConfig)
     apps.push(app)
     const response = await app.inject({ method: 'GET', url: '/api/connectors' })
+    expect(response.statusCode).toBe(401)
+  })
+
+  it('requires authentication for connector status metadata', async () => {
+    const app = await createApp(undefined, jwtConfig)
+    apps.push(app)
+    const response = await app.inject({ method: 'GET', url: '/api/connector/status' })
     expect(response.statusCode).toBe(401)
   })
 

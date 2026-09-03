@@ -15,6 +15,7 @@ import type {
 } from '@agent-sentinel/connector-sdk'
 
 import type {
+  EstateContext,
   ExposureFindingRepository,
   GovernanceCaseRepository,
   SnapshotRepository,
@@ -57,6 +58,8 @@ import {
 } from './token-economics-routes.js'
 import { registerManifestIngestionRoutes } from './manifest-ingestion-routes.js'
 import { registerBusinessValueRoutes } from './business-value-routes.js'
+import { authorizedEstates, createEstateMiddleware } from './estate-auth.js'
+import { buildEstateRegistry, type EstateRegistry } from './estate-config.js'
 
 const localApprovalSchema = z.object({
   approvedBy: z.string().trim().min(2).max(100),
@@ -197,6 +200,7 @@ export interface CreateAppOptions {
   runtimeTelemetryConnector?: RuntimeTelemetryConnector | null
   /** `null` explicitly keeps business outcomes unconfigured. */
   businessOutcomeConnector?: BusinessOutcomeConnector | null
+  estateRegistry?: EstateRegistry
 }
 
 export async function createApp(
@@ -219,6 +223,18 @@ export async function createApp(
     done()
   })
   app.addHook('onRequest', createAuthMiddleware(authConfig))
+  const fallbackEstate: EstateContext = {
+    id: process.env['AGENT_SENTINEL_ESTATE_ID']?.trim() || 'default',
+    tenantId: defaultTenantId(),
+    environment: defaultEnvironment(),
+  }
+  const estateRegistry =
+    options.estateRegistry ??
+    buildEstateRegistry(process.env, {
+      ...fallbackEstate,
+      ...(authConfig.mode === 'jwt' ? { authTenantId: authConfig.tenantId } : {}),
+    })
+  app.addHook('onRequest', createEstateMiddleware(authConfig, estateRegistry))
 
   const resolvedDataMode = options.dataMode ?? dataMode()
   const runtimeTelemetryConnector =
@@ -335,6 +351,20 @@ export async function createApp(
     }
   })
 
+  app.get('/api/estates', (request) => {
+    const estates = authorizedEstates(request, authConfig, estateRegistry)
+    return {
+      defaultEstateId: estateRegistry.defaultEstate.id,
+      estates: estates.map(({ id, name, tenantId, environment, isDefault }) => ({
+        id,
+        name,
+        tenantId,
+        environment,
+        isDefault,
+      })),
+    }
+  })
+
   if (authConfig.mode === 'jwt') {
     for (const capability of CAPABILITIES) {
       app.get(
@@ -426,7 +456,7 @@ export async function createApp(
   const advisoryService = options.advisoryService ?? createAdvisoryService()
   registerExposureRoutes(app, {
     mode: exposureMode,
-    defaultTenantId: defaultTenantId(),
+    defaultEstate: estateRegistry.defaultEstate,
     ...(exposureRepository ? { repository: exposureRepository } : {}),
     ...(snapshotRepository ? { snapshotRepository } : {}),
     advisoryService,

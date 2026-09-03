@@ -8,6 +8,7 @@ import {
   exposurePageSchema,
   estateSnapshotSchema,
   remediationPreviewSchema,
+  type EstateContext,
   type EstateSnapshot,
   type ExposureFinding,
   type ExposureFindingListFilters,
@@ -24,6 +25,7 @@ import { mapAgentToSnapshot, FOUNDRY_API_VERSION } from '@agent-sentinel/foundry
 
 import type { AdvisoryService } from './advisory-service.js'
 import { requireCapability, type AuthConfig } from './auth.js'
+import { requireEstateContext } from './estate-auth.js'
 
 const listQuerySchema = z.object({
   severity: exposureFindingSeveritySchema.optional(),
@@ -33,11 +35,12 @@ const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(200).optional(),
   tenantId: z.string().min(1).optional(),
+  environment: z.string().min(1).optional(),
 })
 
 export interface ExposureRoutesOptions {
   mode: 'mock' | 'foundry'
-  defaultTenantId: string
+  defaultEstate: EstateContext
   repository?: ExposureFindingRepository
   snapshotRepository?: SnapshotRepository
   advisoryService?: AdvisoryService
@@ -75,6 +78,7 @@ function agentDefinitionToFoundryAgent(
 export function buildMockExposurePage(
   tenantId: string,
   filters: ExposureFindingListFilters,
+  environment = 'validation',
 ): {
   page: ExposurePage
   findings: ExposureFinding[]
@@ -84,7 +88,7 @@ export function buildMockExposurePage(
   const snapshot = mapAgentToSnapshot(
     foundryManifest.agents.map(agentDefinitionToFoundryAgent),
     FOUNDRY_API_VERSION,
-    { tenantId, environment: 'validation' },
+    { tenantId, environment },
   )
   const snapshotId = `${snapshot.tenantId}-${snapshot.environment}-${snapshot.generatedAt}`
   const findings: ExposureFinding[] = evaluateAllExposurePolicies(snapshot).map((finding) => ({
@@ -229,21 +233,19 @@ export function buildRemediationPreview(
 async function loadExposureContext(
   options: ExposureRoutesOptions,
   findingId: string,
+  estate: EstateContext,
 ): Promise<{ finding: ExposureFinding; snapshot: EstateSnapshot } | null> {
   if (options.mode === 'mock') {
-    const { findings, snapshot } = buildMockExposurePage(options.defaultTenantId, {})
+    const { findings, snapshot } = buildMockExposurePage(estate.tenantId, {}, estate.environment)
     const finding = findings.find((candidate) => candidate.id === findingId)
     return finding ? { finding, snapshot } : null
   }
   if (!options.repository || !options.snapshotRepository) {
     throw new Error('Live exposure graph requires finding and snapshot repository bindings.')
   }
-  const finding = await options.repository.findById(findingId, options.defaultTenantId)
+  const finding = await options.repository.findById(findingId, estate.tenantId)
   if (!finding) return null
-  const snapshot = await options.snapshotRepository.findById(
-    finding.snapshotId,
-    options.defaultTenantId,
-  )
+  const snapshot = await options.snapshotRepository.findById(finding.snapshotId, estate.tenantId)
   return snapshot ? { finding, snapshot } : null
 }
 
@@ -287,6 +289,7 @@ export function buildFacets(findings: ExposureFinding[]): ExposurePage['facets']
 function parseQuery(request: FastifyRequest): {
   filters: ExposureFindingListFilters
   tenantId: string | undefined
+  environment: string | undefined
 } {
   const parsed = listQuerySchema.parse(request.query)
   const filters: ExposureFindingListFilters = {}
@@ -296,31 +299,41 @@ function parseQuery(request: FastifyRequest): {
   if (parsed.search !== undefined) filters.search = parsed.search
   if (parsed.page !== undefined) filters.page = parsed.page
   if (parsed.pageSize !== undefined) filters.pageSize = parsed.pageSize
-  return { filters, tenantId: parsed.tenantId }
+  return { filters, tenantId: parsed.tenantId, environment: parsed.environment }
 }
 
 export function registerExposureRoutes(app: FastifyInstance, options: ExposureRoutesOptions): void {
-  app.get('/api/exposures/status', () => ({
+  app.get('/api/exposures/status', (request) => ({
     mode: options.mode,
-    tenantId: options.defaultTenantId,
+    ...requireEstateContext(request),
     generatedAt: new Date().toISOString(),
   }))
 
-  app.get('/api/exposures', async (request) => {
-    const { filters, tenantId: tenantOverride } = parseQuery(request)
-    const tenantId = tenantOverride ?? options.defaultTenantId
+  app.get('/api/exposures', async (request, reply) => {
+    const {
+      filters,
+      tenantId: tenantAssertion,
+      environment: environmentAssertion,
+    } = parseQuery(request)
+    const estate = requireEstateContext(request)
+    if (
+      (tenantAssertion !== undefined && tenantAssertion !== estate.tenantId) ||
+      (environmentAssertion !== undefined && environmentAssertion !== estate.environment)
+    ) {
+      void reply.status(403)
+      return {
+        error: 'forbidden',
+        message: 'The requested data boundary does not match the authorized estate.',
+      }
+    }
     let page: ExposurePage
     if (options.mode === 'mock') {
-      if (tenantOverride !== undefined && tenantOverride !== options.defaultTenantId) {
-        page = { findings: [], total: 0, facets: buildFacets([]) }
-      } else {
-        page = buildMockExposurePage(options.defaultTenantId, filters).page
-      }
+      page = buildMockExposurePage(estate.tenantId, filters, estate.environment).page
     } else {
       if (!options.repository) throw new Error('Live exposure requires a repository binding.')
       const [filtered, facets] = await Promise.all([
-        options.repository.listByTenant(tenantId, filters),
-        options.repository.getFacets(tenantId),
+        options.repository.listByTenant(estate.tenantId, filters),
+        options.repository.getFacets(estate.tenantId),
       ])
       page = { findings: filtered.items, total: filtered.total, facets }
     }
@@ -331,7 +344,7 @@ export function registerExposureRoutes(app: FastifyInstance, options: ExposureRo
     '/api/exposures/:findingId/graph',
     async (request, reply) => {
       const { findingId } = request.params
-      const context = await loadExposureContext(options, findingId)
+      const context = await loadExposureContext(options, findingId, requireEstateContext(request))
       if (!context) {
         void reply.status(404)
         return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
@@ -348,7 +361,7 @@ export function registerExposureRoutes(app: FastifyInstance, options: ExposureRo
     narrativeGuard !== undefined ? { preHandler: narrativeGuard } : {},
     async (request, reply) => {
       const { findingId } = request.params
-      const context = await loadExposureContext(options, findingId)
+      const context = await loadExposureContext(options, findingId, requireEstateContext(request))
       if (!context) {
         void reply.status(404)
         return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
@@ -369,7 +382,7 @@ export function registerExposureRoutes(app: FastifyInstance, options: ExposureRo
     narrativeGuard !== undefined ? { preHandler: narrativeGuard } : {},
     async (request, reply) => {
       const { findingId } = request.params
-      const context = await loadExposureContext(options, findingId)
+      const context = await loadExposureContext(options, findingId, requireEstateContext(request))
       if (!context) {
         void reply.status(404)
         return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
@@ -396,7 +409,7 @@ export function registerExposureRoutes(app: FastifyInstance, options: ExposureRo
     '/api/exposures/:findingId/remediation-preview',
     async (request, reply) => {
       const { findingId } = request.params
-      const context = await loadExposureContext(options, findingId)
+      const context = await loadExposureContext(options, findingId, requireEstateContext(request))
       if (!context) {
         void reply.status(404)
         return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
@@ -426,8 +439,9 @@ export function registerExposureRoutes(app: FastifyInstance, options: ExposureRo
     '/api/exposures/:findingId',
     async (request, reply) => {
       const { findingId } = request.params
+      const estate = requireEstateContext(request)
       if (options.mode === 'mock') {
-        const { findings } = buildMockExposurePage(options.defaultTenantId, {})
+        const { findings } = buildMockExposurePage(estate.tenantId, {}, estate.environment)
         const found = findings.find((finding) => finding.id === findingId)
         if (!found) {
           void reply.status(404)
@@ -436,7 +450,7 @@ export function registerExposureRoutes(app: FastifyInstance, options: ExposureRo
         return exposureFindingSchema.parse(found)
       }
       if (!options.repository) throw new Error('Live exposure requires a repository binding.')
-      const finding = await options.repository.findById(findingId, options.defaultTenantId)
+      const finding = await options.repository.findById(findingId, estate.tenantId)
       if (!finding) {
         void reply.status(404)
         return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }

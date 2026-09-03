@@ -401,7 +401,7 @@ declare module 'fastify' {
 
 // ─── Public route list ────────────────────────────────────────────────────────
 
-const PUBLIC_PATHS = new Set(['/health', '/api/connector/status', '/api/auth/config'])
+const PUBLIC_PATHS = new Set(['/health', '/api/auth/config'])
 
 function isPublicRoute(request: FastifyRequest): boolean {
   const path = request.url.split('?', 1)[0]

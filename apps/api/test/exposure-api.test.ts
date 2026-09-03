@@ -144,15 +144,29 @@ describe('exposure API (mock mode)', () => {
     }
   })
 
-  it('isolates tenants in mock mode', async () => {
+  it('rejects a tenant assertion outside the authorized estate', async () => {
     const app = await makeApp('mock')
     try {
       const response = await app.inject({
         method: 'GET',
         url: '/api/exposures?tenantId=tenant-other',
       })
-      const body: { findings: ExposureFinding[] } = response.json()
-      expect(body.findings.length).toBe(0)
+      expect(response.statusCode).toBe(403)
+      expect(response.json()).toMatchObject({ error: 'forbidden' })
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('rejects an environment assertion outside the authorized estate', async () => {
+    const app = await makeApp('mock')
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/exposures?environment=production',
+      })
+      expect(response.statusCode).toBe(403)
+      expect(response.json()).toMatchObject({ error: 'forbidden' })
     } finally {
       await app.close()
     }
@@ -260,6 +274,30 @@ describe('exposure API (mock mode)', () => {
 })
 
 describe('exposure API (live mode)', () => {
+  it('rejects a cross-estate tenant before querying persistence', async () => {
+    const listByTenant = vi.fn<ExposureFindingRepository['listByTenant']>()
+    const getFacets = vi.fn<ExposureFindingRepository['getFacets']>()
+    const repository: ExposureFindingRepository = {
+      upsert: (finding) => Promise.resolve(finding),
+      findById: () => Promise.resolve(null),
+      listByTenant,
+      getFacets,
+      resolveAbsent: () => Promise.resolve([]),
+    }
+    const app = await makeApp('live', repository)
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/exposures?tenantId=tenant-other',
+      })
+      expect(response.statusCode).toBe(403)
+      expect(listByTenant).not.toHaveBeenCalled()
+      expect(getFacets).not.toHaveBeenCalled()
+    } finally {
+      await app.close()
+    }
+  })
+
   it('returns 404 when a detail finding belongs to another tenant', async () => {
     const findById = vi.fn<ExposureFindingRepository['findById']>()
     findById.mockResolvedValue(null)
