@@ -143,6 +143,14 @@ describe('release evidence schema', () => {
       'connection string',
       ['Endpoint=https://example.invalid/;', 'Shared', 'AccessKey=private-value'].join(''),
     ],
+    [
+      'telemetry connection string',
+      [
+        'Instrumentation',
+        'Key=00000000-0000-0000-0000-000000000000;',
+        'IngestionEndpoint=https://example.invalid/',
+      ].join(''),
+    ],
     ['credential URL', ['https://', 'user', ':', 'password', '@example.invalid/path'].join('')],
     [
       'signed URL',
@@ -338,6 +346,22 @@ describe('release evidence schema', () => {
         },
       }),
     ).toThrow(/live deployment evidence requires all deployed tags/)
+  })
+
+  it('rejects expected image tags that contradict the commit SHA', () => {
+    expect(() =>
+      buildReleaseEvidence(
+        cleanRepository,
+        {
+          expectedImages: {
+            web: { tag: 'different', digest: null },
+            api: { tag: 'different', digest: null },
+            jobs: { tag: 'different', digest: null },
+          },
+        },
+        '2026-09-04T00:00:00.000Z',
+      ),
+    ).toThrow(/expected image tags must match the release commit/)
   })
 
   it('keeps the committed JSON Schema synchronized with the runtime schema', async () => {

@@ -466,7 +466,7 @@ const forbiddenKeyFragments = [
 const secretValuePatterns = [
   /\bBearer\s+\S+/i,
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/,
-  /(?:AccountKey|SharedAccessKey|ClientSecret|Password)=/i,
+  /(?:AccountKey|SharedAccessKey|ClientSecret|InstrumentationKey|Password)=/i,
   /-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----/,
   /https?:\/\/[^/\s:@]+:[^/\s@]+@/i,
   /[?&](?:sig|signature|token|code)=[^&\s]+/i,
@@ -575,8 +575,15 @@ export function buildReleaseEvidence(
   const checks = Object.fromEntries(
     checkNames.map((name) => [name, parsedInput.checks?.[name] ?? missingCheck()]),
   )
-  const expected =
-    parsedInput.expectedImages ?? defaultImages(parsedRepository.commitSha.slice(0, 7))
+  const expectedTag = parsedRepository.commitSha.slice(0, 7)
+  const expected = parsedInput.expectedImages ?? defaultImages(expectedTag)
+  if (
+    expected.web.tag !== expectedTag ||
+    expected.api.tag !== expectedTag ||
+    expected.jobs.tag !== expectedTag
+  ) {
+    throw new Error('The expected image tags must match the release commit.')
+  }
   const configuration =
     parsedInput.safeConfiguration === undefined
       ? {
