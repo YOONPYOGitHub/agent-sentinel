@@ -173,6 +173,20 @@ describe('apiFetch token injection', () => {
     expect(headers.get('Authorization')).toBeNull()
   })
 
+  it('injects the selected estate ID while preserving caller-provided headers', async () => {
+    const { setEstateIdProvider, apiFetch } = await import('../api/auth-fetch')
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}'))
+    vi.stubGlobal('fetch', fetchMock)
+    setEstateIdProvider(() => 'authorized-estate')
+
+    await apiFetch('/api/test', { headers: { 'x-request-id': 'request-1' } })
+
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers)
+    expect(headers.get('x-agent-sentinel-estate-id')).toBe('authorized-estate')
+    expect(headers.get('x-request-id')).toBe('request-1')
+    setEstateIdProvider(undefined)
+  })
+
   it('injects Bearer token when token provider is set', async () => {
     const { setTokenProvider, apiFetch } = await import('../api/auth-fetch')
     setTokenProvider(() => Promise.resolve('test-access-token'))

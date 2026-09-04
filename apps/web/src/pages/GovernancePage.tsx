@@ -6,13 +6,14 @@ import {
   LockClosedRegular,
   ShieldErrorRegular,
 } from '@fluentui/react-icons'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import type { GovernancePosture } from '@agent-sentinel/domain'
 
 import { governanceApi } from '../api/governance-api'
 import { PageHeading } from '../components/PageHeading'
+import { useEstate } from '../hooks/useEstate'
 
 function formatDateTime(value: string): string {
   const date = new Date(value)
@@ -20,23 +21,40 @@ function formatDateTime(value: string): string {
 }
 
 export function GovernancePage() {
+  const { selectedEstateId } = useEstate()
   const [posture, setPosture] = useState<GovernancePosture>()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>()
+  const requestId = useRef(0)
+  const estateIdRef = useRef(selectedEstateId)
+  estateIdRef.current = selectedEstateId
 
   const load = useCallback(async () => {
+    const currentRequestId = ++requestId.current
+    const estateId = estateIdRef.current
     setLoading(true)
     setError(undefined)
     try {
-      setPosture(await governanceApi.getPosture())
+      const nextPosture = await governanceApi.getPosture()
+      if (requestId.current === currentRequestId && estateId === estateIdRef.current) {
+        setPosture(nextPosture)
+      }
     } catch (caught: unknown) {
-      setError(caught instanceof Error ? caught.message : 'Governance posture could not be loaded.')
+      if (requestId.current === currentRequestId && estateId === estateIdRef.current) {
+        setError(
+          caught instanceof Error ? caught.message : 'Governance posture could not be loaded.',
+        )
+      }
     } finally {
-      setLoading(false)
+      if (requestId.current === currentRequestId && estateId === estateIdRef.current)
+        setLoading(false)
     }
   }, [])
 
-  useEffect(() => void load(), [load])
+  useEffect(() => {
+    setPosture(undefined)
+    void load()
+  }, [load, selectedEstateId])
 
   return (
     <>

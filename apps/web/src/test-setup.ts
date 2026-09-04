@@ -25,6 +25,28 @@ beforeEach(() => {
         }),
       )
     }
+    if (input === '/api/estates') {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            defaultEstateId: 'default-estate',
+            estates: [
+              {
+                id: 'default-estate',
+                name: 'Default estate',
+                tenantId: 'test',
+                environment: 'test',
+                isDefault: true,
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+    }
     return nativeFetch(input, init)
   })
 })

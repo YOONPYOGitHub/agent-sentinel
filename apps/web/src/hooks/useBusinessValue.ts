@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import type { BusinessValueAssessment } from '@agent-sentinel/domain'
 
 import { businessValueApi } from '../api/business-value-api'
+import { useEstate } from './useEstate'
 
 export type BusinessValueState =
   | { status: 'loading' }
@@ -10,6 +11,7 @@ export type BusinessValueState =
   | { status: 'done'; assessment: BusinessValueAssessment }
 
 export function useBusinessValue(agentId: string): BusinessValueState {
+  const { selectedEstateId } = useEstate()
   const [state, setState] = useState<BusinessValueState>({ status: 'loading' })
 
   useEffect(() => {
@@ -34,7 +36,7 @@ export function useBusinessValue(agentId: string): BusinessValueState {
     return () => {
       cancelled = true
     }
-  }, [agentId])
+  }, [agentId, selectedEstateId])
 
   return state
 }

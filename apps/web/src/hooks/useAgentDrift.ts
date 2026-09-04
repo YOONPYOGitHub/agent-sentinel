@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { DriftAnalysisResult } from '@agent-sentinel/domain'
 
 import { behaviorApi } from '../api/behavior-api'
+import { useEstate } from './useEstate'
 
 export type AgentDriftState =
   | { status: 'loading' }
@@ -87,6 +88,7 @@ function errorState(error: unknown): AgentDriftState {
 }
 
 export function useAgentDrift(agentId: string, scope = 'default'): AgentDriftState {
+  const { selectedEstateId } = useEstate()
   const [state, setState] = useState<AgentDriftState>({ status: 'loading' })
 
   useEffect(() => {
@@ -96,7 +98,10 @@ export function useAgentDrift(agentId: string, scope = 'default'): AgentDriftSta
 
     const refresh = async () => {
       try {
-        const result = await loadAgentDrift(agentId, scope)
+        const result = await loadAgentDrift(
+          agentId,
+          `${selectedEstateId ?? 'unselected'}\0${scope}`,
+        )
         if (!cancelled) setState({ status: 'done', result })
       } catch (error) {
         if (!cancelled) setState(errorState(error))
@@ -110,7 +115,7 @@ export function useAgentDrift(agentId: string, scope = 'default'): AgentDriftSta
       cancelled = true
       if (timer !== undefined) clearTimeout(timer)
     }
-  }, [agentId, scope])
+  }, [agentId, scope, selectedEstateId])
 
   return state
 }
@@ -119,6 +124,7 @@ export function useAgentDriftPortfolio(
   agentIds: readonly string[],
   scope = 'default',
 ): Readonly<Record<string, AgentDriftState>> {
+  const { selectedEstateId } = useEstate()
   const key = agentIds.join('\0')
   const ids = useMemo(() => (key === '' ? [] : key.split('\0')), [key])
   const [states, setStates] = useState<Record<string, AgentDriftState>>({})
@@ -133,7 +139,10 @@ export function useAgentDriftPortfolio(
         ids.map(async (id) => {
           let next: AgentDriftState
           try {
-            next = { status: 'done', result: await loadAgentDrift(id, scope) }
+            next = {
+              status: 'done',
+              result: await loadAgentDrift(id, `${selectedEstateId ?? 'unselected'}\0${scope}`),
+            }
           } catch (error) {
             next = errorState(error)
           }
@@ -150,7 +159,7 @@ export function useAgentDriftPortfolio(
       cancelled = true
       if (timer !== undefined) clearTimeout(timer)
     }
-  }, [ids, scope])
+  }, [ids, scope, selectedEstateId])
 
   return states
 }

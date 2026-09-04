@@ -4,9 +4,11 @@ import { Navigate, Route, Routes, useParams } from 'react-router-dom'
 
 import { AppLayout } from './components/AppLayout'
 import { DemoStateProvider } from './hooks/DemoStateProvider'
+import { EstateProvider } from './hooks/EstateProvider'
 import { AuthProvider } from './hooks/AuthProvider'
 import { useAuth } from './hooks/useAuth'
 import { useDemoState } from './hooks/useDemoState'
+import { useEstate } from './hooks/useEstate'
 import { usePreferences } from './hooks/usePreferences'
 import { AgentCatalogPage } from './pages/AgentCatalogPage'
 import { AgentDetailPage } from './pages/AgentDetailPage'
@@ -135,6 +137,48 @@ export function AuthenticatedApplication() {
           <Button appearance="primary" onClick={() => void signIn()}>
             Sign in with Microsoft
           </Button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <EstateProvider>
+      <EstateApplication />
+    </EstateProvider>
+  )
+}
+
+function EstateApplication() {
+  const { error, estates, isLoading, selectedEstateId } = useEstate()
+
+  if (isLoading) {
+    return (
+      <div className="center-state" role="status">
+        <Spinner size="large" label="Loading authorized estates…" />
+      </div>
+    )
+  }
+
+  if (error !== undefined) {
+    return (
+      <div className="center-state">
+        <div className="empty-state" role="alert">
+          <AlertRegular aria-hidden="true" />
+          <h1>Authorized estates are unavailable</h1>
+          <p>{error}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (estates.length === 0 || selectedEstateId === undefined) {
+    return (
+      <div className="center-state">
+        <div className="empty-state" role="alert">
+          <AlertRegular aria-hidden="true" />
+          <h1>No authorized estates</h1>
+          <p>Your account is not authorized to access an Agent Sentinel estate.</p>
         </div>
       </div>
     )

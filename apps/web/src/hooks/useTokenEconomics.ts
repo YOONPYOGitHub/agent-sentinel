@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { TokenEconomicsReport } from '@agent-sentinel/domain'
 import { tokenEconomicsApi } from '../api/token-economics-api'
+import { useEstate } from './useEstate'
 
 type TokenEconomicsState =
   | { status: 'loading' }
@@ -12,6 +13,7 @@ type TokenEconomicsState =
  * Falls back to error state on network failure; never throws.
  */
 export function useTokenEconomics(agentId: string): TokenEconomicsState {
+  const { selectedEstateId } = useEstate()
   const [state, setState] = useState<TokenEconomicsState>({ status: 'loading' })
 
   useEffect(() => {
@@ -33,7 +35,7 @@ export function useTokenEconomics(agentId: string): TokenEconomicsState {
     return () => {
       cancelled = true
     }
-  }, [agentId])
+  }, [agentId, selectedEstateId])
 
   return state
 }

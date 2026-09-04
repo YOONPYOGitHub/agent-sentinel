@@ -41,7 +41,8 @@ async function request(path: string, init?: RequestInit): Promise<AgentSentinelS
 }
 
 export const demoApi = {
-  getState: () => request('/api/demo/state'),
+  getState: (signal?: AbortSignal) =>
+    request('/api/demo/state', signal === undefined ? undefined : { signal }),
   reset: () => request('/api/demo/reset', { method: 'POST' }),
   validateFinding: (findingId: string) =>
     request(`/api/demo/findings/${findingId}/validate`, { method: 'POST' }),
@@ -57,8 +58,11 @@ export const demoApi = {
 }
 
 export const connectorApi = {
-  getConnectorStatus: async (): Promise<ConnectorStatus> => {
-    const response = await apiFetch('/api/connector/status')
+  getConnectorStatus: async (signal?: AbortSignal): Promise<ConnectorStatus> => {
+    const response = await apiFetch(
+      '/api/connector/status',
+      signal === undefined ? undefined : { signal },
+    )
     const body: unknown = await response.json()
     if (!response.ok) {
       throw new Error(responseMessage(body) ?? `Request failed with status ${response.status}.`)

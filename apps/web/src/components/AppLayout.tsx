@@ -1,4 +1,4 @@
-import { Button, Input, Tooltip } from '@fluentui/react-components'
+import { Button, Input, Select, Tooltip } from '@fluentui/react-components'
 import {
   ArrowResetRegular,
   ArrowTrendingRegular,
@@ -23,6 +23,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
 
 import { useDemoState } from '../hooks/useDemoState'
+import { useEstate } from '../hooks/useEstate'
 import { useAuth } from '../hooks/useAuth'
 import { usePreferences } from '../hooks/usePreferences'
 import { GlobalSearchDialog } from './GlobalSearchDialog'
@@ -129,6 +130,7 @@ export function AppLayout() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [prefs] = usePreferences()
   const { connectorStatus, state } = useDemoState()
+  const { estates, selectedEstateId, selectEstate } = useEstate()
   const liveFoundry = connectorStatus?.mode === 'foundry'
   const searchTriggerRef = useRef<HTMLDivElement>(null)
   const closeSearch = useCallback(() => {
@@ -219,6 +221,19 @@ export function AppLayout() {
           </div>
         </div>
         <div className="top-bar__right">
+          {estates.length > 1 ? (
+            <Select
+              aria-label="Selected estate"
+              value={selectedEstateId}
+              onChange={(_, data) => selectEstate(data.value)}
+            >
+              {estates.map((estate) => (
+                <option key={estate.id} value={estate.id}>
+                  {estate.name}
+                </option>
+              ))}
+            </Select>
+          ) : null}
           <ShellMenu
             label="Scope information"
             trigger={

@@ -10,18 +10,32 @@ import { connectorApi, demoApi } from './api'
 import { connectorsApi } from './api/connectors-api'
 import { governanceApi } from './api/governance-api'
 import { exposureApi } from './api/exposure-api'
+import { estateApi } from './api/estate-api'
 import { governancePostureFixture, testState } from './test-fixture'
 
 vi.mock('./api')
 vi.mock('./api/connectors-api')
 vi.mock('./api/governance-api')
 vi.mock('./api/exposure-api')
+vi.mock('./api/estate-api')
 vi.mock('./components/ExposureGraph', () => ({ ExposureGraph: () => <div /> }))
 
 afterEach(cleanup)
 
 beforeEach(() => {
   localStorage.clear()
+  vi.mocked(estateApi.listAuthorized).mockResolvedValue({
+    defaultEstateId: 'default-estate',
+    estates: [
+      {
+        id: 'default-estate',
+        name: 'Default estate',
+        tenantId: 'test',
+        environment: 'test',
+        isDefault: true,
+      },
+    ],
+  })
   vi.mocked(demoApi.getState).mockResolvedValue(testState)
   vi.mocked(connectorApi.getConnectorStatus).mockResolvedValue({
     source: 'foundry',
