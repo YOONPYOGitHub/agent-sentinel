@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 
 import {
+  type EstateContext,
   governancePostureSchema,
   type ExposureFinding,
   type ExposureFindingRepository,
@@ -9,10 +10,11 @@ import {
 import { exposurePolicyCatalog } from '@agent-sentinel/policy-engine'
 
 import { buildMockExposurePage } from './exposure-routes.js'
+import { requireEstateContext } from './estate-auth.js'
 
 export interface GovernanceRoutesOptions {
   mode: 'mock' | 'foundry'
-  defaultTenantId: string
+  defaultEstate: EstateContext
   repository?: ExposureFindingRepository
 }
 
@@ -59,9 +61,10 @@ export function registerGovernanceRoutes(
   app: FastifyInstance,
   options: GovernanceRoutesOptions,
 ): void {
-  app.get('/api/governance/posture', async () => {
+  app.get('/api/governance/posture', async (request) => {
+    const estate = requireEstateContext(request)
     if (options.mode === 'mock') {
-      const { findings } = buildMockExposurePage(options.defaultTenantId, {})
+      const { findings } = buildMockExposurePage(estate.tenantId, {}, estate.environment)
       return buildPosture(findings, 'mock')
     }
     if (!options.repository) {
@@ -71,7 +74,7 @@ export function registerGovernanceRoutes(
     let page = 1
     let total = Number.POSITIVE_INFINITY
     while (findings.length < total) {
-      const result = await options.repository.listByTenant(options.defaultTenantId, {
+      const result = await options.repository.listByTenant(estate, {
         page,
         pageSize: 200,
       })

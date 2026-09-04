@@ -51,7 +51,7 @@ function makeStubRepositories(): {
   }
   return {
     exposureRepository: {
-      upsert: (f) => Promise.resolve(f),
+      upsert: (_estate, finding) => Promise.resolve(finding),
       findById: () => Promise.resolve(null),
       listByTenant: () => Promise.resolve({ items: [], total: 0 }),
       getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),
@@ -281,7 +281,11 @@ describe('token economics API - foundry mode', () => {
 
   it('does not attribute measured cost to a non-authoritative manifest owner', async () => {
     const repositories = makeStubRepositories()
-    const snapshot = await repositories.snapshotRepository.findLatest('tenant-demo', 'validation')
+    const snapshot = await repositories.snapshotRepository.findLatest({
+      id: 'default',
+      tenantId: 'tenant-demo',
+      environment: 'validation',
+    })
     if (snapshot === null) throw new Error('Expected the test snapshot.')
     snapshot.nodes[0]!.metadata['sourceOfTruth'] = 'false'
     snapshot.nodes[0]!.metadata['isNonAuthoritative'] = 'true'

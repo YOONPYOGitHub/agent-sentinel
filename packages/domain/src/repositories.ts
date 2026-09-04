@@ -1,4 +1,4 @@
-import type { EstateSnapshot, Evidence, Finding, ValidationRun } from './index.js'
+import type { EstateContext, EstateSnapshot, Evidence, Finding, ValidationRun } from './index.js'
 import type {
   GovernanceCase,
   GovernanceCaseKind,
@@ -8,10 +8,10 @@ import type {
 import type { ExposureFinding, ExposureFindingSeverity, ExposureFindingStatus } from './index.js'
 
 export interface SnapshotRepository {
-  save(snapshot: EstateSnapshot): Promise<void>
-  findLatest(tenantId: string, environment: string): Promise<EstateSnapshot | null>
-  findById(id: string, tenantId: string): Promise<EstateSnapshot | null>
-  list(tenantId: string, limit?: number): Promise<EstateSnapshot[]>
+  save(estate: EstateContext, snapshot: EstateSnapshot): Promise<void>
+  findLatest(estate: EstateContext): Promise<EstateSnapshot | null>
+  findById(id: string, estate: EstateContext): Promise<EstateSnapshot | null>
+  list(estate: EstateContext, limit?: number): Promise<EstateSnapshot[]>
 }
 
 export interface FindingRepository {
@@ -52,15 +52,15 @@ export interface ExposureFindingFacets {
 }
 
 export interface ExposureFindingRepository {
-  upsert(finding: ExposureFinding): Promise<ExposureFinding>
-  findById(id: string, tenantId: string): Promise<ExposureFinding | null>
+  upsert(estate: EstateContext, finding: ExposureFinding): Promise<ExposureFinding>
+  findById(id: string, estate: EstateContext): Promise<ExposureFinding | null>
   listByTenant(
-    tenantId: string,
+    estate: EstateContext,
     filters?: ExposureFindingListFilters,
   ): Promise<{ items: ExposureFinding[]; total: number }>
-  getFacets(tenantId: string): Promise<ExposureFindingFacets>
+  getFacets(estate: EstateContext): Promise<ExposureFindingFacets>
   resolveAbsent(
-    tenantId: string,
+    estate: EstateContext,
     presentIds: readonly string[],
     sourceModes?: readonly ExposureFinding['sourceMode'][],
   ): Promise<ExposureFinding[]>

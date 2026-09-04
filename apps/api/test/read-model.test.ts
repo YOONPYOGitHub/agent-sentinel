@@ -66,7 +66,11 @@ describe('live product read model', () => {
     const response = await app.inject({ method: 'GET', url: '/api/demo/state' })
     expect(response.statusCode).toBe(200)
     expect(agentSentinelStateSchema.parse(response.json()).snapshot).toEqual(snapshot)
-    expect(findLatest).toHaveBeenCalledWith(snapshot.tenantId, snapshot.environment)
+    expect(findLatest).toHaveBeenCalledWith({
+      id: 'default',
+      tenantId: snapshot.tenantId,
+      environment: snapshot.environment,
+    })
   })
 
   it('reports manifest runtime verification separately from the persisted snapshot', async () => {

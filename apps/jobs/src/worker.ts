@@ -3,7 +3,11 @@ import { ServiceBusClient } from '@azure/service-bus'
 import { CosmosClient } from '@azure/cosmos'
 
 import type { ManifestIngestionRepository } from '@agent-sentinel/connector-sdk'
-import type { ExposureFindingRepository, SnapshotRepository } from '@agent-sentinel/domain'
+import type {
+  EstateContext,
+  ExposureFindingRepository,
+  SnapshotRepository,
+} from '@agent-sentinel/domain'
 import { InMemoryDeduplicator, domainEventSchema, withIdempotency } from '@agent-sentinel/messaging'
 import {
   CosmosExposureFindingRepository,
@@ -98,6 +102,14 @@ async function main(): Promise<void> {
   }
   const connectorMode: 'mock' | 'foundry' = connectorRaw
   const tenantId = process.env['AGENT_SENTINEL_TENANT_ID']?.trim() || 'tenant-demo'
+  const estate: EstateContext = {
+    id: process.env['AGENT_SENTINEL_ESTATE_ID']?.trim() || 'default',
+    tenantId,
+    environment:
+      process.env['AGENT_SENTINEL_ENVIRONMENT']?.trim() ||
+      process.env['FOUNDRY_ENVIRONMENT']?.trim() ||
+      'validation',
+  }
   const intervalMs = Number.parseInt(
     process.env['DISCOVERY_INTERVAL_MS']?.trim() || String(DEFAULT_INTERVAL_MS),
     10,
@@ -105,7 +117,7 @@ async function main(): Promise<void> {
   const connector = buildConnector(connectorMode, process.env)
   const { snapshots, exposures, manifestIngestions } = buildRepositories(connectorMode, tenantId)
   const service = new IngestionService(connector, snapshots, exposures, {
-    tenantId,
+    estate,
     sourceMode: connectorMode,
     logger: defaultLogger,
     manifestIngestions,

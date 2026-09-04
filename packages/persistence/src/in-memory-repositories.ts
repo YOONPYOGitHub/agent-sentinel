@@ -1,5 +1,6 @@
 import type {
   EstateSnapshot,
+  EstateContext,
   Evidence,
   EvidenceRepository,
   Finding,
@@ -12,33 +13,39 @@ import type {
 type TenantFinding = Finding & { tenantId?: string }
 
 export class InMemorySnapshotRepository implements SnapshotRepository {
-  private readonly snapshots = new Map<string, EstateSnapshot>()
+  private readonly snapshots = new Map<
+    string,
+    { estate: EstateContext; snapshot: EstateSnapshot }
+  >()
 
-  save(snapshot: EstateSnapshot): Promise<void> {
+  save(estate: EstateContext, snapshot: EstateSnapshot): Promise<void> {
+    if (snapshot.tenantId !== estate.tenantId || snapshot.environment !== estate.environment) {
+      return Promise.reject(new Error('Snapshot boundary does not match the target estate.'))
+    }
     this.snapshots.set(
-      `${snapshot.tenantId}-${snapshot.environment}-${snapshot.generatedAt}`,
-      structuredClone(snapshot),
+      `${estate.id}\u0000${snapshot.tenantId}-${snapshot.environment}-${snapshot.generatedAt}`,
+      { estate: structuredClone(estate), snapshot: structuredClone(snapshot) },
     )
     return Promise.resolve()
   }
 
-  findLatest(tenantId: string, environment: string): Promise<EstateSnapshot | null> {
+  findLatest(estate: EstateContext): Promise<EstateSnapshot | null> {
     const snapshot = [...this.snapshots.values()]
-      .filter((item) => item.tenantId === tenantId && item.environment === environment)
+      .filter((item) => item.estate.id === estate.id)
+      .map((item) => item.snapshot)
       .sort((left, right) => right.generatedAt.localeCompare(left.generatedAt))[0]
-    return Promise.resolve(snapshot ? structuredClone(snapshot) : null)
+    return Promise.resolve(snapshot === undefined ? null : structuredClone(snapshot))
   }
 
-  findById(id: string, tenantId: string): Promise<EstateSnapshot | null> {
-    const snapshot = this.snapshots.get(id)
-    return Promise.resolve(
-      snapshot?.tenantId === tenantId ? structuredClone(snapshot) : null,
-    )
+  findById(id: string, estate: EstateContext): Promise<EstateSnapshot | null> {
+    const record = this.snapshots.get(`${estate.id}\u0000${id}`)
+    return Promise.resolve(record === undefined ? null : structuredClone(record.snapshot))
   }
 
-  list(tenantId: string, limit = 100): Promise<EstateSnapshot[]> {
+  list(estate: EstateContext, limit = 100): Promise<EstateSnapshot[]> {
     const snapshots = [...this.snapshots.values()]
-      .filter((snapshot) => snapshot.tenantId === tenantId)
+      .filter((record) => record.estate.id === estate.id)
+      .map((record) => record.snapshot)
       .sort((left, right) => right.generatedAt.localeCompare(left.generatedAt))
       .slice(0, limit)
       .map((snapshot) => structuredClone(snapshot))

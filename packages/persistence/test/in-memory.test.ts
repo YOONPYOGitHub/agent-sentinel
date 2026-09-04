@@ -21,6 +21,16 @@ const snapshotTwo: EstateSnapshot = {
   ...snapshotOne,
   generatedAt: '2024-01-02T00:00:00.000Z',
 }
+const estateOne = {
+  id: 'tenant-one-production',
+  tenantId: 'tenant-one',
+  environment: 'production',
+}
+const estateTwo = {
+  id: 'tenant-two-production',
+  tenantId: 'tenant-two',
+  environment: 'production',
+}
 
 const finding: Finding & { tenantId: string } = {
   id: 'finding-1',
@@ -64,17 +74,17 @@ const validationRun: ValidationRun = {
 describe('in-memory repositories', () => {
   it('saves, finds the latest, and lists snapshots', async () => {
     const repository = new InMemorySnapshotRepository()
-    await repository.save(snapshotOne)
-      await repository.save(snapshotTwo)
+    await repository.save(estateOne, snapshotOne)
+    await repository.save(estateOne, snapshotTwo)
 
-      await expect(repository.findLatest('tenant-one', 'production')).resolves.toEqual(snapshotTwo)
-      await expect(
-        repository.findById('tenant-one-production-2024-01-02T00:00:00.000Z', 'tenant-one'),
-      ).resolves.toEqual(snapshotTwo)
-      await expect(
-        repository.findById('tenant-one-production-2024-01-02T00:00:00.000Z', 'tenant-two'),
-      ).resolves.toBeNull()
-      await expect(repository.list('tenant-one', 1)).resolves.toEqual([snapshotTwo])
+    await expect(repository.findLatest(estateOne)).resolves.toEqual(snapshotTwo)
+    await expect(
+      repository.findById('tenant-one-production-2024-01-02T00:00:00.000Z', estateOne),
+    ).resolves.toEqual(snapshotTwo)
+    await expect(
+      repository.findById('tenant-one-production-2024-01-02T00:00:00.000Z', estateTwo),
+    ).resolves.toBeNull()
+    await expect(repository.list(estateOne, 1)).resolves.toEqual([snapshotTwo])
   })
 
   it('saves, finds, and filters findings', async () => {

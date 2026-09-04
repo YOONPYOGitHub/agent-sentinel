@@ -8,6 +8,7 @@ import type {
 } from '@agent-sentinel/connector-sdk'
 import { ADAPTER_SOURCE_ID, mergeManifestSnapshots } from '@agent-sentinel/manifest-connector'
 import type {
+  EstateContext,
   EstateSnapshot,
   ExposureFinding,
   ExposureFindingRepository,
@@ -16,7 +17,7 @@ import type {
 import { evaluateAllExposurePolicies } from '@agent-sentinel/policy-engine'
 
 export interface IngestionServiceOptions {
-  tenantId: string
+  estate: EstateContext
   sourceMode: 'mock' | 'foundry'
   logger?: Logger
   clock?: () => Date
@@ -74,8 +75,13 @@ export class IngestionService {
     logger.info('ingestion.start', { correlationId, sourceMode: this.options.sourceMode })
 
     const discovered = await this.connector.discover()
-    if (discovered.tenantId.toLowerCase() !== this.options.tenantId.toLowerCase()) {
+    if (discovered.tenantId !== this.options.estate.tenantId) {
       throw new Error('Discovered snapshot tenant does not match the configured ingestion tenant.')
+    }
+    if (discovered.environment !== this.options.estate.environment) {
+      throw new Error(
+        'Discovered snapshot environment does not match the configured ingestion estate.',
+      )
     }
     const connectorHealth = this.connector.getConnectorHealth?.()
     const connectorPartial = connectorHealth?.partial === true
@@ -126,7 +132,7 @@ export class IngestionService {
       return {
         ...finding,
         sourceMode,
-        tenantId: this.options.tenantId,
+        tenantId: this.options.estate.tenantId,
         snapshotId,
       }
     })
@@ -166,18 +172,18 @@ export class IngestionService {
       })
     }
 
-    await this.snapshots.save(snapshot)
+    await this.snapshots.save(this.options.estate, snapshot)
     logger.info('ingestion.snapshot.saved', { correlationId, snapshotId })
 
     const newFindings: ExposureFinding[] = []
     for (const finding of findings) {
-      const existing = await this.exposures.findById(finding.id, this.options.tenantId)
-      const upserted = await this.exposures.upsert(finding)
+      const existing = await this.exposures.findById(finding.id, this.options.estate)
+      const upserted = await this.exposures.upsert(this.options.estate, finding)
       if (existing === null) newFindings.push(upserted)
     }
     const presentIds = findings.map((finding) => finding.id)
     const resolvedFindings = await this.exposures.resolveAbsent(
-      this.options.tenantId,
+      this.options.estate,
       presentIds,
       manifestIngestion.status === 'degraded' ? [this.options.sourceMode] : undefined,
     )

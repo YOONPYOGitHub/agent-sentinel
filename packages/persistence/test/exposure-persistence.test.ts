@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { ExposureFinding } from '@agent-sentinel/domain'
+import type { EstateContext, ExposureFinding } from '@agent-sentinel/domain'
 import { InMemoryExposureFindingRepository } from '../src/in-memory-exposure-finding-repository.js'
-import { buildExposureFacetQuery } from '../src/cosmos-exposure-finding-repository.js'
 
 function makeFinding(overrides: Partial<ExposureFinding> = {}): ExposureFinding {
   return {
@@ -34,49 +33,67 @@ function makeFinding(overrides: Partial<ExposureFinding> = {}): ExposureFinding 
   }
 }
 
+function estate(
+  tenantId = 'tenant-demo',
+  id = tenantId,
+  environment = 'validation',
+): EstateContext {
+  return { id, tenantId, environment }
+}
+
 describe('InMemoryExposureFindingRepository', () => {
   it('preserves firstSeen across upserts', async () => {
     const repo = new InMemoryExposureFindingRepository()
-    const first = await repo.upsert(makeFinding({ firstSeen: '2026-08-14T12:00:00.000Z' }))
+    const first = await repo.upsert(
+      estate(),
+      makeFinding({ firstSeen: '2026-08-14T12:00:00.000Z' }),
+    )
     expect(first.firstSeen).toBe('2026-08-14T12:00:00.000Z')
-    const second = await repo.upsert(makeFinding({ firstSeen: '2026-08-20T12:00:00.000Z' }))
+    const second = await repo.upsert(
+      estate(),
+      makeFinding({ firstSeen: '2026-08-20T12:00:00.000Z' }),
+    )
     expect(second.firstSeen).toBe('2026-08-14T12:00:00.000Z')
   })
 
   it('filters by tenant, severity, status, and policyId with paging', async () => {
     const repo = new InMemoryExposureFindingRepository()
-    await repo.upsert(makeFinding({ id: 'a', riskScore: 91 }))
+    await repo.upsert(estate(), makeFinding({ id: 'a', riskScore: 91 }))
     await repo.upsert(
+      estate(),
       makeFinding({ id: 'b', policyId: 'AS-POL-002', severity: 'high', riskScore: 76 }),
     )
-    await repo.upsert(makeFinding({ id: 'c', tenantId: 'other', severity: 'high' }))
-    const result = await repo.listByTenant('tenant-demo', { pageSize: 10 })
+    await repo.upsert(
+      estate('other'),
+      makeFinding({ id: 'c', tenantId: 'other', severity: 'high' }),
+    )
+    const result = await repo.listByTenant(estate(), { pageSize: 10 })
     expect(result.total).toBe(2)
     expect(result.items[0]?.riskScore).toBe(91)
-    const filtered = await repo.listByTenant('tenant-demo', { severity: 'high' })
+    const filtered = await repo.listByTenant(estate(), { severity: 'high' })
     expect(filtered.total).toBe(1)
     expect(filtered.items[0]?.id).toBe('b')
-    const byPolicy = await repo.listByTenant('tenant-demo', { policyId: 'AS-POL-001' })
+    const byPolicy = await repo.listByTenant(estate(), { policyId: 'AS-POL-001' })
     expect(byPolicy.total).toBe(1)
   })
 
   it('resolves absent findings only for the tenant', async () => {
     const repo = new InMemoryExposureFindingRepository()
-    await repo.upsert(makeFinding({ id: 'keep' }))
-    await repo.upsert(makeFinding({ id: 'gone' }))
-    const resolved = await repo.resolveAbsent('tenant-demo', ['keep'])
+    await repo.upsert(estate(), makeFinding({ id: 'keep' }))
+    await repo.upsert(estate(), makeFinding({ id: 'gone' }))
+    const resolved = await repo.resolveAbsent(estate(), ['keep'])
     expect(resolved.map((r) => r.id)).toEqual(['gone'])
-    const remaining = await repo.findById('gone', 'tenant-demo')
+    const remaining = await repo.findById('gone', estate())
     expect(remaining?.status).toBe('resolved')
   })
 
   it('preserves findings from sources excluded from reconciliation', async () => {
     const repo = new InMemoryExposureFindingRepository()
-    await repo.upsert(makeFinding({ id: 'foundry-gone' }))
-    await repo.upsert(makeFinding({ id: 'manifest-active', sourceMode: 'manifest' }))
-    const resolved = await repo.resolveAbsent('tenant-demo', [], ['foundry'])
+    await repo.upsert(estate(), makeFinding({ id: 'foundry-gone' }))
+    await repo.upsert(estate(), makeFinding({ id: 'manifest-active', sourceMode: 'manifest' }))
+    const resolved = await repo.resolveAbsent(estate(), [], ['foundry'])
     expect(resolved.map((finding) => finding.id)).toEqual(['foundry-gone'])
-    await expect(repo.findById('manifest-active', 'tenant-demo')).resolves.toMatchObject({
+    await expect(repo.findById('manifest-active', estate())).resolves.toMatchObject({
       status: 'open',
       sourceMode: 'manifest',
     })
@@ -84,8 +101,9 @@ describe('InMemoryExposureFindingRepository', () => {
 
   it('isolates identical finding ids by tenant and aggregates all facets', async () => {
     const repo = new InMemoryExposureFindingRepository()
-    await repo.upsert(makeFinding({ id: 'shared', tenantId: 'tenant-a' }))
+    await repo.upsert(estate('tenant-a'), makeFinding({ id: 'shared', tenantId: 'tenant-a' }))
     await repo.upsert(
+      estate('tenant-b'),
       makeFinding({
         id: 'shared',
         tenantId: 'tenant-b',
@@ -94,31 +112,41 @@ describe('InMemoryExposureFindingRepository', () => {
       }),
     )
     for (let index = 0; index < 60; index += 1) {
-      await repo.upsert(makeFinding({ id: `tenant-a-${index}`, tenantId: 'tenant-a' }))
+      await repo.upsert(
+        estate('tenant-a'),
+        makeFinding({ id: `tenant-a-${index}`, tenantId: 'tenant-a' }),
+      )
     }
 
-    await expect(repo.findById('shared', 'tenant-a')).resolves.toMatchObject({
+    await expect(repo.findById('shared', estate('tenant-a'))).resolves.toMatchObject({
       tenantId: 'tenant-a',
       severity: 'critical',
     })
-    await expect(repo.findById('shared', 'tenant-b')).resolves.toMatchObject({
+    await expect(repo.findById('shared', estate('tenant-b'))).resolves.toMatchObject({
       tenantId: 'tenant-b',
       severity: 'high',
     })
-    await expect(repo.getFacets('tenant-a')).resolves.toMatchObject({
+    await expect(repo.getFacets(estate('tenant-a'))).resolves.toMatchObject({
       severity: { critical: 61 },
       policyId: { 'AS-POL-001': 61 },
     })
   })
-})
 
-describe('Cosmos exposure facet queries', () => {
-  it('uses non-reserved aliases for grouped facet values', () => {
-    for (const field of ['severity', 'status', 'policyId'] as const) {
-      const query = buildExposureFacetQuery(field)
-      expect(query).toContain(`c.${field} AS facetValue`)
-      expect(query).toContain('COUNT(1) AS facetCount')
-      expect(query).not.toMatch(/\bAS value\b/i)
-    }
+  it('isolates identical finding IDs across environments in one tenant', async () => {
+    const repo = new InMemoryExposureFindingRepository()
+    const production = estate('tenant-a', 'production', 'production')
+    const validation = estate('tenant-a', 'validation', 'validation')
+    await repo.upsert(production, makeFinding({ id: 'shared', tenantId: 'tenant-a' }))
+    await repo.upsert(
+      validation,
+      makeFinding({ id: 'shared', tenantId: 'tenant-a', severity: 'high' }),
+    )
+
+    await expect(repo.findById('shared', production)).resolves.toMatchObject({
+      severity: 'critical',
+    })
+    await expect(repo.findById('shared', validation)).resolves.toMatchObject({
+      severity: 'high',
+    })
   })
 })

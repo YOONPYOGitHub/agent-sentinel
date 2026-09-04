@@ -48,7 +48,7 @@ function makeStubRepositories(): {
     ],
   }
   const exposureRepository: ExposureFindingRepository = {
-    upsert: (f) => Promise.resolve(f),
+    upsert: (_estate, finding) => Promise.resolve(finding),
     findById: () => Promise.resolve(null),
     listByTenant: () => Promise.resolve({ items: [], total: 0 }),
     getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),

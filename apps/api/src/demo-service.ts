@@ -11,6 +11,7 @@ import {
 } from '@agent-sentinel/connector-sdk'
 import type {
   AgentSentinelState,
+  EstateContext,
   EstateSnapshot,
   Finding,
   ManifestConfigurationReconciliation,
@@ -42,8 +43,7 @@ export class ReadModelUnavailableError extends Error {
 
 export interface PersistedReadModel {
   snapshotRepository: SnapshotRepository
-  tenantId: string
-  environment: string
+  estate: EstateContext
 }
 
 export class DemoService {
@@ -83,8 +83,7 @@ export class DemoService {
       this.persistedReadModel === undefined
         ? await this.connector.discover()
         : await this.persistedReadModel.snapshotRepository.findLatest(
-            this.persistedReadModel.tenantId,
-            this.persistedReadModel.environment,
+            this.persistedReadModel.estate,
           )
     if (snapshot === null) {
       throw new ReadModelUnavailableError(

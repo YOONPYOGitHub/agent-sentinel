@@ -243,9 +243,9 @@ async function loadExposureContext(
   if (!options.repository || !options.snapshotRepository) {
     throw new Error('Live exposure graph requires finding and snapshot repository bindings.')
   }
-  const finding = await options.repository.findById(findingId, estate.tenantId)
+  const finding = await options.repository.findById(findingId, estate)
   if (!finding) return null
-  const snapshot = await options.snapshotRepository.findById(finding.snapshotId, estate.tenantId)
+  const snapshot = await options.snapshotRepository.findById(finding.snapshotId, estate)
   return snapshot ? { finding, snapshot } : null
 }
 
@@ -332,8 +332,8 @@ export function registerExposureRoutes(app: FastifyInstance, options: ExposureRo
     } else {
       if (!options.repository) throw new Error('Live exposure requires a repository binding.')
       const [filtered, facets] = await Promise.all([
-        options.repository.listByTenant(estate.tenantId, filters),
-        options.repository.getFacets(estate.tenantId),
+        options.repository.listByTenant(estate, filters),
+        options.repository.getFacets(estate),
       ])
       page = { findings: filtered.items, total: filtered.total, facets }
     }
@@ -450,7 +450,7 @@ export function registerExposureRoutes(app: FastifyInstance, options: ExposureRo
         return exposureFindingSchema.parse(found)
       }
       if (!options.repository) throw new Error('Live exposure requires a repository binding.')
-      const finding = await options.repository.findById(findingId, estate.tenantId)
+      const finding = await options.repository.findById(findingId, estate)
       if (!finding) {
         void reply.status(404)
         return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }

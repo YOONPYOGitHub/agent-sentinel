@@ -8,6 +8,7 @@ import type { EstateDefinition, EstateRegistry } from './estate-config.js'
 const ESTATE_HEADER = 'x-agent-sentinel-estate-id'
 const selectionFreePaths = new Set(['/health', '/api/auth/config', '/api/estates'])
 const estateAwarePrefixes = ['/api/exposures']
+const estateAwarePaths = new Set(['/api/governance/posture'])
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -67,6 +68,7 @@ export function createEstateMiddleware(authConfig: AuthConfig, registry: EstateR
     }
     if (
       selected.id !== registry.defaultEstate.id &&
+      !estateAwarePaths.has(requestPath(request)) &&
       !estateAwarePrefixes.some((prefix) => requestPath(request).startsWith(prefix))
     ) {
       await reply.status(403).send({

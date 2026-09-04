@@ -62,6 +62,11 @@ function fullSnapshot(): EstateSnapshot {
     { tenantId: 'tenant-demo', environment: 'validation' },
   )
 }
+const testEstate = {
+  id: 'default',
+  tenantId: 'tenant-demo',
+  environment: 'validation',
+}
 
 async function manifestRecord(): Promise<ManifestIngestionRecord> {
   const connector = new ManifestConnector({
@@ -125,7 +130,7 @@ describe('IngestionService', () => {
     const exposures = new InMemoryExposureFindingRepository()
     const connector = makeConnector(fullSnapshot())
     const service = new IngestionService(connector, snapshots, exposures, {
-      tenantId: 'tenant-demo',
+      estate: testEstate,
       sourceMode: 'foundry',
       correlationIdFactory: () => '11111111-1111-4111-8111-111111111111',
     })
@@ -136,12 +141,12 @@ describe('IngestionService', () => {
     expect(first.findings.length).toBeGreaterThan(0)
     expect(first.newFindings.length).toBe(first.findings.length)
     const firstSeenA = first.findings[0]?.firstSeen
-    const stored = await snapshots.findLatest('tenant-demo', 'validation')
+    const stored = await snapshots.findLatest(testEstate)
     expect(stored).not.toBeNull()
 
     const second = await service.run()
     expect(second.newFindings.length).toBe(0)
-    const persisted = await exposures.findById(first.findings[0]!.id, 'tenant-demo')
+    const persisted = await exposures.findById(first.findings[0]!.id, testEstate)
     expect(persisted?.firstSeen).toBe(firstSeenA)
 
     // Now simulate a snapshot with no findings (only safe agents).
@@ -157,7 +162,7 @@ describe('IngestionService', () => {
     )
     const safeConnector = makeConnector(safeSnapshot)
     const safeService = new IngestionService(safeConnector, snapshots, exposures, {
-      tenantId: 'tenant-demo',
+      estate: testEstate,
       sourceMode: 'foundry',
     })
     const third = await safeService.run()
@@ -174,10 +179,10 @@ describe('IngestionService', () => {
       makeConnector(completeSnapshot),
       snapshots,
       exposures,
-      { tenantId: 'tenant-demo', sourceMode: 'foundry' },
+      { estate: testEstate, sourceMode: 'foundry' },
     )
     const complete = await completeService.run()
-    const persistedFinding = await exposures.findById(complete.findings[0]!.id, 'tenant-demo')
+    const persistedFinding = await exposures.findById(complete.findings[0]!.id, testEstate)
 
     const partialSnapshot = fullSnapshot()
     partialSnapshot.generatedAt = '2026-08-27T08:05:00.000Z'
@@ -222,7 +227,7 @@ describe('IngestionService', () => {
       makeConnector(partialSnapshot, health),
       snapshots,
       exposures,
-      { tenantId: 'tenant-demo', sourceMode: 'foundry', logger },
+      { estate: testEstate, sourceMode: 'foundry', logger },
     )
 
     const partial = await partialService.run()
@@ -232,13 +237,11 @@ describe('IngestionService', () => {
       newFindings: [],
       resolvedFindings: [],
     })
-    expect(await snapshots.list('tenant-demo')).toHaveLength(1)
-    expect(await snapshots.findLatest('tenant-demo', 'validation')).toMatchObject({
+    expect(await snapshots.list(testEstate)).toHaveLength(1)
+    expect(await snapshots.findLatest(testEstate)).toMatchObject({
       generatedAt: completeSnapshot.generatedAt,
     })
-    expect(await exposures.findById(complete.findings[0]!.id, 'tenant-demo')).toEqual(
-      persistedFinding,
-    )
+    expect(await exposures.findById(complete.findings[0]!.id, testEstate)).toEqual(persistedFinding)
     expect(logger.warn).toHaveBeenCalledWith('ingestion.enrichment.degraded', {
       correlationId: expect.any(String),
       sources: [
@@ -256,12 +259,25 @@ describe('IngestionService', () => {
     const exposures = new InMemoryExposureFindingRepository()
     const snapshot = { ...fullSnapshot(), tenantId: 'other-tenant' }
     const service = new IngestionService(makeConnector(snapshot), snapshots, exposures, {
-      tenantId: 'tenant-demo',
+      estate: testEstate,
       sourceMode: 'foundry',
     })
 
     await expect(service.run()).rejects.toThrow('does not match the configured ingestion tenant')
-    expect(await snapshots.list('tenant-demo')).toHaveLength(0)
+    expect(await snapshots.list(testEstate)).toHaveLength(0)
+  })
+
+  it('rejects a discovered snapshot from another environment', async () => {
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const snapshot = { ...fullSnapshot(), environment: 'production' }
+    const service = new IngestionService(makeConnector(snapshot), snapshots, exposures, {
+      estate: testEstate,
+      sourceMode: 'foundry',
+    })
+
+    await expect(service.run()).rejects.toThrow('does not match the configured ingestion estate')
+    expect(await snapshots.list(testEstate)).toHaveLength(0)
   })
 
   it('merges latest non-authoritative manifests and preserves finding provenance', async () => {
@@ -270,7 +286,7 @@ describe('IngestionService', () => {
     const manifestIngestions = new InMemoryManifestIngestionRepository('tenant-demo')
     await manifestIngestions.save(await manifestRecord())
     const service = new IngestionService(makeConnector(fullSnapshot()), snapshots, exposures, {
-      tenantId: 'tenant-demo',
+      estate: testEstate,
       sourceMode: 'foundry',
       manifestIngestions,
     })
@@ -303,7 +319,7 @@ describe('IngestionService', () => {
       snapshots,
       exposures,
       {
-        tenantId: 'tenant-demo',
+        estate: testEstate,
         sourceMode: 'foundry',
         manifestIngestions: availableManifests,
       },
@@ -317,7 +333,7 @@ describe('IngestionService', () => {
       listLatest: () => Promise.reject(new Error('Cosmos unavailable')),
     }
     const service = new IngestionService(makeConnector(fullSnapshot()), snapshots, exposures, {
-      tenantId: 'tenant-demo',
+      estate: testEstate,
       sourceMode: 'foundry',
       manifestIngestions,
     })
@@ -332,8 +348,8 @@ describe('IngestionService', () => {
         reason: 'repository-unavailable',
       },
     })
-    expect(await snapshots.list('tenant-demo')).toHaveLength(2)
-    await expect(exposures.findById(manifestFinding.id, 'tenant-demo')).resolves.toMatchObject({
+    expect(await snapshots.list(testEstate)).toHaveLength(2)
+    await expect(exposures.findById(manifestFinding.id, testEstate)).resolves.toMatchObject({
       status: 'open',
       sourceMode: 'manifest',
     })

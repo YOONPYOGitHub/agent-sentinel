@@ -72,20 +72,26 @@ const authenticatedApprovalSchema = z.object({
 })
 
 function configuredService(
+  estate: EstateContext,
   snapshotRepository?: SnapshotRepository,
   persistedReadModelRequired = false,
   runtimeTelemetryConnector?: RuntimeTelemetryConnector,
   manifestIngestionRepository?: ManifestIngestionRepository,
 ): DemoService {
   const configured = createConfiguredConnector()
+  if (
+    (configured.tenantId !== undefined && configured.tenantId !== estate.tenantId) ||
+    (configured.environment !== undefined && configured.environment !== estate.environment)
+  ) {
+    throw new Error('Configured connector boundary does not match the default estate.')
+  }
   const persistedReadModel =
     snapshotRepository !== undefined &&
     configured.tenantId !== undefined &&
     configured.environment !== undefined
       ? {
           snapshotRepository,
-          tenantId: configured.tenantId,
-          environment: configured.environment,
+          estate,
         }
       : undefined
   return new DemoService(
@@ -117,6 +123,7 @@ function dataMode(): 'mock' | 'live' {
 function defaultTenantId(): string {
   return (
     process.env['AGENT_SENTINEL_TENANT_ID']?.trim() ||
+    process.env['FOUNDRY_TENANT_ID']?.trim() ||
     process.env['AZURE_MONITOR_TENANT_ID']?.trim() ||
     'tenant-demo'
   )
@@ -132,11 +139,11 @@ function defaultEnvironment(): string {
 
 function telemetryRequestResolver(
   snapshotRepository: SnapshotRepository | undefined,
+  estate: EstateContext,
 ): ((agentId: string) => Promise<RuntimeTelemetryRequest | undefined>) | undefined {
   if (snapshotRepository === undefined) return undefined
   return async (agentId) => {
-    const tenantId = defaultTenantId()
-    const snapshot = await snapshotRepository.findLatest(tenantId, defaultEnvironment())
+    const snapshot = await snapshotRepository.findLatest(estate)
     if (snapshot === null) return undefined
     const agent = snapshot.nodes.find((node) => node.kind === 'agent' && node.id === agentId)
     return agent === undefined ? undefined : runtimeTelemetryRequestForAgent(snapshot, agent)
@@ -234,6 +241,11 @@ export async function createApp(
       ...fallbackEstate,
       ...(authConfig.mode === 'jwt' ? { authTenantId: authConfig.tenantId } : {}),
     })
+  const defaultEstate: EstateContext = {
+    id: estateRegistry.defaultEstate.id,
+    tenantId: estateRegistry.defaultEstate.tenantId,
+    environment: estateRegistry.defaultEstate.environment,
+  }
   app.addHook('onRequest', createEstateMiddleware(authConfig, estateRegistry))
 
   const resolvedDataMode = options.dataMode ?? dataMode()
@@ -272,6 +284,7 @@ export async function createApp(
   const defaultService =
     service === undefined
       ? configuredService(
+          defaultEstate,
           resolvedDataMode === 'live' ? snapshotRepository : undefined,
           resolvedDataMode === 'live',
           runtimeTelemetryConnector,
@@ -286,6 +299,7 @@ export async function createApp(
     resolvedDataMode === 'live'
       ? (defaultService ??
         configuredService(
+          defaultEstate,
           snapshotRepository,
           true,
           runtimeTelemetryConnector,
@@ -456,7 +470,7 @@ export async function createApp(
   const advisoryService = options.advisoryService ?? createAdvisoryService()
   registerExposureRoutes(app, {
     mode: exposureMode,
-    defaultEstate: estateRegistry.defaultEstate,
+    defaultEstate,
     ...(exposureRepository ? { repository: exposureRepository } : {}),
     ...(snapshotRepository ? { snapshotRepository } : {}),
     advisoryService,
@@ -464,7 +478,7 @@ export async function createApp(
   })
   registerGovernanceRoutes(app, {
     mode: exposureMode,
-    defaultTenantId: defaultTenantId(),
+    defaultEstate,
     ...(exposureRepository ? { repository: exposureRepository } : {}),
   })
   registerGovernanceQueueRoutes(app, {
@@ -473,11 +487,11 @@ export async function createApp(
     writeEnabled,
     ...(governanceCaseRepository ? { repository: governanceCaseRepository } : {}),
   })
-  const resolveTelemetryRequest = telemetryRequestResolver(snapshotRepository)
+  const resolveTelemetryRequest = telemetryRequestResolver(snapshotRepository, defaultEstate)
   const resolveTokenEconomicsAttribution = async (agentId: string) => {
     const snapshot =
       resolvedDataMode === 'live'
-        ? await snapshotRepository?.findLatest(defaultTenantId(), defaultEnvironment())
+        ? await snapshotRepository?.findLatest(defaultEstate)
         : (await stateService.getState()).snapshot
     return tokenEconomicsAttributionForAgent(snapshot, agentId)
   }
@@ -499,7 +513,7 @@ export async function createApp(
   ): Promise<BusinessOutcomeRequest | undefined> => {
     const snapshot =
       resolvedDataMode === 'live'
-        ? await snapshotRepository?.findLatest(defaultTenantId(), defaultEnvironment())
+        ? await snapshotRepository?.findLatest(defaultEstate)
         : (await stateService.getState()).snapshot
     if (snapshot === undefined || snapshot === null) return undefined
     const agent = snapshot.nodes.find((node) => node.kind === 'agent' && node.id === agentId)

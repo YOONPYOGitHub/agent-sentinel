@@ -89,7 +89,7 @@ describe('business value API', () => {
         businessOutcomeConnector: null,
         runtimeTelemetryConnector: null,
         exposureRepository: {
-          upsert: (finding) => Promise.resolve(finding),
+          upsert: (_estate, finding) => Promise.resolve(finding),
           findById: () => Promise.resolve(null),
           listByTenant: () => Promise.resolve({ items: [], total: 0 }),
           getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),
@@ -161,7 +161,7 @@ describe('business value API', () => {
         runtimeTelemetryConnector: null,
         snapshotRepository: liveSnapshotRepository(),
         exposureRepository: {
-          upsert: (finding) => Promise.resolve(finding),
+          upsert: (_estate, finding) => Promise.resolve(finding),
           findById: () => Promise.resolve(null),
           listByTenant: () => Promise.resolve({ items: [], total: 0 }),
           getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),
@@ -229,7 +229,7 @@ describe('business value API', () => {
         runtimeTelemetryConnector: null,
         snapshotRepository: liveSnapshotRepository(),
         exposureRepository: {
-          upsert: (finding) => Promise.resolve(finding),
+          upsert: (_estate, finding) => Promise.resolve(finding),
           findById: () => Promise.resolve(null),
           listByTenant: () => Promise.resolve({ items: [], total: 0 }),
           getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),
@@ -279,7 +279,7 @@ describe('business value API', () => {
           list: vi.fn().mockResolvedValue([]),
         },
         exposureRepository: {
-          upsert: (finding) => Promise.resolve(finding),
+          upsert: (_estate, finding) => Promise.resolve(finding),
           findById: () => Promise.resolve(null),
           listByTenant: () => Promise.resolve({ items: [], total: 0 }),
           getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),

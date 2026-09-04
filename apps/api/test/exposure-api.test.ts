@@ -278,7 +278,7 @@ describe('exposure API (live mode)', () => {
     const listByTenant = vi.fn<ExposureFindingRepository['listByTenant']>()
     const getFacets = vi.fn<ExposureFindingRepository['getFacets']>()
     const repository: ExposureFindingRepository = {
-      upsert: (finding) => Promise.resolve(finding),
+      upsert: (_estate, finding) => Promise.resolve(finding),
       findById: () => Promise.resolve(null),
       listByTenant,
       getFacets,
@@ -302,7 +302,7 @@ describe('exposure API (live mode)', () => {
     const findById = vi.fn<ExposureFindingRepository['findById']>()
     findById.mockResolvedValue(null)
     const repository: ExposureFindingRepository = {
-      upsert: (finding) => Promise.resolve(finding),
+      upsert: (_estate, finding) => Promise.resolve(finding),
       findById,
       listByTenant: () => Promise.resolve({ items: [], total: 0 }),
       getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),
@@ -315,7 +315,11 @@ describe('exposure API (live mode)', () => {
         url: '/api/exposures/exposure-as-pol-001-agent-1',
       })
       expect(response.statusCode).toBe(404)
-      expect(findById).toHaveBeenCalledWith('exposure-as-pol-001-agent-1', 'tenant-demo')
+      expect(findById).toHaveBeenCalledWith('exposure-as-pol-001-agent-1', {
+        id: 'default',
+        tenantId: 'tenant-demo',
+        environment: 'validation',
+      })
     } finally {
       await app.close()
     }
@@ -333,7 +337,7 @@ describe('exposure API (live mode)', () => {
     })
 
     const repository: ExposureFindingRepository = {
-      upsert: (finding) => Promise.resolve(finding),
+      upsert: (_estate, finding) => Promise.resolve(finding),
       findById: () => Promise.resolve(null),
       listByTenant,
       getFacets,
@@ -349,12 +353,23 @@ describe('exposure API (live mode)', () => {
       expect(response.statusCode).toBe(200)
       expect(body.total).toBe(1)
       expect(body.facets.severity).toEqual({ critical: 1, high: 1 })
-      expect(listByTenant).toHaveBeenCalledWith('tenant-demo', {
-        severity: 'critical',
-        page: 1,
-        pageSize: 1,
+      expect(listByTenant).toHaveBeenCalledWith(
+        {
+          id: 'default',
+          tenantId: 'tenant-demo',
+          environment: 'validation',
+        },
+        {
+          severity: 'critical',
+          page: 1,
+          pageSize: 1,
+        },
+      )
+      expect(getFacets).toHaveBeenCalledWith({
+        id: 'default',
+        tenantId: 'tenant-demo',
+        environment: 'validation',
       })
-      expect(getFacets).toHaveBeenCalledWith('tenant-demo')
     } finally {
       await app.close()
     }
@@ -362,7 +377,7 @@ describe('exposure API (live mode)', () => {
 
   it('forbids mutations against /api/demo in live mode', async () => {
     const repository: ExposureFindingRepository = {
-      upsert: (f) => Promise.resolve(f),
+      upsert: (_estate, finding) => Promise.resolve(finding),
       findById: () => Promise.resolve(null),
       listByTenant: () => Promise.resolve({ items: [], total: 0 }),
       getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),
@@ -382,7 +397,7 @@ describe('exposure API (live mode)', () => {
   it('loads the finding snapshot with an explicit tenant boundary', async () => {
     const finding = makeFinding()
     const repository: ExposureFindingRepository = {
-      upsert: (value) => Promise.resolve(value),
+      upsert: (_estate, finding) => Promise.resolve(finding),
       findById: () => Promise.resolve(finding),
       listByTenant: () => Promise.resolve({ items: [], total: 0 }),
       getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),
@@ -431,7 +446,11 @@ describe('exposure API (live mode)', () => {
         url: `/api/exposures/${finding.id}/graph`,
       })
       expect(response.statusCode).toBe(200)
-      expect(findById).toHaveBeenCalledWith('snap-1', 'tenant-demo')
+      expect(findById).toHaveBeenCalledWith('snap-1', {
+        id: 'default',
+        tenantId: 'tenant-demo',
+        environment: 'validation',
+      })
     } finally {
       await app.close()
     }

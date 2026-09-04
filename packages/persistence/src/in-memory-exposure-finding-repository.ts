@@ -1,4 +1,5 @@
 import type {
+  EstateContext,
   ExposureFinding,
   ExposureFindingFacets,
   ExposureFindingListFilters,
@@ -8,12 +9,15 @@ import type {
 export class InMemoryExposureFindingRepository implements ExposureFindingRepository {
   private readonly findings = new Map<string, ExposureFinding>()
 
-  private key(id: string, tenantId: string): string {
-    return `${tenantId}\u0000${id}`
+  private key(id: string, estate: EstateContext): string {
+    return `${estate.id}\u0000${id}`
   }
 
-  upsert(finding: ExposureFinding): Promise<ExposureFinding> {
-    const key = this.key(finding.id, finding.tenantId)
+  upsert(estate: EstateContext, finding: ExposureFinding): Promise<ExposureFinding> {
+    if (finding.tenantId !== estate.tenantId) {
+      return Promise.reject(new Error('Exposure finding tenant does not match the target estate.'))
+    }
+    const key = this.key(finding.id, estate)
     const existing = this.findings.get(key)
     const merged: ExposureFinding = {
       ...structuredClone(finding),
@@ -23,18 +27,19 @@ export class InMemoryExposureFindingRepository implements ExposureFindingReposit
     return Promise.resolve(structuredClone(merged))
   }
 
-  findById(id: string, tenantId: string): Promise<ExposureFinding | null> {
-    const finding = this.findings.get(this.key(id, tenantId))
+  findById(id: string, estate: EstateContext): Promise<ExposureFinding | null> {
+    const finding = this.findings.get(this.key(id, estate))
     return Promise.resolve(finding ? structuredClone(finding) : null)
   }
 
   listByTenant(
-    tenantId: string,
+    estate: EstateContext,
     filters: ExposureFindingListFilters = {},
   ): Promise<{ items: ExposureFinding[]; total: number }> {
     const search = filters.search?.trim().toLocaleLowerCase() ?? ''
-    const filtered = [...this.findings.values()]
-      .filter((finding) => finding.tenantId === tenantId)
+    const filtered = [...this.findings.entries()]
+      .filter(([key]) => key.startsWith(`${estate.id}\u0000`))
+      .map(([, finding]) => finding)
       .filter((finding) =>
         filters.severity === undefined ? true : finding.severity === filters.severity,
       )
@@ -67,10 +72,10 @@ export class InMemoryExposureFindingRepository implements ExposureFindingReposit
     return Promise.resolve({ items, total })
   }
 
-  getFacets(tenantId: string): Promise<ExposureFindingFacets> {
+  getFacets(estate: EstateContext): Promise<ExposureFindingFacets> {
     const facets: ExposureFindingFacets = { severity: {}, status: {}, policyId: {} }
-    for (const finding of this.findings.values()) {
-      if (finding.tenantId !== tenantId) continue
+    for (const [key, finding] of this.findings.entries()) {
+      if (!key.startsWith(`${estate.id}\u0000`)) continue
       facets.severity[finding.severity] = (facets.severity[finding.severity] ?? 0) + 1
       facets.status[finding.status] = (facets.status[finding.status] ?? 0) + 1
       facets.policyId[finding.policyId] = (facets.policyId[finding.policyId] ?? 0) + 1
@@ -79,7 +84,7 @@ export class InMemoryExposureFindingRepository implements ExposureFindingReposit
   }
 
   resolveAbsent(
-    tenantId: string,
+    estate: EstateContext,
     presentIds: readonly string[],
     sourceModes?: readonly ExposureFinding['sourceMode'][],
   ): Promise<ExposureFinding[]> {
@@ -87,8 +92,8 @@ export class InMemoryExposureFindingRepository implements ExposureFindingReposit
     const sourceModeSet = sourceModes === undefined ? undefined : new Set(sourceModes)
     const resolved: ExposureFinding[] = []
     const now = new Date().toISOString()
-    for (const finding of this.findings.values()) {
-      if (finding.tenantId !== tenantId) continue
+    for (const [key, finding] of this.findings.entries()) {
+      if (!key.startsWith(`${estate.id}\u0000`)) continue
       if (sourceModeSet !== undefined && !sourceModeSet.has(finding.sourceMode)) continue
       if (presentSet.has(finding.id)) continue
       if (finding.status === 'resolved' || finding.status === 'mitigated') continue
@@ -97,7 +102,7 @@ export class InMemoryExposureFindingRepository implements ExposureFindingReposit
         status: 'resolved',
         lastSeen: now,
       }
-      this.findings.set(this.key(finding.id, tenantId), updated)
+      this.findings.set(this.key(finding.id, estate), updated)
       resolved.push(structuredClone(updated))
     }
     return Promise.resolve(resolved)
