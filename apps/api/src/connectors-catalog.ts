@@ -251,14 +251,19 @@ export function buildConnectorsCollection(
     }
     if (entry.id === 'entra-agent-id' && enabledEntraSources.length > 0) {
       const ready = enabledEntraSources.filter((source) => source.readiness === 'ready').length
+      const authorizationRequired = enabledEntraSources.some(
+        (source) => source.readiness === 'authorization-required',
+      )
       return {
         ...entry,
         lifecycleState:
           ready === enabledEntraSources.length
             ? 'connected'
-            : ready > 0
+            : ready > 0 || enabledEntraSources.some((source) => source.readiness === 'degraded')
               ? 'degraded'
-              : 'unavailable',
+              : authorizationRequired
+                ? 'authorization-required'
+                : 'unavailable',
       }
     }
     if (entry.id === 'copilot-studio' && enabledPowerPlatformSources.length > 0) {

@@ -1,6 +1,6 @@
 # Current status
 
-**Status date: 2026-09-01** · Branch: `feature/multi-source-otel`
+**Status date: 2026-09-04** · Branch: `feature/multi-source-otel`
 
 This is the authoritative dated ledger for the Agent Sentinel control plane. Every row states what is true today, not what is intended. Where a capability is absent, the ledger says so rather than describing it as pending success.
 
@@ -13,13 +13,16 @@ in [connector-availability.md](connector-availability.md).
 
 ## Replacement connector revalidation
 
-Live state was revalidated at **2026-09-01 14:23 KST**:
+Latest Entra migration facts were revalidated on **2026-09-04**:
 
-- All seven configured sources report `ready`: Foundry, Entra, Defender for
-  Cloud Apps, Purview, Azure Resource Graph, Teams organization catalog, and
-  Azure Monitor OTel. Aggregate health is `ready` with `partial=false`.
-- The latest complete jobs snapshot contains 349 nodes: 6 agents, 11 tools,
-  315 identities, and 17 controls, with 338 evidence records.
+- Replacement Foundry inventory contains 6 authoritative agents.
+- The current live snapshot contains 335 identity nodes and 0 `RUNS_AS` edges.
+- Both historical and replacement Foundry validation agents expose null
+  instance identity and null Agent Identity blueprint reference. Zero exact
+  identity correlation is therefore expected and must not be replaced with a
+  name, alias, owner, or fuzzy match.
+- Corporate sign-in remains `AUTH_MODE=disabled`; this `AUTH_*` state is
+  independent of the active read-only `ENTRA_*` inventory connector.
 - Defender alert/activity and Teams organization-catalog reads are valid empty
   results. They are connected, but zero records do not prove broader coverage.
 - The three runtime identities retain only the approved reads:
@@ -81,7 +84,7 @@ Live state was revalidated at **2026-09-01 14:23 KST**:
 | Unified live estate snapshot read model    | **Current.** Live `/api/demo/state` reads the latest jobs-persisted Cosmos snapshot for the exact configured tenant and environment. Inventory, catalog, lifecycle, trust, optimization, and observability no longer trigger an independent Foundry discovery. Missing persisted state returns explicit `503` without a mock fallback.                                                                                                                                             |
 | Unified live exposure projections          | **Current and deployed as `7458b3e`.** Live Overview renders persisted `ExposureFinding` posture instead of the mock workflow and derives counts from the current snapshot. Unsupported estate dimensions remain `unknown`; stale, refreshing, unavailable, public, unclassified, and modeled states are explicit. Trust, lifecycle, agent detail, exposure, and governance consume the same active exposure contract; the legacy attack-path `Finding` remains mock-only.         |
 | Entra authentication and RBAC              | **Replacement activation pending.** The corporate API and SPA registrations remain reusable, but the replacement Front Door redirect/logout URIs and runtime parameters have not been activated. The replacement deployment remains `AUTH_MODE=disabled` and writes remain false; the previous tenant's read-only JWT validation is historical evidence, not the current deployment state.                                                                                         |
-| Entra identity enrichment                  | **Live for the replacement primary source.** `Application.Read.All` currently reads 323 validated service principals into the complete Cosmos snapshot. Optional owners, app roles, and preview APIs remain disabled. Current Foundry agents expose no matching identity metadata, so `RUNS_AS` correlation is correctly empty rather than inferred.                                                                                                                               |
+| Entra identity enrichment                  | **Live inventory; parity remains unproven.** The current snapshot contains 335 Entra identity nodes and 0 `RUNS_AS` edges for 6 authoritative Foundry agents. Both historical and replacement validation agents have null instance identity and null blueprint reference. Optional owners, app roles, and preview APIs remain disabled. Code-side diagnostics now distinguish exact object-ID, app/client-ID, preview Agent Identity, unmatched, ambiguous, edge, and optional-capability coverage; replacement deployment validation is still required. |
 | Azure Resource Graph inventory             | **Live for the current authorized view.** A fixed GA REST query maps only bounded Azure AI/supporting-resource fields to unattributed control/evidence records. User validation returned 64 resources; the narrower application UAMI persisted 5 visible resources and zero inferred edges without a new Reader assignment.                                                                                                                                                        |
 | Cloud resource inventory surface           | **Current.** A dedicated route exposes only Azure Resource Graph control nodes with text/type/group/location/subscription filters and cited evidence. It labels RBAC-limited coverage explicitly and makes no agent, health, trust, or compliance inference.                                                                                                                                                                                                                       |
 | Power Platform agent inventory             | **Implemented; unattended activation unsupported.** The official ResourceQuery connector is bounded and disabled. Microsoft currently supports inventory through delegated `ResourceQuery.Resources.Read` plus a supported Entra role, while explicitly excluding preview Power Platform RBAC roles from inventory access. An environment filter is not an authorization boundary, so no live inventory is persisted.                                                              |

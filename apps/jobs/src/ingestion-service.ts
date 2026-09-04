@@ -84,6 +84,7 @@ export class IngestionService {
       )
     }
     const connectorHealth = this.connector.getConnectorHealth?.()
+    const connectorDegraded = connectorHealth?.overall === 'degraded'
     const connectorPartial = connectorHealth?.partial === true
     let snapshot: EstateSnapshot = discovered
     let manifestIngestion: IngestionResult['manifestIngestion'] =
@@ -118,7 +119,7 @@ export class IngestionService {
       }
     }
     const outcome =
-      connectorPartial || manifestIngestion.status === 'degraded'
+      connectorDegraded || manifestIngestion.status === 'degraded'
         ? 'partially-succeeded'
         : 'succeeded'
     const snapshotId = snapshotIdFor(snapshot)
@@ -174,6 +175,20 @@ export class IngestionService {
 
     await this.snapshots.save(this.options.estate, snapshot)
     logger.info('ingestion.snapshot.saved', { correlationId, snapshotId })
+    if (connectorDegraded) {
+      const sources = connectorHealth?.sources
+        .filter((source) => source.readiness !== 'ready' && source.readiness !== 'disabled')
+        .map((source) => ({
+          id: source.id,
+          readiness: source.readiness,
+          ...(source.reason !== undefined ? { reason: source.reason } : {}),
+        }))
+      logger.warn('ingestion.enrichment.degraded', {
+        correlationId,
+        persisted: true,
+        sources,
+      })
+    }
 
     const newFindings: ExposureFinding[] = []
     for (const finding of findings) {

@@ -5,6 +5,7 @@ import {
   type GraphEdge,
   type GraphNode,
 } from '@agent-sentinel/domain'
+import type { ExactIdentityCorrelationDiagnostics } from '@agent-sentinel/connector-sdk'
 
 import type {
   AgentIdentityPreview,
@@ -224,20 +225,27 @@ export function mapEntraInventoryToSnapshot(
   })
 }
 
-const DIRECTORY_ID_KEYS = [
-  'entraServicePrincipalId',
-  'servicePrincipalId',
-  'entraAgentIdentityId',
-  'agentIdentityId',
-] as const
+const DIRECTORY_ID_KEYS = ['entraServicePrincipalId', 'servicePrincipalId'] as const
 const APPLICATION_ID_KEYS = ['entraAppId', 'appId', 'entraClientId', 'clientId'] as const
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const AGENT_IDENTITY_ID_KEYS = ['entraAgentIdentityId', 'agentIdentityId'] as const
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export type EntraCorrelationDiagnostics = Omit<
+  ExactIdentityCorrelationDiagnostics,
+  'ownerCoverage' | 'appRoleCoverage' | 'previewCoverage'
+>
+
+export interface EntraCompositionResult {
+  snapshot: EstateSnapshot
+  diagnostics: EntraCorrelationDiagnostics
+}
 
 function composeSnapshotWithEntra(
   base: EstateSnapshot,
   identities: EstateSnapshot,
   shouldCorrelate: (agent: GraphNode) => boolean,
-): EstateSnapshot {
+  source: EntraAggregateSource,
+): EntraCompositionResult {
   const distinctById = <T extends { id: string }>(items: readonly T[]): T[] => {
     const sorted = [...items].sort(
       (left, right) =>
@@ -254,6 +262,7 @@ function composeSnapshotWithEntra(
   }))
   const byDirectoryId = new Map<string, GraphNode[]>()
   const byApplicationId = new Map<string, GraphNode[]>()
+  const byAgentIdentityId = new Map<string, GraphNode[]>()
   for (const node of identityNodes) {
     const directoryId = node.metadata['directoryObjectId']?.toLowerCase()
     const applicationId = node.metadata['applicationId']?.toLowerCase()
@@ -261,6 +270,9 @@ function composeSnapshotWithEntra(
       byDirectoryId.set(directoryId, [...(byDirectoryId.get(directoryId) ?? []), node])
     if (applicationId)
       byApplicationId.set(applicationId, [...(byApplicationId.get(applicationId) ?? []), node])
+    if (directoryId && node.metadata['agentIdentityPreview'] === 'true') {
+      byAgentIdentityId.set(directoryId, [...(byAgentIdentityId.get(directoryId) ?? []), node])
+    }
   }
 
   const baseNodes = distinctById(base.nodes).map((node) => ({
@@ -269,30 +281,74 @@ function composeSnapshotWithEntra(
     metadata: { ...node.metadata },
   }))
   const correlationEdges: GraphEdge[] = []
+  let authoritativeAgentsConsidered = 0
+  let exactObjectIdMatches = 0
+  let exactApplicationIdMatches = 0
+  let exactAgentIdentityMatches = 0
+  let unmatched = 0
+  let ambiguous = 0
+  const diagnosticEvidenceIds = new Set<string>()
   for (const agent of baseNodes.filter((node) => node.kind === 'agent' && shouldCorrelate(node))) {
-    const candidates = new Map<string, GraphNode>()
-    for (const key of DIRECTORY_ID_KEYS) {
-      const value = agent.metadata[key]
-      if (value && UUID_PATTERN.test(value)) {
-        for (const identity of byDirectoryId.get(value.toLowerCase()) ?? []) {
-          candidates.set(identity.id, identity)
+    authoritativeAgentsConsidered += 1
+    for (const evidenceId of agent.evidenceIds) diagnosticEvidenceIds.add(evidenceId)
+    const candidates = new Map<
+      string,
+      { identity: GraphNode; kinds: Set<'object-id' | 'application-id' | 'agent-identity-id'> }
+    >()
+    let hasValidIdentifier = false
+    const addCandidates = (
+      keys: readonly string[],
+      index: ReadonlyMap<string, GraphNode[]>,
+      kind: 'object-id' | 'application-id' | 'agent-identity-id',
+    ): void => {
+      for (const key of keys) {
+        const value = agent.metadata[key]
+        if (!value || !UUID_PATTERN.test(value)) continue
+        hasValidIdentifier = true
+        for (const identity of index.get(value.toLowerCase()) ?? []) {
+          const candidate = candidates.get(identity.id) ?? { identity, kinds: new Set() }
+          candidate.kinds.add(kind)
+          candidates.set(identity.id, candidate)
         }
       }
     }
-    for (const key of APPLICATION_ID_KEYS) {
-      const value = agent.metadata[key]
-      if (value && UUID_PATTERN.test(value)) {
-        for (const identity of byApplicationId.get(value.toLowerCase()) ?? []) {
-          candidates.set(identity.id, identity)
-        }
-      }
+    addCandidates(DIRECTORY_ID_KEYS, byDirectoryId, 'object-id')
+    addCandidates(APPLICATION_ID_KEYS, byApplicationId, 'application-id')
+    addCandidates(AGENT_IDENTITY_ID_KEYS, byAgentIdentityId, 'agent-identity-id')
+    for (const { identity } of candidates.values()) {
+      for (const evidenceId of identity.evidenceIds) diagnosticEvidenceIds.add(evidenceId)
     }
-    if (candidates.size !== 1) {
-      if (candidates.size > 1) agent.metadata['entraCorrelationStatus'] = 'conflict'
+    if (candidates.size === 0) {
+      unmatched += 1
+      agent.metadata['entraCorrelationStatus'] = 'unmatched'
+      agent.metadata['entraCorrelationReason'] = hasValidIdentifier
+        ? 'no-exact-source-match'
+        : 'missing-authoritative-identifier'
+      delete agent.metadata['entraCorrelationMatchKind']
+      delete agent.metadata['entraIdentityNodeId']
       continue
     }
-    const identity = [...candidates.values()][0]!
-    agent.metadata['entraCorrelationStatus'] = 'correlated-explicit-id'
+    if (candidates.size > 1) {
+      ambiguous += 1
+      agent.metadata['entraCorrelationStatus'] = 'ambiguous'
+      agent.metadata['entraCorrelationReason'] = 'multiple-exact-source-matches'
+      delete agent.metadata['entraCorrelationMatchKind']
+      delete agent.metadata['entraIdentityNodeId']
+      continue
+    }
+    const candidate = [...candidates.values()][0]!
+    const identity = candidate.identity
+    const matchKind = candidate.kinds.has('agent-identity-id')
+      ? 'agent-identity-id'
+      : candidate.kinds.has('object-id')
+        ? 'object-id'
+        : 'application-id'
+    if (matchKind === 'agent-identity-id') exactAgentIdentityMatches += 1
+    else if (matchKind === 'object-id') exactObjectIdMatches += 1
+    else exactApplicationIdMatches += 1
+    agent.metadata['entraCorrelationStatus'] = 'matched'
+    agent.metadata['entraCorrelationMatchKind'] = matchKind
+    delete agent.metadata['entraCorrelationReason']
     agent.metadata['entraIdentityNodeId'] = identity.id
     identity.metadata['correlationStatus'] = 'correlated-explicit-id'
     identity.metadata['correlatedAgentIds'] = distinctStrings([
@@ -315,16 +371,51 @@ function composeSnapshotWithEntra(
     (edge) => ({ ...edge, evidenceIds: distinctStrings(edge.evidenceIds) }),
   )
   const evidence = distinctById([...base.evidence, ...identities.evidence])
-  return assertEstateSnapshot({
-    tenantId: base.tenantId,
-    environment: base.environment,
-    generatedAt:
-      new Date(base.generatedAt).getTime() >= new Date(identities.generatedAt).getTime()
-        ? base.generatedAt
-        : identities.generatedAt,
-    nodes,
-    edges,
-    evidence,
+  return {
+    snapshot: assertEstateSnapshot({
+      tenantId: base.tenantId,
+      environment: base.environment,
+      generatedAt:
+        new Date(base.generatedAt).getTime() >= new Date(identities.generatedAt).getTime()
+          ? base.generatedAt
+          : identities.generatedAt,
+      nodes,
+      edges,
+      evidence,
+    }),
+    diagnostics: {
+      kind: 'exact-identity-correlation',
+      provider: 'microsoft-entra',
+      sourceId: source.id,
+      sourceTenantId: source.tenantId,
+      sourceEnvironment: source.environment,
+      authoritativeAgentsConsidered,
+      exactObjectIdMatches,
+      exactApplicationIdMatches,
+      exactAgentIdentityMatches,
+      unmatched,
+      ambiguous,
+      runsAsEdgesEmitted: correlationEdges.length,
+      evidenceReferences: [...diagnosticEvidenceIds].sort(),
+    },
+  }
+}
+
+export function enrichSnapshotWithEntraAndDiagnostics(
+  base: EstateSnapshot,
+  identities: EstateSnapshot,
+): EntraCompositionResult {
+  if (base.tenantId.toLowerCase() !== identities.tenantId.toLowerCase()) {
+    throw new Error('Cannot compose connector snapshots from different Microsoft Entra tenants.')
+  }
+  if (base.environment !== identities.environment) {
+    throw new Error('Cannot compose connector snapshots from different environments.')
+  }
+  return composeSnapshotWithEntra(base, identities, () => true, {
+    id: 'primary',
+    name: 'Primary source',
+    tenantId: identities.tenantId,
+    environment: identities.environment,
   })
 }
 
@@ -332,13 +423,7 @@ export function enrichSnapshotWithEntra(
   base: EstateSnapshot,
   identities: EstateSnapshot,
 ): EstateSnapshot {
-  if (base.tenantId.toLowerCase() !== identities.tenantId.toLowerCase()) {
-    throw new Error('Cannot compose connector snapshots from different Microsoft Entra tenants.')
-  }
-  if (base.environment !== identities.environment) {
-    throw new Error('Cannot compose connector snapshots from different environments.')
-  }
-  return composeSnapshotWithEntra(base, identities, () => true)
+  return enrichSnapshotWithEntraAndDiagnostics(base, identities).snapshot
 }
 
 export interface EntraAggregateSource {
@@ -352,11 +437,11 @@ function aggregateScopedId(sourceId: string, id: string): string {
   return `entra-source-${sourceId}--${id}`
 }
 
-export function enrichAggregateSnapshotWithEntra(
+export function enrichAggregateSnapshotWithEntraAndDiagnostics(
   base: EstateSnapshot,
   identities: EstateSnapshot,
   source: EntraAggregateSource,
-): EstateSnapshot {
+): EntraCompositionResult {
   if (identities.tenantId.toLowerCase() !== source.tenantId.toLowerCase()) {
     throw new Error('Entra identity snapshot does not match its configured source tenant.')
   }
@@ -412,7 +497,17 @@ export function enrichAggregateSnapshotWithEntra(
     base,
     scopedIdentities,
     (agent) =>
+      agent.metadata['sourceConnectorId'] === source.id &&
       agent.metadata['sourceTenantId']?.toLowerCase() === source.tenantId.toLowerCase() &&
       agent.metadata['sourceEnvironment'] === source.environment,
+    source,
   )
+}
+
+export function enrichAggregateSnapshotWithEntra(
+  base: EstateSnapshot,
+  identities: EstateSnapshot,
+  source: EntraAggregateSource,
+): EstateSnapshot {
+  return enrichAggregateSnapshotWithEntraAndDiagnostics(base, identities, source).snapshot
 }

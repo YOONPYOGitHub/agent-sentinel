@@ -12,6 +12,7 @@ import {
   MultiEntraEnrichmentConnector,
   createEntraIdentityConnector,
   createOptionalEntraEnrichmentConnector,
+  enrichAggregateSnapshotWithEntraAndDiagnostics,
   enrichSnapshotWithEntra,
   entraIdentityConnectorConfigSchema,
   mapEntraInventoryToSnapshot,
@@ -79,6 +80,37 @@ function baseSnapshot(metadata: Record<string, string>): EstateSnapshot {
         summary: 'Declared configuration.',
       },
     ],
+  }
+}
+
+function baseSnapshotWithAgents(
+  agents: Array<{ id: string; metadata: Record<string, string> }>,
+): EstateSnapshot {
+  const observedAt = '2026-08-27T08:00:00.000Z'
+  return {
+    tenantId,
+    environment: 'validation',
+    generatedAt: observedAt,
+    nodes: agents.map((agent) => ({
+      id: agent.id,
+      kind: 'agent' as const,
+      name: `Agent ${agent.id}`,
+      description: 'test',
+      environment: 'validation',
+      evidenceIds: [`evidence-${agent.id}`],
+      metadata: agent.metadata,
+    })),
+    edges: [],
+    evidence: agents.map((agent) => ({
+      id: `evidence-${agent.id}`,
+      source: 'Foundry',
+      sourceObjectId: agent.id,
+      observedAt,
+      freshness: 'live' as const,
+      confidence: 1,
+      evidenceTypes: ['declared_configuration' as const],
+      summary: 'Declared configuration.',
+    })),
   }
 }
 
@@ -397,6 +429,112 @@ describe('normalization and correlation', () => {
       ),
     ).toThrow('different Microsoft Entra tenants')
   })
+
+  it('requires preview classification for an Agent Identity identifier', () => {
+    const result = enrichSnapshotWithEntra(
+      baseSnapshot({ agentIdentityId: '11111111-1111-4111-8111-111111111111' }),
+      inventorySnapshot(),
+    )
+
+    expect(result.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
+    expect(result.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'unmatched',
+      entraCorrelationReason: 'no-exact-source-match',
+    })
+  })
+
+  it('rejects an exact identifier from another connector source', () => {
+    const base = {
+      ...baseSnapshotWithAgents([
+        {
+          id: 'agent-other-source',
+          metadata: {
+            sourceConnectorId: 'project-b',
+            sourceTenantId: tenantId,
+            sourceEnvironment: 'validation',
+            servicePrincipalId: '11111111-1111-4111-8111-111111111111',
+          },
+        },
+      ]),
+      tenantId: 'estate',
+      environment: 'portfolio',
+    }
+
+    const result = enrichAggregateSnapshotWithEntraAndDiagnostics(base, inventorySnapshot(), {
+      id: 'project-a',
+      name: 'Project A',
+      tenantId,
+      environment: 'validation',
+    })
+
+    expect(result.snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
+    expect(result.diagnostics).toMatchObject({
+      authoritativeAgentsConsidered: 0,
+      exactObjectIdMatches: 0,
+      unmatched: 0,
+      ambiguous: 0,
+      runsAsEdgesEmitted: 0,
+      evidenceReferences: [],
+    })
+  })
+
+  it('marks duplicate exact identity candidates ambiguous without name fallback', () => {
+    const duplicateAppId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const identities = mapEntraInventoryToSnapshot(
+      {
+        servicePrincipals: [
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            appId: duplicateAppId,
+            displayName: 'Duplicate display name',
+          },
+          {
+            id: '22222222-2222-4222-8222-222222222222',
+            appId: duplicateAppId,
+            displayName: 'Duplicate display name',
+          },
+        ],
+        owners: new Map(),
+        appRoleAssignments: new Map(),
+        agentIdentitiesPreview: [],
+      },
+      config,
+      '2026-08-27T08:00:00.000Z',
+    )
+
+    const result = enrichSnapshotWithEntra(
+      baseSnapshot({
+        clientId: duplicateAppId,
+        displayName: 'Duplicate display name',
+        owner: 'Identity Owner',
+        alias: 'duplicate',
+      }),
+      identities,
+    )
+
+    expect(result.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
+    expect(result.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'ambiguous',
+      entraCorrelationReason: 'multiple-exact-source-matches',
+    })
+  })
+
+  it('reports malformed identifiers as missing authoritative identifiers', () => {
+    const result = enrichSnapshotWithEntra(
+      baseSnapshot({
+        servicePrincipalId: 'not-a-guid',
+        clientId: 'also-not-a-guid',
+        displayName: 'Explicit Agent Identity',
+      }),
+      inventorySnapshot(),
+    )
+
+    expect(result.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
+    expect(result.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'unmatched',
+      entraCorrelationReason: 'missing-authoritative-identifier',
+    })
+  })
 })
 
 describe('optional preview capability', () => {
@@ -454,6 +592,257 @@ describe('optional preview capability', () => {
   })
 })
 describe('composite enrichment connector', () => {
+  it('reports disjoint exact-match diagnostics with evidence references', async () => {
+    const objectId = '11111111-1111-4111-8111-111111111111'
+    const applicationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const secondObjectId = '22222222-2222-4222-8222-222222222222'
+    const secondApplicationId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    const previewObjectId = '33333333-3333-4333-8333-333333333333'
+    const previewApplicationId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    const base = connectorForSnapshot(
+      baseSnapshotWithAgents([
+        { id: 'agent-object', metadata: { servicePrincipalId: objectId } },
+        { id: 'agent-application', metadata: { clientId: secondApplicationId } },
+        { id: 'agent-preview', metadata: { agentIdentityId: previewObjectId } },
+        { id: 'agent-missing', metadata: {} },
+        {
+          id: 'agent-ambiguous',
+          metadata: { servicePrincipalId: objectId, clientId: secondApplicationId },
+        },
+      ]),
+    )
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          value: [
+            {
+              id: objectId,
+              appId: applicationId,
+              displayName: 'Object identity',
+              servicePrincipalType: 'Application',
+              accountEnabled: true,
+              appOwnerOrganizationId: tenantId,
+              tags: [],
+            },
+            {
+              id: secondObjectId,
+              appId: secondApplicationId,
+              displayName: 'Application identity',
+              servicePrincipalType: 'Application',
+              accountEnabled: true,
+              appOwnerOrganizationId: tenantId,
+              tags: [],
+            },
+            {
+              id: previewObjectId,
+              appId: previewApplicationId,
+              displayName: 'Preview identity',
+              servicePrincipalType: 'ServiceIdentity',
+              accountEnabled: true,
+              appOwnerOrganizationId: tenantId,
+              tags: [],
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          value: [
+            {
+              '@odata.type': '#microsoft.graph.agentIdentity',
+              id: previewObjectId,
+              appId: previewApplicationId,
+              displayName: 'Preview identity',
+              accountEnabled: true,
+              agentIdentityBlueprintId: null,
+              createdByAppId: null,
+              createdDateTime: null,
+              managerApplications: [],
+              servicePrincipalType: 'ServiceIdentity',
+              tags: [],
+            },
+          ],
+        }),
+      )
+    const entra = new EntraIdentityConnector(
+      { ...config, capabilities: { ...config.capabilities, agentIdentityPreview: true } },
+      new Credential(),
+      { fetcher },
+    )
+    const composite = new EntraEnrichmentConnector(base, entra)
+
+    const snapshot = await composite.discover()
+    const diagnostics = composite.getConnectorHealth().sources[1]?.diagnostics
+
+    expect(snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(3)
+    expect(diagnostics).toMatchObject({
+      kind: 'exact-identity-correlation',
+      provider: 'microsoft-entra',
+      sourceId: 'primary',
+      sourceTenantId: tenantId,
+      sourceEnvironment: 'validation',
+      authoritativeAgentsConsidered: 5,
+      exactObjectIdMatches: 1,
+      exactApplicationIdMatches: 1,
+      exactAgentIdentityMatches: 1,
+      unmatched: 1,
+      ambiguous: 1,
+      runsAsEdgesEmitted: 3,
+      ownerCoverage: { status: 'disabled', evidenceReferences: [] },
+      appRoleCoverage: { status: 'disabled', evidenceReferences: [] },
+      previewCoverage: { status: 'available', considered: 3, covered: 1 },
+    })
+    expect(diagnostics?.evidenceReferences).toEqual(
+      expect.arrayContaining([
+        'evidence-agent-object',
+        'evidence-agent-application',
+        'evidence-agent-preview',
+        'evidence-agent-missing',
+        'evidence-agent-ambiguous',
+        `entra-service-principal-evidence-${objectId}`,
+        `entra-agent-identity-preview-evidence-${previewObjectId}`,
+      ]),
+    )
+    expect(snapshot.nodes.find((node) => node.id === 'agent-preview')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'matched',
+      entraCorrelationMatchKind: 'agent-identity-id',
+    })
+    expect(snapshot.nodes.find((node) => node.id === 'agent-ambiguous')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'ambiguous',
+      entraCorrelationReason: 'multiple-exact-source-matches',
+    })
+  })
+
+  it('degrades only unauthorized preview coverage after stable inventory succeeds', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response('service-principals-page-2.json'))
+      .mockResolvedValueOnce(new Response('', { status: 403 }))
+    const entra = new EntraIdentityConnector(
+      { ...config, capabilities: { ...config.capabilities, agentIdentityPreview: true } },
+      new Credential(),
+      { fetcher },
+    )
+    const composite = new EntraEnrichmentConnector(baseConnector(), entra)
+
+    const snapshot = await composite.discover()
+    const health = composite.getConnectorHealth()
+    const coverage = health.sources[1]?.diagnostics?.previewCoverage
+
+    expect(snapshot.nodes.some((node) => node.kind === 'identity')).toBe(true)
+    expect(health).toMatchObject({ overall: 'degraded', partial: false })
+    expect(coverage).toEqual({
+      status: 'authorization-required',
+      reason: 'authorization (403)',
+      evidenceReferences: [],
+    })
+    expect(coverage).not.toHaveProperty('considered')
+    expect(coverage).not.toHaveProperty('covered')
+  })
+
+  it('keeps owner and app-role failures independent in diagnostics', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response('service-principals-page-2.json'))
+      .mockResolvedValueOnce(new Response('', { status: 403 }))
+      .mockResolvedValueOnce(Response.json({ value: [] }))
+    const entra = new EntraIdentityConnector(
+      {
+        ...config,
+        capabilities: {
+          owners: true,
+          appRoleAssignments: true,
+          agentIdentityPreview: false,
+        },
+      },
+      new Credential(),
+      { fetcher },
+    )
+    const composite = new EntraEnrichmentConnector(baseConnector(), entra)
+
+    await composite.discover()
+    const diagnostics = composite.getConnectorHealth().sources[1]?.diagnostics
+
+    expect(diagnostics?.ownerCoverage).toEqual({
+      status: 'authorization-required',
+      reason: 'authorization (403)',
+      evidenceReferences: [],
+    })
+    expect(diagnostics?.appRoleCoverage).toMatchObject({
+      status: 'available',
+      considered: 1,
+      covered: 0,
+    })
+    expect(diagnostics?.previewCoverage).toEqual({
+      status: 'disabled',
+      evidenceReferences: [],
+    })
+  })
+
+  it('preserves owner coverage when app-role enrichment alone fails', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response('service-principals-page-2.json'))
+      .mockResolvedValueOnce(response('owners.json'))
+      .mockResolvedValueOnce(new Response('', { status: 403 }))
+    const entra = new EntraIdentityConnector(
+      {
+        ...config,
+        capabilities: {
+          owners: true,
+          appRoleAssignments: true,
+          agentIdentityPreview: false,
+        },
+      },
+      new Credential(),
+      { fetcher },
+    )
+    const composite = new EntraEnrichmentConnector(baseConnector(), entra)
+
+    await composite.discover()
+    const diagnostics = composite.getConnectorHealth().sources[1]?.diagnostics
+
+    expect(diagnostics?.ownerCoverage).toMatchObject({
+      status: 'available',
+      considered: 1,
+      covered: 1,
+    })
+    expect(diagnostics?.appRoleCoverage).toEqual({
+      status: 'authorization-required',
+      reason: 'authorization (403)',
+      evidenceReferences: [],
+    })
+    expect(diagnostics?.previewCoverage).toEqual({
+      status: 'disabled',
+      evidenceReferences: [],
+    })
+  })
+
+  it('reports malformed preview as degraded without success-shaped coverage counts', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response('service-principals-page-2.json'))
+      .mockResolvedValueOnce(Response.json({ value: [{ id: 'invalid' }] }))
+    const entra = new EntraIdentityConnector(
+      { ...config, capabilities: { ...config.capabilities, agentIdentityPreview: true } },
+      new Credential(),
+      { fetcher },
+    )
+    const composite = new EntraEnrichmentConnector(baseConnector(), entra)
+
+    await composite.discover()
+    const coverage = composite.getConnectorHealth().sources[1]?.diagnostics?.previewCoverage
+
+    expect(coverage).toEqual({
+      status: 'degraded',
+      reason: 'malformed-response',
+      evidenceReferences: [],
+    })
+    expect(coverage).not.toHaveProperty('considered')
+    expect(coverage).not.toHaveProperty('covered')
+  })
+
   it('preserves base discovery and reports explicit Entra health', async () => {
     const entra = new EntraIdentityConnector(config, new Credential(), {
       fetcher: vi.fn<typeof fetch>().mockResolvedValue(response('service-principals-page-2.json')),
@@ -669,6 +1058,73 @@ describe('composite enrichment connector', () => {
           },
         ],
       })
+    })
+
+    it('source-scopes optional capability evidence references', async () => {
+      const expected = [expectedSources[0]!]
+      const previewId = '11111111-1111-4111-8111-111111111111'
+      const connector = new MultiEntraEnrichmentConnector(
+        connectorForSnapshot(aggregateBase()),
+        [
+          {
+            ...sourceConfig(expected[0]!),
+            capabilities: {
+              owners: false,
+              appRoleAssignments: false,
+              agentIdentityPreview: true,
+            },
+          },
+        ],
+        {
+          enabled: true,
+          expectedSources: expected,
+          credentialFactory: () => new Credential(),
+          clientFactory: () => ({
+            fetcher: vi
+              .fn<typeof fetch>()
+              .mockResolvedValueOnce(
+                Response.json({
+                  value: [
+                    {
+                      id: previewId,
+                      appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                      displayName: 'Preview identity',
+                      servicePrincipalType: 'ServiceIdentity',
+                      accountEnabled: true,
+                      appOwnerOrganizationId: tenantA,
+                      tags: [],
+                    },
+                  ],
+                }),
+              )
+              .mockResolvedValueOnce(
+                Response.json({
+                  value: [
+                    {
+                      '@odata.type': '#microsoft.graph.agentIdentity',
+                      id: previewId,
+                      appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                      displayName: 'Preview identity',
+                      accountEnabled: true,
+                      agentIdentityBlueprintId: null,
+                      createdByAppId: null,
+                      createdDateTime: null,
+                      managerApplications: [],
+                      servicePrincipalType: 'ServiceIdentity',
+                      tags: [],
+                    },
+                  ],
+                }),
+              ),
+          }),
+        },
+      )
+
+      await connector.discover()
+
+      expect(
+        connector.getConnectorHealth().sources[1]?.diagnostics?.previewCoverage.evidenceReferences,
+      ).toEqual([`entra-source-project-a--entra-agent-identity-preview-evidence-${previewId}`])
     })
   })
 

@@ -2,10 +2,12 @@ import type {
   AgentConnector,
   ApprovalContext,
   ConnectionTestResult,
+  ConnectorCapabilityCoverage,
   ConnectorCapability,
   ConnectorDescriptor,
   ConnectorHealthReport,
   ConnectorReadiness,
+  ExactIdentityCorrelationDiagnostics,
 } from '@agent-sentinel/connector-sdk'
 import type { EstateSnapshot, Evidence, Remediation } from '@agent-sentinel/domain'
 import type { TokenCredential } from '@azure/core-auth'
@@ -19,7 +21,9 @@ import { z } from 'zod'
 import { EntraGraphClient, EntraGraphError, type EntraGraphClientOptions } from './client.js'
 import {
   enrichAggregateSnapshotWithEntra,
+  enrichAggregateSnapshotWithEntraAndDiagnostics,
   enrichSnapshotWithEntra,
+  enrichSnapshotWithEntraAndDiagnostics,
   mapEntraInventoryToSnapshot,
   type EntraAggregateSource,
 } from './normalize.js'
@@ -124,6 +128,39 @@ function safeFailureReason(error: unknown): string {
   return 'unexpected-failure'
 }
 
+function degradedCoverage(error: unknown): ConnectorCapabilityCoverage {
+  const reason = safeFailureReason(error)
+  return {
+    status: reason.startsWith('authorization') ? 'authorization-required' : 'degraded',
+    reason,
+    evidenceReferences: [],
+  }
+}
+
+function disabledCoverage(): ConnectorCapabilityCoverage {
+  return { status: 'disabled', evidenceReferences: [] }
+}
+
+function unavailableCoverage(): ConnectorCapabilityCoverage {
+  return { status: 'unavailable', reason: 'not-queried', evidenceReferences: [] }
+}
+
+function principalEvidenceReference(principalId: string): string {
+  return `entra-service-principal-evidence-${principalId}`
+}
+
+function sourceScopedCoverage(
+  sourceId: string,
+  coverage: ConnectorCapabilityCoverage,
+): ConnectorCapabilityCoverage {
+  return {
+    ...coverage,
+    evidenceReferences: coverage.evidenceReferences.map(
+      (reference) => `entra-source-${sourceId}--${reference}`,
+    ),
+  }
+}
+
 function envBoolean(env: NodeJS.ProcessEnv, name: string): boolean {
   const value = env[name]?.trim().toLowerCase()
   if (value === undefined || value === '') return false
@@ -145,6 +182,11 @@ export class EntraIdentityConnector implements AgentConnector {
   private readonly client: EntraGraphClient
   private evidenceById = new Map<string, Evidence>()
   private health: EntraConnectorHealth
+  private capabilityCoverage: {
+    owners: ConnectorCapabilityCoverage
+    appRoleAssignments: ConnectorCapabilityCoverage
+    agentIdentityPreview: ConnectorCapabilityCoverage
+  }
 
   constructor(
     configInput: z.input<typeof entraIdentityConnectorConfigSchema>,
@@ -179,6 +221,15 @@ export class EntraIdentityConnector implements AgentConnector {
       agentIdentityPreview: {
         status: this.config.capabilities.agentIdentityPreview ? 'unavailable' : 'disabled',
       },
+    }
+    this.capabilityCoverage = {
+      owners: this.config.capabilities.owners ? unavailableCoverage() : disabledCoverage(),
+      appRoleAssignments: this.config.capabilities.appRoleAssignments
+        ? unavailableCoverage()
+        : disabledCoverage(),
+      agentIdentityPreview: this.config.capabilities.agentIdentityPreview
+        ? unavailableCoverage()
+        : disabledCoverage(),
     }
   }
 
@@ -218,8 +269,17 @@ export class EntraIdentityConnector implements AgentConnector {
         for (const [id, values] of await this.client.listOwners(servicePrincipals))
           owners.set(id, values)
         this.health.owners = { status: 'available' }
+        this.capabilityCoverage.owners = {
+          status: 'available',
+          considered: servicePrincipals.length,
+          covered: [...owners.values()].filter((values) => values.length > 0).length,
+          evidenceReferences: servicePrincipals
+            .map((principal) => principalEvidenceReference(principal.id))
+            .sort(),
+        }
       } catch (error) {
         this.health.owners = { status: 'degraded', reason: safeFailureReason(error) }
+        this.capabilityCoverage.owners = degradedCoverage(error)
       }
     }
 
@@ -229,11 +289,23 @@ export class EntraIdentityConnector implements AgentConnector {
         for (const [id, values] of await this.client.listAppRoleAssignments(servicePrincipals))
           appRoleAssignments.set(id, values)
         this.health.appRoleAssignments = { status: 'available' }
+        this.capabilityCoverage.appRoleAssignments = {
+          status: 'available',
+          considered: servicePrincipals.length,
+          covered: [...appRoleAssignments.values()].filter((values) => values.length > 0).length,
+          evidenceReferences: [
+            ...servicePrincipals.map((principal) => principalEvidenceReference(principal.id)),
+            ...[...appRoleAssignments.values()].flatMap((values) =>
+              values.map((assignment) => `entra-app-role-evidence-${assignment.id}`),
+            ),
+          ].sort(),
+        }
       } catch (error) {
         this.health.appRoleAssignments = {
           status: 'degraded',
           reason: safeFailureReason(error),
         }
+        this.capabilityCoverage.appRoleAssignments = degradedCoverage(error)
       }
     }
 
@@ -242,8 +314,20 @@ export class EntraIdentityConnector implements AgentConnector {
       try {
         agentIdentitiesPreview = await this.client.listAgentIdentitiesPreview()
         this.health.agentIdentityPreview = { status: 'available' }
+        const stableIds = new Set(servicePrincipals.map((principal) => principal.id.toLowerCase()))
+        this.capabilityCoverage.agentIdentityPreview = {
+          status: 'available',
+          considered: servicePrincipals.length,
+          covered: agentIdentitiesPreview.filter((identity) =>
+            stableIds.has(identity.id.toLowerCase()),
+          ).length,
+          evidenceReferences: agentIdentitiesPreview
+            .map((identity) => `entra-agent-identity-preview-evidence-${identity.id}`)
+            .sort(),
+        }
       } catch (error) {
         this.health.agentIdentityPreview = { status: 'degraded', reason: safeFailureReason(error) }
+        this.capabilityCoverage.agentIdentityPreview = degradedCoverage(error)
       }
     }
 
@@ -257,6 +341,10 @@ export class EntraIdentityConnector implements AgentConnector {
 
   getHealth(): EntraConnectorHealth {
     return structuredClone(this.health)
+  }
+
+  getCapabilityCoverage() {
+    return structuredClone(this.capabilityCoverage)
   }
 
   getEvidence(evidenceId: string): Promise<Evidence> {
@@ -294,6 +382,7 @@ export class EntraEnrichmentConnector implements AgentConnector {
   private readonly enabled: boolean
   private readonly configured: boolean
   private composition: EntraEnrichmentHealth['composition']
+  private diagnostics: ExactIdentityCorrelationDiagnostics | undefined
 
   constructor(
     private readonly base: AgentConnector,
@@ -360,7 +449,15 @@ export class EntraEnrichmentConnector implements AgentConnector {
     let snapshot: EstateSnapshot
     try {
       const identities = await this.entra.discover()
-      snapshot = enrichSnapshotWithEntra(base, identities)
+      const composed = enrichSnapshotWithEntraAndDiagnostics(base, identities)
+      const capabilityCoverage = this.entra.getCapabilityCoverage()
+      snapshot = composed.snapshot
+      this.diagnostics = {
+        ...composed.diagnostics,
+        ownerCoverage: capabilityCoverage.owners,
+        appRoleCoverage: capabilityCoverage.appRoleAssignments,
+        previewCoverage: capabilityCoverage.agentIdentityPreview,
+      }
       this.composition = { status: 'available' }
     } catch (error) {
       const message = error instanceof Error ? error.message : ''
@@ -372,6 +469,7 @@ export class EntraEnrichmentConnector implements AgentConnector {
             ? 'environment-mismatch'
             : safeFailureReason(error),
       }
+      this.diagnostics = undefined
       this.evidenceById = new Map(base.evidence.map((item) => [item.id, item]))
       return base
     }
@@ -406,12 +504,13 @@ export class EntraEnrichmentConnector implements AgentConnector {
       entraHealth.appRoleAssignments,
       entraHealth.agentIdentityPreview,
     ].every((capability) => capability.status === 'disabled' || capability.status === 'available')
-    const entraReady =
+    const entraAuthoritativeReady =
       this.enabled &&
       this.entra !== undefined &&
       entraHealth.stableInventory.status === 'available' &&
       this.composition.status === 'available' &&
-      optionalCapabilitiesReady
+      this.diagnostics !== undefined
+    const entraReady = entraAuthoritativeReady && optionalCapabilitiesReady
     const entraReadiness: ConnectorReadiness = !this.enabled
       ? this.configured
         ? 'disabled'
@@ -434,7 +533,7 @@ export class EntraEnrichmentConnector implements AgentConnector {
         : basePartial || (this.enabled && !entraReady)
           ? 'degraded'
           : 'ready',
-      partial: baseReady && (basePartial || (this.enabled && !entraReady)),
+      partial: baseReady && (basePartial || (this.enabled && !entraAuthoritativeReady)),
       sources: [
         ...(baseHealth?.sources ?? [
           {
@@ -456,6 +555,9 @@ export class EntraEnrichmentConnector implements AgentConnector {
           configured: this.configured,
           readiness: entraReadiness,
           ...(reason ? { reason } : {}),
+          ...(this.diagnostics !== undefined
+            ? { diagnostics: structuredClone(this.diagnostics) }
+            : {}),
         },
       ],
     }
@@ -494,6 +596,8 @@ interface MultiEntraSourceState {
   readiness: ConnectorReadiness
   checkedAt: string | undefined
   reason: string | undefined
+  authoritativeComplete: boolean
+  diagnostics: ExactIdentityCorrelationDiagnostics | undefined
 }
 
 function sourceBoundary(source: Pick<EntraAggregateSource, 'tenantId' | 'environment'>): string {
@@ -587,6 +691,8 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
               ? 'degraded'
               : 'authorization-required',
         checkedAt: undefined,
+        authoritativeComplete: false,
+        diagnostics: undefined,
         reason:
           reason ??
           (this.enabled && connector !== undefined
@@ -674,21 +780,40 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
       if (result.status === 'rejected') {
         source.readiness = 'unavailable'
         source.reason = safeFailureReason(result.reason)
+        source.authoritativeComplete = false
+        source.diagnostics = undefined
         continue
       }
       if (result.value === undefined || source.connector === undefined) continue
       try {
-        snapshot = enrichAggregateSnapshotWithEntra(
+        const composed = enrichAggregateSnapshotWithEntraAndDiagnostics(
           snapshot,
           result.value.identities,
           source.expected,
         )
+        const capabilityCoverage = source.connector.getCapabilityCoverage()
+        snapshot = composed.snapshot
+        source.diagnostics = {
+          ...composed.diagnostics,
+          ownerCoverage: sourceScopedCoverage(source.expected.id, capabilityCoverage.owners),
+          appRoleCoverage: sourceScopedCoverage(
+            source.expected.id,
+            capabilityCoverage.appRoleAssignments,
+          ),
+          previewCoverage: sourceScopedCoverage(
+            source.expected.id,
+            capabilityCoverage.agentIdentityPreview,
+          ),
+        }
+        source.authoritativeComplete = true
         const measured = entraReadiness(source.connector)
         source.readiness = measured.readiness
         source.reason = measured.reason
       } catch {
         source.readiness = 'degraded'
         source.reason = 'composition-failed'
+        source.authoritativeComplete = false
+        source.diagnostics = undefined
       }
     }
     this.evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]))
@@ -700,11 +825,12 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
     const baseReady =
       baseHealth !== undefined ? baseHealth.overall !== 'unavailable' : this.baseHealth.ok
     const basePartial = baseHealth?.partial === true
-    const entraComplete =
-      !this.enabled || this.sources.every((source) => source.readiness === 'ready')
+    const entraReady = !this.enabled || this.sources.every((source) => source.readiness === 'ready')
+    const entraAuthoritativeComplete =
+      !this.enabled || this.sources.every((source) => source.authoritativeComplete)
     return {
-      overall: !baseReady ? 'unavailable' : basePartial || !entraComplete ? 'degraded' : 'ready',
-      partial: baseReady && (basePartial || !entraComplete),
+      overall: !baseReady ? 'unavailable' : basePartial || !entraReady ? 'degraded' : 'ready',
+      partial: baseReady && (basePartial || !entraAuthoritativeComplete),
       sources: [
         ...(baseHealth?.sources ?? [
           {
@@ -726,6 +852,9 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
           readiness: source.readiness,
           ...(source.checkedAt !== undefined ? { checkedAt: source.checkedAt } : {}),
           ...(source.reason !== undefined ? { reason: source.reason } : {}),
+          ...(source.diagnostics !== undefined
+            ? { diagnostics: structuredClone(source.diagnostics) }
+            : {}),
         })),
       ],
     }
@@ -894,7 +1023,9 @@ export {
   EntraGraphClient,
   EntraGraphError,
   enrichAggregateSnapshotWithEntra,
+  enrichAggregateSnapshotWithEntraAndDiagnostics,
   enrichSnapshotWithEntra,
+  enrichSnapshotWithEntraAndDiagnostics,
   mapEntraInventoryToSnapshot,
   entraIdentityConnectorConfigSchema,
 }

@@ -254,6 +254,87 @@ describe('IngestionService', () => {
     })
   })
 
+  it('persists stable inventory while reporting optional-only degradation', async () => {
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    }
+    const health: ConnectorHealthReport = {
+      overall: 'degraded',
+      partial: false,
+      sources: [
+        {
+          id: 'fake',
+          name: 'fake',
+          role: 'discovery',
+          enabled: true,
+          configured: true,
+          readiness: 'ready',
+        },
+        {
+          id: 'entra:primary',
+          name: 'Primary Microsoft Entra',
+          role: 'enrichment',
+          enabled: true,
+          configured: true,
+          readiness: 'degraded',
+          reason: 'authorization (403)',
+          diagnostics: {
+            kind: 'exact-identity-correlation',
+            provider: 'microsoft-entra',
+            sourceId: 'primary',
+            sourceTenantId: 'tenant-demo',
+            sourceEnvironment: 'validation',
+            authoritativeAgentsConsidered: 6,
+            exactObjectIdMatches: 0,
+            exactApplicationIdMatches: 0,
+            exactAgentIdentityMatches: 0,
+            unmatched: 6,
+            ambiguous: 0,
+            runsAsEdgesEmitted: 0,
+            ownerCoverage: { status: 'disabled', evidenceReferences: [] },
+            appRoleCoverage: { status: 'disabled', evidenceReferences: [] },
+            previewCoverage: {
+              status: 'authorization-required',
+              reason: 'authorization (403)',
+              evidenceReferences: [],
+            },
+            evidenceReferences: ['foundry-evidence-agent-1'],
+          },
+        },
+      ],
+    }
+    const service = new IngestionService(
+      makeConnector(fullSnapshot(), health),
+      snapshots,
+      exposures,
+      { estate: testEstate, sourceMode: 'foundry', logger },
+    )
+
+    const result = await service.run()
+
+    expect(result).toMatchObject({
+      outcome: 'partially-succeeded',
+      persisted: true,
+      connectorHealth: health,
+    })
+    expect(await snapshots.list(testEstate)).toHaveLength(1)
+    expect(logger.warn).toHaveBeenCalledWith('ingestion.enrichment.degraded', {
+      correlationId: expect.any(String),
+      persisted: true,
+      sources: [
+        {
+          id: 'entra:primary',
+          readiness: 'degraded',
+          reason: 'authorization (403)',
+        },
+      ],
+    })
+  })
+
   it('rejects a discovered snapshot from another tenant', async () => {
     const snapshots = new InMemorySnapshotRepository()
     const exposures = new InMemoryExposureFindingRepository()

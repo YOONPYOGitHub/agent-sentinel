@@ -20,6 +20,37 @@ export interface ConnectionTestResult {
 export type ConnectorReadiness =
   'ready' | 'degraded' | 'unavailable' | 'disabled' | 'authorization-required'
 
+export type ConnectorCoverageStatus =
+  'available' | 'disabled' | 'degraded' | 'authorization-required' | 'unavailable'
+
+export interface ConnectorCapabilityCoverage {
+  readonly status: ConnectorCoverageStatus
+  readonly considered?: number
+  readonly covered?: number
+  readonly evidenceReferences: readonly string[]
+  /** Stable, sanitized reason code. Never contains provider response data. */
+  readonly reason?: string
+}
+
+export interface ExactIdentityCorrelationDiagnostics {
+  readonly kind: 'exact-identity-correlation'
+  readonly provider: 'microsoft-entra'
+  readonly sourceId: string
+  readonly sourceTenantId: string
+  readonly sourceEnvironment: string
+  readonly authoritativeAgentsConsidered: number
+  readonly exactObjectIdMatches: number
+  readonly exactApplicationIdMatches: number
+  readonly exactAgentIdentityMatches: number
+  readonly unmatched: number
+  readonly ambiguous: number
+  readonly runsAsEdgesEmitted: number
+  readonly ownerCoverage: ConnectorCapabilityCoverage
+  readonly appRoleCoverage: ConnectorCapabilityCoverage
+  readonly previewCoverage: ConnectorCapabilityCoverage
+  readonly evidenceReferences: readonly string[]
+}
+
 export interface ConnectorSourceHealth {
   readonly id: string
   readonly name: string
@@ -30,6 +61,7 @@ export interface ConnectorSourceHealth {
   readonly checkedAt?: string
   /** Stable, sanitized reason code. Never contains provider response data. */
   readonly reason?: string
+  readonly diagnostics?: ExactIdentityCorrelationDiagnostics
 }
 
 export interface ConnectorHealthReport {

@@ -247,9 +247,27 @@ describe('buildConnectorsCollection', () => {
   })
 
   it('maps measured Entra health without hiding partial readiness', () => {
+    const diagnostics = {
+      kind: 'exact-identity-correlation' as const,
+      provider: 'microsoft-entra' as const,
+      sourceId: 'primary',
+      sourceTenantId: '11111111-1111-4111-8111-111111111111',
+      sourceEnvironment: 'validation',
+      authoritativeAgentsConsidered: 6,
+      exactObjectIdMatches: 0,
+      exactApplicationIdMatches: 0,
+      exactAgentIdentityMatches: 0,
+      unmatched: 6,
+      ambiguous: 0,
+      runsAsEdgesEmitted: 0,
+      ownerCoverage: { status: 'disabled' as const, evidenceReferences: [] },
+      appRoleCoverage: { status: 'disabled' as const, evidenceReferences: [] },
+      previewCoverage: { status: 'disabled' as const, evidenceReferences: [] },
+      evidenceReferences: ['foundry-evidence-agent-1'],
+    }
     const health = {
       overall: 'degraded' as const,
-      partial: true,
+      partial: false,
       sources: [
         {
           id: 'microsoft-entra-service-principals',
@@ -259,6 +277,7 @@ describe('buildConnectorsCollection', () => {
           configured: true,
           readiness: 'degraded' as const,
           reason: 'unavailable',
+          diagnostics,
         },
       ],
     }
@@ -269,8 +288,9 @@ describe('buildConnectorsCollection', () => {
 
     expect(degraded.health).toEqual(health)
     expect(degraded.catalog.find((entry) => entry.id === 'entra-agent-id')?.lifecycleState).toBe(
-      'unavailable',
+      'degraded',
     )
+    expect(degraded.health?.sources[0]?.diagnostics).toEqual(diagnostics)
 
     const ready = buildConnectorsCollection('foundry', {
       connectorId: 'foundry-connector',
