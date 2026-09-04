@@ -38,14 +38,28 @@ Represents a point-in-time view of an agent estate.
 
 ### Cosmos DB (agent-sentinel-db)
 
-| Container        | Partition Key | Purpose                                      |
-| ---------------- | ------------- | -------------------------------------------- |
-| snapshots        | /tenantId     | EstateSnapshot history                       |
-| findings         | /tenantId     | Finding records                              |
-| evidence         | /tenantId     | Evidence items                               |
-| graph-nodes      | /tenantId     | GraphNode adjacency                          |
-| graph-edges      | /tenantId     | GraphEdge adjacency                          |
-| governance-cases | /tenantId     | Cases, immutable transitions, and retry keys |
+| Container         | Partition Key | Purpose                                      |
+| ----------------- | ------------- | -------------------------------------------- |
+| snapshots         | /tenantId     | EstateSnapshot history                       |
+| findings          | /tenantId     | Finding records                              |
+| evidence          | /tenantId     | Evidence items                               |
+| graph-nodes       | /tenantId     | GraphNode adjacency                          |
+| graph-edges       | /tenantId     | GraphEdge adjacency                          |
+| governance-cases  | /tenantId     | Cases, immutable transitions, and retry keys |
+| connector-sources | /estateId     | Source definitions, audit, and retry keys    |
+
+### ConnectorSourceDefinition
+
+The dormant configuration-plane record for one connector source preserves
+`estateId`, data tenant/environment, stable source ID, connector type, immutable
+deployment/user origin, strict non-secret configuration, safe credential
+identity/reference metadata, evidence-bound test status, version/ETag, actors,
+and timestamps. Deployment-origin records are immutable.
+
+The `connector-sources` container stores source, append-only audit, and
+idempotency documents under `/estateId` using estate-scoped SHA-256 physical IDs
+and native Cosmos ETag concurrency. Existing deployment JSON remains the active
+runtime source until a later activation task.
 
 ### PostgreSQL (pg-as-260814)
 

@@ -2,9 +2,10 @@ import type { CosmosClient, OperationInput, SqlQuerySpec } from '@azure/cosmos'
 
 type StoredDocument = Record<string, unknown> & {
   id: string
-  tenantId: string
   documentType: string
   _etag: string
+  tenantId?: string
+  estateId?: string
 }
 
 function clone<T>(value: T): T {
@@ -25,6 +26,10 @@ export class FakeCosmosStore {
       container: () => this.container,
     }),
   } as unknown as CosmosClient
+
+  snapshot(): StoredDocument[] {
+    return [...this.documents.values()].map((document) => clone(document))
+  }
 
   private readonly container = {
     item: (id: string, partitionKey: string) => ({
@@ -51,13 +56,19 @@ export class FakeCosmosStore {
     return `${partitionKey}\0${id}`
   }
 
+  private partitionValue(document: StoredDocument): string | undefined {
+    return document.estateId ?? document.tenantId
+  }
+
   private nextEtag(): string {
     this.etagSequence += 1
     return `etag-${this.etagSequence}`
   }
 
   private create(resource: StoredDocument) {
-    const key = this.key(resource.tenantId, resource.id)
+    const partitionKey = this.partitionValue(resource)
+    if (!partitionKey) return Promise.reject(new Error('Partition key is required.'))
+    const key = this.key(partitionKey, resource.id)
     const versionConflict =
       resource.documentType === 'manifest-ingestion' &&
       [...this.documents.values()].some(
@@ -86,7 +97,7 @@ export class FakeCosmosStore {
       if (operation.operationType === 'Create') {
         const resource = operation.resourceBody as unknown as StoredDocument
         const key = this.key(partitionKey, resource.id)
-        if (resource.tenantId !== partitionKey || working.has(key))
+        if (this.partitionValue(resource) !== partitionKey || working.has(key))
           return { code: 409, result: [{ statusCode: 409, requestCharge: 1 }] }
         working.set(key, { ...clone(resource), _etag: this.nextEtag() })
         results.push({ statusCode: 201, requestCharge: 1 })
@@ -100,7 +111,7 @@ export class FakeCosmosStore {
         if (operation.ifMatch !== existing._etag)
           return { code: 412, result: [{ statusCode: 412, requestCharge: 1 }] }
         const resource = operation.resourceBody as unknown as StoredDocument
-        if (resource.tenantId !== partitionKey || resource.id !== operation.id)
+        if (this.partitionValue(resource) !== partitionKey || resource.id !== operation.id)
           return { code: 400, result: [{ statusCode: 400, requestCharge: 1 }] }
         working.set(key, { ...clone(resource), _etag: this.nextEtag() })
         results.push({ statusCode: 200, requestCharge: 1 })
@@ -121,8 +132,32 @@ export class FakeCosmosStore {
     )
     const documentType = parameters.get('@documentType')
     let documents = [...this.documents.values()].filter(
-      (document) => document.tenantId === partitionKey && document.documentType === documentType,
+      (document) =>
+        this.partitionValue(document) === partitionKey && document.documentType === documentType,
     )
+
+    if (documentType === 'connector-source') {
+      documents = documents.filter((document) => document.deleted !== true)
+      documents.sort((left, right) => {
+        const leftSource = left.source as { sourceId: string }
+        const rightSource = right.source as { sourceId: string }
+        return leftSource.sourceId.localeCompare(rightSource.sourceId)
+      })
+      return clone(documents.slice(0, Number(parameters.get('@limit') ?? 100)))
+    }
+
+    if (documentType === 'connector-source-audit') {
+      documents = documents
+        .filter((document) => document.sourceId === parameters.get('@sourceId'))
+        .sort((left, right) => {
+          const time = String(left.occurredAt).localeCompare(String(right.occurredAt))
+          if (time !== 0) return time
+          const leftAudit = left.audit as { id: string }
+          const rightAudit = right.audit as { id: string }
+          return leftAudit.id.localeCompare(rightAudit.id)
+        })
+      return clone(documents.slice(0, Number(parameters.get('@limit') ?? 100)))
+    }
 
     if (documentType === 'governance-case-transition') {
       documents = documents

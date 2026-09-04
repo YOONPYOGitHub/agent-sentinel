@@ -6,6 +6,13 @@ import type {
   GovernanceCaseTransition,
 } from './governance-queue.js'
 import type { ExposureFinding, ExposureFindingSeverity, ExposureFindingStatus } from './index.js'
+import type {
+  ConnectorSourceAuditRecord,
+  ConnectorSourceCreateInput,
+  ConnectorSourceDefinition,
+  ConnectorSourceMutationContext,
+  ConnectorSourceUpdateInput,
+} from './connector-source.js'
 
 export interface SnapshotRepository {
   save(estate: EstateContext, snapshot: EstateSnapshot): Promise<void>
@@ -100,4 +107,51 @@ export interface GovernanceCaseRepository {
         reason: 'not_found' | 'idempotency_conflict' | 'state_conflict'
       }
   >
+}
+
+export type ConnectorSourceWriteResult =
+  | {
+      status: 'applied'
+      source: ConnectorSourceDefinition | null
+      audit: ConnectorSourceAuditRecord
+    }
+  | {
+      status: 'idempotent'
+      source: ConnectorSourceDefinition | null
+      audit: ConnectorSourceAuditRecord
+    }
+  | {
+      status: 'conflict'
+      reason: 'already_exists' | 'etag_mismatch' | 'idempotency_key_reuse' | 'audit_id_reuse'
+    }
+  | {
+      status: 'not_found' | 'immutable'
+    }
+
+export interface ConnectorSourceRepository {
+  create(
+    estate: EstateContext,
+    input: ConnectorSourceCreateInput,
+    mutation: ConnectorSourceMutationContext,
+  ): Promise<ConnectorSourceWriteResult>
+  findById(estate: EstateContext, sourceId: string): Promise<ConnectorSourceDefinition | null>
+  list(estate: EstateContext, limit?: number): Promise<ConnectorSourceDefinition[]>
+  update(
+    estate: EstateContext,
+    sourceId: string,
+    expectedEtag: string,
+    patch: ConnectorSourceUpdateInput,
+    mutation: ConnectorSourceMutationContext,
+  ): Promise<ConnectorSourceWriteResult>
+  delete(
+    estate: EstateContext,
+    sourceId: string,
+    expectedEtag: string,
+    mutation: ConnectorSourceMutationContext,
+  ): Promise<ConnectorSourceWriteResult>
+  listAudit(
+    estate: EstateContext,
+    sourceId: string,
+    limit?: number,
+  ): Promise<ConnectorSourceAuditRecord[]>
 }

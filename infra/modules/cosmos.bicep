@@ -129,6 +129,77 @@ resource governanceContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases
   }
 }
 
+resource connectorSourcesContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
+  parent: database
+  name: 'connector-sources'
+  properties: {
+    resource: {
+      id: 'connector-sources'
+      partitionKey: {
+        paths: ['/estateId']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          {
+            path: '/documentType/?'
+          }
+          {
+            path: '/source/sourceId/?'
+          }
+          {
+            path: '/source/updatedAt/?'
+          }
+          {
+            path: '/deleted/?'
+          }
+          {
+            path: '/sourceId/?'
+          }
+          {
+            path: '/occurredAt/?'
+          }
+          {
+            path: '/audit/id/?'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/*'
+          }
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+        compositeIndexes: [
+          [
+            {
+              path: '/source/updatedAt'
+              order: 'descending'
+            }
+            {
+              path: '/source/sourceId'
+              order: 'ascending'
+            }
+          ]
+          [
+            {
+              path: '/occurredAt'
+              order: 'ascending'
+            }
+            {
+              path: '/audit/id'
+              order: 'ascending'
+            }
+          ]
+        ]
+      }
+    }
+  }
+}
+
 resource privateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' existing = {
   name: 'privatelink.documents.azure.com'
 }

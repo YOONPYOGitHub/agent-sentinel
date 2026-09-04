@@ -1,0 +1,192 @@
+import { describe, expect, it } from 'vitest'
+
+import {
+  connectorSourceAuditRecordSchema,
+  connectorSourceCreateInputSchema,
+  connectorSourceDefinitionSchema,
+  connectorSourceTestStatusSchema,
+} from '../src/index.js'
+
+const ACTOR = { type: 'deployment', id: 'bicep' } as const
+const DEFINITION = {
+  estateId: 'estate-a',
+  tenantId: '00000000-0000-0000-0000-000000000001',
+  environment: 'production',
+  sourceId: 'foundry-primary',
+  connectorType: 'foundry',
+  displayName: 'Primary Foundry project',
+  enabled: true,
+  origin: 'deployment',
+  configuration: {
+    type: 'foundry',
+    projectEndpoint: 'https://example.services.ai.azure.com/api/projects/project-a',
+  },
+  credential: {
+    mode: 'managed-identity',
+    managedIdentityClientId: '00000000-0000-0000-0000-000000000002',
+  },
+  testStatus: { status: 'not-tested' },
+  version: 1,
+  etag: 'source-etag-1',
+  createdBy: ACTOR,
+  updatedBy: ACTOR,
+  createdAt: '2026-09-04T00:00:00.000Z',
+  updatedAt: '2026-09-04T00:00:00.000Z',
+} as const
+
+const CREATE_INPUT = {
+  estateId: DEFINITION.estateId,
+  tenantId: DEFINITION.tenantId,
+  environment: DEFINITION.environment,
+  sourceId: DEFINITION.sourceId,
+  connectorType: DEFINITION.connectorType,
+  displayName: DEFINITION.displayName,
+  enabled: DEFINITION.enabled,
+  origin: DEFINITION.origin,
+  configuration: DEFINITION.configuration,
+  credential: DEFINITION.credential,
+  testStatus: DEFINITION.testStatus,
+} as const
+
+describe('connector source domain', () => {
+  it('accepts a strict estate-scoped non-secret definition', () => {
+    expect(connectorSourceDefinitionSchema.parse(DEFINITION)).toEqual(DEFINITION)
+  })
+
+  it.each([
+    { password: 'not-allowed' },
+    { clientSecret: 'not-allowed' },
+    { accessToken: 'not-allowed' },
+    { rawCredentials: { token: 'not-allowed' } },
+  ])('rejects secret-shaped credential fields', (secretField) => {
+    const result = connectorSourceCreateInputSchema.safeParse({
+      ...CREATE_INPUT,
+      credential: { mode: 'default', ...secretField },
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues).toEqual(
+        expect.arrayContaining([expect.objectContaining({ path: ['credential'] })]),
+      )
+    }
+  })
+
+  it('rejects unknown fields, unrestricted URLs, and connector mismatches', () => {
+    expect(() =>
+      connectorSourceDefinitionSchema.parse({ ...DEFINITION, unexpected: true }),
+    ).toThrow()
+    expect(() =>
+      connectorSourceDefinitionSchema.parse({
+        ...DEFINITION,
+        configuration: {
+          type: 'foundry',
+          projectEndpoint: 'https://attacker.example/api/projects/project-a',
+        },
+      }),
+    ).toThrow()
+    expect(() =>
+      connectorSourceDefinitionSchema.parse({
+        ...DEFINITION,
+        configuration: {
+          type: 'azure-resource-graph',
+          subscriptions: ['00000000-0000-0000-0000-000000000003'],
+        },
+      }),
+    ).toThrow()
+  })
+
+  it('bounds connector configuration', () => {
+    expect(() =>
+      connectorSourceDefinitionSchema.parse({
+        ...DEFINITION,
+        connectorType: 'azure-resource-graph',
+        configuration: {
+          type: 'azure-resource-graph',
+          subscriptions: Array.from(
+            { length: 101 },
+            (_, index) => `00000000-0000-0000-0000-${String(index).padStart(12, '0')}`,
+          ),
+        },
+      }),
+    ).toThrow()
+  })
+
+  it('requires real provider evidence for a passing test', () => {
+    expect(() =>
+      connectorSourceTestStatusSchema.parse({
+        status: 'passed',
+        evidenceBasis: 'synthetic',
+        evidenceIds: ['evidence-1'],
+        checkedAt: '2026-09-04T00:01:00.000Z',
+        checkedBy: { type: 'user', id: 'admin@example.test' },
+        summary: 'Synthetic probe passed.',
+      }),
+    ).toThrow()
+    expect(
+      connectorSourceTestStatusSchema.parse({
+        status: 'passed',
+        evidenceBasis: 'provider-response',
+        evidenceIds: ['evidence-1'],
+        checkedAt: '2026-09-04T00:01:00.000Z',
+        checkedBy: { type: 'user', id: 'admin@example.test' },
+        summary: 'Provider returned a bounded successful response.',
+      }),
+    ).toMatchObject({ status: 'passed' })
+  })
+
+  it('normalizes timestamps before chronological validation', () => {
+    expect(
+      connectorSourceDefinitionSchema.parse({
+        ...DEFINITION,
+        createdAt: '2026-09-04T08:00:00+09:00',
+        updatedAt: '2026-09-03T23:30:00Z',
+      }),
+    ).toMatchObject({
+      createdAt: '2026-09-03T23:00:00.000Z',
+      updatedAt: '2026-09-03T23:30:00.000Z',
+    })
+    expect(() =>
+      connectorSourceDefinitionSchema.parse({
+        ...DEFINITION,
+        createdAt: '2026-09-04T00:00:00Z',
+        updatedAt: '2026-09-04T08:30:00+09:00',
+      }),
+    ).toThrow('updatedAt cannot precede createdAt')
+  })
+
+  it('enforces immutable, attributed audit snapshots', () => {
+    expect(
+      connectorSourceAuditRecordSchema.parse({
+        id: 'audit-create',
+        estateId: DEFINITION.estateId,
+        sourceId: DEFINITION.sourceId,
+        operation: 'create',
+        actor: ACTOR,
+        occurredAt: DEFINITION.createdAt,
+        idempotencyKey: 'create-source',
+        before: null,
+        after: DEFINITION,
+      }),
+    ).toMatchObject({ operation: 'create' })
+    expect(() =>
+      connectorSourceAuditRecordSchema.parse({
+        id: 'audit-update',
+        estateId: DEFINITION.estateId,
+        sourceId: DEFINITION.sourceId,
+        operation: 'update',
+        actor: { type: 'user', id: 'admin@example.test' },
+        occurredAt: '2026-09-04T00:01:00.000Z',
+        idempotencyKey: 'update-source',
+        before: DEFINITION,
+        after: {
+          ...DEFINITION,
+          origin: 'user',
+          version: 2,
+          etag: 'source-etag-2',
+          updatedBy: { type: 'user', id: 'admin@example.test' },
+          updatedAt: '2026-09-04T00:01:00.000Z',
+        },
+      }),
+    ).toThrow('immutable fields')
+  })
+})

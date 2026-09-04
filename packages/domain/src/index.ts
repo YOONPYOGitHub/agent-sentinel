@@ -5,6 +5,31 @@ import { evidenceSchema, evidenceTypeSchema } from './evidence.js'
 export { estateContextSchema, estateIdSchema } from './estate.js'
 export type { EstateContext } from './estate.js'
 
+export {
+  connectorTypeSchema,
+  connectorSourceConfigurationSchema,
+  connectorCredentialMetadataSchema,
+  connectorSourceActorSchema,
+  connectorSourceTestStatusSchema,
+  connectorSourceCreateInputSchema,
+  connectorSourceUpdateInputSchema,
+  connectorSourceDefinitionSchema,
+  connectorSourceMutationContextSchema,
+  connectorSourceAuditRecordSchema,
+} from './connector-source.js'
+export type {
+  ConnectorType,
+  ConnectorSourceConfiguration,
+  ConnectorCredentialMetadata,
+  ConnectorSourceActor,
+  ConnectorSourceTestStatus,
+  ConnectorSourceCreateInput,
+  ConnectorSourceUpdateInput,
+  ConnectorSourceDefinition,
+  ConnectorSourceMutationContext,
+  ConnectorSourceAuditRecord,
+} from './connector-source.js'
+
 export { agentCorrelationKindSchema, agentCorrelationSchema } from './correlation.js'
 export type { AgentCorrelationKind, AgentCorrelation } from './correlation.js'
 
@@ -490,6 +515,8 @@ export type {
   ExposureFindingListFilters,
   GovernanceCaseListFilters,
   GovernanceCaseRepository,
+  ConnectorSourceRepository,
+  ConnectorSourceWriteResult,
 } from './repositories.js'
 
 export {
