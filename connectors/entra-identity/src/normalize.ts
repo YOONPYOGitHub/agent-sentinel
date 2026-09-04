@@ -21,6 +21,42 @@ export interface EntraInventory {
   agentIdentitiesPreview: readonly AgentIdentityPreview[]
 }
 
+export type EntraCoverageStatus =
+  | 'available'
+  | 'degraded'
+  | 'disabled'
+  | 'authorization-required'
+  | 'unavailable'
+  | 'unknown'
+
+export interface EntraCapabilityCoverage {
+  status: EntraCoverageStatus
+  covered: number
+  total: number
+  evidenceIds: readonly string[]
+  diagnosticReferences: readonly string[]
+}
+
+export interface EntraCorrelationCoverageSummary {
+  authoritativeAgentsConsidered: number
+  exactObjectIdMatches: number
+  exactAppClientIdMatches: number
+  exactAgentIdentityMatches: number
+  unmatched: number
+  ambiguous: number
+  runsAsEdgesEmitted: number
+  ownerCoverage: EntraCapabilityCoverage
+  appRoleCoverage: EntraCapabilityCoverage
+  previewCoverage: EntraCapabilityCoverage
+  evidenceIds: readonly string[]
+  diagnosticReferences: readonly string[]
+}
+
+export interface EntraCompositionResult {
+  snapshot: EstateSnapshot
+  coverage: EntraCorrelationCoverageSummary
+}
+
 function principalNodeId(id: string): string {
   return `entra-service-principal-${id}`
 }
@@ -237,7 +273,33 @@ function composeSnapshotWithEntra(
   base: EstateSnapshot,
   identities: EstateSnapshot,
   shouldCorrelate: (agent: GraphNode) => boolean,
-): EstateSnapshot {
+  capabilityStatus: Pick<
+    EntraCorrelationCoverageSummary,
+    'ownerCoverage' | 'appRoleCoverage' | 'previewCoverage'
+  > = {
+    ownerCoverage: {
+      status: 'unknown',
+      covered: 0,
+      total: 0,
+      evidenceIds: [],
+      diagnosticReferences: [],
+    },
+    appRoleCoverage: {
+      status: 'unknown',
+      covered: 0,
+      total: 0,
+      evidenceIds: [],
+      diagnosticReferences: [],
+    },
+    previewCoverage: {
+      status: 'unknown',
+      covered: 0,
+      total: 0,
+      evidenceIds: [],
+      diagnosticReferences: [],
+    },
+  },
+): EntraCompositionResult {
   const distinctById = <T extends { id: string }>(items: readonly T[]): T[] => {
     const sorted = [...items].sort(
       (left, right) =>
@@ -269,13 +331,29 @@ function composeSnapshotWithEntra(
     metadata: { ...node.metadata },
   }))
   const correlationEdges: GraphEdge[] = []
-  for (const agent of baseNodes.filter((node) => node.kind === 'agent' && shouldCorrelate(node))) {
+  let exactObjectIdMatches = 0
+  let exactAppClientIdMatches = 0
+  let exactAgentIdentityMatches = 0
+  let unmatched = 0
+  let ambiguous = 0
+  const consideredAgents = baseNodes.filter((node) => node.kind === 'agent' && shouldCorrelate(node))
+  for (const agent of consideredAgents) {
     const candidates = new Map<string, GraphNode>()
+    const objectCandidates = new Map<string, GraphNode>()
+    const appCandidates = new Map<string, GraphNode>()
+    const agentIdentityCandidates = new Map<string, GraphNode>()
     for (const key of DIRECTORY_ID_KEYS) {
       const value = agent.metadata[key]
       if (value && UUID_PATTERN.test(value)) {
         for (const identity of byDirectoryId.get(value.toLowerCase()) ?? []) {
+          if (
+            key === 'agentIdentityId' &&
+            identity.metadata['agentIdentityPreview'] !== 'true'
+          )
+            continue
           candidates.set(identity.id, identity)
+          if (key === 'agentIdentityId') agentIdentityCandidates.set(identity.id, identity)
+          else objectCandidates.set(identity.id, identity)
         }
       }
     }
@@ -284,11 +362,17 @@ function composeSnapshotWithEntra(
       if (value && UUID_PATTERN.test(value)) {
         for (const identity of byApplicationId.get(value.toLowerCase()) ?? []) {
           candidates.set(identity.id, identity)
+          appCandidates.set(identity.id, identity)
         }
       }
     }
+    if (objectCandidates.size === 1) exactObjectIdMatches += 1
+    if (appCandidates.size === 1) exactAppClientIdMatches += 1
+    if (agentIdentityCandidates.size === 1) exactAgentIdentityMatches += 1
     if (candidates.size !== 1) {
       if (candidates.size > 1) agent.metadata['entraCorrelationStatus'] = 'conflict'
+      if (candidates.size > 1) ambiguous += 1
+      else unmatched += 1
       continue
     }
     const identity = [...candidates.values()][0]!
@@ -315,7 +399,7 @@ function composeSnapshotWithEntra(
     (edge) => ({ ...edge, evidenceIds: distinctStrings(edge.evidenceIds) }),
   )
   const evidence = distinctById([...base.evidence, ...identities.evidence])
-  return assertEstateSnapshot({
+  const snapshot = assertEstateSnapshot({
     tenantId: base.tenantId,
     environment: base.environment,
     generatedAt:
@@ -326,6 +410,24 @@ function composeSnapshotWithEntra(
     edges,
     evidence,
   })
+  const identityEvidenceIds = distinctStrings(identities.evidence.map((item) => item.id))
+  return {
+    snapshot,
+    coverage: {
+      authoritativeAgentsConsidered: consideredAgents.length,
+      exactObjectIdMatches,
+      exactAppClientIdMatches,
+      exactAgentIdentityMatches,
+      unmatched,
+      ambiguous,
+      runsAsEdgesEmitted: correlationEdges.length,
+      ...capabilityStatus,
+      evidenceIds: identityEvidenceIds,
+      diagnosticReferences: [
+        ...identityEvidenceIds.slice(0, 100).map((id) => `evidence:${id}`),
+      ],
+    },
+  }
 }
 
 export function enrichSnapshotWithEntra(
@@ -338,7 +440,36 @@ export function enrichSnapshotWithEntra(
   if (base.environment !== identities.environment) {
     throw new Error('Cannot compose connector snapshots from different environments.')
   }
-  return composeSnapshotWithEntra(base, identities, () => true)
+  return composeSnapshotWithEntra(base, identities, () => true).snapshot
+}
+
+export function enrichSnapshotWithEntraDiagnostics(
+  base: EstateSnapshot,
+  identities: EstateSnapshot,
+  capabilityStatus?: Pick<
+    EntraCorrelationCoverageSummary,
+    'ownerCoverage' | 'appRoleCoverage' | 'previewCoverage'
+  >,
+): EntraCompositionResult {
+  if (base.tenantId.toLowerCase() !== identities.tenantId.toLowerCase()) {
+    throw new Error('Cannot compose connector snapshots from different Microsoft Entra tenants.')
+  }
+  if (base.environment !== identities.environment) {
+    throw new Error('Cannot compose connector snapshots from different environments.')
+  }
+  return composeSnapshotWithEntra(base, identities, () => true, capabilityStatus)
+}
+
+export function summarizeEntraCorrelationCoverage(
+  base: EstateSnapshot,
+  identities: EstateSnapshot,
+  shouldCorrelate: (agent: GraphNode) => boolean,
+  capabilityStatus?: Pick<
+    EntraCorrelationCoverageSummary,
+    'ownerCoverage' | 'appRoleCoverage' | 'previewCoverage'
+  >,
+): EntraCorrelationCoverageSummary {
+  return composeSnapshotWithEntra(base, identities, shouldCorrelate, capabilityStatus).coverage
 }
 
 export interface EntraAggregateSource {
@@ -414,5 +545,5 @@ export function enrichAggregateSnapshotWithEntra(
     (agent) =>
       agent.metadata['sourceTenantId']?.toLowerCase() === source.tenantId.toLowerCase() &&
       agent.metadata['sourceEnvironment'] === source.environment,
-  )
+  ).snapshot
 }

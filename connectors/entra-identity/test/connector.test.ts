@@ -389,6 +389,53 @@ describe('normalization and correlation', () => {
     ).toBe('uncorrelated')
   })
 
+  it('reports exact correlation coverage and does not match duplicate app IDs', () => {
+    const first = fixture('service-principals-page-1.json') as { value: unknown[] }
+    const principals = first.value as Array<Record<string, unknown>>
+    const duplicate = { ...principals[0]!, id: '22222222-2222-4222-8222-222222222222' }
+    const identities = mapEntraInventoryToSnapshot(
+      {
+        servicePrincipals: [principals[0] as never, duplicate as never],
+        owners: new Map(),
+        appRoleAssignments: new Map(),
+        agentIdentitiesPreview: [],
+      },
+      config,
+    )
+    const result = enrichSnapshotWithEntra(
+      baseSnapshot({ clientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }),
+      identities,
+    )
+    expect(result.edges.some((edge) => edge.relationship === 'RUNS_AS')).toBe(false)
+    expect(result.nodes.find((node) => node.kind === 'agent')?.metadata['entraCorrelationStatus']).toBe(
+      'conflict',
+    )
+  })
+
+  it('correlates an exact Agent Identity ID only when preview evidence is present', () => {
+    const previewId = '33333333-3333-4333-8333-333333333333'
+    const identities = mapEntraInventoryToSnapshot(
+      {
+        servicePrincipals: [],
+        owners: new Map(),
+        appRoleAssignments: new Map(),
+        agentIdentitiesPreview: [
+          {
+            id: previewId,
+            appId: '44444444-4444-4444-8444-444444444444',
+            displayName: 'Preview identity',
+          },
+        ],
+      },
+      config,
+    )
+    const result = enrichSnapshotWithEntra(
+      baseSnapshot({ agentIdentityId: previewId }),
+      identities,
+    )
+    expect(result.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(1)
+  })
+
   it('rejects cross-tenant composition', () => {
     expect(() =>
       enrichSnapshotWithEntra(
@@ -464,6 +511,13 @@ describe('composite enrichment connector', () => {
     expect(snapshot.nodes.some((node) => node.kind === 'identity')).toBe(true)
     expect(snapshot.edges.some((edge) => edge.relationship === 'RUNS_AS')).toBe(true)
     expect(composite.getHealth().entra.stableInventory.status).toBe('available')
+    expect(composite.getHealth().correlation).toMatchObject({
+      authoritativeAgentsConsidered: 1,
+      runsAsEdgesEmitted: 1,
+      exactObjectIdMatches: 1,
+      unmatched: 0,
+      ambiguous: 0,
+    })
   })
 
   describe('multi-source Entra enrichment', () => {

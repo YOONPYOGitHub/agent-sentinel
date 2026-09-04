@@ -20,8 +20,13 @@ import { EntraGraphClient, EntraGraphError, type EntraGraphClientOptions } from 
 import {
   enrichAggregateSnapshotWithEntra,
   enrichSnapshotWithEntra,
+  enrichSnapshotWithEntraDiagnostics,
   mapEntraInventoryToSnapshot,
+  summarizeEntraCorrelationCoverage,
   type EntraAggregateSource,
+  type EntraCapabilityCoverage,
+  type EntraCoverageStatus,
+  type EntraCorrelationCoverageSummary,
 } from './normalize.js'
 import {
   entraIdentityConnectorConfigSchema,
@@ -122,6 +127,56 @@ function safeFailureReason(error: unknown): string {
     return `${error.code}${error.status ? ` (${error.status})` : ''}`
   if (error instanceof Error && error.name === 'ZodError') return 'malformed-response'
   return 'unexpected-failure'
+}
+
+function capabilityCoverage(
+  health: EntraConnectorHealth,
+  base: EstateSnapshot,
+  identities: EstateSnapshot,
+): Pick<EntraCorrelationCoverageSummary, 'ownerCoverage' | 'appRoleCoverage' | 'previewCoverage'> {
+  const principals = identities.nodes.filter(
+    (node) => node.kind === 'identity' && node.metadata['inventoryCoverage'] !== 'assignment-reference-only',
+  )
+  const evidenceIds = identities.evidence.map((item) => item.id).slice(0, 100)
+  const coverage = (
+    status: EntraCoverageStatus,
+    covered: number,
+    total: number,
+    reference: string,
+  ): EntraCapabilityCoverage => ({
+    status,
+    covered,
+    total,
+    evidenceIds,
+    diagnosticReferences: [`entra:${reference}`],
+  })
+  const ownerCount = principals.filter((node) => node.metadata['ownerObjectIds'] !== undefined).length
+  const assignedPrincipalIds = new Set(
+    identities.edges
+      .filter((edge) => edge.relationship === 'CAN_CALL')
+      .map((edge) => edge.from),
+  )
+  const agentCount = base.nodes.filter((node) => node.kind === 'agent').length
+  return {
+    ownerCoverage: coverage(
+      health.owners.status,
+      ownerCount,
+      principals.length,
+      'owner-coverage',
+    ),
+    appRoleCoverage: coverage(
+      health.appRoleAssignments.status,
+      [...assignedPrincipalIds].filter((id) => principals.some((node) => node.id === id)).length,
+      principals.length,
+      'app-role-coverage',
+    ),
+    previewCoverage: coverage(
+      health.agentIdentityPreview.status,
+      0,
+      agentCount,
+      'agent-identity-preview',
+    ),
+  }
 }
 
 function envBoolean(env: NodeJS.ProcessEnv, name: string): boolean {
@@ -274,6 +329,14 @@ export interface EntraEnrichmentHealth {
   base: ConnectionTestResult
   entra: EntraConnectorHealth
   composition: { status: 'disabled' | 'available' | 'degraded'; reason?: string }
+  correlation?: EntraCorrelationCoverageSummary
+}
+
+export interface MultiEntraSourceHealth {
+  readonly sources: readonly {
+    readonly id: string
+    readonly coverage?: EntraCorrelationCoverageSummary
+  }[]
 }
 
 export interface EntraEnrichmentConnectorOptions {
@@ -294,6 +357,7 @@ export class EntraEnrichmentConnector implements AgentConnector {
   private readonly enabled: boolean
   private readonly configured: boolean
   private composition: EntraEnrichmentHealth['composition']
+  private correlation: EntraCorrelationCoverageSummary | undefined
 
   constructor(
     private readonly base: AgentConnector,
@@ -360,7 +424,17 @@ export class EntraEnrichmentConnector implements AgentConnector {
     let snapshot: EstateSnapshot
     try {
       const identities = await this.entra.discover()
-      snapshot = enrichSnapshotWithEntra(base, identities)
+      const result = enrichSnapshotWithEntraDiagnostics(
+        base,
+        identities,
+        capabilityCoverage(this.entra.getHealth(), base, identities),
+      )
+      snapshot = result.snapshot
+      result.coverage.previewCoverage = {
+        ...result.coverage.previewCoverage,
+        covered: result.coverage.exactAgentIdentityMatches,
+      }
+      this.correlation = result.coverage
       this.composition = { status: 'available' }
     } catch (error) {
       const message = error instanceof Error ? error.message : ''
@@ -392,6 +466,7 @@ export class EntraEnrichmentConnector implements AgentConnector {
         agentIdentityPreview: { status: 'disabled' },
       },
       composition: structuredClone(this.composition),
+      ...(this.correlation !== undefined ? { correlation: structuredClone(this.correlation) } : {}),
     }
   }
 
@@ -494,6 +569,7 @@ interface MultiEntraSourceState {
   readiness: ConnectorReadiness
   checkedAt: string | undefined
   reason: string | undefined
+  correlation: EntraCorrelationCoverageSummary | undefined
 }
 
 function sourceBoundary(source: Pick<EntraAggregateSource, 'tenantId' | 'environment'>): string {
@@ -594,6 +670,7 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
             : boundaryMatches
               ? undefined
               : 'not-configured'),
+        correlation: undefined,
       }
     })
     this.descriptor = {
@@ -683,6 +760,20 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
           result.value.identities,
           source.expected,
         )
+        const coverage = summarizeEntraCorrelationCoverage(
+          snapshot,
+          result.value.identities,
+          (agent) =>
+            agent.metadata['sourceTenantId']?.toLowerCase() ===
+              source.expected.tenantId.toLowerCase() &&
+            agent.metadata['sourceEnvironment'] === source.expected.environment,
+          capabilityCoverage(source.connector.getHealth(), snapshot, result.value.identities),
+        )
+        coverage.previewCoverage = {
+          ...coverage.previewCoverage,
+          covered: coverage.exactAgentIdentityMatches,
+        }
+        source.correlation = coverage
         const measured = entraReadiness(source.connector)
         source.readiness = measured.readiness
         source.reason = measured.reason
@@ -728,6 +819,15 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
           ...(source.reason !== undefined ? { reason: source.reason } : {}),
         })),
       ],
+    }
+  }
+
+  getEntraHealth(): MultiEntraSourceHealth {
+    return {
+      sources: this.sources.map((source) => ({
+        id: source.expected.id,
+        ...(source.correlation !== undefined ? { coverage: structuredClone(source.correlation) } : {}),
+      })),
     }
   }
 
@@ -896,6 +996,7 @@ export {
   enrichAggregateSnapshotWithEntra,
   enrichSnapshotWithEntra,
   mapEntraInventoryToSnapshot,
+  summarizeEntraCorrelationCoverage,
   entraIdentityConnectorConfigSchema,
 }
 export type { EntraGraphClientOptions } from './client.js'

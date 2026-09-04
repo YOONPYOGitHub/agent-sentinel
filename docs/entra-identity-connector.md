@@ -49,6 +49,18 @@ does not; partial snapshots and finding reconciliation are not persisted, so a
 transient Graph failure cannot erase the last complete state. There is no mock
 fallback.
 
+Inventory connectivity is not migration parity. The Entra composition health
+diagnostics expose a typed per-source coverage summary: authoritative agents
+considered, exact object-ID, app/client-ID, and enabled Agent Identity matches,
+unmatched and ambiguous agents, emitted `RUNS_AS` edges, owner and app-role
+coverage, preview status, and bounded evidence references. A source remains
+degraded or authorization-required when those capabilities are unavailable;
+inventory is not replaced with a success-shaped zero.
+
+`AUTH_*` configuration controls corporate user sign-in and is independent of
+`ENTRA_*` configuration, which controls read-only service-principal inventory
+and optional enrichment. Neither configuration implies the other.
+
 For multiple Foundry tenant/project sources, set `ENTRA_SOURCES_JSON`. Every
 entry uses the same `id`, tenant, and source environment as its matching
 `FOUNDRY_SOURCES_JSON` entry. Identity nodes and evidence are namespaced per
