@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0.0",
+  "release": {
+    "commitSha": "ae531c2ce98afebc7933425091f3f2912edcd53e",
+    "dirty": false,
+    "generatedAt": "2026-09-04T00:00:00.000Z"
+  },
+  "images": {
+    "expected": {
+      "classification": "tested",
+      "web": {
+        "tag": "ae531c2",
+        "digest": null
+      },
+      "api": {
+        "tag": "ae531c2",
+        "digest": null
+      },
+      "jobs": {
+        "tag": "ae531c2",
+        "digest": null
+      }
+    },
+    "deployed": {
+      "classification": "planned",
+      "observedAt": null,
+      "source": null,
+      "scope": null,
+      "evidenceRefs": [],
+      "web": {
+        "tag": null,
+        "digest": null
+      },
+      "api": {
+        "tag": null,
+        "digest": null
+      },
+      "jobs": {
+        "tag": null,
+        "digest": null
+      }
+    }
+  },
+  "configuration": {
+    "classification": "planned",
+    "algorithm": "sha256",
+    "hash": null,
+    "keys": []
+  },
+  "checks": {
+    "lint": {
+      "classification": "planned",
+      "outcome": "not-run",
+      "command": null,
+      "completedAt": null,
+      "summary": "No sanitized result was supplied."
+    },
+    "typecheck": {
+      "classification": "planned",
+      "outcome": "not-run",
+      "command": null,
+      "completedAt": null,
+      "summary": "No sanitized result was supplied."
+    },
+    "test": {
+      "classification": "planned",
+      "outcome": "not-run",
+      "command": null,
+      "completedAt": null,
+      "summary": "No sanitized result was supplied."
+    },
+    "build": {
+      "classification": "planned",
+      "outcome": "not-run",
+      "command": null,
+      "completedAt": null,
+      "summary": "No sanitized result was supplied."
+    },
+    "e2e": {
+      "classification": "planned",
+      "outcome": "not-run",
+      "command": null,
+      "completedAt": null,
+      "summary": "No sanitized result was supplied."
+    },
+    "bicep": {
+      "classification": "planned",
+      "outcome": "not-run",
+      "command": null,
+      "completedAt": null,
+      "summary": "No sanitized result was supplied."
+    }
+  },
+  "liveValidations": [],
+  "connectors": [],
+  "oneRai": {
+    "classification": "planned",
+    "outcome": "not-run",
+    "observedAt": null,
+    "source": null,
+    "scope": null,
+    "evidenceRefs": [],
+    "syntheticOnly": null,
+    "automated": null,
+    "cases": null,
+    "defects": null,
+    "humanReviewRequired": null,
+    "summary": "No sanitized OneRAI summary was supplied."
+  }
+}

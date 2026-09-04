@@ -23,6 +23,7 @@ export type ExecFileImplementation = (
 ) => Promise<{ readonly stdout: string; readonly stderr: string }>
 
 interface GenerateDependencies {
+  readonly baseDirectory?: string
   readonly readRepositoryState?: () => Promise<RepositoryState>
 }
 
@@ -110,22 +111,28 @@ export async function generateReleaseEvidence(
   args: GenerateArgs,
   dependencies: GenerateDependencies = {},
 ): Promise<void> {
+  const baseDirectory = dependencies.baseDirectory ?? process.env['INIT_CWD'] ?? cwd()
   const repository = await (dependencies.readRepositoryState ?? readRepositoryState)()
   const rawInput =
-    args.inputPath === undefined ? {} : await readJsonFile(resolve(args.inputPath), 'input')
+    args.inputPath === undefined
+      ? {}
+      : await readJsonFile(resolve(baseDirectory, args.inputPath), 'input')
   const input = sanitizeReleaseEvidenceInput(rawInput)
   const manifest = buildReleaseEvidence(
     repository,
     input,
     args.generatedAt ?? new Date().toISOString(),
   )
-  const outputPath = resolve(args.outputPath)
+  const outputPath = resolve(baseDirectory, args.outputPath)
   await mkdir(dirname(outputPath), { recursive: true })
   await writeFile(outputPath, `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
-export async function validateReleaseEvidenceFile(path: string): Promise<void> {
-  const raw = await readJsonFile(resolve(path), 'release evidence')
+export async function validateReleaseEvidenceFile(
+  path: string,
+  baseDirectory = process.env['INIT_CWD'] ?? cwd(),
+): Promise<void> {
+  const raw = await readJsonFile(resolve(baseDirectory, path), 'release evidence')
   releaseEvidenceManifestSchema.parse(raw)
 }
 
@@ -139,13 +146,17 @@ export async function runGenerateCommand(input: readonly string[]): Promise<numb
   }
 }
 
-export async function runValidateCommand(input: readonly string[]): Promise<number> {
-  if (input.length !== 1 || input[0] === undefined || input[0].startsWith('--')) {
+export async function runValidateCommand(
+  input: readonly string[],
+  baseDirectory?: string,
+): Promise<number> {
+  const args = input.filter((value) => value !== '--')
+  if (args.length !== 1 || args[0] === undefined || args[0].startsWith('--')) {
     process.stderr.write('usage: validate-release-evidence <manifest.json>\n')
     return 2
   }
   try {
-    await validateReleaseEvidenceFile(input[0])
+    await validateReleaseEvidenceFile(args[0], baseDirectory)
     return 0
   } catch (error: unknown) {
     process.stderr.write(`${error instanceof Error ? error.message : 'Validation failed.'}\n`)

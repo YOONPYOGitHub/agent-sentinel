@@ -8,6 +8,7 @@ import {
   generateReleaseEvidence,
   parseGenerateArgs,
   readRepositoryState,
+  runValidateCommand,
   validateReleaseEvidenceFile,
   type ExecFileImplementation,
 } from './release-evidence-cli.js'
@@ -111,6 +112,27 @@ describe('release evidence CLI', () => {
     expect(manifest.images.deployed.web.tag).toBeNull()
     expect(await readFile(output, 'utf8')).toMatch(/\n$/)
     await expect(validateReleaseEvidenceFile(output)).resolves.toBeUndefined()
+  })
+
+  it('resolves root-script paths from the invoking directory and accepts pnpm separators', async () => {
+    const directory = await temporaryDirectory()
+
+    await generateReleaseEvidence(
+      {
+        outputPath: 'generated/manifest.json',
+        generatedAt: '2026-09-04T00:00:00.000Z',
+      },
+      {
+        baseDirectory: directory,
+        readRepositoryState: () =>
+          Promise.resolve({ commitSha: 'd'.repeat(40), dirty: false }),
+      },
+    )
+
+    await expect(stat(join(directory, 'generated/manifest.json'))).resolves.toBeDefined()
+    await expect(
+      runValidateCommand(['--', 'generated/manifest.json'], directory),
+    ).resolves.toBe(0)
   })
 
   it('validates an explicitly supplied sanitized input file', async () => {

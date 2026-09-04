@@ -31,6 +31,12 @@ const imageDigestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/)
 const boundedIdSchema = z.string().min(1).max(100).regex(/^[a-z0-9][a-z0-9._-]*$/)
 const boundedTextSchema = z.string().trim().min(1).max(500)
 const boundedSourceSchema = z.string().trim().min(1).max(200)
+const sanitizedScopeSchema = z.strictObject({
+  estateRef: boundedIdSchema,
+  tenantRef: boundedIdSchema,
+  environmentRef: boundedIdSchema,
+  sourceRef: boundedIdSchema,
+})
 
 const imageComponentSchema = z.strictObject({
   tag: imageTagSchema.nullable(),
@@ -49,6 +55,8 @@ const deployedImageEvidenceSchema = z
     classification: evidenceClassificationSchema,
     observedAt: isoTimestampSchema.nullable().default(null),
     source: boundedSourceSchema.nullable().default(null),
+    scope: sanitizedScopeSchema.nullable().default(null),
+    evidenceRefs: z.array(boundedIdSchema).max(20).default([]),
     web: imageComponentSchema,
     api: imageComponentSchema,
     jobs: imageComponentSchema,
@@ -56,11 +64,29 @@ const deployedImageEvidenceSchema = z
   .superRefine((value, context) => {
     if (
       value.classification === 'live' &&
-      (value.observedAt === null || value.source === null)
+      (value.observedAt === null ||
+        value.source === null ||
+        value.scope === null ||
+        value.evidenceRefs.length === 0)
     ) {
       context.addIssue({
         code: 'custom',
-        message: 'live evidence requires source and observedAt',
+        message: 'live evidence requires sanitized scope and evidence references',
+      })
+    }
+    const tags = [value.web.tag, value.api.tag, value.jobs.tag].filter(
+      (tag): tag is string => tag !== null,
+    )
+    if (new Set(tags).size > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'deployed component tags must identify one release',
+      })
+    }
+    if (value.classification === 'live' && tags.length !== 3) {
+      context.addIssue({
+        code: 'custom',
+        message: 'live deployment evidence requires all deployed tags',
       })
     }
     for (const component of ['web', 'api', 'jobs'] as const) {
@@ -190,6 +216,8 @@ const liveValidationEvidenceSchema = z
     freshness: evidenceFreshnessSchema,
     observedAt: isoTimestampSchema.nullable().default(null),
     source: boundedSourceSchema.nullable().default(null),
+    scope: sanitizedScopeSchema.nullable().default(null),
+    evidenceRefs: z.array(boundedIdSchema).max(20).default([]),
     summary: boundedTextSchema,
   })
   .superRefine((value, context) => {
@@ -200,6 +228,15 @@ const liveValidationEvidenceSchema = z
       context.addIssue({
         code: 'custom',
         message: 'live evidence requires source and observedAt',
+      })
+    }
+    if (
+      value.classification === 'live' &&
+      (value.scope === null || value.evidenceRefs.length === 0)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'live evidence requires sanitized scope and evidence references',
       })
     }
     if (
@@ -221,6 +258,8 @@ const connectorEvidenceSchema = z
     freshness: evidenceFreshnessSchema,
     observedAt: isoTimestampSchema.nullable().default(null),
     source: boundedSourceSchema.nullable().default(null),
+    scope: sanitizedScopeSchema.nullable().default(null),
+    evidenceRefs: z.array(boundedIdSchema).max(20).default([]),
     summary: boundedTextSchema,
   })
   .superRefine((value, context) => {
@@ -231,6 +270,15 @@ const connectorEvidenceSchema = z
       context.addIssue({
         code: 'custom',
         message: 'live evidence requires source and observedAt',
+      })
+    }
+    if (
+      value.classification === 'live' &&
+      (value.scope === null || value.evidenceRefs.length === 0)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'live evidence requires sanitized scope and evidence references',
       })
     }
     if (
@@ -262,6 +310,8 @@ const oneRaiEvidenceSchema = z
     outcome: evidenceOutcomeSchema,
     observedAt: isoTimestampSchema.nullable().default(null),
     source: boundedSourceSchema.nullable().default(null),
+    scope: sanitizedScopeSchema.nullable().default(null),
+    evidenceRefs: z.array(boundedIdSchema).max(20).default([]),
     syntheticOnly: z.boolean().nullable(),
     automated: z.boolean().nullable(),
     cases: z.number().int().min(0).nullable(),
@@ -277,6 +327,15 @@ const oneRaiEvidenceSchema = z
       context.addIssue({
         code: 'custom',
         message: 'live evidence requires source and observedAt',
+      })
+    }
+    if (
+      (value.classification === 'live' || value.outcome === 'pass') &&
+      (value.scope === null || value.evidenceRefs.length === 0)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'evaluated OneRAI evidence requires sanitized scope and evidence references',
       })
     }
     if (value.syntheticOnly === true && value.classification !== 'synthetic') {
@@ -349,6 +408,19 @@ export type EvidenceOutcome = z.infer<typeof evidenceOutcomeSchema>
 export type SafeConfiguration = z.infer<typeof safeConfigurationSchema>
 export type ReleaseEvidenceInput = z.infer<typeof releaseEvidenceInputSchema>
 export type ReleaseEvidenceManifest = z.infer<typeof releaseEvidenceManifestSchema>
+
+export function generateReleaseEvidenceJsonSchema() {
+  return {
+    $id: 'https://agent-sentinel.example/schemas/release-evidence/v1/schema.json',
+    title: 'Agent Sentinel sanitized release evidence manifest',
+    description:
+      'Strict versioned release evidence. The repository validator additionally enforces cross-field contradictions.',
+    ...z.toJSONSchema(releaseEvidenceManifestSchema, {
+      target: 'draft-2020-12',
+      reused: 'ref',
+    }),
+  }
+}
 
 export interface RepositoryState {
   readonly commitSha: string
@@ -511,6 +583,8 @@ export function buildReleaseEvidence(
         classification: 'planned',
         observedAt: null,
         source: null,
+        scope: null,
+        evidenceRefs: [],
         web: { tag: null, digest: null },
         api: { tag: null, digest: null },
         jobs: { tag: null, digest: null },
@@ -525,6 +599,8 @@ export function buildReleaseEvidence(
       outcome: 'not-run',
       observedAt: null,
       source: null,
+      scope: null,
+      evidenceRefs: [],
       syntheticOnly: null,
       automated: null,
       cases: null,

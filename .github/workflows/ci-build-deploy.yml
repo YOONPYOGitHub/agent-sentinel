@@ -59,6 +59,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate release evidence schema
+        run: |
+          pnpm release-evidence:schema:check
+          pnpm release-evidence:validate -- release-evidence/v1/examples/repository-only.json
+          pnpm release-evidence:generate -- --output "${RUNNER_TEMP}/release-evidence.json"
+          pnpm release-evidence:validate -- "${RUNNER_TEMP}/release-evidence.json"
+
       - name: Lint
         run: pnpm run lint
 

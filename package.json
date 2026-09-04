@@ -25,6 +25,8 @@
     "foundry:validate-telemetry": "pnpm --filter @agent-sentinel/scripts validate-telemetry-live",
     "auth:validate-live": "pnpm --filter @agent-sentinel/scripts validate-auth-live",
     "release-evidence:generate": "pnpm --filter @agent-sentinel/scripts release-evidence:generate",
+    "release-evidence:schema": "pnpm --filter @agent-sentinel/scripts release-evidence:schema",
+    "release-evidence:schema:check": "pnpm --filter @agent-sentinel/scripts release-evidence:schema:check",
     "release-evidence:validate": "pnpm --filter @agent-sentinel/scripts release-evidence:validate",
     "manifest:validate": "pnpm --filter @agent-sentinel/tools validate-manifest",
     "manifest:scan": "pnpm --filter @agent-sentinel/tools scan-manifest",

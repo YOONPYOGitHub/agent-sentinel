@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { readFile } from 'node:fs/promises'
 
 import {
   buildReleaseEvidence,
+  generateReleaseEvidenceJsonSchema,
   hashSafeConfiguration,
   releaseEvidenceManifestSchema,
   sanitizeReleaseEvidenceInput,
@@ -245,5 +247,125 @@ describe('release evidence schema', () => {
         },
       }),
     ).toThrow(/synthetic OneRAI evidence must use the synthetic classification/)
+  })
+
+  it('requires sanitized scope and evidence references on live evidence', () => {
+    expect(() =>
+      sanitizeReleaseEvidenceInput({
+        liveValidations: [
+          {
+            id: 'replacement-readiness',
+            classification: 'live',
+            outcome: 'pass',
+            freshness: 'fresh',
+            observedAt: '2026-09-04T00:00:00.000Z',
+            source: 'sanitized-validation',
+            summary: 'Provider reads passed.',
+          },
+        ],
+      }),
+    ).toThrow(/live evidence requires sanitized scope and evidence references/)
+  })
+
+  it('accepts bounded sanitized live summaries without private payloads', () => {
+    const input = sanitizeReleaseEvidenceInput({
+      liveValidations: [
+        {
+          id: 'replacement-readiness',
+          classification: 'live',
+          outcome: 'pass',
+          freshness: 'fresh',
+          observedAt: '2026-09-04T00:00:00.000Z',
+          source: 'sanitized-validation',
+          scope: {
+            estateRef: 'replacement-estate',
+            tenantRef: 'replacement-tenant',
+            environmentRef: 'dev',
+            sourceRef: 'aggregate-health',
+          },
+          evidenceRefs: ['validation-summary-2026-09-04'],
+          summary: 'Seven bounded provider reads passed.',
+        },
+      ],
+    })
+
+    expect(input.liveValidations?.[0]?.scope).toEqual({
+      estateRef: 'replacement-estate',
+      tenantRef: 'replacement-tenant',
+      environmentRef: 'dev',
+      sourceRef: 'aggregate-health',
+    })
+    expect(input.liveValidations?.[0]?.evidenceRefs).toEqual([
+      'validation-summary-2026-09-04',
+    ])
+  })
+
+  it('rejects contradictory deployed image observations', () => {
+    const common = {
+      classification: 'live' as const,
+      observedAt: '2026-09-04T00:00:00.000Z',
+      source: 'sanitized-deployment-observation',
+      scope: {
+        estateRef: 'replacement-estate',
+        tenantRef: 'replacement-tenant',
+        environmentRef: 'dev',
+        sourceRef: 'container-apps',
+      },
+      evidenceRefs: ['deployment-observation-2026-09-04'],
+    }
+
+    expect(() =>
+      sanitizeReleaseEvidenceInput({
+        deployedImages: {
+          ...common,
+          web: { tag: '7458b3e', digest: null },
+          api: { tag: 'different', digest: null },
+          jobs: { tag: '7458b3e', digest: null },
+        },
+      }),
+    ).toThrow(/deployed component tags must identify one release/)
+
+    expect(() =>
+      sanitizeReleaseEvidenceInput({
+        deployedImages: {
+          ...common,
+          web: { tag: null, digest: null },
+          api: { tag: null, digest: null },
+          jobs: { tag: null, digest: null },
+        },
+      }),
+    ).toThrow(/live deployment evidence requires all deployed tags/)
+  })
+
+  it('keeps the committed JSON Schema synchronized with the runtime schema', async () => {
+    const committed = JSON.parse(
+      await readFile(new URL('../release-evidence/v1/schema.json', import.meta.url), 'utf8'),
+    ) as unknown
+
+    expect(committed).toEqual(generateReleaseEvidenceJsonSchema())
+  })
+
+  it('keeps the committed repository-only example valid and explicitly unknown', async () => {
+    const example = releaseEvidenceManifestSchema.parse(
+      JSON.parse(
+        await readFile(
+          new URL(
+            '../release-evidence/v1/examples/repository-only.json',
+            import.meta.url,
+          ),
+          'utf8',
+        ),
+      ) as unknown,
+    )
+
+    expect(example.release.commitSha).toBe(
+      'ae531c2ce98afebc7933425091f3f2912edcd53e',
+    )
+    expect(Object.values(example.checks).every((check) => check.outcome !== 'pass')).toBe(
+      true,
+    )
+    expect(example.images.deployed.web.tag).toBeNull()
+    expect(example.liveValidations).toEqual([])
+    expect(example.connectors).toEqual([])
   })
 })
