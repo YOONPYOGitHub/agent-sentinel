@@ -178,14 +178,37 @@ export function buildRemediationPreview(
   const targetEdgeIds = finding.affectedEdgeIds.filter((edgeId) =>
     snapshot.edges.some((edge) => edge.id === edgeId && edge.active),
   )
-  if (targetEdgeIds.length === 0) {
-    throw new Error(`Exposure finding has no active edge to preview: ${finding.id}`)
-  }
+  const inactiveOrMissingTargetEdgeIds = finding.affectedEdgeIds.filter(
+    (edgeId) => !targetEdgeIds.includes(edgeId),
+  )
 
   const previewSnapshot = targetEdgeIds.reduce(
     (current, edgeId) => simulateEdgeRemoval(current, edgeId),
     snapshot,
   )
+  const baselineFindings = evaluateAllExposurePolicies(snapshot).filter(
+    (candidate) => candidate.affectedAgentId === finding.affectedAgentId,
+  )
+  const residualFindings = evaluateAllExposurePolicies(previewSnapshot)
+    .filter((candidate) => candidate.affectedAgentId === finding.affectedAgentId)
+    .map((candidate) => ({
+      ...candidate,
+      sourceMode: finding.sourceMode,
+      tenantId: finding.tenantId,
+      snapshotId: finding.snapshotId,
+    }))
+  const baselineCoversSelectedPolicy = baselineFindings.some(
+    (candidate) => candidate.policyId === finding.policyId,
+  )
+  const beforeRiskScore = Math.max(
+    finding.riskScore,
+    ...baselineFindings.map((candidate) => candidate.riskScore),
+  )
+  const analyzedResidualRisk = Math.max(
+    0,
+    ...residualFindings.map((candidate) => candidate.riskScore),
+  )
+  const afterRiskScore = baselineCoversSelectedPolicy ? analyzedResidualRisk : beforeRiskScore
   const beforeBlastRadius = calculateBlastRadius(snapshot, finding.affectedAgentId)
   const afterBlastRadius = calculateBlastRadius(previewSnapshot, finding.affectedAgentId)
   const comparisonNodeIds = new Set([
@@ -197,34 +220,144 @@ export function buildRemediationPreview(
     .map((edge) => snapshot.nodes.find((node) => node.id === edge?.to)?.name)
     .filter((name): name is string => name !== undefined)
   const blastRadiusReduction = Math.max(0, beforeBlastRadius.length - afterBlastRadius.length)
+  const residualRoutes = residualFindings.flatMap((residualFinding) => {
+    const edgeIds = residualFinding.affectedEdgeIds.filter((edgeId) =>
+      previewSnapshot.edges.some((edge) => edge.id === edgeId && edge.active),
+    )
+    if (edgeIds.length === 0) return []
+    return [
+      {
+        findingId: residualFinding.id,
+        policyId: residualFinding.policyId,
+        riskScore: residualFinding.riskScore,
+        nodeIds: residualFinding.affectedNodeIds,
+        edgeIds,
+        evidenceIds: residualFinding.evidenceIds,
+      },
+    ]
+  })
+  const analysisEvidenceIds = new Set([
+    ...finding.evidenceIds,
+    ...baselineFindings.flatMap((candidate) => candidate.evidenceIds),
+    ...residualFindings.flatMap((candidate) => candidate.evidenceIds),
+  ])
+  const analysisEvidence = snapshot.evidence.filter((item) => analysisEvidenceIds.has(item.id))
+  const uncertainty: RemediationPreview['uncertainty'] = []
+  const availableEvidenceIds = new Set(snapshot.evidence.map((item) => item.id))
+  const missingEvidenceIds = [...analysisEvidenceIds].filter(
+    (evidenceId) => !availableEvidenceIds.has(evidenceId),
+  )
+  if (missingEvidenceIds.length > 0) {
+    uncertainty.push({
+      code: 'missing-evidence',
+      message: 'The simulated analysis references evidence absent from the snapshot.',
+      evidenceIds: missingEvidenceIds,
+    })
+  }
+  if (targetEdgeIds.length === 0) {
+    uncertainty.push({
+      code: 'no-active-target-routes',
+      message: 'No requested route is active, so the simulation makes no graph change.',
+      evidenceIds: finding.evidenceIds,
+    })
+  } else if (inactiveOrMissingTargetEdgeIds.length > 0) {
+    uncertainty.push({
+      code: 'partial-target-coverage',
+      message:
+        'Only active requested routes were removed; inactive or absent target routes were unchanged.',
+      evidenceIds: finding.evidenceIds,
+    })
+  }
+  const staleEvidenceIds = analysisEvidence
+    .filter((item) => item.freshness === 'stale')
+    .map((item) => item.id)
+  if (staleEvidenceIds.length > 0) {
+    uncertainty.push({
+      code: 'stale-evidence',
+      message: 'The simulated analysis includes stale evidence.',
+      evidenceIds: staleEvidenceIds,
+    })
+  }
+  const unknownEvidenceIds = analysisEvidence
+    .filter((item) => item.evidenceTypes.includes('unknown'))
+    .map((item) => item.id)
+  if (unknownEvidenceIds.length > 0) {
+    uncertainty.push({
+      code: 'unknown-evidence',
+      message: 'The simulated analysis includes evidence with unknown provenance or type.',
+      evidenceIds: unknownEvidenceIds,
+    })
+  }
+  const syntheticEvidenceIds = analysisEvidence
+    .filter((item) => item.evidenceTypes.includes('synthetic_validation'))
+    .map((item) => item.id)
+  if (syntheticEvidenceIds.length > 0) {
+    uncertainty.push({
+      code: 'synthetic-evidence',
+      message: 'Synthetic validation evidence does not establish a live remediation outcome.',
+      evidenceIds: syntheticEvidenceIds,
+    })
+  }
+  if (
+    analysisEvidence.length > 0 &&
+    analysisEvidence.every((item) =>
+      item.evidenceTypes.every((type) => type === 'declared_configuration'),
+    )
+  ) {
+    uncertainty.push({
+      code: 'declared-configuration-only',
+      message: 'The preview is based only on declared configuration.',
+      evidenceIds: analysisEvidence.map((item) => item.id),
+    })
+  }
+  if (finding.validationStatus === 'theoretical') {
+    uncertainty.push({
+      code: 'theoretical-analysis',
+      message: 'The selected finding has not been validated against observed runtime behavior.',
+      evidenceIds: finding.evidenceIds,
+    })
+  }
+  if (!baselineCoversSelectedPolicy) {
+    uncertainty.push({
+      code: 'analysis-coverage-unknown',
+      message:
+        'The current deterministic policy catalog cannot reproduce the selected finding, so no risk reduction is claimed.',
+      evidenceIds: finding.evidenceIds,
+    })
+  }
 
   return remediationPreviewSchema.parse({
     findingId: finding.id,
     actionId: `preview-block-route-${finding.id}`,
     actionType: 'block-route',
     title:
-      targetNodeNames.length === 1
-        ? `Block route to ${targetNodeNames[0]}`
-        : `Block ${targetEdgeIds.length} risky routes`,
+      targetEdgeIds.length === 0
+        ? 'No active risky routes to block'
+        : targetNodeNames.length === 1
+          ? `Block route to ${targetNodeNames[0]}`
+          : `Block ${targetEdgeIds.length} risky routes`,
     description:
       'Simulate a Sentinel policy-layer route block. No connector or target platform is modified.',
     targetEdgeIds,
     simulationOnly: true,
     before: {
-      riskScore: finding.riskScore,
+      riskScore: beforeRiskScore,
       blastRadiusCount: beforeBlastRadius.length,
     },
     after: {
-      riskScore: 0,
+      riskScore: afterRiskScore,
       blastRadiusCount: afterBlastRadius.length,
     },
     impact: {
-      riskReduction: finding.riskScore,
+      riskReduction: Math.max(0, beforeRiskScore - afterRiskScore),
       blastRadiusReduction,
       businessDisruption: 'unknown',
       workflowImpact: 'unknown',
       rollbackAvailable: true,
     },
+    residualFindings,
+    residualRoutes,
+    uncertainty,
     beforeGraph: buildComparisonGraph(snapshot, comparisonNodeIds),
     afterGraph: buildComparisonGraph(previewSnapshot, comparisonNodeIds),
   })

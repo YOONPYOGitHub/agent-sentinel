@@ -101,6 +101,9 @@ describe('exposureApi', () => {
             workflowImpact: 'unknown',
             rollbackAvailable: true,
           },
+          residualFindings: [],
+          residualRoutes: [],
+          uncertainty: [],
           beforeGraph: {
             tenantId: 'tenant-demo',
             environment: 'validation',

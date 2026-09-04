@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type {
   EstateSnapshot,
+  Evidence,
   ExposureFinding,
   ExposureFindingRepository,
   SnapshotRepository,
 } from '@agent-sentinel/domain'
 
 import { createApp } from '../src/app.js'
+import { buildRemediationPreview } from '../src/exposure-routes.js'
 
 async function makeApp(
   mode: 'mock' | 'live',
@@ -54,6 +56,79 @@ function makeFinding(overrides: Partial<ExposureFinding> = {}): ExposureFinding 
     tenantId: 'tenant-demo',
     snapshotId: 'snap-1',
     ...overrides,
+  }
+}
+
+function makePreviewSnapshot(
+  options: {
+    alternateRoute?: boolean
+    staleOrUnknownEvidence?: boolean
+  } = {},
+): EstateSnapshot {
+  const observedAt = '2026-08-14T12:00:00.000Z'
+  const evidence: Evidence = {
+    id: 'ev-1',
+    source: 'Azure AI Foundry Agent Service',
+    sourceObjectId: 'agent-1',
+    observedAt,
+    freshness: options.staleOrUnknownEvidence ? 'stale' : 'live',
+    confidence: 1,
+    evidenceTypes: options.staleOrUnknownEvidence ? ['unknown'] : ['declared_configuration'],
+    summary: 'Declared configuration evidence.',
+  }
+  const toolNode = (id: string, name: string) => ({
+    id,
+    kind: 'tool' as const,
+    name,
+    description: `Declared function ${name}.`,
+    environment: 'validation',
+    trust: 'conditional' as const,
+    evidenceIds: [evidence.id],
+    metadata: {},
+  })
+  return {
+    tenantId: 'tenant-demo',
+    environment: 'validation',
+    generatedAt: observedAt,
+    evidence: [evidence],
+    nodes: [
+      {
+        id: 'agent-1',
+        kind: 'agent',
+        name: 'Agent One',
+        description: 'Agent under analysis.',
+        environment: 'validation',
+        trust: 'conditional',
+        evidenceIds: [evidence.id],
+        metadata: { approvalRequired: 'false' },
+      },
+      toolNode('external-tool-1', 'external_send'),
+      ...(options.alternateRoute ? [toolNode('external-tool-2', 'external_transfer')] : []),
+    ],
+    edges: [
+      {
+        id: 'edge-1',
+        from: 'agent-1',
+        to: 'external-tool-1',
+        relationship: 'CAN_CALL',
+        evidenceIds: [evidence.id],
+        active: true,
+        removable: false,
+      },
+      ...(options.alternateRoute
+        ? [
+            {
+              id: 'edge-2',
+              from: 'agent-1',
+              to: 'external-tool-2',
+              relationship: 'CAN_CALL' as const,
+              evidenceIds: [evidence.id],
+              active: true,
+              removable: false,
+            },
+          ]
+        : []),
+    ],
   }
 }
 
@@ -215,6 +290,9 @@ describe('exposure API (mock mode)', () => {
         before: { riskScore: number; blastRadiusCount: number }
         after: { riskScore: number; blastRadiusCount: number }
         targetEdgeIds: string[]
+        residualFindings: ExposureFinding[]
+        residualRoutes: Array<{ edgeIds: string[]; riskScore: number }>
+        uncertainty: Array<{ code: string; evidenceIds: string[] }>
         beforeGraph: EstateSnapshot
         afterGraph: EstateSnapshot
       } = response.json()
@@ -222,9 +300,14 @@ describe('exposure API (mock mode)', () => {
         findingId: finding.id,
         simulationOnly: true,
         before: { riskScore: finding.riskScore },
-        after: { riskScore: 0 },
         targetEdgeIds: finding.affectedEdgeIds,
       })
+      expect(preview.after.riskScore).toBe(
+        preview.residualFindings.reduce(
+          (maximum, residual) => Math.max(maximum, residual.riskScore),
+          0,
+        ),
+      )
       expect(preview.after.blastRadiusCount).toBeLessThan(preview.before.blastRadiusCount)
       expect(
         preview.afterGraph.edges
@@ -240,6 +323,120 @@ describe('exposure API (mock mode)', () => {
     } finally {
       await app.close()
     }
+  })
+
+  it('retains nonzero residual risk when an alternate active route remains', () => {
+    const preview = buildRemediationPreview(
+      makePreviewSnapshot({ alternateRoute: true }),
+      makeFinding(),
+    )
+
+    expect(preview.targetEdgeIds).toEqual(['edge-1'])
+    expect(preview.after.riskScore).toBe(91)
+    expect(preview.impact.riskReduction).toBe(0)
+    expect(preview.residualFindings).toHaveLength(1)
+    expect(preview.residualRoutes).toEqual([
+      expect.objectContaining({ edgeIds: ['edge-2'], riskScore: 91 }),
+    ])
+  })
+
+  it('reports partial route removal from the simulated snapshot', () => {
+    const preview = buildRemediationPreview(
+      makePreviewSnapshot({ alternateRoute: true }),
+      makeFinding(),
+    )
+
+    expect(preview.afterGraph.edges.find((edge) => edge.id === 'edge-1')?.active).toBe(false)
+    expect(preview.afterGraph.edges.find((edge) => edge.id === 'edge-2')?.active).toBe(true)
+    expect(preview.after.blastRadiusCount).toBe(1)
+  })
+
+  it('reports zero residual risk only when all active risky routes are removed', () => {
+    const preview = buildRemediationPreview(
+      makePreviewSnapshot({ alternateRoute: true }),
+      makeFinding({ affectedEdgeIds: ['edge-1', 'edge-2'] }),
+    )
+
+    expect(preview.after.riskScore).toBe(0)
+    expect(preview.impact.riskReduction).toBe(91)
+    expect(preview.residualFindings).toEqual([])
+    expect(preview.residualRoutes).toEqual([])
+  })
+
+  it('reports unchanged residual risk when the requested route removal is a no-op', () => {
+    const snapshot = makePreviewSnapshot({ alternateRoute: true })
+    snapshot.edges = snapshot.edges.map((edge) =>
+      edge.id === 'edge-1' ? { ...edge, active: false } : edge,
+    )
+
+    const preview = buildRemediationPreview(snapshot, makeFinding())
+
+    expect(preview.title).toBe('No active risky routes to block')
+    expect(preview.targetEdgeIds).toEqual([])
+    expect(preview.after.riskScore).toBe(preview.before.riskScore)
+    expect(preview.impact.riskReduction).toBe(0)
+    expect(preview.residualRoutes).toEqual([
+      expect.objectContaining({ edgeIds: ['edge-2'], riskScore: 91 }),
+    ])
+    expect(preview.uncertainty).toContainEqual(
+      expect.objectContaining({ code: 'no-active-target-routes' }),
+    )
+  })
+
+  it('reports partial target coverage when only some requested routes are active', () => {
+    const preview = buildRemediationPreview(
+      makePreviewSnapshot({ alternateRoute: true }),
+      makeFinding({ affectedEdgeIds: ['edge-1', 'already-inactive-edge'] }),
+    )
+
+    expect(preview.targetEdgeIds).toEqual(['edge-1'])
+    expect(preview.after.riskScore).toBe(91)
+    expect(preview.impact.riskReduction).toBe(0)
+    expect(preview.uncertainty).toContainEqual(
+      expect.objectContaining({ code: 'partial-target-coverage' }),
+    )
+  })
+
+  it('reports missing cited evidence as residual-analysis uncertainty', () => {
+    const preview = buildRemediationPreview(
+      makePreviewSnapshot({ alternateRoute: true }),
+      makeFinding({ evidenceIds: ['ev-1', 'missing-evidence'] }),
+    )
+
+    expect(preview.after.riskScore).toBe(91)
+    expect(preview.uncertainty).toContainEqual({
+      code: 'missing-evidence',
+      message: 'The simulated analysis references evidence absent from the snapshot.',
+      evidenceIds: ['missing-evidence'],
+    })
+  })
+
+  it('reports stale and unknown evidence as residual-analysis uncertainty', () => {
+    const preview = buildRemediationPreview(
+      makePreviewSnapshot({ alternateRoute: true, staleOrUnknownEvidence: true }),
+      makeFinding(),
+    )
+
+    expect(preview.after.riskScore).toBe(91)
+    expect(preview.uncertainty).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'stale-evidence', evidenceIds: ['ev-1'] }),
+        expect.objectContaining({ code: 'unknown-evidence', evidenceIds: ['ev-1'] }),
+      ]),
+    )
+  })
+
+  it('claims no reduction when deterministic analysis cannot reproduce the selected policy', () => {
+    const preview = buildRemediationPreview(
+      makePreviewSnapshot(),
+      makeFinding({ policyId: 'AS-POL-999', riskScore: 64 }),
+    )
+
+    expect(preview.after.riskScore).toBe(preview.before.riskScore)
+    expect(preview.impact.riskReduction).toBe(0)
+    expect(preview.uncertainty).toContainEqual(
+      expect.objectContaining({ code: 'analysis-coverage-unknown' }),
+    )
   })
 
   it('generates an evidence-cited advisory narrative without changing the finding', async () => {

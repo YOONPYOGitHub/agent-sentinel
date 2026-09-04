@@ -154,6 +154,15 @@ describe('AS-POL-001 unapproved external transfer', () => {
     expect(findings[0]?.policyId).toBe('AS-POL-001')
   })
 
+  it('does not treat missing approval metadata as an approval gate', () => {
+    const snapshot = scenarioSnapshot('sales-research-vulnerable')
+    const agent = snapshot.nodes.find((node) => node.kind === 'agent')
+    if (!agent) throw new Error('Expected an agent node.')
+    delete agent.metadata['approvalRequired']
+
+    expect(evaluateUnapprovedExternalTransfer(snapshot)).toHaveLength(1)
+  })
+
   it('does not flag procurement-gated (approval required)', () => {
     const snapshot = scenarioSnapshot('procurement-gated')
     expect(evaluateUnapprovedExternalTransfer(snapshot)).toHaveLength(0)

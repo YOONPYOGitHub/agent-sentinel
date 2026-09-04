@@ -117,6 +117,9 @@ const samplePreview = {
     workflowImpact: 'unknown' as const,
     rollbackAvailable: true,
   },
+  residualFindings: [],
+  residualRoutes: [],
+  uncertainty: [],
   beforeGraph: sampleGraph,
   afterGraph: sampleGraph,
 }

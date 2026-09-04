@@ -3,6 +3,7 @@ import type { Remediation } from '@agent-sentinel/domain'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   FoundryAgentConnector,
+  FOUNDRY_TRUST_REQUIRED_PLANES,
   MultiFoundryConnector,
   foundryAgentPageSchema,
   foundryConnectorConfigSchema,
@@ -39,6 +40,40 @@ const approvalAgent = {
   id: 'a2',
   name: 'procurement-gated',
   metadata: { approvalRequired: 'true' },
+}
+
+function completeTrustAssessment(
+  overrides: {
+    sourceMode?: 'live' | 'synthetic'
+    freshness?: 'live' | 'recent' | 'stale'
+    evidenceTypes?: Array<
+      'declared_configuration' | 'observed_runtime' | 'synthetic_validation' | 'unknown'
+    >
+  } = {},
+) {
+  const sourceMode = overrides.sourceMode ?? 'live'
+  const freshness = overrides.freshness ?? 'live'
+  const evidenceTypes = overrides.evidenceTypes ?? ['observed_runtime']
+  return {
+    tier: 'trusted' as const,
+    sourceMode,
+    assessedAt: '2026-09-04T08:00:00.000Z',
+    requiredPlanes: [...FOUNDRY_TRUST_REQUIRED_PLANES],
+    planeEvidence: FOUNDRY_TRUST_REQUIRED_PLANES.map((plane) => ({
+      plane,
+      evidenceReferences: [`${plane}-evidence`],
+    })),
+    evidence: FOUNDRY_TRUST_REQUIRED_PLANES.map((plane) => ({
+      id: `${plane}-evidence`,
+      source: `Trust source for ${plane}`,
+      sourceObjectId: `${plane}-object`,
+      observedAt: '2026-09-04T08:00:00.000Z',
+      freshness,
+      confidence: 1,
+      evidenceTypes,
+      summary: `Evidence for ${plane}.`,
+    })),
+  }
 }
 function connector(fetcher: typeof fetch) {
   vi.stubGlobal('fetch', fetcher)
@@ -118,6 +153,134 @@ describe('Foundry connector', () => {
     })
     expect(snapshot.nodes.find((n) => n.id === 'foundry-agent-a2')?.trust).toBe('conditional')
     expect(snapshot.evidence[0]?.summary).toContain('Declared configuration')
+  })
+  it('does not infer trust for sparse agents with no tools or approval metadata', () => {
+    const snapshot = mapAgentToSnapshot([{ id: 'sparse-agent' }], 'v1', config)
+    const agent = snapshot.nodes.find((node) => node.id === 'foundry-agent-sparse-agent')
+
+    expect(agent).toMatchObject({
+      trust: 'conditional',
+      metadata: {
+        approvalRequired: 'unknown',
+        trustAssessmentStatus: 'missing',
+      },
+    })
+  })
+  it('does not infer trust when approval metadata is missing', () => {
+    const snapshot = mapAgentToSnapshot(
+      [
+        {
+          ...externalAgent,
+          id: 'missing-approval',
+          metadata: { owner: 'Revenue AI' },
+        },
+      ],
+      'v1',
+      config,
+    )
+
+    expect(snapshot.nodes.find((node) => node.id === 'foundry-agent-missing-approval')?.trust).toBe(
+      'untrusted',
+    )
+    expect(
+      snapshot.nodes.find((node) => node.id === 'foundry-agent-missing-approval')?.metadata[
+        'approvalRequired'
+      ],
+    ).toBe('unknown')
+  })
+  it('emits trusted only for a complete live assessment with cited evidence for every plane', () => {
+    const snapshot = mapAgentToSnapshot(
+      [
+        {
+          id: 'assessed-agent',
+          metadata: { approvalRequired: 'true' },
+          trustAssessment: completeTrustAssessment(),
+        },
+      ],
+      'v1',
+      config,
+    )
+    const agent = snapshot.nodes.find((node) => node.id === 'foundry-agent-assessed-agent')
+
+    expect(agent).toMatchObject({
+      trust: 'trusted',
+      metadata: {
+        trustAssessmentStatus: 'complete',
+        trustAssessmentSourceMode: 'live',
+      },
+    })
+    expect(agent?.evidenceIds).toHaveLength(FOUNDRY_TRUST_REQUIRED_PLANES.length + 1)
+    expect(
+      snapshot.evidence.filter((item) => item.metadata?.['trustAssessmentSourceMode'] === 'live'),
+    ).toHaveLength(FOUNDRY_TRUST_REQUIRED_PLANES.length)
+  })
+  it.each([
+    {
+      name: 'stale evidence',
+      assessment: completeTrustAssessment({ freshness: 'stale' }),
+      sourceMode: 'live',
+    },
+    {
+      name: 'unknown evidence',
+      assessment: completeTrustAssessment({ evidenceTypes: ['unknown'] }),
+      sourceMode: 'live',
+    },
+    {
+      name: 'synthetic evidence',
+      assessment: completeTrustAssessment({
+        sourceMode: 'synthetic',
+        evidenceTypes: ['synthetic_validation'],
+      }),
+      sourceMode: 'synthetic',
+    },
+    {
+      name: 'synthetic evidence mislabeled as live',
+      assessment: completeTrustAssessment({
+        sourceMode: 'live',
+        evidenceTypes: ['synthetic_validation'],
+      }),
+      sourceMode: 'live',
+    },
+    {
+      name: 'declared configuration without observed evidence',
+      assessment: completeTrustAssessment({
+        sourceMode: 'live',
+        evidenceTypes: ['declared_configuration'],
+      }),
+      sourceMode: 'live',
+    },
+  ])('keeps a trusted claim conditional when it relies on $name', ({ assessment, sourceMode }) => {
+    const snapshot = mapAgentToSnapshot(
+      [{ id: 'incomplete-assessment', trustAssessment: assessment }],
+      'v1',
+      config,
+    )
+    const agent = snapshot.nodes.find((node) => node.id === 'foundry-agent-incomplete-assessment')
+
+    expect(agent).toMatchObject({
+      trust: 'conditional',
+      metadata: {
+        trustAssessmentStatus: 'incomplete',
+        trustAssessmentSourceMode: sourceMode,
+      },
+    })
+  })
+  it('keeps a trusted claim conditional when a required plane is missing', () => {
+    const assessment = completeTrustAssessment()
+    assessment.requiredPlanes = assessment.requiredPlanes.filter((plane) => plane !== 'runtime')
+    assessment.planeEvidence = assessment.planeEvidence.filter((plane) => plane.plane !== 'runtime')
+    const snapshot = mapAgentToSnapshot(
+      [{ id: 'missing-plane', trustAssessment: assessment }],
+      'v1',
+      config,
+    )
+
+    const agent = snapshot.nodes.find((node) => node.id === 'foundry-agent-missing-plane')
+    expect(agent).toMatchObject({
+      trust: 'conditional',
+      metadata: { trustAssessmentStatus: 'incomplete' },
+    })
+    expect(agent?.metadata['trustAssessmentMissingPlanes']).toContain('runtime')
   })
   it('preserves every supplied Entra identity identifier for fail-closed correlation', () => {
     const snapshot = mapAgentToSnapshot(
@@ -316,6 +479,38 @@ describe('multi-Foundry connector', () => {
     const snapshot = await connector.discover()
     expect(snapshot.nodes.some((node) => node.id === 'foundry-agent-a1')).toBe(true)
     expect(snapshot.nodes[0]?.metadata['sourceConnectorId']).toBe('primary')
+  })
+
+  it('preserves trust assessment mode and connector source provenance together', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          data: [{ ...approvalAgent, trustAssessment: completeTrustAssessment() }],
+          has_more: false,
+        }),
+      ),
+    )
+    const connector = new MultiFoundryConnector(
+      {
+        estateTenantId: 'estate',
+        estateEnvironment: 'portfolio',
+        sources: [portfolio.sources[0]!],
+      },
+      () => new Credential(),
+    )
+
+    const snapshot = await connector.discover()
+    const trustEvidence = snapshot.evidence.find(
+      (item) => item.metadata?.['trustAssessmentSourceMode'] === 'live',
+    )
+
+    expect(trustEvidence?.metadata).toMatchObject({
+      trustAssessmentSourceMode: 'live',
+      sourceConnectorId: 'tenant-a-project',
+      sourceTenantId: 'tenant-a',
+      sourceEnvironment: 'production',
+    })
   })
 
   it('fails when no configured source completes discovery', async () => {

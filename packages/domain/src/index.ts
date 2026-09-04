@@ -410,7 +410,7 @@ export const remediationPreviewSchema = z.object({
   actionType: z.literal('block-route'),
   title: z.string().min(1),
   description: z.string().min(1),
-  targetEdgeIds: z.array(z.string().min(1)).min(1),
+  targetEdgeIds: z.array(z.string().min(1)),
   simulationOnly: z.literal(true),
   before: z.object({
     riskScore: z.number().min(0).max(100),
@@ -427,6 +427,34 @@ export const remediationPreviewSchema = z.object({
     workflowImpact: z.enum(['preserved', 'review-required', 'unknown']),
     rollbackAvailable: z.boolean(),
   }),
+  residualFindings: z.array(exposureFindingSchema),
+  residualRoutes: z.array(
+    z.object({
+      findingId: z.string().min(1),
+      policyId: z.string().min(1),
+      riskScore: z.number().min(0).max(100),
+      nodeIds: z.array(z.string().min(1)).min(1),
+      edgeIds: z.array(z.string().min(1)).min(1),
+      evidenceIds: z.array(z.string().min(1)).min(1),
+    }),
+  ),
+  uncertainty: z.array(
+    z.object({
+      code: z.enum([
+        'stale-evidence',
+        'unknown-evidence',
+        'synthetic-evidence',
+        'declared-configuration-only',
+        'theoretical-analysis',
+        'analysis-coverage-unknown',
+        'missing-evidence',
+        'no-active-target-routes',
+        'partial-target-coverage',
+      ]),
+      message: z.string().min(1),
+      evidenceIds: z.array(z.string().min(1)),
+    }),
+  ),
   beforeGraph: estateSnapshotSchema,
   afterGraph: estateSnapshotSchema,
 })

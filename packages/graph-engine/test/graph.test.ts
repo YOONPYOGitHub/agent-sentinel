@@ -114,4 +114,32 @@ describe('graph engine', () => {
     expect(preview.edges.find((edge) => edge.id === 'data-mcp')?.active).toBe(false)
     expect(previewSource.edges.find((edge) => edge.id === 'data-mcp')?.active).toBe(true)
   })
+
+  it('retains an alternate active path when only one route is simulated as removed', () => {
+    const alternateSnapshot: EstateSnapshot = {
+      ...snapshot,
+      edges: [
+        ...snapshot.edges,
+        {
+          id: 'agent-mcp-alternate',
+          from: 'agent',
+          to: 'mcp',
+          relationship: 'CAN_CALL',
+          evidenceIds: [evidence.id],
+          active: true,
+          removable: true,
+        },
+      ],
+    }
+
+    const simulated = simulateEdgeRemoval(alternateSnapshot, 'data-mcp')
+    const paths = findAttackPaths(simulated, {
+      sourceNodeIds: ['input'],
+      targetNodeIds: ['mcp'],
+      factors,
+    })
+
+    expect(paths).toHaveLength(1)
+    expect(paths[0]?.edgeIds).toContain('agent-mcp-alternate')
+  })
 })

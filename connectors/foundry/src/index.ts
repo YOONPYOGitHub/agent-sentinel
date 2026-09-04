@@ -6,6 +6,7 @@ import type {
 } from '@agent-sentinel/connector-sdk'
 import {
   assertEstateSnapshot,
+  evidenceSchema,
   type EstateSnapshot,
   type Evidence,
   type GraphEdge,
@@ -190,6 +191,61 @@ const functionToolSchema = z
       .optional(),
   })
   .passthrough()
+
+export const FOUNDRY_TRUST_REQUIRED_PLANES = [
+  'identity',
+  'runtime',
+  'tools',
+  'data',
+  'distribution',
+  'cloud-resources',
+  'approval-controls',
+  'provenance',
+] as const
+
+const foundryTrustPlaneSchema = z.enum(FOUNDRY_TRUST_REQUIRED_PLANES)
+const foundryTrustAssessmentSchema = z
+  .object({
+    tier: z.enum(['trusted', 'conditional', 'untrusted']),
+    sourceMode: z.enum(['live', 'synthetic']),
+    assessedAt: z.iso.datetime(),
+    requiredPlanes: z.array(foundryTrustPlaneSchema).min(1),
+    planeEvidence: z
+      .array(
+        z.object({
+          plane: foundryTrustPlaneSchema,
+          evidenceReferences: z.array(z.string().min(1)).min(1),
+        }),
+      )
+      .min(1),
+    evidence: z.array(evidenceSchema).min(1),
+  })
+  .superRefine((assessment, context) => {
+    if (new Set(assessment.requiredPlanes).size !== assessment.requiredPlanes.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['requiredPlanes'],
+        message: 'Trust assessment required planes must be unique.',
+      })
+    }
+    const planeNames = assessment.planeEvidence.map((plane) => plane.plane)
+    if (new Set(planeNames).size !== planeNames.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['planeEvidence'],
+        message: 'Trust assessment plane evidence must contain each plane at most once.',
+      })
+    }
+    const evidenceIds = assessment.evidence.map((item) => item.id)
+    if (new Set(evidenceIds).size !== evidenceIds.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['evidence'],
+        message: 'Trust assessment evidence identifiers must be unique.',
+      })
+    }
+  })
+
 const agentVersionSchema = z
   .object({
     version: z.string(),
@@ -217,6 +273,7 @@ export const foundryAgentDefinitionSchema = z
     instructions: z.string().nullable().optional(),
     tools: z.array(functionToolSchema).optional(),
     metadata: z.record(z.string(), z.string()).optional(),
+    trustAssessment: foundryTrustAssessmentSchema.optional(),
     versions: z.object({ latest: agentVersionSchema }).optional(),
   })
   .passthrough()
@@ -260,11 +317,94 @@ function toolNames(agent: FoundryAgentDefinition): string[] {
   )
 }
 
-function trust(agent: FoundryAgentDefinition): 'trusted' | 'conditional' | 'untrusted' {
+type NormalizedFoundryAgent = z.output<typeof foundryAgentDefinitionSchema>
+
+interface FoundryTrustResult {
+  trust: 'trusted' | 'conditional' | 'untrusted'
+  status: 'missing' | 'complete' | 'incomplete'
+  evidence: Evidence[]
+  evidenceIds: string[]
+  missingPlanes: string[]
+  sourceMode: 'live' | 'synthetic' | undefined
+}
+
+function normalizedTrustEvidenceId(agentId: string, evidenceId: string): string {
+  return `foundry-trust-evidence-${agentId}-${evidenceId}`
+}
+
+function evaluateTrust(agent: NormalizedFoundryAgent): FoundryTrustResult {
   const names = toolNames(agent)
-  if (names.includes('external_send') || names.includes('external_transfer')) return 'untrusted'
-  if (agent.metadata?.approvalRequired === 'true') return 'conditional'
-  return 'trusted'
+  const assessment = agent.trustAssessment
+  if (assessment === undefined) {
+    return {
+      trust:
+        names.includes('external_send') || names.includes('external_transfer')
+          ? 'untrusted'
+          : 'conditional',
+      status: 'missing',
+      evidence: [],
+      evidenceIds: [],
+      missingPlanes: [...FOUNDRY_TRUST_REQUIRED_PLANES],
+      sourceMode: undefined,
+    }
+  }
+
+  const evidenceById = new Map(assessment.evidence.map((item) => [item.id, item]))
+  const planeEvidence = new Map(
+    assessment.planeEvidence.map((plane) => [plane.plane, plane.evidenceReferences]),
+  )
+  const missingPlanes = FOUNDRY_TRUST_REQUIRED_PLANES.filter((plane) => {
+    const references = planeEvidence.get(plane)
+    return (
+      !assessment.requiredPlanes.includes(plane) ||
+      references === undefined ||
+      references.length === 0 ||
+      references.some((reference) => !evidenceById.has(reference))
+    )
+  })
+  const citedEvidenceIds = new Set(
+    assessment.planeEvidence.flatMap((plane) => plane.evidenceReferences),
+  )
+  const citedEvidence = [...citedEvidenceIds]
+    .map((id) => evidenceById.get(id))
+    .filter((item): item is Evidence => item !== undefined)
+  const complete =
+    assessment.tier === 'trusted' &&
+    assessment.sourceMode === 'live' &&
+    missingPlanes.length === 0 &&
+    citedEvidence.length > 0 &&
+    citedEvidence.some((item) => item.evidenceTypes.includes('observed_runtime')) &&
+    citedEvidence.every(
+      (item) =>
+        item.freshness === 'live' &&
+        item.confidence > 0 &&
+        !item.evidenceTypes.includes('unknown') &&
+        !item.evidenceTypes.includes('synthetic_validation'),
+    )
+  const evidence = assessment.evidence.map((item) => ({
+    ...item,
+    id: normalizedTrustEvidenceId(agent.id, item.id),
+    metadata: {
+      ...item.metadata,
+      trustAssessmentSourceMode: assessment.sourceMode,
+      trustAssessmentTier: assessment.tier,
+      trustAssessmentObservedAt: assessment.assessedAt,
+    },
+  }))
+
+  return {
+    trust:
+      complete || assessment.tier === 'untrusted'
+        ? assessment.tier
+        : names.includes('external_send') || names.includes('external_transfer')
+          ? 'untrusted'
+          : 'conditional',
+    status: complete ? 'complete' : 'incomplete',
+    evidence,
+    evidenceIds: citedEvidence.map((item) => normalizedTrustEvidenceId(agent.id, item.id)),
+    missingPlanes,
+    sourceMode: assessment.sourceMode,
+  }
 }
 
 const identityMetadataKeys = [
@@ -300,10 +440,12 @@ export function mapAgentToSnapshot(
   const nodes: GraphNode[] = []
   const edges: GraphEdge[] = []
   const evidence: Evidence[] = []
-  for (const agent of agents) {
+  for (const agentInput of agents) {
+    const agent = foundryAgentDefinitionSchema.parse(agentInput)
     const agentId = `foundry-agent-${agent.id}`
     const evidenceId = `foundry-evidence-${agent.id}`
     const metadata = agent.metadata ?? {}
+    const trustResult = evaluateTrust(agent)
     nodes.push({
       id: agentId,
       kind: 'agent',
@@ -311,14 +453,27 @@ export function mapAgentToSnapshot(
       description: agent.description ?? 'No description declared.',
       environment: metadata.environment ?? config.environment,
       owner: metadata.owner,
-      trust: trust(agent),
-      evidenceIds: [evidenceId],
+      trust: trustResult.trust,
+      evidenceIds: [evidenceId, ...trustResult.evidenceIds],
       metadata: {
         platform: 'Azure AI Foundry Agent Service',
         version: agent.version ?? metadata.version ?? '',
         modelDeployment: agent.model ?? '',
         lifecycle: metadata.lifecycle ?? 'active',
-        approvalRequired: metadata.approvalRequired ?? 'false',
+        approvalRequired:
+          metadata.approvalRequired === 'true' || metadata.approvalRequired === 'false'
+            ? metadata.approvalRequired
+            : 'unknown',
+        trustAssessmentStatus: trustResult.status,
+        ...(trustResult.sourceMode !== undefined
+          ? { trustAssessmentSourceMode: trustResult.sourceMode }
+          : {}),
+        ...(trustResult.evidenceIds.length > 0
+          ? { trustAssessmentEvidenceIds: trustResult.evidenceIds.join(',') }
+          : {}),
+        ...(trustResult.missingPlanes.length > 0
+          ? { trustAssessmentMissingPlanes: trustResult.missingPlanes.join(',') }
+          : {}),
         ...(metadata.businessUnit !== undefined ? { businessUnit: metadata.businessUnit } : {}),
         apiVersion,
         ...explicitIdentityMetadata(metadata),
@@ -360,6 +515,7 @@ export function mapAgentToSnapshot(
       evidenceTypes: ['declared_configuration'],
       summary: `Declared configuration for ${agent.name ?? agent.id}; this is not observed runtime behavior.`,
     })
+    evidence.push(...trustResult.evidence)
   }
   return assertEstateSnapshot({
     tenantId: config.tenantId,
@@ -549,6 +705,7 @@ function scopeFoundrySnapshot(
       source: `${item.source} · ${source.name}`,
       sourceObjectId: `${source.id}:${item.sourceObjectId}`,
       metadata: {
+        ...item.metadata,
         sourceConnectorId: source.id,
         sourceConnectorName: source.name,
         sourceTenantId: source.tenantId,

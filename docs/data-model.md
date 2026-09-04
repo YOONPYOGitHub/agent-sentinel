@@ -18,6 +18,12 @@ Represents a point-in-time view of an agent estate.
 - `id`, `kind` (input|agent|identity|data|mcp|tool|control)
 - `name`, `description`, `environment`, `owner`
 - `sensitivity`, `trust`, `evidenceIds`, `metadata`
+- Foundry declared inventory defaults agent trust to `conditional` (or
+  `untrusted` for known external transfer capabilities). `trusted` requires an
+  explicit live assessment with current, attributed evidence references for
+  identity, runtime, tools, data, distribution, cloud resources, approval
+  controls, and provenance. Synthetic, stale, unknown, missing, or incomplete
+  assessment evidence cannot produce `trusted`.
 
 ### GraphEdge
 
@@ -109,6 +115,22 @@ Represents a single declared-configuration policy violation surfaced by the Expo
 - `tenantId`, `snapshotId`
 
 Cosmos DB container: `findings` (partition key `/tenantId`, upsert preserves `firstSeen`).
+
+### RemediationPreview
+
+Represents a simulation-only route change. It never authorizes or executes a
+provider write.
+
+- `before` and `after` contain deterministically analyzed risk and blast radius.
+- `impact.riskReduction` is the difference between analyzed before and residual
+  risk; it is not an assumed full reduction.
+- `residualFindings` and `residualRoutes` retain alternate active exposure after
+  the simulated edge removal.
+- `uncertainty` cites stale, unknown, synthetic, declared-only, theoretical, or
+  missing analysis evidence, unsupported policy coverage, and no-op or partial
+  target coverage.
+- `beforeGraph` and `afterGraph` preserve the same evidence-backed comparison
+  scope, with target edges disabled only in the simulated snapshot.
 
 ### GovernanceCase
 
