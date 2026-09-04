@@ -1,6 +1,7 @@
 # Agent Sentinel documentation
 
-Documentation index for the Agent Sentinel control plane. Last reviewed **2026-08-28** against branch `feature/multi-source-otel`.
+Documentation index for the Agent Sentinel control plane. Last reviewed
+**2026-09-04** against branch `feature/multi-source-otel`.
 
 Start with the [root README](../README.md) for the value proposition, quick start, and the live-vs-mock truth table.
 
@@ -36,6 +37,7 @@ Start with the [root README](../README.md) for the value proposition, quick star
 | [Deployment](deployment.md)                               | Deploy infrastructure, build images on the private runner, or perform a surgical Container App update. |
 | [Runbooks](runbooks.md)                                   | Execute a named operational procedure (RB-001 onward).                                                 |
 | [Supply chain](supply-chain.md)                           | Understand immutable image tagging, the private build path, and registry retention.                    |
+| [Release evidence](release-evidence.md)                   | Generate and validate versioned sanitized release evidence without calling cloud providers.            |
 | [DR design](dr-design.md)                                 | Review recovery objectives and failover behaviour.                                                     |
 | [Security and authentication](security-authentication.md) | Review threat boundaries, Entra roles, auth states, and the activation checklist.                      |
 

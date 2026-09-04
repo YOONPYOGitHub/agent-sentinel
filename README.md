@@ -4,7 +4,11 @@
 
 Agent Sentinel gives an organization one explainable view of every AI agent it runs: what exists, who owns it, what it can reach, where it is exposed, whether it is governed, and whether it is still fit to operate. Every claim in the product cites typed evidence with a source, a confidence, and an observation timestamp.
 
-> **Status: pre-production engineering preview (2026-08-29).** The deployed environment uses read-only Microsoft Entra JWT authentication with a synthetic-only agent portfolio. Writes remain disabled at both the API and WAF. See [Security warning](#security-warning) and [docs/current-status.md](docs/current-status.md).
+> **Status: pre-production engineering preview (2026-09-04).** Repository code
+> is newer than the last evidenced deployed image. The replacement deployment
+> remains `AUTH_MODE=disabled`, and writes remain disabled at both the API and
+> WAF. See [Security warning](#security-warning) and
+> [docs/current-status.md](docs/current-status.md).
 
 ---
 
@@ -175,47 +179,49 @@ Verified baseline on 2026-08-23:
 
 ## Live vs mock truth table
 
-| Capability                                 | State                                | Notes                                                                                                |
-| ------------------------------------------ | ------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| Microsoft Foundry agent discovery          | **Live, one source configured**      | Multi-tenant/project aggregation is implemented; the current deployment still has one primary source |
-| Exposure findings storage                  | **Live**                             | Cosmos DB `findings`, upsert preserves `firstSeen`                                                   |
-| Governance posture                         | **Live**                             | Derived from the same Cosmos-backed findings                                                         |
-| Jobs ingestion loop                        | **Live**                             | `apps/jobs` discovery + policy evaluation on an interval, plus Service Bus trigger                   |
-| Agent portfolio                            | **Synthetic only**                   | Six Microsoft Foundry validation agents on GPT-5.6 Terra; no production customer agents              |
-| Terra live validation                      | **Live, operator-invoked**           | `pnpm foundry:validate`; never run by CI                                                             |
-| Advisory narratives (public Azure edge)    | **Mock**                             | Deterministic mock provider until corporate Entra and WAF activation                                 |
-| Advisory narratives (grounded model path)  | **Live when configured**             | GPT-5.6 Terra, advisory explanation only; deterministic core stays authoritative                     |
-| Agent 365 connector                        | **Implemented, unconfigured**        | Read-only Graph package catalog; licensing and authorization remain pending                          |
-| Azure Monitor OTel                         | **Implemented, unconfigured**        | Strict read-only query and mapping path; deployed runtime evidence remains `unknown`                 |
-| Entra identity enrichment                  | **Implemented, unconfigured**        | Read-only service-principal inventory and Foundry composition; tenant-admin consent remains pending  |
-| Defender, Purview, and Teams catalog       | **Implemented, unconfigured**        | Disabled authorization-gated evidence paths; Teams catalog does not prove installations              |
-| Governance work queue                      | **Live persistence, writes blocked** | Cosmos-backed cases and audit history; public mutation remains disabled                              |
-| Authentication in the deployed environment | **Enabled, read-only**               | `AUTH_MODE=jwt`; employee login, anonymous `401`, Viewer `403`, and `/api/auth/me` validated         |
-| Write and remediation execution            | **Blocked at the edge**              | `writeEnabled=false`; WAF blocks pre-auth mutations under `/api/`                                    |
+| Capability                                 | State                                  | Notes                                                                                                |
+| ------------------------------------------ | -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Microsoft Foundry agent discovery          | **Live, one source configured**        | Multi-tenant/project aggregation is implemented; the current deployment still has one primary source |
+| Exposure findings storage                  | **Live**                               | Cosmos DB `findings`, upsert preserves `firstSeen`                                                   |
+| Governance posture                         | **Live**                               | Derived from the same Cosmos-backed findings                                                         |
+| Jobs ingestion loop                        | **Live**                               | `apps/jobs` discovery + policy evaluation on an interval, plus Service Bus trigger                   |
+| Agent portfolio                            | **Synthetic only**                     | Six Microsoft Foundry validation agents on GPT-5.6 Terra; no production customer agents              |
+| Terra live validation                      | **Live, operator-invoked**             | `pnpm foundry:validate`; never run by CI                                                             |
+| Advisory narratives (public Azure edge)    | **Mock**                               | Deterministic mock provider until corporate Entra and WAF activation                                 |
+| Advisory narratives (grounded model path)  | **Live when configured**               | GPT-5.6 Terra, advisory explanation only; deterministic core stays authoritative                     |
+| Agent 365 connector                        | **Implemented, licensing-blocked**     | Read-only Graph package catalog; product licensing and authorization remain pending                  |
+| Azure Monitor OTel                         | **Connected, insufficient data**       | Query path is live; baseline and observed populations remain below the analysis threshold            |
+| Entra identity enrichment                  | **Connected inventory; no exact join** | Service-principal inventory is live, but agents expose no exact identity ID, so `RUNS_AS` is absent  |
+| Defender, Purview, and Teams catalog       | **Connected, bounded reads**           | Defender and Teams are valid-empty; Purview definitions do not prove usage or agent attribution      |
+| Governance work queue                      | **Live persistence, writes blocked**   | Cosmos-backed cases and audit history; public mutation remains disabled                              |
+| Authentication in the deployed environment | **Disabled**                           | JWT/RBAC/MSAL are implemented in code; the replacement deployment remains `AUTH_MODE=disabled`       |
+| Write and remediation execution            | **Blocked at the edge**                | `writeEnabled=false`; WAF blocks pre-auth mutations under `/api/`                                    |
 
 ---
 
 ## Documentation
 
-| Area            | Document                                                                                                                                                                                               |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Index**       | [docs/README.md](docs/README.md)                                                                                                                                                                       |
-| **Product**     | [Product overview](docs/product-overview.md) · [Domain context](docs/CONTEXT.md) · [Roadmap](docs/roadmap.md)                                                                                          |
-| **Engineering** | [Architecture](docs/architecture.md) · [Data model](docs/data-model.md) · [Development](docs/development.md) · [Foundry live agents](docs/foundry-live-agents.md)                                      |
-| **Operations**  | [Deployment](docs/deployment.md) · [Runbooks](docs/runbooks.md) · [Supply chain](docs/supply-chain.md) · [DR design](docs/dr-design.md) · [Security & authentication](docs/security-authentication.md) |
-| **Decisions**   | [ADR 0001 — modular monolith](docs/adr/0001-modular-monolith.md) · [ADR 0002 — evidence-first deterministic core](docs/adr/0002-evidence-first-deterministic-core.md)                                  |
-| **Status**      | [Current status](docs/current-status.md) · [Known issues](docs/known-issues.md)                                                                                                                        |
+| Area            | Document                                                                                                                                                                                                                                              |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Index**       | [docs/README.md](docs/README.md)                                                                                                                                                                                                                      |
+| **Product**     | [Product overview](docs/product-overview.md) · [Domain context](docs/CONTEXT.md) · [Roadmap](docs/roadmap.md)                                                                                                                                         |
+| **Engineering** | [Architecture](docs/architecture.md) · [Data model](docs/data-model.md) · [Development](docs/development.md) · [Foundry live agents](docs/foundry-live-agents.md)                                                                                     |
+| **Operations**  | [Deployment](docs/deployment.md) · [Runbooks](docs/runbooks.md) · [Supply chain](docs/supply-chain.md) · [Release evidence](docs/release-evidence.md) · [DR design](docs/dr-design.md) · [Security & authentication](docs/security-authentication.md) |
+| **Decisions**   | [ADR 0001 — modular monolith](docs/adr/0001-modular-monolith.md) · [ADR 0002 — evidence-first deterministic core](docs/adr/0002-evidence-first-deterministic-core.md)                                                                                 |
+| **Status**      | [Current status](docs/current-status.md) · [Known issues](docs/known-issues.md)                                                                                                                                                                       |
 
 ---
 
 ## Security warning
 
-> **The deployed environment runs with read-only Microsoft Entra authentication.**
+> **The replacement deployment currently runs with authentication disabled and
+> every write path disabled.**
 >
-> - `AUTH_MODE=jwt` is deployed. Anonymous callers receive `401` on protected API routes, and the current employee validation account resolves to Viewer.
+> - JWT validation, four-role RBAC, MSAL, and the token-driven validator are implemented and tested in code. Historical read-only JWT evidence from another deployment does not establish the current replacement state.
 > - Mutating requests are held back by two independent gates: the `BlockApiMutationPreAuth` WAF rule blocks every non-`GET`/`HEAD`/`OPTIONS` request under `/api/`, and the connector reports `writeEnabled=false`.
-> - Read-only employee sign-in, token validation, logout, and Viewer boundaries are live. Analyst, Approver, Administrator, write-scope, and public mutation validation remain pending.
-> - The Microsoft Entra identity inventory connector is separate from user sign-in and remains disabled until tenant-admin consent and bounded live validation are complete.
+> - Current replacement-tenant employee sign-in, role boundaries, write scope, and public mutation behavior require live validation after a separately approved JWT activation.
+> - Microsoft Entra service-principal inventory is a separate connector. Inventory availability does not prove user authentication or an exact agent-to-identity correlation.
+> - The visible containment path is a graph simulation/preview. It does not execute a provider remediation.
 > - Do **not** attach production customer data or enable writes until [the activation checklist](docs/security-authentication.md#activation-checklist) is complete.
 
 No credentials, tokens, or connection strings are stored in this repository. All Azure access uses `DefaultAzureCredential` with managed identity or developer sign-in.
@@ -226,4 +232,8 @@ No credentials, tokens, or connection strings are stored in this repository. All
 
 Agent Sentinel is an **engineering preview**. The full navigation surface is implemented and covered by unit, component, and end-to-end tests. Multi-tenant/project Foundry aggregation is implemented with per-source provenance and health, while the deployed portfolio currently contains one Foundry source. Everything that depends on unactivated telemetry, identity, classification, or additional tenant authorization is explicitly labelled or reported as `unknown`.
 
-The next maturity gates are tenant-authorized Entra identity enrichment, complete role and write-path validation, a unified Cosmos-backed read model, and runtime telemetry activation. They are tracked in [docs/roadmap.md](docs/roadmap.md) and [docs/known-issues.md](docs/known-issues.md).
+The next maturity gates are exact agent-to-identity correlation, replacement
+JWT activation and role validation, representative runtime telemetry, and an
+approved reversible write path. They are tracked in
+[docs/roadmap.md](docs/roadmap.md) and
+[docs/known-issues.md](docs/known-issues.md).

@@ -125,46 +125,51 @@ describe('release evidence schema', () => {
     expect(error?.message).not.toContain(value)
   })
 
+  it.each(['modelOutput', 'systemPrompt', 'providerPayload', 'apiKey', 'processEnv'])(
+    'rejects compound private field %s',
+    (key) => {
+      expect(() =>
+        sanitizeReleaseEvidenceInput({
+          [key]: 'private material',
+        }),
+      ).toThrow(new RegExp(`forbidden field at ${key}`))
+    },
+  )
+
   const secretShapedValues = [
     ['bearer authorization', ['Bear', 'er ', 'abcdefghijklmnopqrstuvwxyz'].join('')],
-    [
-      'JWT',
-      ['eyJhbGciOiJSUzI1NiJ9', 'eyJzdWIiOiJ1c2VyIn0', 'signaturevalue'].join('.'),
-    ],
+    ['JWT', ['eyJhbGciOiJSUzI1NiJ9', 'eyJzdWIiOiJ1c2VyIn0', 'signaturevalue'].join('.')],
     [
       'connection string',
       ['Endpoint=https://example.invalid/;', 'Shared', 'AccessKey=private-value'].join(''),
     ],
-    [
-      'credential URL',
-      ['https://', 'user', ':', 'password', '@example.invalid/path'].join(''),
-    ],
+    ['credential URL', ['https://', 'user', ':', 'password', '@example.invalid/path'].join('')],
     [
       'signed URL',
       ['https://example.invalid/path?sv=2025-01-01&', 'sig', '=private-signature'].join(''),
     ],
-    [
-      'private key',
-      ['-----BEGIN ', 'PRIVATE ', 'KEY-----', ' private material'].join(''),
-    ],
+    ['private key', ['-----BEGIN ', 'PRIVATE ', 'KEY-----', ' private material'].join('')],
   ] as const
 
-  it.each(secretShapedValues)('rejects secret-shaped %s values without echoing them', (_, value) => {
-    expect(() =>
-      sanitizeReleaseEvidenceInput({
-        safeConfiguration: { AUTH_MODE: value },
-      }),
-    ).toThrow(/secret-shaped value at safeConfiguration.AUTH_MODE/)
+  it.each(secretShapedValues)(
+    'rejects secret-shaped %s values without echoing them',
+    (_, value) => {
+      expect(() =>
+        sanitizeReleaseEvidenceInput({
+          safeConfiguration: { AUTH_MODE: value },
+        }),
+      ).toThrow(/secret-shaped value at safeConfiguration.AUTH_MODE/)
 
-    try {
-      sanitizeReleaseEvidenceInput({
-        safeConfiguration: { AUTH_MODE: value },
-      })
-    } catch (error: unknown) {
-      expect(error).toBeInstanceOf(Error)
-      expect((error as Error).message).not.toContain(value)
-    }
-  })
+      try {
+        sanitizeReleaseEvidenceInput({
+          safeConfiguration: { AUTH_MODE: value },
+        })
+      } catch (error: unknown) {
+        expect(error).toBeInstanceOf(Error)
+        expect((error as Error).message).not.toContain(value)
+      }
+    },
+  )
 
   it('rejects a passing check without a command and completion timestamp', () => {
     expect(() =>
@@ -295,9 +300,7 @@ describe('release evidence schema', () => {
       environmentRef: 'dev',
       sourceRef: 'aggregate-health',
     })
-    expect(input.liveValidations?.[0]?.evidenceRefs).toEqual([
-      'validation-summary-2026-09-04',
-    ])
+    expect(input.liveValidations?.[0]?.evidenceRefs).toEqual(['validation-summary-2026-09-04'])
   })
 
   it('rejects contradictory deployed image observations', () => {
@@ -349,21 +352,14 @@ describe('release evidence schema', () => {
     const example = releaseEvidenceManifestSchema.parse(
       JSON.parse(
         await readFile(
-          new URL(
-            '../release-evidence/v1/examples/repository-only.json',
-            import.meta.url,
-          ),
+          new URL('../release-evidence/v1/examples/repository-only.json', import.meta.url),
           'utf8',
         ),
       ) as unknown,
     )
 
-    expect(example.release.commitSha).toBe(
-      'ae531c2ce98afebc7933425091f3f2912edcd53e',
-    )
-    expect(Object.values(example.checks).every((check) => check.outcome !== 'pass')).toBe(
-      true,
-    )
+    expect(example.release.commitSha).toBe('ae531c2ce98afebc7933425091f3f2912edcd53e')
+    expect(Object.values(example.checks).every((check) => check.outcome !== 'pass')).toBe(true)
     expect(example.images.deployed.web.tag).toBeNull()
     expect(example.liveValidations).toEqual([])
     expect(example.connectors).toEqual([])

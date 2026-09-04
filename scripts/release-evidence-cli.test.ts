@@ -23,7 +23,9 @@ async function temporaryDirectory(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })))
+  await Promise.all(
+    temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })),
+  )
 })
 
 describe('release evidence CLI', () => {
@@ -45,9 +47,9 @@ describe('release evidence CLI', () => {
     expect(() => parseGenerateArgs(['--output', 'one.json', '--output', 'two.json'])).toThrow(
       '--output may be provided only once',
     )
-    expect(() => parseGenerateArgs(['--output', 'one.json', '--environment-dump', 'env.txt'])).toThrow(
-      'Unknown option --environment-dump',
-    )
+    expect(() =>
+      parseGenerateArgs(['--output', 'one.json', '--environment-dump', 'env.txt']),
+    ).toThrow('Unknown option --environment-dump')
   })
 
   it('reads commit and dirty state using argument-safe git commands', async () => {
@@ -81,8 +83,7 @@ describe('release evidence CLI', () => {
           generatedAt: '2026-09-04T00:00:00.000Z',
         },
         {
-          readRepositoryState: () =>
-            Promise.resolve({ commitSha: 'a'.repeat(40), dirty: false }),
+          readRepositoryState: () => Promise.resolve({ commitSha: 'a'.repeat(40), dirty: false }),
         },
       ),
     ).rejects.toThrow(`Could not read input file ${basename(missingInput)}.`)
@@ -100,8 +101,7 @@ describe('release evidence CLI', () => {
         generatedAt: '2026-09-04T00:00:00.000Z',
       },
       {
-        readRepositoryState: () =>
-          Promise.resolve({ commitSha: 'b'.repeat(40), dirty: false }),
+        readRepositoryState: () => Promise.resolve({ commitSha: 'b'.repeat(40), dirty: false }),
       },
     )
 
@@ -124,15 +124,12 @@ describe('release evidence CLI', () => {
       },
       {
         baseDirectory: directory,
-        readRepositoryState: () =>
-          Promise.resolve({ commitSha: 'd'.repeat(40), dirty: false }),
+        readRepositoryState: () => Promise.resolve({ commitSha: 'd'.repeat(40), dirty: false }),
       },
     )
 
     await expect(stat(join(directory, 'generated/manifest.json'))).resolves.toBeDefined()
-    await expect(
-      runValidateCommand(['--', 'generated/manifest.json'], directory),
-    ).resolves.toBe(0)
+    await expect(runValidateCommand(['--', 'generated/manifest.json'], directory)).resolves.toBe(0)
   })
 
   it('validates an explicitly supplied sanitized input file', async () => {
@@ -156,8 +153,7 @@ describe('release evidence CLI', () => {
         generatedAt: '2026-09-04T00:00:00.000Z',
       },
       {
-        readRepositoryState: () =>
-          Promise.resolve({ commitSha: 'c'.repeat(40), dirty: true }),
+        readRepositoryState: () => Promise.resolve({ commitSha: 'c'.repeat(40), dirty: true }),
       },
     )
 
@@ -166,9 +162,76 @@ describe('release evidence CLI', () => {
     )
     expect(manifest.release.dirty).toBe(true)
     expect(manifest.configuration.classification).toBe('tested')
-    expect(manifest.configuration.keys).toEqual([
-      'AGENT_SENTINEL_WRITE_ENABLED',
-      'AUTH_MODE',
-    ])
+    expect(manifest.configuration.keys).toEqual(['AGENT_SENTINEL_WRITE_ENABLED', 'AUTH_MODE'])
+  })
+
+  it('rejects secret-shaped content when validating an existing manifest', async () => {
+    const directory = await temporaryDirectory()
+    const output = join(directory, 'manifest.json')
+    const manifest = releaseEvidenceManifestSchema.parse({
+      schemaVersion: '1.0.0',
+      release: {
+        commitSha: 'e'.repeat(40),
+        dirty: false,
+        generatedAt: '2026-09-04T00:00:00.000Z',
+      },
+      images: {
+        expected: {
+          classification: 'tested',
+          web: { tag: 'eeeeeee', digest: null },
+          api: { tag: 'eeeeeee', digest: null },
+          jobs: { tag: 'eeeeeee', digest: null },
+        },
+        deployed: {
+          classification: 'planned',
+          observedAt: null,
+          source: null,
+          scope: null,
+          evidenceRefs: [],
+          web: { tag: null, digest: null },
+          api: { tag: null, digest: null },
+          jobs: { tag: null, digest: null },
+        },
+      },
+      configuration: {
+        classification: 'planned',
+        algorithm: 'sha256',
+        hash: null,
+        keys: [],
+      },
+      checks: Object.fromEntries(
+        ['lint', 'typecheck', 'test', 'build', 'e2e', 'bicep'].map((name) => [
+          name,
+          {
+            classification: 'planned',
+            outcome: 'not-run',
+            command: null,
+            completedAt: null,
+            summary: 'No sanitized result was supplied.',
+          },
+        ]),
+      ),
+      liveValidations: [],
+      connectors: [],
+      oneRai: {
+        classification: 'planned',
+        outcome: 'not-run',
+        observedAt: null,
+        source: null,
+        scope: null,
+        evidenceRefs: [],
+        syntheticOnly: null,
+        automated: null,
+        cases: null,
+        defects: null,
+        humanReviewRequired: null,
+        summary: ['Bear', 'er ', 'private-validation-material'].join(''),
+      },
+    })
+    await writeFile(output, `${JSON.stringify(manifest)}\n`)
+
+    await expect(validateReleaseEvidenceFile(output)).rejects.toThrow(
+      /secret-shaped value at oneRai.summary/,
+    )
   })
 })

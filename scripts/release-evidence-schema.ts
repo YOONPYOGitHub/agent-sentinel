@@ -26,9 +26,17 @@ export const connectorReadinessSchema = z.enum([
 
 const isoTimestampSchema = z.iso.datetime({ offset: true })
 const shaSchema = z.string().regex(/^[a-f0-9]{40}$/)
-const imageTagSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/)
+const imageTagSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/)
 const imageDigestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/)
-const boundedIdSchema = z.string().min(1).max(100).regex(/^[a-z0-9][a-z0-9._-]*$/)
+const boundedIdSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[a-z0-9][a-z0-9._-]*$/)
 const boundedTextSchema = z.string().trim().min(1).max(500)
 const boundedSourceSchema = z.string().trim().min(1).max(200)
 const sanitizedScopeSchema = z.strictObject({
@@ -134,7 +142,10 @@ const safeConfigurationValueSchema = z.union([
 
 const safeConfigurationShape = Object.fromEntries(
   SAFE_CONFIGURATION_KEYS.map((key) => [key, safeConfigurationValueSchema.optional()]),
-) as Record<(typeof SAFE_CONFIGURATION_KEYS)[number], z.ZodOptional<typeof safeConfigurationValueSchema>>
+) as Record<
+  (typeof SAFE_CONFIGURATION_KEYS)[number],
+  z.ZodOptional<typeof safeConfigurationValueSchema>
+>
 
 export const safeConfigurationSchema = z
   .strictObject(safeConfigurationShape)
@@ -143,7 +154,10 @@ export const safeConfigurationSchema = z
 const configurationEvidenceSchema = z.strictObject({
   classification: z.enum(['tested', 'planned']),
   algorithm: z.literal('sha256'),
-  hash: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+  hash: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .nullable(),
   keys: z.array(z.enum(SAFE_CONFIGURATION_KEYS)).max(SAFE_CONFIGURATION_KEYS.length),
 })
 
@@ -156,10 +170,7 @@ const checkEvidenceSchema = z
     summary: boundedTextSchema,
   })
   .superRefine((value, context) => {
-    if (
-      value.outcome === 'pass' &&
-      (value.command === null || value.completedAt === null)
-    ) {
+    if (value.outcome === 'pass' && (value.command === null || value.completedAt === null)) {
       context.addIssue({
         code: 'custom',
         message: 'passing check requires command and completedAt',
@@ -221,10 +232,7 @@ const liveValidationEvidenceSchema = z
     summary: boundedTextSchema,
   })
   .superRefine((value, context) => {
-    if (
-      value.classification === 'live' &&
-      (value.observedAt === null || value.source === null)
-    ) {
+    if (value.classification === 'live' && (value.observedAt === null || value.source === null)) {
       context.addIssue({
         code: 'custom',
         message: 'live evidence requires source and observedAt',
@@ -263,10 +271,7 @@ const connectorEvidenceSchema = z
     summary: boundedTextSchema,
   })
   .superRefine((value, context) => {
-    if (
-      value.classification === 'live' &&
-      (value.observedAt === null || value.source === null)
-    ) {
+    if (value.classification === 'live' && (value.observedAt === null || value.source === null)) {
       context.addIssue({
         code: 'custom',
         message: 'live evidence requires source and observedAt',
@@ -320,10 +325,7 @@ const oneRaiEvidenceSchema = z
     summary: boundedTextSchema,
   })
   .superRefine((value, context) => {
-    if (
-      value.classification === 'live' &&
-      (value.observedAt === null || value.source === null)
-    ) {
+    if (value.classification === 'live' && (value.observedAt === null || value.source === null)) {
       context.addIssue({
         code: 'custom',
         message: 'live evidence requires source and observedAt',
@@ -359,11 +361,7 @@ const oneRaiEvidenceSchema = z
         message: 'passing OneRAI evidence requires at least one evaluated case',
       })
     }
-    if (
-      value.cases !== null &&
-      value.defects !== null &&
-      value.defects > value.cases
-    ) {
+    if (value.cases !== null && value.defects !== null && value.defects > value.cases) {
       context.addIssue({
         code: 'custom',
         message: 'OneRAI defects cannot exceed evaluated cases',
@@ -450,6 +448,20 @@ const forbiddenKeys = new Set([
   'token',
   'tokens',
 ])
+const forbiddenKeyFragments = [
+  'apikey',
+  'authorization',
+  'connectionstring',
+  'credential',
+  'modeloutput',
+  'password',
+  'payload',
+  'privatekey',
+  'prompt',
+  'secret',
+  'systemoutput',
+  'token',
+] as const
 
 const secretValuePatterns = [
   /\bBearer\s+\S+/i,
@@ -480,7 +492,12 @@ function inspectForSensitiveContent(value: unknown, path: readonly string[] = []
   if (value === null || typeof value !== 'object') return
   for (const [key, child] of Object.entries(value)) {
     const childPath = [...path, key]
-    if (forbiddenKeys.has(normalizedKey(key))) {
+    const normalized = normalizedKey(key)
+    if (
+      forbiddenKeys.has(normalized) ||
+      forbiddenKeyFragments.some((fragment) => normalized.includes(fragment)) ||
+      normalized === 'processenv'
+    ) {
       throw new Error(`Release evidence contains a forbidden field at ${childPath.join('.')}.`)
     }
     inspectForSensitiveContent(child, childPath)
@@ -518,8 +535,12 @@ export function hashSafeConfiguration(configuration: SafeConfiguration): {
 }
 
 export function sanitizeReleaseEvidenceInput(raw: unknown): ReleaseEvidenceInput {
-  inspectForSensitiveContent(raw)
+  assertReleaseEvidenceContainsNoSensitiveContent(raw)
   return releaseEvidenceInputSchema.parse(raw)
+}
+
+export function assertReleaseEvidenceContainsNoSensitiveContent(raw: unknown): void {
+  inspectForSensitiveContent(raw)
 }
 
 const checkNames = ['lint', 'typecheck', 'test', 'build', 'e2e', 'bicep'] as const
@@ -554,7 +575,8 @@ export function buildReleaseEvidence(
   const checks = Object.fromEntries(
     checkNames.map((name) => [name, parsedInput.checks?.[name] ?? missingCheck()]),
   )
-  const expected = parsedInput.expectedImages ?? defaultImages(parsedRepository.commitSha.slice(0, 7))
+  const expected =
+    parsedInput.expectedImages ?? defaultImages(parsedRepository.commitSha.slice(0, 7))
   const configuration =
     parsedInput.safeConfiguration === undefined
       ? {

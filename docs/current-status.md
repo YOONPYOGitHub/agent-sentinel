@@ -11,6 +11,24 @@ in [connector-availability.md](connector-availability.md).
 
 ---
 
+## Release boundary
+
+- `ae531c2` is the repository code baseline immediately before the isolated
+  release-evidence tooling work.
+- `7458b3e` is the last evidenced deployed web/API/jobs image. Later commits are
+  implemented code only until a new sanitized deployment observation validates
+  their tags or digests.
+- The replacement deployment remains `AUTH_MODE=disabled` with writes false.
+  JWT/RBAC/MSAL are implemented in code but are not activated there.
+- Entra service-principal inventory is live, but current agents expose no exact
+  identity identifier. Inventory therefore establishes no `RUNS_AS` edge.
+- The current containment experience is simulation/graph preview only. No live
+  provider remediation execution is enabled or validated.
+- See [release-evidence.md](release-evidence.md) for the versioned manifest that
+  keeps these facts separate.
+
+---
+
 ## Replacement connector revalidation
 
 Latest Entra migration facts were revalidated on **2026-09-04**:
@@ -37,7 +55,7 @@ Latest Entra migration facts were revalidated on **2026-09-04**:
 
 ---
 
-## Recent delivery on `feature/governance-phase1-completion`
+## Recent delivery now included in `feature/multi-source-otel`
 
 | Commit    | Change                                             | Effect                                                                                                                                                              |
 | --------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -94,11 +112,12 @@ Latest Entra migration facts were revalidated on **2026-09-04**:
 | Azure deployment                           | **Live in the replacement tenant.** Container Apps `web`, `api`, and `jobs` run on a private ACA environment behind Front Door. Foundry, Entra, Purview, Defender, Teams catalog, Azure Resource Graph, and Azure Monitor reads are active; authentication and every write path remain disabled.                                                                                                                                                                                   |
 | Corporate Service Tree registration        | **Complete.** Registered under the confirmed `MCAPS > GES Asia > Korea` hierarchy with two administrators.                                                                                                                                                                                                                                                                                                                                                                         |
 | Universal custom manifest adapter          | **Implementation complete, activation pending.** Strict offline input, immutable ingestion, jobs composition, exact source-bound runtime verification, authoritative-object reconciliation, and exact typed configuration-value comparison are implemented. Missing, invalid, and mismatched authoritative values remain distinct; no graph relationship or free-form claim equivalence is inferred. Live ingestion stays blocked by writes-false and the public mutation posture. |
-| Deterministic behavior-baseline engine     | **Current and deployed as `24f5353`.** `@agent-sentinel/behavior-engine` implements median/MAD statistics, drift analysis, evidence coverage, and typed `DriftAnalysisResult`. Reliability requires content-bound baseline/observed evidence, exact window provenance, source binding, and 10+10 samples. Five-minute aligned query windows keep IDs stable while late-arriving content produces a new evidence ID.                                                                |
+| Deterministic behavior-baseline engine     | **Current; included in deployed image `7458b3e`.** `@agent-sentinel/behavior-engine` implements median/MAD statistics, drift analysis, evidence coverage, and typed `DriftAnalysisResult`. Reliability requires content-bound baseline/observed evidence, exact window provenance, source binding, and 10+10 samples. Five-minute aligned query windows keep IDs stable while late-arriving content produces a new evidence ID.                                                    |
 | Token Economics foundation                 | **Current.** `analyzeTokenEconomics()` uses measured-only populations, reconciled coverage, evidence-linked MAD anomalies, and same-population cost per success. Reports expose exact run/correlation coverage separately from broad version context and attach source-cited owner/business-unit values only from the exact authoritative agent. Live mode remains `insufficient-data` below the ten-sample floor.                                                                 |
 | Business-value evidence foundation         | **Current.** Outcome contracts carry run/correlation/version identifiers; the current resolver accepts only the exact discovered agent version. Source-authored values and evidence are preserved without aggregation, monetary estimates, or invocation proxies. Mock outcomes are explicitly synthetic; live mode remains `unknown` until an authoritative source is configured.                                                                                                 |
-| Governance workflow and durable repository | **Current.** Valid transitions, explicit assignment, separation of duties, source/actor/timestamp audit evidence, bounded policy exceptions, and promote/drift-acknowledge/rollback/retire evidence transitions are enforced. Remediation approvals require and preserve a bounded rationale through connector execution; unsupported connector execution returns a controlled rejection.                                                                                          |
+| Governance workflow and durable repository | **Current.** Valid transitions, explicit assignment, separation of duties, source/actor/timestamp audit evidence, bounded policy exceptions, and promote/drift-acknowledge/rollback/retire evidence transitions are enforced. Remediation approvals preserve a bounded rationale, but the current provider action remains unsupported and the visible response path is simulation-only.                                                                                            |
 | Phase 10 shift-left scanner                | **Current, offline.** `@agent-sentinel/shift-left-scanner` and `pnpm manifest:scan` evaluate validated manifests with the unchanged runtime policy catalog and finding/evidence shapes. Deterministic pass/warn/block output and CI exit codes are available without Entra, ingestion, deployment, or network access.                                                                                                                                                              |
+| Versioned sanitized release evidence       | **Current, offline.** A strict `1.0.0` manifest records repository, image, configuration-hash, check, live-validation, connector, and OneRAI summaries. Repository-only generation leaves missing observations non-pass; supplied input rejects secrets and contradictions.                                                                                                                                                                                                        |
 | Shared UI and Storybook foundation         | **Current.** `@agent-sentinel/ui` owns semantic design tokens plus reusable page-header, KPI, status, freshness, and data-state components. Storybook covers realistic loading, empty, degraded, denied, error, synthetic, and healthy states with accessibility checks; every page uses the shared header, while Observability/Optimization consume shared KPIs and Optimization uses shared operational states.                                                                  |
 
 ---
@@ -112,7 +131,7 @@ Latest Entra migration facts were revalidated on **2026-09-04**:
 | Azure Monitor measured windows               | Query health is ready and 6 benign spans were ingested across 6 agents. Exact-match runtime graph projection and explicit evidence typing are implemented; drift and economics remain `insufficient-data` because the baseline has 0 samples and the minimum population is 10. |
 | Employee catalog entitlement personalization | The assurance overlay renders. Per-employee entitlement filtering needs an authenticated principal.                                                                                                                                                                            |
 | Additional Foundry sources                   | Runtime aggregation is implemented. Each target project still requires an approved credential/federation setup and `Azure AI User`; the current deployment remains the `primary` source only.                                                                                  |
-| Live role coverage                           | Employee login and Viewer boundaries are validated. Analyst, Approver, Administrator, and write-scope live-token validation remain pending before any public write-path change.                                                                                                |
+| Live role coverage                           | JWT/RBAC/MSAL behavior is implemented and tested in code. Replacement deployment activation and live-token validation remain pending for Viewer, Analyst, Approver, Administrator, and write scope.                                                                            |
 | Manifest ingestion activation                | The dedicated container and API/jobs images are deployed. The endpoint remains blocked by writes-false; activation requires Administrator, write-scope, and exact public-edge mutation validation.                                                                             |
 | Repository documentation                     | This rebuild. Superseded and contradictory statements are being corrected in place.                                                                                                                                                                                            |
 
@@ -124,7 +143,7 @@ Latest Entra migration facts were revalidated on **2026-09-04**:
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | Terra authenticated `POST`           | The `BlockApiMutationPreAuth` WAF rule blocks every non-`GET`/`HEAD`/`OPTIONS` request under `/api/` pre-auth.                               | Authenticated write scopes are validated, then the rule is narrowed.                                  |
 | WAF rule narrowing                   | Must not be relaxed until the authenticated write path is proven and anonymous mutation remains denied.                                      | JWT write-scope tests and an authorized remediation smoke test pass.                                  |
-| Employee entitlement personalization | Requires tenant-authorized Entra entitlement evidence beyond the now-active authenticated principal.                                         | Activate and validate the `entra-agent-id` connector.                                                 |
+| Employee entitlement personalization | Requires replacement JWT activation plus tenant-authorized Entra entitlement evidence.                                                       | Activate and validate authentication, then the exact identity connector evidence.                     |
 | Power Platform inventory activation  | Microsoft does not document supported app-only inventory authorization; preview Power Platform RBAC is explicitly unsupported for inventory. | Microsoft publishes a production-supported unattended permission with an enforceable intended scope.  |
 | Agent 365 package activation         | Replacement M365 E5 is active, but the Agent 365 product license and read permission are intentionally deferred.                             | Resolve the supported acquisition route, provision Agent 365, and approve `CopilotPackages.Read.All`. |
 
@@ -142,30 +161,29 @@ Corporate onboarding is tracked separately in [internal-onboarding.md](internal-
 
 ## Environment continuity
 
-- The current Managed Environment remains the temporary live development and
-  hackathon environment. Its Microsoft 365 licensing is deprovisioned, so Agent
-  365, Teams, and Defender live validation cannot be completed there.
-- A separate replacement Managed Environment User Tenant request is awaiting
-  Reporting Manager approval. No replacement tenant or subscription exists yet.
-- License-independent application, Azure, Foundry, Entra, Purview, policy,
-  governance, telemetry, and test work continues in the current environment.
-- After the replacement tenant is provisioned, verify its included M365 E5
-  licensing, request separately gated products, and recreate Agent Sentinel from
-  IaC. Do not depend on an in-place tenant migration.
+- The replacement Managed Environment and Azure deployment exist and supplied
+  the 2026-09-01 connector observation above. The previous tenant is historical
+  and is not an activation target.
+- Replacement Microsoft 365 E5 and Teams licensing support the bounded Teams,
+  Defender, and Purview reads already described. Agent 365 remains separately
+  licensing- and permission-gated.
+- Authentication is not inferred from connector availability. The replacement
+  deployment remains `AUTH_MODE=disabled` until its corporate API/SPA settings
+  and role boundaries are separately activated and validated.
 - Replacement deployment naming is portable: new environments derive application,
   connector, Teams, Foundry, CI runner, and web-to-API routing names from a
-  per-environment suffix. The current development parameter file explicitly
-  preserves historical live identity and Foundry names to prevent replacement.
+  per-environment suffix.
 - Exact tenant, subscription, request, support-case, and smart-card identifiers
   are maintained only in the git-ignored local onboarding handoff.
 
 ## Deployment routing verification
 
-- CI run `33351314784` produced immutable web, API, and jobs images for
-  `31495ef`; all three healthy revisions were deployed on 2026-08-31.
+- The last evidenced active web, API, and jobs release uses image tag
+  `7458b3e`. Earlier image observations are historical, not competing current
+  deployment claims.
 - The registered `agent-sentinel` Front Door endpoint returns HTTP 200 for the
-  web root and public connector-status/auth-configuration routes. Anonymous
-  protected requests return the expected `401`.
+  web root and public connector-status/auth-configuration routes. This route
+  health does not establish JWT activation.
 - A separate unused `default` endpoint produced `404 Unavailable` during an
   initial probe. It is not the registered application or authentication origin.
 - Desired state now declares only the active endpoint's architecture: one web
@@ -178,54 +196,55 @@ Corporate onboarding is tracked separately in [internal-onboarding.md](internal-
 
 These boundaries are what keep the product honest. They are enforced in code, not only in documentation.
 
-| Boundary                                                                                              | Enforcement                                                                                                                                                                                               |
-| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Foundry evidence is **declared configuration**, never observed runtime behavior.                      | Connector label plus explicit blind-spot reporting on `GET /api/connectors`.                                                                                                                              |
-| The connector never infers tools, relationships, owners, or health that Foundry did not return.       | Schema validation; a malformed response fails rather than degrading to a guess.                                                                                                                           |
-| A degraded connector reports degraded health; it is never replaced with mock success.                 | Connector health path in `apps/api`.                                                                                                                                                                      |
-| Live product surfaces read one jobs-persisted estate snapshot for the configured tenant/environment.  | Live `/api/demo/state` uses `SnapshotRepository.findLatest`; absent state returns `503`.                                                                                                                  |
-| Unconfigured or failed live runtime telemetry reports typed `unknown`; it never falls back to mock.   | Runtime route integration plus scorecard validation; mock cost posture is explicitly synthetic.                                                                                                           |
-| Missing evidence lowers confidence and never implies safety.                                          | Product invariant, see [CONTEXT.md](CONTEXT.md).                                                                                                                                                          |
-| The advisory model explains evidence; it never establishes security truth or authorizes an action.    | Grounding check plus schema validation; ungrounded output is rejected.                                                                                                                                    |
-| Live mode is read-only for demo routes.                                                               | Non-`GET` requests to `/api/demo/*` return `403 read_only_mode` in live mode.                                                                                                                             |
-| Remediation execution requires the `executeRemediation` capability, which only `Administrator` holds. | Per-route capability guards in `apps/api/src/auth.ts`.                                                                                                                                                    |
-| The estate is synthetic. No production customer agents exist in the environment.                      | Six-agent manifest owned by `@agent-sentinel/scenarios`; deployment tagged `synthetic`.                                                                                                                   |
-| Manifest adapter claims are non-authoritative and never outrank a first-party connector.              | `sourceOfTruth: false` is a constant; declared confidence is capped at 0.7, default 0.4.                                                                                                                  |
-| Manifest typed values are compared only after one exact authoritative-object match.                   | A fixed field registry performs type-preserving exact comparison; mismatch, missing, and invalid authoritative values remain explicit. Free-form claim values are never read for equivalence.             |
-| Token cost attribution never comes from telemetry labels or non-authoritative adapters.               | The API resolves owner and business unit only from the exact authoritative agent node and its cited declared-configuration evidence; every missing boundary returns typed `partial` or `unknown`.         |
-| Runtime correlation availability is not presented as an outcome join.                                 | Runtime observations preserve direct run/correlation IDs and version context, but coverage reports linkability only. No outcome economics is calculated without a matching authoritative source contract. |
-| The manifest adapter performs no network I/O; API input is inline JSON only.                          | Local paths reject URL forms before reads; API acceptance never dereferences manifest values.                                                                                                             |
-| The manifest adapter cannot act on the estate.                                                        | `ManifestConnector` has no `execute()`; an `execute` action depth is rejected at load time.                                                                                                               |
-| Manifest ingestion cannot cross the server-configured estate tenant or environment.                   | Acceptance binds the envelope and entity environments to server configuration; repository partitioning repeats the tenant check.                                                                          |
-| A non-authoritative manifest outage cannot stop authoritative discovery.                              | Jobs degrades manifest composition and persists the complete Foundry snapshot without adapter data.                                                                                                       |
+| Boundary                                                                                             | Enforcement                                                                                                                                                                                               |
+| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Foundry evidence is **declared configuration**, never observed runtime behavior.                     | Connector label plus explicit blind-spot reporting on `GET /api/connectors`.                                                                                                                              |
+| The connector never infers tools, relationships, owners, or health that Foundry did not return.      | Schema validation; a malformed response fails rather than degrading to a guess.                                                                                                                           |
+| A degraded connector reports degraded health; it is never replaced with mock success.                | Connector health path in `apps/api`.                                                                                                                                                                      |
+| Live product surfaces read one jobs-persisted estate snapshot for the configured tenant/environment. | Live `/api/demo/state` uses `SnapshotRepository.findLatest`; absent state returns `503`.                                                                                                                  |
+| Unconfigured or failed live runtime telemetry reports typed `unknown`; it never falls back to mock.  | Runtime route integration plus scorecard validation; mock cost posture is explicitly synthetic.                                                                                                           |
+| Missing evidence lowers confidence and never implies safety.                                         | Product invariant, see [CONTEXT.md](CONTEXT.md).                                                                                                                                                          |
+| The advisory model explains evidence; it never establishes security truth or authorizes an action.   | Grounding check plus schema validation; ungrounded output is rejected.                                                                                                                                    |
+| Live mode is read-only for demo routes.                                                              | Non-`GET` requests to `/api/demo/*` return `403 read_only_mode` in live mode.                                                                                                                             |
+| Remediation execution is not a current live capability.                                              | Administrator capability checks exist in code, but writes are disabled, WAF mutations remain blocked, and the visible containment path is simulation-only.                                                |
+| The estate is synthetic. No production customer agents exist in the environment.                     | Six-agent manifest owned by `@agent-sentinel/scenarios`; deployment tagged `synthetic`.                                                                                                                   |
+| Manifest adapter claims are non-authoritative and never outrank a first-party connector.             | `sourceOfTruth: false` is a constant; declared confidence is capped at 0.7, default 0.4.                                                                                                                  |
+| Manifest typed values are compared only after one exact authoritative-object match.                  | A fixed field registry performs type-preserving exact comparison; mismatch, missing, and invalid authoritative values remain explicit. Free-form claim values are never read for equivalence.             |
+| Token cost attribution never comes from telemetry labels or non-authoritative adapters.              | The API resolves owner and business unit only from the exact authoritative agent node and its cited declared-configuration evidence; every missing boundary returns typed `partial` or `unknown`.         |
+| Runtime correlation availability is not presented as an outcome join.                                | Runtime observations preserve direct run/correlation IDs and version context, but coverage reports linkability only. No outcome economics is calculated without a matching authoritative source contract. |
+| The manifest adapter performs no network I/O; API input is inline JSON only.                         | Local paths reject URL forms before reads; API acceptance never dereferences manifest values.                                                                                                             |
+| The manifest adapter cannot act on the estate.                                                       | `ManifestConnector` has no `execute()`; an `execute` action depth is rejected at load time.                                                                                                               |
+| Manifest ingestion cannot cross the server-configured estate tenant or environment.                  | Acceptance binds the envelope and entity environments to server configuration; repository partitioning repeats the tenant check.                                                                          |
+| A non-authoritative manifest outage cannot stop authoritative discovery.                             | Jobs degrades manifest composition and persists the complete Foundry snapshot without adapter data.                                                                                                       |
 
 ---
 
-## Current Azure state
+## Last evidenced Azure state
 
-| Component                 | State on 2026-08-30                                                                                                                                                                                        |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Container Apps            | `web` (external within the internal ACA environment), `api` (environment-internal only), `jobs` (no ingress). Reviewed surgical revisions are active.                                                      |
-| ACA environment           | Internal, VNet-integrated, private.                                                                                                                                                                        |
-| Data services             | Cosmos DB, PostgreSQL Flexible Server, Azure AI Search, Service Bus — all behind private endpoints or a delegated subnet.                                                                                  |
-| Manifest persistence      | Cosmos `manifest-ingestions` exists with `/tenantId` partitioning and unique `(manifestId, envelope.producedAt)` versions. No live manifest has been admitted.                                             |
-| Platform services         | Key Vault, Azure Container Registry (public network access disabled), Application Insights.                                                                                                                |
-| Public edge — App Gateway | **Diagnostic and currently stopped.** WAF v2 remains available for bounded regional HTTP diagnostics when explicitly started.                                                                              |
-| Public edge — Front Door  | **Active.** Routes web and API over HTTPS and is the registered SPA redirect and logout origin.                                                                                                            |
-| Data mode                 | `live` — the API and jobs use the Foundry connector against Cosmos.                                                                                                                                        |
-| Auth mode                 | `jwt`; employee login and Viewer read-only boundaries validated.                                                                                                                                           |
-| Write posture             | `writeEnabled=false`; anonymous mutations are denied by authentication before route execution, and Front Door WAF remains in Prevention mode.                                                              |
-| Advisory model            | `gpt-5.6-terra`, `GlobalStandard`, `NoAutoUpgrade`. Advisory output on the public edge remains **mock** until the grounded provider path is activated.                                                     |
-| Build path                | Private self-hosted GitHub Actions runner inside the VNet. May be deallocated and must be started before a build.                                                                                          |
-| Deploy path               | CI run `33316045414` built immutable `8eb1bd6` images; reviewed surgical ACA revisions for web, API, and jobs are healthy on that tag. Full Bicep remains gated by production approval and what-if review. |
+| Component                 | State from the latest sanitized documentation boundary                                                                                                                       |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Container Apps            | `web` (external within the internal ACA environment), `api` (environment-internal only), `jobs` (no ingress). Reviewed surgical revisions are active.                        |
+| ACA environment           | Internal, VNet-integrated, private.                                                                                                                                          |
+| Data services             | Cosmos DB, PostgreSQL Flexible Server, Azure AI Search, Service Bus — all behind private endpoints or a delegated subnet.                                                    |
+| Manifest persistence      | Cosmos `manifest-ingestions` exists with `/tenantId` partitioning and unique `(manifestId, envelope.producedAt)` versions. No live manifest has been admitted.               |
+| Platform services         | Key Vault, Azure Container Registry (public network access disabled), Application Insights.                                                                                  |
+| Public edge — App Gateway | **Diagnostic and currently stopped.** WAF v2 remains available for bounded regional HTTP diagnostics when explicitly started.                                                |
+| Public edge — Front Door  | **Active.** Routes web and API over HTTPS and is the registered SPA redirect and logout origin.                                                                              |
+| Data mode                 | `live` — the API and jobs use the Foundry connector against Cosmos.                                                                                                          |
+| Auth mode                 | `disabled`; JWT/RBAC/MSAL exist in code but are not activated in the replacement deployment.                                                                                 |
+| Write posture             | `writeEnabled=false`; Front Door WAF remains in Prevention mode and blocks pre-auth API mutations.                                                                           |
+| Advisory model            | `gpt-5.6-terra`, `GlobalStandard`, `NoAutoUpgrade`. Advisory output on the public edge remains **mock** until the grounded provider path is activated.                       |
+| Build path                | Private self-hosted GitHub Actions runner inside the VNet. May be deallocated and must be started before a build.                                                            |
+| Deploy path               | Last evidenced deployed tag is `7458b3e`; repository code from `ae531c2` onward is not claimed deployed. Full Bicep remains gated by production approval and what-if review. |
 
 Endpoint host names, resource names, and operational commands are in [deployment.md](deployment.md) and [runbooks.md](runbooks.md). No subscription, tenant, or credential values are recorded in documentation.
 
 ---
 
-## Validation baseline
+## Historical validation baseline
 
-Measured on 2026-08-31 on `feature/multi-source-otel` with Node 22.
+Measured on 2026-08-31 on `feature/multi-source-otel` with Node 22. These
+results are historical and do not establish checks for a later commit.
 
 | Suite                         | Command                                                           | Result                                              |
 | ----------------------------- | ----------------------------------------------------------------- | --------------------------------------------------- |
@@ -253,7 +272,7 @@ Measured on 2026-08-31 on `feature/multi-source-otel` with Node 22.
 
 In dependency order. Each condition gates everything below it in its own track.
 
-1. **Consent and four least-privilege role assignments approved** → surgically deploy images `acbb483` with `AUTH_MODE=jwt`, writes false, and the WAF unchanged.
+1. **Replacement corporate API/SPA settings and least-privilege role assignments approved** → build the reviewed current commit, record its immutable image tag/digests, and activate `AUTH_MODE=jwt` with writes false and the WAF unchanged.
 2. **Real employee login plus read-phase live validation pass** → per-employee entitlement personalization and owner-scoped views become meaningful.
 3. **Private authenticated write smoke test passes** → the `BlockApiMutationPreAuth` WAF rule can be narrowly changed, followed by public-edge write and anonymous-denial validation.
 4. **Instrumented spans, Azure Monitor workspace settings, and least-privilege Logs query access are injected** → the implemented connector starts supplying real `ObservationWindow` objects; quality, reliability, and cost dimensions become evidence-backed instead of `unknown`.

@@ -14,6 +14,13 @@ Build and publish every application image for the SHA before deploying the platf
 provenance with the release record. Rollbacks must select a previously published SHA-tagged image;
 do not retag an image.
 
+Each release record must include a validated versioned
+[sanitized release evidence manifest](release-evidence.md). The expected image
+tag is derived from the manifest commit SHA. Deployed tags and optional digests
+must come from an explicitly supplied sanitized deployment observation; the
+offline generator never queries ACR or Container Apps. Code and deployed image
+versions are separate facts and must not be collapsed into one status.
+
 ## Retention guidance
 
 Configure an Azure Container Registry retention policy for untagged manifests while retaining

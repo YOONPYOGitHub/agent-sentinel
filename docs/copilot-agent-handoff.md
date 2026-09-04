@@ -37,7 +37,9 @@ prove failure states without requiring model access.
 
 - Repository: `YOONPYOGitHub/agent-sentinel`
 - Integration branch: `feature/multi-source-otel`
-- Integration head at handoff preparation: `4c5f201`
+- Integration head before the isolated release-evidence work: `ae531c2`
+- Last evidenced deployed image: `7458b3e`; commits after that tag are code
+  state only until a new sanitized deployment observation is supplied.
 - Default branch `main` is 79 commits behind the integration branch at the time
   this document was prepared.
 - Do not start implementation from `main` until the integration owner confirms
@@ -54,10 +56,12 @@ Important references:
 - Roadmap: `docs/roadmap.md`
 - Current operational ledger: `docs/current-status.md`
 - Known issues: `docs/known-issues.md`
+- Release evidence: `docs/release-evidence.md`
 
-Some hand-maintained status documents are stale or contradictory. Code, tests,
-current branch history, and newly generated versioned evidence take precedence.
-Do not copy a status claim without verifying it.
+Versioned sanitized release evidence takes precedence for release-specific
+claims. Repository-only evidence proves commit and dirty state but deliberately
+leaves checks, deployment, connectors, and live validation non-pass. Do not
+promote a code, test, or historical live claim to deployment success.
 
 ## Current verified implementation
 
@@ -77,6 +81,9 @@ Do not copy a status claim without verifying it.
 - OneRAI evaluation tooling executes synthetic live Foundry probes and records
   agent version and manifest hash. Generated JSON/CSV evidence is intentionally
   ignored by git.
+- Versioned release-evidence tooling generates and validates strict sanitized
+  manifests without calling Azure or Microsoft 365. Live summaries must be
+  supplied explicitly by the integration owner.
 - Full repository lint, typecheck, unit tests, and build passed for the estate
   isolation commits described below.
 
@@ -96,8 +103,8 @@ Do not remove that block before every underlying service and cache is scoped.
 
 ### Important incomplete or disabled areas
 
-- The deployed Azure image may lag the integration branch. Coding agents must
-  not claim deployment success.
+- The deployed Azure image `7458b3e` lags the `ae531c2` code baseline used for
+  this handoff. Coding agents must not claim later code is deployed.
 - User sign-in is disabled in the replacement deployment even though JWT/RBAC
   and MSAL code exists.
 - Entra service-principal inventory works, but migration parity is incomplete

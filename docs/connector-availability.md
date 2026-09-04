@@ -1,6 +1,6 @@
 # Connector availability
 
-Status date: **2026-09-01**.
+Status date: **2026-09-04**.
 
 This ledger separates implementation state from live availability. A connector
 is not described as connected merely because its code exists or an application
@@ -12,6 +12,12 @@ partial failure. The remaining catalog entries are not missed connections:
 Power Platform lacks supported unattended authorization, manifest ingestion is
 write/auth-gated, the business-outcome source has no authoritative provider,
 and MCP gateway telemetry has no selected provider contract.
+
+This remains a historical sanitized observation until the integration owner
+supplies a newer result. Connector readiness does not establish deployment
+image parity, user authentication, exact agent-to-identity correlation, or
+remediation execution. The 2026-09-01 Entra result is inventory only; no
+`RUNS_AS` edge exists without one exact identifier match.
 
 ## State definitions
 

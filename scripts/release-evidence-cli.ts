@@ -2,9 +2,11 @@ import { execFile } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, resolve } from 'node:path'
 import { cwd } from 'node:process'
+import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 import {
+  assertReleaseEvidenceContainsNoSensitiveContent,
   buildReleaseEvidence,
   releaseEvidenceManifestSchema,
   sanitizeReleaseEvidenceInput,
@@ -32,6 +34,7 @@ class UsageError extends Error {
 }
 
 const execFileAsync = promisify(execFile)
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 function requiredValue(input: readonly string[], index: number, option: string): string {
   const value = input[index + 1]
@@ -111,7 +114,7 @@ export async function generateReleaseEvidence(
   args: GenerateArgs,
   dependencies: GenerateDependencies = {},
 ): Promise<void> {
-  const baseDirectory = dependencies.baseDirectory ?? process.env['INIT_CWD'] ?? cwd()
+  const baseDirectory = dependencies.baseDirectory ?? repositoryRoot
   const repository = await (dependencies.readRepositoryState ?? readRepositoryState)()
   const rawInput =
     args.inputPath === undefined
@@ -130,9 +133,10 @@ export async function generateReleaseEvidence(
 
 export async function validateReleaseEvidenceFile(
   path: string,
-  baseDirectory = process.env['INIT_CWD'] ?? cwd(),
+  baseDirectory = repositoryRoot,
 ): Promise<void> {
   const raw = await readJsonFile(resolve(baseDirectory, path), 'release evidence')
+  assertReleaseEvidenceContainsNoSensitiveContent(raw)
   releaseEvidenceManifestSchema.parse(raw)
 }
 

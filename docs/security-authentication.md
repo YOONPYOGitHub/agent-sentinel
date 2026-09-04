@@ -2,15 +2,19 @@
 
 ## Current posture
 
-The API and SPA authentication foundation is active for read-only employee access. The deployed
-configuration uses `AUTH_MODE=jwt`, `AGENT_SENTINEL_WRITE_ENABLED=false`, and the
-`BlockApiMutationPreAuth` WAF rule still blocks every non-`GET`/`HEAD`/`OPTIONS` request under
-`/api/`.
+The API JWT validator, four-role RBAC, SPA MSAL integration, redirect bridge,
+and token-driven live validator are implemented and tested in repository code.
+That implementation state is not the deployed state.
 
-The single-tenant API and SPA app registrations exist. The active Front Door HTTPS origin is
-registered for popup sign-in and same-origin logout. A real employee Viewer session validates at
-the API; anonymous access returns `401`, Viewer mutation returns `403`, and `/api/auth/me` returns
-only the sanitized principal. Broader role and write-scope validation have not been applied.
+The last evidenced replacement deployment uses `AUTH_MODE=disabled` and
+`AGENT_SENTINEL_WRITE_ENABLED=false`. The `BlockApiMutationPreAuth` WAF rule
+still blocks every non-`GET`/`HEAD`/`OPTIONS` request under `/api/`. Historical
+read-only employee JWT validation from the previous deployment does not prove
+authentication in the replacement deployment.
+
+The corporate API and SPA registrations are reusable, but replacement Front
+Door redirect/logout registration and runtime JWT parameters still require
+approved activation and fresh live validation.
 
 ## Roles
 
@@ -50,18 +54,20 @@ are not converted into anonymous requests.
 
 ## Redirect-host decision
 
-The active Azure Front Door default HTTPS origin routes both the SPA and API, passed the required
-read-only health/smoke checks, and is the registered SPA redirect and same-origin logout origin. The
-Application Gateway endpoint remains HTTP-only and is not an acceptable authentication origin. A
-custom domain remains production hardening work, but is not a prerequisite for the current bounded
-read-only JWT validation.
+The active Azure Front Door HTTPS origin routes both the SPA and API and is the
+intended replacement redirect and same-origin logout origin. The Application
+Gateway endpoint remains HTTP-only and is not an acceptable authentication
+origin. Redirect registration and JWT activation must be validated together;
+route health alone does not establish authentication.
 
 ## Staged activation
 
 Each stage is a separate approved change. Stop and roll back on any mismatch.
 
-1. **Read-only activation — complete.** The HTTPS origin, redirect/logout registration, read scope,
-   Viewer session, `AUTH_MODE=jwt`, anonymous `401`, Viewer `403`, and sanitized principal are live.
+1. **Read-only activation — pending in the replacement deployment.** Register
+   the exact replacement HTTPS redirect/logout URIs, inject the fail-closed JWT
+   settings with writes false, then prove anonymous `401`, Viewer `403`,
+   `/api/auth/me`, sign-in, and logout.
 2. **Complete role validation.** Assign least-privilege test principals/groups for Analyst,
    Approver, and Administrator and verify every documented capability boundary. Do not assign
    broad groups by default.
@@ -102,12 +108,12 @@ mutation endpoint or resource identifier.
 - [x] Separate API and SPA app registrations created
 - [x] API read/write scopes and four exact app roles created
 - [x] Typed fail-closed API, SPA, deployment, and validation configuration prepared locally
-- [x] Approved HTTPS redirect and logout origin evidenced
-- [x] Redirect and logout URIs registered
-- [x] Read-only delegated permission reviewed and usable by the validation principal
+- [ ] Replacement HTTPS redirect and logout origin approved and evidenced
+- [ ] Replacement redirect and logout URIs registered
+- [ ] Replacement read-only delegated permission reviewed and usable by the validation principal
 - [ ] Test principals/groups assigned to all four roles
-- [x] `AUTH_MODE=jwt` deployed with writes disabled and WAF unchanged
-- [x] Live employee sign-in, logout, anonymous `401`, Viewer `403`, and `/api/auth/me` validated
+- [ ] `AUTH_MODE=jwt` deployed to the replacement environment with writes disabled and WAF unchanged
+- [ ] Replacement employee sign-in, logout, anonymous `401`, Viewer `403`, and `/api/auth/me` validated
 - [ ] Analyst, Approver, Administrator, and all four role boundaries validated with live tokens
 - [ ] Private authenticated write smoke test passed
 - [ ] WAF rule narrowly changed and public anonymous denial revalidated
