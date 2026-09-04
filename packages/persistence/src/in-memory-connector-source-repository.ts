@@ -63,6 +63,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
   private readonly audits = new Map<string, ConnectorSourceAuditRecord[]>()
   private readonly auditIds = new Map<string, BoundaryRecord>()
   private readonly idempotency = new Map<string, IdempotencyRecord>()
+  private readonly estateBoundaries = new Map<string, BoundaryRecord>()
 
   create(
     estateValue: EstateContext,
@@ -76,6 +77,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     if (input.origin === 'deployment' && mutation.actor.type !== 'deployment') {
       throw new Error('Deployment sources must be created by a deployment actor.')
     }
+    const boundaryExists = this.assertEstateBoundary(estate)
     const fingerprint = digest(['create', input, mutation])
     const replay = this.replay(estate, input.sourceId, mutation, fingerprint)
     if (replay) return Promise.resolve(replay)
@@ -99,6 +101,9 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     })
     const audit = this.createAudit('create', source, null, source, mutation)
     const result: AppliedResult = { status: 'applied', source, audit }
+    if (!boundaryExists) {
+      this.estateBoundaries.set(estate.id, this.boundaryRecord(estate))
+    }
     this.sources.set(key, this.sourceRecord(source, false))
     this.appendAudit(estate.id, audit)
     this.remember(estate, mutation, fingerprint, result)
@@ -110,6 +115,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     sourceId: string,
   ): Promise<ConnectorSourceDefinition | null> {
     const estate = estateContextSchema.parse(estateValue)
+    this.assertEstateBoundary(estate)
     const record = this.sources.get(this.sourceKey(estate.id, sourceId))
     if (record === undefined) return Promise.resolve(null)
     this.assertSourceRecord(estate, record, sourceId)
@@ -118,6 +124,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
 
   list(estateValue: EstateContext, limit?: number): Promise<ConnectorSourceDefinition[]> {
     const estate = estateContextSchema.parse(estateValue)
+    this.assertEstateBoundary(estate)
     const prefix = `${estate.id}\u0000`
     return Promise.resolve(
       [...this.sources.entries()]
@@ -144,6 +151,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     const estate = estateContextSchema.parse(estateValue)
     const patch = connectorSourceUpdateInputSchema.parse(patchValue)
     const mutation = connectorSourceMutationContextSchema.parse(mutationValue)
+    this.assertEstateBoundary(estate)
     const fingerprint = digest(['update', sourceId, expectedEtag, patch, mutation])
     const replay = this.replay(estate, sourceId, mutation, fingerprint)
     if (replay) return Promise.resolve(replay)
@@ -187,6 +195,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
   ): Promise<ConnectorSourceWriteResult> {
     const estate = estateContextSchema.parse(estateValue)
     const mutation = connectorSourceMutationContextSchema.parse(mutationValue)
+    this.assertEstateBoundary(estate)
     const fingerprint = digest(['delete', sourceId, expectedEtag, mutation])
     const replay = this.replay(estate, sourceId, mutation, fingerprint)
     if (replay) return Promise.resolve(replay)
@@ -217,6 +226,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     limit?: number,
   ): Promise<ConnectorSourceAuditRecord[]> {
     const estate = estateContextSchema.parse(estateValue)
+    this.assertEstateBoundary(estate)
     return Promise.resolve(
       (this.audits.get(this.sourceKey(estate.id, sourceId)) ?? [])
         .slice()
@@ -241,6 +251,19 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     ) {
       throw new Error('Connector source boundary does not match the target estate.')
     }
+  }
+
+  private assertEstateBoundary(estate: EstateContext): boolean {
+    const boundary = this.estateBoundaries.get(estate.id)
+    if (!boundary) return false
+    if (
+      boundary.estateId !== estate.id ||
+      boundary.tenantId !== estate.tenantId ||
+      boundary.environment !== estate.environment
+    ) {
+      throw new Error('Connector source estate boundary does not match the bound estate.')
+    }
+    return true
   }
 
   private createAudit(
@@ -329,6 +352,14 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
       environment: source.environment,
       source,
       deleted,
+    })
+  }
+
+  private boundaryRecord(estate: EstateContext): BoundaryRecord {
+    return clone({
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
     })
   }
 

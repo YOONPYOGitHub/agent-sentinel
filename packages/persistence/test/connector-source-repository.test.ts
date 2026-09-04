@@ -78,6 +78,17 @@ function requireSource(result: ConnectorSourceWriteResult): ConnectorSourceDefin
   return result.source
 }
 
+function rejectedError(result: PromiseSettledResult<ConnectorSourceWriteResult>): Error {
+  if (result.status !== 'rejected') {
+    throw new Error('Expected a rejected connector source operation.')
+  }
+  const reason = result.reason as unknown
+  if (!(reason instanceof Error)) {
+    throw new Error('Expected the connector source rejection to contain an error.')
+  }
+  return reason
+}
+
 const factories: Array<[string, () => ConnectorSourceRepository]> = [
   ['in-memory', () => new InMemoryConnectorSourceRepository()],
   ['fake Cosmos', () => new CosmosConnectorSourceRepository(new FakeCosmosStore().client)],
@@ -132,6 +143,108 @@ describe.each(factories)('%s connector source repository', (_name, createReposit
         repository.create(ESTATE_A, source(ESTATE_A, overrides), mutation('wrong-boundary')),
       ),
     ).rejects.toThrow('boundary')
+  })
+
+  it.each([
+    ['tenant ID', ESTATE_A_WRONG_TENANT],
+    ['environment ID', ESTATE_A_WRONG_ENVIRONMENT],
+  ])(
+    'rejects a fresh-ID create after the estate is bound to a different %s',
+    async (_label, mismatchedEstate) => {
+      const repository = createRepository()
+      await repository.create(ESTATE_A, source(ESTATE_A), mutation('bind-estate'))
+
+      await expect(
+        Promise.resolve().then(() =>
+          repository.create(
+            mismatchedEstate,
+            source(mismatchedEstate, { sourceId: 'fresh-boundary-source' }),
+            mutation('fresh-boundary'),
+          ),
+        ),
+      ).rejects.toThrow(/estate boundary/i)
+    },
+  )
+
+  it('allows a corrected retry with the same fresh IDs after a boundary failure', async () => {
+    const repository = createRepository()
+    await repository.create(ESTATE_A, source(ESTATE_A), mutation('bind-retry-estate'))
+    const operation = mutation('failed-retry')
+
+    await expect(
+      Promise.resolve().then(() =>
+        repository.create(
+          ESTATE_A_WRONG_TENANT,
+          source(ESTATE_A_WRONG_TENANT, { sourceId: 'retry-source' }),
+          operation,
+        ),
+      ),
+    ).rejects.toThrow(/estate boundary/i)
+    await expect(
+      repository.create(ESTATE_A, source(ESTATE_A, { sourceId: 'retry-source' }), operation),
+    ).resolves.toMatchObject({
+      status: 'applied',
+      source: {
+        sourceId: 'retry-source',
+        tenantId: ESTATE_A.tenantId,
+        environment: ESTATE_A.environment,
+      },
+    })
+    await expect(repository.listAudit(ESTATE_A, 'retry-source')).resolves.toHaveLength(1)
+  })
+
+  it('allows exactly one boundary to win a concurrent first-create race', async () => {
+    const repository = createRepository()
+    const results = await Promise.allSettled([
+      Promise.resolve().then(() =>
+        repository.create(
+          ESTATE_A,
+          source(ESTATE_A, { sourceId: 'race-winner-source' }),
+          mutation('race-winner'),
+        ),
+      ),
+      Promise.resolve().then(() =>
+        repository.create(
+          ESTATE_A_WRONG_TENANT,
+          source(ESTATE_A_WRONG_TENANT, { sourceId: 'race-loser-source' }),
+          mutation('race-loser'),
+        ),
+      ),
+    ])
+
+    expect(results[0]).toMatchObject({ status: 'fulfilled', value: { status: 'applied' } })
+    expect(rejectedError(results[1]).message).toMatch(/estate boundary/i)
+    await expect(repository.list(ESTATE_A)).resolves.toHaveLength(1)
+    await expect(repository.findById(ESTATE_A, 'race-loser-source')).resolves.toBeNull()
+    await expect(repository.listAudit(ESTATE_A, 'race-loser-source')).resolves.toEqual([])
+    await expect(
+      repository.create(
+        ESTATE_A,
+        source(ESTATE_A, { sourceId: 'race-loser-source' }),
+        mutation('race-loser'),
+      ),
+    ).resolves.toMatchObject({ status: 'applied' })
+  })
+
+  it('leaves no source, audit, retry marker, or partial boundary after a losing create', async () => {
+    const repository = createRepository()
+    await repository.create(ESTATE_A, source(ESTATE_A), mutation('bind-no-partial-estate'))
+    const operation = mutation('no-partial')
+
+    await expect(
+      Promise.resolve().then(() =>
+        repository.create(
+          ESTATE_A_WRONG_ENVIRONMENT,
+          source(ESTATE_A_WRONG_ENVIRONMENT, { sourceId: 'no-partial-source' }),
+          operation,
+        ),
+      ),
+    ).rejects.toThrow(/estate boundary/i)
+    await expect(repository.findById(ESTATE_A, 'no-partial-source')).resolves.toBeNull()
+    await expect(repository.listAudit(ESTATE_A, 'no-partial-source')).resolves.toEqual([])
+    await expect(
+      repository.create(ESTATE_A, source(ESTATE_A, { sourceId: 'no-partial-source' }), operation),
+    ).resolves.toMatchObject({ status: 'applied' })
   })
 
   it('reports duplicate IDs', async () => {
@@ -398,7 +511,10 @@ describe('Cosmos connector source documents', () => {
     const repository = new CosmosConnectorSourceRepository(store.client)
     await repository.create(ESTATE_A, source(ESTATE_A), mutation('create'))
     const documents = store.snapshot()
-    expect(documents).toHaveLength(3)
+    expect(documents).toHaveLength(4)
+    expect(
+      documents.filter((document) => document.documentType === 'connector-source-estate-boundary'),
+    ).toHaveLength(1)
     expect(documents.every((document) => document.estateId === ESTATE_A.id)).toBe(true)
     expect(documents.every((document) => document.tenantId === ESTATE_A.tenantId)).toBe(true)
     expect(documents.every((document) => document.environment === ESTATE_A.environment)).toBe(true)

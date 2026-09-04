@@ -46,7 +46,7 @@ Represents a point-in-time view of an agent estate.
 | graph-nodes       | /tenantId     | GraphNode adjacency                          |
 | graph-edges       | /tenantId     | GraphEdge adjacency                          |
 | governance-cases  | /tenantId     | Cases, immutable transitions, and retry keys |
-| connector-sources | /estateId     | Source definitions, audit, and retry keys    |
+| connector-sources | /estateId     | Estate bindings, sources, audit, retry keys  |
 
 ### ConnectorSourceDefinition
 
@@ -56,14 +56,18 @@ deployment/user origin, strict non-secret configuration, safe credential
 identity/reference metadata, evidence-bound test status, version/ETag, actors,
 and timestamps. Deployment-origin records are immutable.
 
-The `connector-sources` container stores source, append-only audit, and
-idempotency documents under `/estateId` using estate-scoped SHA-256 physical IDs
-and native Cosmos ETag concurrency. Every document envelope repeats `estateId`,
-`tenantId`, and `environment`; point reads, lists, audit reads, and idempotent
-replays require all three values to match the requested estate before returning
-data. Deletes retain a hidden tombstone so a source identity cannot be recreated,
-while exact delete retries still replay their immutable audit result. Existing
-deployment JSON remains the active runtime source until a later activation task.
+The `connector-sources` container stores one immutable tenant/environment binding
+plus source, append-only audit, and idempotency documents under each `/estateId`
+partition using estate-scoped SHA-256 physical IDs and native Cosmos ETag
+concurrency. The first source creation atomically creates the binding with the
+source, audit, and retry marker. Later creates transactionally require that
+binding, so concurrent attempts cannot redefine an estate or leave partial
+records. Every document envelope repeats `estateId`, `tenantId`, and
+`environment`; point reads, lists, audit reads, and idempotent replays require all
+three values to match the requested estate before returning data. Deletes retain
+a hidden tombstone so a source identity cannot be recreated, while exact delete
+retries still replay their immutable audit result. Existing deployment JSON
+remains the active runtime source until a later activation task.
 
 ### PostgreSQL (pg-as-260814)
 

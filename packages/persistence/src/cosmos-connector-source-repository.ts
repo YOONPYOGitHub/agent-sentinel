@@ -21,6 +21,7 @@ import {
 const SOURCE_TYPE = 'connector-source'
 const AUDIT_TYPE = 'connector-source-audit'
 const IDEMPOTENCY_TYPE = 'connector-source-idempotency'
+const ESTATE_BOUNDARY_TYPE = 'connector-source-estate-boundary'
 
 type BatchBody = Extract<OperationInput, { operationType: 'Create' }>['resourceBody']
 
@@ -57,6 +58,14 @@ interface IdempotencyDocument {
   auditId: string
 }
 
+interface EstateBoundaryDocument {
+  id: string
+  estateId: string
+  tenantId: string
+  environment: string
+  documentType: typeof ESTATE_BOUNDARY_TYPE
+}
+
 export interface CosmosConnectorSourceRepositoryOptions {
   databaseId?: string
   containerId?: string
@@ -84,6 +93,10 @@ function auditId(estateId: string, logicalId: string): string {
 
 function idempotencyId(estateId: string, logicalId: string): string {
   return physicalId('idempotency', estateId, logicalId)
+}
+
+function estateBoundaryId(estateId: string): string {
+  return physicalId('estate-boundary', estateId, 'immutable-boundary')
 }
 
 function applicationEtag(
@@ -139,6 +152,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     if (input.origin === 'deployment' && mutation.actor.type !== 'deployment') {
       throw new Error('Deployment sources must be created by a deployment actor.')
     }
+    const boundaryExists = await this.readEstateBoundary(estate)
     const fingerprint = digest(['create', input, mutation])
     const replay = await this.replay(estate, input.sourceId, mutation, fingerprint)
     if (replay) return replay
@@ -152,7 +166,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
       updatedAt: mutation.occurredAt,
     })
     const audit = this.createAudit('create', source, null, source, mutation)
-    const code = await this.batch(estate.id, [
+    const createOperations: OperationInput[] = [
       { operationType: 'Create', resourceBody: asBody(this.sourceDocument(source)) },
       { operationType: 'Create', resourceBody: asBody(this.auditDocument(audit)) },
       {
@@ -161,12 +175,47 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
           this.idempotencyDocument(estate, source.sourceId, mutation, fingerprint),
         ),
       },
-    ])
+    ]
+    const code = await this.batch(
+      estate.id,
+      boundaryExists
+        ? [{ operationType: 'Read', id: estateBoundaryId(estate.id) }, ...createOperations]
+        : [
+            {
+              operationType: 'Create',
+              resourceBody: asBody(this.estateBoundaryDocument(estate)),
+            },
+            ...createOperations,
+          ],
+    )
     if (isSuccess(code)) return { status: 'applied', source: clone(source), audit: clone(audit) }
     if (code === 409) {
-      const concurrentReplay = await this.replay(estate, input.sourceId, mutation, fingerprint)
+      if (!boundaryExists && (await this.readEstateBoundary(estate))) {
+        const retryCode = await this.batch(estate.id, [
+          { operationType: 'Read', id: estateBoundaryId(estate.id) },
+          ...createOperations,
+        ])
+        if (isSuccess(retryCode)) {
+          return { status: 'applied', source: clone(source), audit: clone(audit) }
+        }
+        return this.createConflict(estate, input.sourceId, mutation, fingerprint, retryCode)
+      }
+      return this.createConflict(estate, input.sourceId, mutation, fingerprint, code)
+    }
+    throw new Error(`Cosmos connector source create batch failed with status ${code}.`)
+  }
+
+  private async createConflict(
+    estate: EstateContext,
+    logicalSourceId: string,
+    mutation: ConnectorSourceMutationContext,
+    fingerprint: string,
+    code: number,
+  ): Promise<ConnectorSourceWriteResult> {
+    if (code === 409) {
+      const concurrentReplay = await this.replay(estate, logicalSourceId, mutation, fingerprint)
       if (concurrentReplay) return concurrentReplay
-      if (await this.readSource(estate, input.sourceId)) {
+      if (await this.readSource(estate, logicalSourceId)) {
         return { status: 'conflict', reason: 'already_exists' }
       }
       await this.readAudit(estate, mutation.auditId)
@@ -180,12 +229,14 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     logicalSourceId: string,
   ): Promise<ConnectorSourceDefinition | null> {
     const estate = estateContextSchema.parse(estateValue)
+    await this.readEstateBoundary(estate)
     const document = await this.readSource(estate, logicalSourceId)
     return document === null || document.deleted === true ? null : clone(document.source)
   }
 
   async list(estateValue: EstateContext, limit?: number): Promise<ConnectorSourceDefinition[]> {
     const estate = estateContextSchema.parse(estateValue)
+    await this.readEstateBoundary(estate)
     const { resources } = await this.container.items
       .query<SourceDocument>(
         {
@@ -215,6 +266,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     const estate = estateContextSchema.parse(estateValue)
     const patch = connectorSourceUpdateInputSchema.parse(patchValue)
     const mutation = connectorSourceMutationContextSchema.parse(mutationValue)
+    await this.readEstateBoundary(estate)
     const fingerprint = digest(['update', logicalSourceId, expectedEtag, patch, mutation])
     const replay = await this.replay(estate, logicalSourceId, mutation, fingerprint)
     if (replay) return replay
@@ -265,6 +317,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
   ): Promise<ConnectorSourceWriteResult> {
     const estate = estateContextSchema.parse(estateValue)
     const mutation = connectorSourceMutationContextSchema.parse(mutationValue)
+    await this.readEstateBoundary(estate)
     const fingerprint = digest(['delete', logicalSourceId, expectedEtag, mutation])
     const replay = await this.replay(estate, logicalSourceId, mutation, fingerprint)
     if (replay) return replay
@@ -302,6 +355,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     limit?: number,
   ): Promise<ConnectorSourceAuditRecord[]> {
     const estate = estateContextSchema.parse(estateValue)
+    await this.readEstateBoundary(estate)
     const { resources } = await this.container.items
       .query<AuditDocument>(
         {
@@ -425,6 +479,28 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     }
   }
 
+  private async readEstateBoundary(estate: EstateContext): Promise<boolean> {
+    try {
+      const { resource } = await this.container
+        .item(estateBoundaryId(estate.id), estate.id)
+        .read<EstateBoundaryDocument>()
+      if (!resource) return false
+      if (
+        resource.id !== estateBoundaryId(estate.id) ||
+        resource.estateId !== estate.id ||
+        resource.tenantId !== estate.tenantId ||
+        resource.environment !== estate.environment ||
+        resource.documentType !== ESTATE_BOUNDARY_TYPE
+      ) {
+        throw new Error('Connector source estate boundary does not match the bound estate.')
+      }
+      return true
+    } catch (error: unknown) {
+      if (errorCode(error) === 404) return false
+      throw error
+    }
+  }
+
   private async batch(estateId: string, operations: OperationInput[]): Promise<number> {
     try {
       const response = await this.container.items.batch(operations, estateId)
@@ -530,6 +606,16 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
       fingerprint,
       sourceId: logicalSourceId,
       auditId: mutation.auditId,
+    }
+  }
+
+  private estateBoundaryDocument(estate: EstateContext): EstateBoundaryDocument {
+    return {
+      id: estateBoundaryId(estate.id),
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      documentType: ESTATE_BOUNDARY_TYPE,
     }
   }
 

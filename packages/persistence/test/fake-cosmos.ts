@@ -94,6 +94,13 @@ export class FakeCosmosStore {
     const results: Array<{ statusCode: number; requestCharge: number }> = []
 
     for (const operation of operations) {
+      if (operation.operationType === 'Read') {
+        const key = this.key(partitionKey, operation.id)
+        if (!working.has(key)) return { code: 404, result: [{ statusCode: 404, requestCharge: 1 }] }
+        results.push({ statusCode: 200, requestCharge: 1 })
+        continue
+      }
+
       if (operation.operationType === 'Create') {
         const resource = operation.resourceBody as unknown as StoredDocument
         const key = this.key(partitionKey, resource.id)
