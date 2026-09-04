@@ -14,6 +14,9 @@ storybook-static
 scripts/live-validation-report.json
 scripts/onerai-safety-evaluation.json
 scripts/onerai-safety-evaluation.csv
+release-evidence/private
+release-evidence/live
+release-evidence/*.json
 connectors/manifest/tests/.fixtures
 infra/main.json
 infra/platform.json

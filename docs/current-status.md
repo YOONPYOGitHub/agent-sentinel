@@ -1,13 +1,16 @@
 # Current status
 
-**Status date: 2026-09-01** · Branch: `feature/multi-source-otel`
+**Status date: 2026-09-04** · Branch: `feature/multi-source-otel`
 
 This is the authoritative dated ledger for the Agent Sentinel control plane. Every row states what is true today, not what is intended. Where a capability is absent, the ledger says so rather than describing it as pending success.
 
 This document contains no secrets, tokens, subscription or tenant identifiers, personal contact details, or local absolute user paths.
 
 Connector implementation, blocker type, and activation conditions are tracked
-in [connector-availability.md](connector-availability.md).
+in [connector-availability.md](connector-availability.md). Release claims should
+now be checked against a generated `release-evidence.v1` manifest from
+`pnpm release:evidence`; hand-maintained text is not a substitute for that
+manifest.
 
 ---
 
@@ -31,6 +34,9 @@ Live state was revalidated at **2026-09-01 14:23 KST**:
   business-outcome connector has no authoritative source to configure.
 - API and jobs keep authentication disabled and writes false. No additional
   connector can be safely activated from the current implemented catalog.
+- The current deployed image tag to compare against newer code is `7458b3e`.
+  Newer branch commits are implementation evidence only until a sanitized release
+  manifest records their build, test, deployment, and live-validation state.
 
 ---
 
@@ -91,7 +97,7 @@ Live state was revalidated at **2026-09-01 14:23 KST**:
 | Azure deployment                           | **Live in the replacement tenant.** Container Apps `web`, `api`, and `jobs` run on a private ACA environment behind Front Door. Foundry, Entra, Purview, Defender, Teams catalog, Azure Resource Graph, and Azure Monitor reads are active; authentication and every write path remain disabled.                                                                                                                                                                                   |
 | Corporate Service Tree registration        | **Complete.** Registered under the confirmed `MCAPS > GES Asia > Korea` hierarchy with two administrators.                                                                                                                                                                                                                                                                                                                                                                         |
 | Universal custom manifest adapter          | **Implementation complete, activation pending.** Strict offline input, immutable ingestion, jobs composition, exact source-bound runtime verification, authoritative-object reconciliation, and exact typed configuration-value comparison are implemented. Missing, invalid, and mismatched authoritative values remain distinct; no graph relationship or free-form claim equivalence is inferred. Live ingestion stays blocked by writes-false and the public mutation posture. |
-| Deterministic behavior-baseline engine     | **Current and deployed as `24f5353`.** `@agent-sentinel/behavior-engine` implements median/MAD statistics, drift analysis, evidence coverage, and typed `DriftAnalysisResult`. Reliability requires content-bound baseline/observed evidence, exact window provenance, source binding, and 10+10 samples. Five-minute aligned query windows keep IDs stable while late-arriving content produces a new evidence ID.                                                                |
+| Deterministic behavior-baseline engine     | **Current in code; deployment not claimed here.** `@agent-sentinel/behavior-engine` implements median/MAD statistics, drift analysis, evidence coverage, and typed `DriftAnalysisResult`. Reliability requires content-bound baseline/observed evidence, exact window provenance, source binding, and 10+10 samples. Five-minute aligned query windows keep IDs stable while late-arriving content produces a new evidence ID.                                                      |
 | Token Economics foundation                 | **Current.** `analyzeTokenEconomics()` uses measured-only populations, reconciled coverage, evidence-linked MAD anomalies, and same-population cost per success. Reports expose exact run/correlation coverage separately from broad version context and attach source-cited owner/business-unit values only from the exact authoritative agent. Live mode remains `insufficient-data` below the ten-sample floor.                                                                 |
 | Business-value evidence foundation         | **Current.** Outcome contracts carry run/correlation/version identifiers; the current resolver accepts only the exact discovered agent version. Source-authored values and evidence are preserved without aggregation, monetary estimates, or invocation proxies. Mock outcomes are explicitly synthetic; live mode remains `unknown` until an authoritative source is configured.                                                                                                 |
 | Governance workflow and durable repository | **Current.** Valid transitions, explicit assignment, separation of duties, source/actor/timestamp audit evidence, bounded policy exceptions, and promote/drift-acknowledge/rollback/retire evidence transitions are enforced. Remediation approvals require and preserve a bounded rationale through connector execution; unsupported connector execution returns a controlled rejection.                                                                                          |
@@ -111,7 +117,7 @@ Live state was revalidated at **2026-09-01 14:23 KST**:
 | Additional Foundry sources                   | Runtime aggregation is implemented. Each target project still requires an approved credential/federation setup and `Azure AI User`; the current deployment remains the `primary` source only.                                                                                  |
 | Live role coverage                           | Employee login and Viewer boundaries are validated. Analyst, Approver, Administrator, and write-scope live-token validation remain pending before any public write-path change.                                                                                                |
 | Manifest ingestion activation                | The dedicated container and API/jobs images are deployed. The endpoint remains blocked by writes-false; activation requires Administrator, write-scope, and exact public-edge mutation validation.                                                                             |
-| Repository documentation                     | This rebuild. Superseded and contradictory statements are being corrected in place.                                                                                                                                                                                            |
+| Repository documentation                     | Reconciled against the `7458b3e` deployed-image boundary, disabled replacement auth state, exact-correlation limits, and simulation-only remediation posture.                                                                                                                   |
 
 ---
 
@@ -158,8 +164,10 @@ Corporate onboarding is tracked separately in [internal-onboarding.md](internal-
 
 ## Deployment routing verification
 
-- CI run `33351314784` produced immutable web, API, and jobs images for
-  `31495ef`; all three healthy revisions were deployed on 2026-08-31.
+- The current deployed image tag is `7458b3e`. CI can produce newer immutable
+  images, but those are code/build artifacts rather than deployed-state evidence
+  until a sanitized release evidence manifest records the expected/deployed tags
+  and any optional digests.
 - The registered `agent-sentinel` Front Door endpoint returns HTTP 200 for the
   web root and public connector-status/auth-configuration routes. Anonymous
   protected requests return the expected `401`.
@@ -211,7 +219,7 @@ These boundaries are what keep the product honest. They are enforced in code, no
 | Public edge — Front Door  | **Active.** Routes web and API over HTTPS and is the registered SPA redirect and logout origin.                                                                                                            |
 | Data mode                 | `live` — the API and jobs use the Foundry connector against Cosmos.                                                                                                                                        |
 | Auth mode                 | `jwt`; employee login and Viewer read-only boundaries validated.                                                                                                                                           |
-| Write posture             | `writeEnabled=false`; anonymous mutations are denied by authentication before route execution, and Front Door WAF remains in Prevention mode.                                                              |
+| Write posture             | `writeEnabled=false`; replacement auth is disabled, and Front Door WAF remains in Prevention mode blocking non-`GET`/`HEAD`/`OPTIONS` public API mutations.                                          |
 | Advisory model            | `gpt-5.6-terra`, `GlobalStandard`, `NoAutoUpgrade`. Advisory output on the public edge remains **mock** until the grounded provider path is activated.                                                     |
 | Build path                | Private self-hosted GitHub Actions runner inside the VNet. May be deallocated and must be started before a build.                                                                                          |
 | Deploy path               | CI run `33316045414` built immutable `8eb1bd6` images; reviewed surgical ACA revisions for web, API, and jobs are healthy on that tag. Full Bicep remains gated by production approval and what-if review. |
@@ -250,7 +258,7 @@ Measured on 2026-08-31 on `feature/multi-source-otel` with Node 22.
 
 In dependency order. Each condition gates everything below it in its own track.
 
-1. **Consent and four least-privilege role assignments approved** → surgically deploy images `acbb483` with `AUTH_MODE=jwt`, writes false, and the WAF unchanged.
+1. **Consent and four least-privilege role assignments approved** → surgically deploy reviewed images with `AUTH_MODE=jwt`, writes false, and the WAF unchanged; record expected/deployed tags in release evidence.
 2. **Real employee login plus read-phase live validation pass** → per-employee entitlement personalization and owner-scoped views become meaningful.
 3. **Private authenticated write smoke test passes** → the `BlockApiMutationPreAuth` WAF rule can be narrowly changed, followed by public-edge write and anonymous-denial validation.
 4. **Instrumented spans, Azure Monitor workspace settings, and least-privilege Logs query access are injected** → the implemented connector starts supplying real `ObservationWindow` objects; quality, reliability, and cost dimensions become evidence-backed instead of `unknown`.

@@ -1,0 +1,34 @@
+{
+  "checks": {
+    "unit": {
+      "status": "unknown",
+      "classification": "unknown",
+      "command": "pnpm test",
+      "summary": "Replace with a sanitized command result; do not mark pass unless the command ran."
+    }
+  },
+  "liveValidations": [
+    {
+      "name": "replacement-tenant-validation",
+      "status": "unknown",
+      "classification": "unknown",
+      "summary": "No live validation supplied in this template."
+    }
+  ],
+  "connectorReadiness": [
+    {
+      "connector": "example",
+      "implementation": "template",
+      "readiness": "unknown",
+      "classification": "unknown",
+      "summary": "Replace with sanitized connector readiness evidence."
+    }
+  ],
+  "claimClassifications": [
+    {
+      "subject": "example claim",
+      "classification": "unknown",
+      "summary": "Templates are not evidence."
+    }
+  ]
+}

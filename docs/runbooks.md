@@ -182,7 +182,7 @@ role assignments and every write-path change require separate approval. OneRAI a
 onboarding are independent and do not block this engineering sequence.
 
 1. Revalidate the registered Front Door HTTPS origin; the Application Gateway remains HTTP-only.
-2. Preserve the deployed JWT configuration, writes-false switch, and RB-011 WAF block.
+2. Preserve the reviewed JWT configuration, writes-false switch, and RB-011 WAF block. Do not claim JWT is live in the replacement deployment until read-only validation is rerun.
 3. Assign isolated test principals/groups to Analyst, Approver, and Administrator.
 4. Confirm `/api/auth/config` contains the expected public tenant, client, scope, and redirect
    values without secrets.

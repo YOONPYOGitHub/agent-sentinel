@@ -1,6 +1,6 @@
 # Roadmap
 
-Phased delivery plan for Agent Sentinel. Last reviewed **2026-08-28** against branch `feature/multi-source-otel`.
+Phased delivery plan for Agent Sentinel. Last reviewed **2026-09-04** against branch `feature/multi-source-otel`.
 
 Every phase has an explicit definition of done. A phase is not done because its UI renders; it is done when its evidence is real, its boundaries are enforced in code, and its tests prove the behavior without model access.
 
@@ -19,7 +19,7 @@ authoritative snapshots.
 flowchart TD
     ST["Service Tree registration<br/>(complete 2026-08-23)"]
     ST --> EA["Entra app registrations"]
-    EA --> AUTH["AUTH_MODE=jwt in the deployed environment"]
+    EA --> AUTH["AUTH_MODE=jwt replacement activation"]
     AUTH --> LOGIN["Real employee login"]
     AUTH --> WRITE["JWT write-scope validation"]
     WRITE --> WAF["Narrow BlockApiMutationPreAuth"]
@@ -96,10 +96,12 @@ Durable live governance cases and append-only transition history are persisted i
 
 ## Phase 2 — Corporate identity activation · **In progress** · _approval required_
 
-**Current condition:** the single-tenant API and SPA registrations exist, the Front Door HTTPS
-origin is registered, and read-only JWT mode is deployed. Employee popup sign-in, logout,
-anonymous `401`, Viewer mutation `403`, and `/api/auth/me` have been validated in production.
-Analyst, Approver, Administrator, write-scope, and public mutation validation remain pending.
+**Current condition:** the single-tenant API and SPA registrations exist, and the Front Door HTTPS
+origin is registered. JWT/MSAL/RBAC code exists and earlier read-only validation proved the path,
+but the current replacement deployment remains `AUTH_MODE=disabled`. Employee popup sign-in,
+logout, anonymous `401`, Viewer mutation `403`, `/api/auth/me`, Analyst, Approver,
+Administrator, write-scope, and public mutation validation must be rerun after replacement
+activation.
 OneRAI and service onboarding proceed independently and do not block local implementation.
 
 **Scope**
@@ -125,14 +127,14 @@ OneRAI and service onboarding proceed independently and do not block local imple
 **Scope**
 
 - Validate JWT write scopes end to end against the deployed API.
-- Narrow the `BlockApiMutationPreAuth` WAF rule from "block all pre-auth mutations" to an authenticated, path-scoped allowance.
+- Narrow the `BlockApiMutationPreAuth` WAF rule from "block all pre-auth mutations" to the smallest path/method allowance after API JWT authorization is already proven.
 - Enable `writeEnabled` for authorized remediation execution with rollback posture.
 - Unblock the authenticated `POST` path used by Terra live validation against the public edge.
 
 **Definition of done**
 
 - Anonymous mutation under `/api/` remains denied after the rule is narrowed — verified, not assumed.
-- An authorized remediation executes, is idempotent on retry, and produces a complete audit record.
+- An authorized remediation executes after approval, is idempotent on retry, and produces a complete audit record; until then the product remains simulation/what-if only.
 - Remediation what-if preview matches the observed post-execution state for the tested scenario.
 - The `RB-011` gate-removal checks pass before the change is closed.
 

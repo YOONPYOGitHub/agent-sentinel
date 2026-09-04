@@ -68,6 +68,9 @@ jobs:
       - name: Unit tests
         run: pnpm run test
 
+      - name: Release evidence schema/tool smoke
+        run: pnpm release:evidence -- --output /tmp/agent-sentinel-release-evidence.json
+
       - name: Build all packages/apps
         run: pnpm run build
 

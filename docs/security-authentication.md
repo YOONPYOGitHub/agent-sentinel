@@ -2,15 +2,15 @@
 
 ## Current posture
 
-The API and SPA authentication foundation is active for read-only employee access. The deployed
-configuration uses `AUTH_MODE=jwt`, `AGENT_SENTINEL_WRITE_ENABLED=false`, and the
-`BlockApiMutationPreAuth` WAF rule still blocks every non-`GET`/`HEAD`/`OPTIONS` request under
-`/api/`.
+The API and SPA authentication foundation is implemented, but the current replacement deployment
+keeps `AUTH_MODE=disabled`. The deployed write posture remains
+`AGENT_SENTINEL_WRITE_ENABLED=false`, and the `BlockApiMutationPreAuth` WAF rule still blocks every
+non-`GET`/`HEAD`/`OPTIONS` request under `/api/`.
 
 The single-tenant API and SPA app registrations exist. The active Front Door HTTPS origin is
-registered for popup sign-in and same-origin logout. A real employee Viewer session validates at
-the API; anonymous access returns `401`, Viewer mutation returns `403`, and `/api/auth/me` returns
-only the sanitized principal. Broader role and write-scope validation have not been applied.
+registered for popup sign-in and same-origin logout. Earlier read-only Viewer validation proved the
+code path, but that evidence is historical; it is not a claim that the replacement deployment is
+currently running JWT. Broader role and write-scope validation have not been applied.
 
 ## Roles
 
@@ -60,8 +60,9 @@ read-only JWT validation.
 
 Each stage is a separate approved change. Stop and roll back on any mismatch.
 
-1. **Read-only activation — complete.** The HTTPS origin, redirect/logout registration, read scope,
-   Viewer session, `AUTH_MODE=jwt`, anonymous `401`, Viewer `403`, and sanitized principal are live.
+1. **Read-only activation — pending for replacement deployment.** The HTTPS origin and
+   redirect/logout registration exist. Re-enable `AUTH_MODE=jwt` only after replacement parameters
+   are deployed and Viewer, anonymous `401`, Viewer `403`, and sanitized-principal checks pass again.
 2. **Complete role validation.** Assign least-privilege test principals/groups for Analyst,
    Approver, and Administrator and verify every documented capability boundary. Do not assign
    broad groups by default.
@@ -106,8 +107,8 @@ mutation endpoint or resource identifier.
 - [x] Redirect and logout URIs registered
 - [x] Read-only delegated permission reviewed and usable by the validation principal
 - [ ] Test principals/groups assigned to all four roles
-- [x] `AUTH_MODE=jwt` deployed with writes disabled and WAF unchanged
-- [x] Live employee sign-in, logout, anonymous `401`, Viewer `403`, and `/api/auth/me` validated
+- [ ] `AUTH_MODE=jwt` deployed in the replacement environment with writes disabled and WAF unchanged
+- [ ] Live employee sign-in, logout, anonymous `401`, Viewer `403`, and `/api/auth/me` revalidated in the replacement environment
 - [ ] Analyst, Approver, Administrator, and all four role boundaries validated with live tokens
 - [ ] Private authenticated write smoke test passed
 - [ ] WAF rule narrowly changed and public anonymous denial revalidated

@@ -4,7 +4,7 @@
 
 Agent Sentinel gives an organization one explainable view of every AI agent it runs: what exists, who owns it, what it can reach, where it is exposed, whether it is governed, and whether it is still fit to operate. Every claim in the product cites typed evidence with a source, a confidence, and an observation timestamp.
 
-> **Status: pre-production engineering preview (2026-08-29).** The deployed environment uses read-only Microsoft Entra JWT authentication with a synthetic-only agent portfolio. Writes remain disabled at both the API and WAF. See [Security warning](#security-warning) and [docs/current-status.md](docs/current-status.md).
+> **Status: pre-production engineering preview (2026-09-04).** The current deployed image is `7458b3e`; newer code on `feature/multi-source-otel` is not a deployment claim until captured in generated release evidence. The replacement deployment keeps `AUTH_MODE=disabled`, uses a synthetic-only agent portfolio, and leaves writes disabled at both the API and WAF. See [Security warning](#security-warning) and [docs/current-status.md](docs/current-status.md).
 
 ---
 
@@ -186,12 +186,12 @@ Verified baseline on 2026-08-23:
 | Advisory narratives (public Azure edge)    | **Mock**                             | Deterministic mock provider until corporate Entra and WAF activation                                 |
 | Advisory narratives (grounded model path)  | **Live when configured**             | GPT-5.6 Terra, advisory explanation only; deterministic core stays authoritative                     |
 | Agent 365 connector                        | **Implemented, unconfigured**        | Read-only Graph package catalog; licensing and authorization remain pending                          |
-| Azure Monitor OTel                         | **Implemented, unconfigured**        | Strict read-only query and mapping path; deployed runtime evidence remains `unknown`                 |
-| Entra identity enrichment                  | **Implemented, unconfigured**        | Read-only service-principal inventory and Foundry composition; tenant-admin consent remains pending  |
-| Defender, Purview, and Teams catalog       | **Implemented, unconfigured**        | Disabled authorization-gated evidence paths; Teams catalog does not prove installations              |
+| Azure Monitor OTel                         | **Connected query path; insufficient data** | Strict read-only query and mapping path; runtime analysis stays `insufficient-data` below the sample floor |
+| Entra identity enrichment                  | **Connected inventory; no exact agent correlation** | Service-principal inventory is live, but Foundry exposes no exact identity ID for `RUNS_AS` edges |
+| Defender, Purview, and Teams catalog       | **Connected bounded reads**          | Purview labels are catalog-only; Defender and Teams currently return valid empty results that do not prove installations or agent joins |
 | Governance work queue                      | **Live persistence, writes blocked** | Cosmos-backed cases and audit history; public mutation remains disabled                              |
-| Authentication in the deployed environment | **Enabled, read-only**               | `AUTH_MODE=jwt`; employee login, anonymous `401`, Viewer `403`, and `/api/auth/me` validated         |
-| Write and remediation execution            | **Blocked at the edge**              | `writeEnabled=false`; WAF blocks pre-auth mutations under `/api/`                                    |
+| Authentication in the deployed environment | **Disabled in replacement deployment** | JWT/RBAC code exists, but the current deployment remains `AUTH_MODE=disabled`; older read-only JWT validation is historical |
+| Write and remediation execution            | **Simulation/block-gated only**      | `writeEnabled=false`; WAF blocks pre-auth mutations under `/api/`; no live remediation execution claim |
 
 ---
 
@@ -204,17 +204,18 @@ Verified baseline on 2026-08-23:
 | **Engineering** | [Architecture](docs/architecture.md) · [Data model](docs/data-model.md) · [Development](docs/development.md) · [Foundry live agents](docs/foundry-live-agents.md)                                      |
 | **Operations**  | [Deployment](docs/deployment.md) · [Runbooks](docs/runbooks.md) · [Supply chain](docs/supply-chain.md) · [DR design](docs/dr-design.md) · [Security & authentication](docs/security-authentication.md) |
 | **Decisions**   | [ADR 0001 — modular monolith](docs/adr/0001-modular-monolith.md) · [ADR 0002 — evidence-first deterministic core](docs/adr/0002-evidence-first-deterministic-core.md)                                  |
-| **Status**      | [Current status](docs/current-status.md) · [Known issues](docs/known-issues.md)                                                                                                                        |
+| **Status**      | [Current status](docs/current-status.md) · [Known issues](docs/known-issues.md) · [Release evidence](docs/release-evidence.md)                                                                         |
 
 ---
 
 ## Security warning
 
-> **The deployed environment runs with read-only Microsoft Entra authentication.**
+> **The replacement deployment does not currently run Microsoft Entra authentication.**
 >
-> - `AUTH_MODE=jwt` is deployed. Anonymous callers receive `401` on protected API routes, and the current employee validation account resolves to Viewer.
+> - The current deployed image is `7458b3e`; newer code must be distinguished from deployed behavior by generated release evidence.
+> - JWT/MSAL/RBAC code exists, but replacement runtime parameters keep `AUTH_MODE=disabled`; earlier read-only employee sign-in validation is historical, not the current deployed state.
 > - Mutating requests are held back by two independent gates: the `BlockApiMutationPreAuth` WAF rule blocks every non-`GET`/`HEAD`/`OPTIONS` request under `/api/`, and the connector reports `writeEnabled=false`.
-> - Read-only employee sign-in, token validation, logout, and Viewer boundaries are live. Analyst, Approver, Administrator, write-scope, and public mutation validation remain pending.
+> - Analyst, Approver, Administrator, write-scope, and public mutation validation remain pending.
 > - The Microsoft Entra identity inventory connector is separate from user sign-in and remains disabled until tenant-admin consent and bounded live validation are complete.
 > - Do **not** attach production customer data or enable writes until [the activation checklist](docs/security-authentication.md#activation-checklist) is complete.
 

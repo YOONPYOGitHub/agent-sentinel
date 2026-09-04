@@ -26,6 +26,7 @@
     "auth:validate-live": "pnpm --filter @agent-sentinel/scripts validate-auth-live",
     "manifest:validate": "pnpm --filter @agent-sentinel/tools validate-manifest",
     "manifest:scan": "pnpm --filter @agent-sentinel/tools scan-manifest",
+    "release:evidence": "pnpm --filter @agent-sentinel/tools release:evidence",
     "validate": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {

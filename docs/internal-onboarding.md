@@ -140,7 +140,9 @@ Activation:
 
 1. Preserve tenant, API audience, client, scope, and role settings through the
    approved deployment path.
-2. Keep the deployed `AUTH_MODE=jwt`, writes-false switch, and WAF block.
+2. Keep the reviewed JWT configuration ready, but do not claim `AUTH_MODE=jwt`
+   is deployed in the replacement environment until read-only validation passes;
+   preserve the writes-false switch and WAF block.
 3. Validate sign-in and all four roles before changing the write posture.
 4. Confirm anonymous requests return `401` and insufficient roles return `403`.
 5. Validate an authorized write path.

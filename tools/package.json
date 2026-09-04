@@ -6,6 +6,7 @@
   "scripts": {
     "validate-manifest": "tsx validate-manifest.ts",
     "scan-manifest": "tsx scan-manifest.ts",
+    "release:evidence": "tsx generate-release-evidence.ts",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit",
     "lint": "eslint ."
@@ -13,7 +14,8 @@
   "dependencies": {
     "@agent-sentinel/connector-sdk": "workspace:*",
     "@agent-sentinel/manifest-connector": "workspace:*",
-    "@agent-sentinel/shift-left-scanner": "workspace:*"
+    "@agent-sentinel/shift-left-scanner": "workspace:*",
+    "zod": "4.1.5"
   },
   "devDependencies": {
     "@types/node": "^22.18.1",

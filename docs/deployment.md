@@ -10,9 +10,10 @@
 
 The checked-in full `platform.bicep` desired state is drifted from the live resource group. The latest
 what-if proposed 54 unrelated modifications. **Do not run a full Bicep deployment** until that drift
-is reconciled and separately reviewed. Images `web/api/jobs:acbb483` were verified in ACR by CI run
-`33047446078`; the live ACA revision remains `8179785` because the surgical update was interrupted.
-Use only a reviewed, surgical Container Apps revision/image/config update for the next auth stage.
+is reconciled and separately reviewed. The current deployed image tag to reconcile against newer code
+is `7458b3e`; any newer verified ACR image is not a deployment claim until the generated release
+evidence manifest records expected and deployed tags or digests. Use only a reviewed, surgical
+Container Apps revision/image/config update for the next auth stage.
 
 ## Replacement tenant portability
 
@@ -325,7 +326,7 @@ still HTTP-only and must not be used for authentication. A custom domain is sepa
 
 Deployment order:
 
-1. Preserve the deployed JWT values, exact redirect/logout registration, write-disabled switch, and WAF block.
+1. Preserve the reviewed JWT values, exact redirect/logout registration, write-disabled switch, and WAF block; do not claim JWT is live until replacement validation passes.
 2. Reconcile the live values into a reviewed deployment input without applying unrelated what-if changes.
 3. Run the read phase in [security-authentication.md](security-authentication.md) after every revision.
 4. After separate approval, enable writes only for a private authenticated reversible test.
