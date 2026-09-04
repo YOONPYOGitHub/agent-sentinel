@@ -11,6 +11,39 @@ export type { AgentCorrelationKind, AgentCorrelation } from './correlation.js'
 export { evidenceSchema, evidenceTypeSchema } from './evidence.js'
 export type { Evidence, EvidenceType } from './evidence.js'
 
+export {
+  connectorSourceActorSchema,
+  connectorSourceAuditActionSchema,
+  connectorSourceAuditTransitionSchema,
+  connectorSourceConfigSchema,
+  connectorCredentialMetadataSchema,
+  connectorCredentialModeSchema,
+  connectorSourceDefinitionSchema,
+  connectorSourceEvidenceSchema,
+  connectorSourceIdSchema,
+  connectorSourceOriginSchema,
+  connectorSourceStatusSchema,
+  connectorSourceTestResultSchema,
+  connectorSourceTestStatusSchema,
+  connectorTypeSchema,
+  redactConnectorSourceForApi,
+  safeConnectorTextSchema,
+} from './connector-source.js'
+export type {
+  ConnectorSourceActor,
+  ConnectorSourceAuditAction,
+  ConnectorSourceAuditTransition,
+  ConnectorSourceConfig,
+  ConnectorCredentialMetadata,
+  ConnectorCredentialMode,
+  ConnectorSourceDefinition,
+  ConnectorSourceEvidence,
+  ConnectorSourceOrigin,
+  ConnectorSourceStatus,
+  ConnectorSourceTestResult,
+  ConnectorSourceTestStatus,
+} from './connector-source.js'
+
 export const nodeKindSchema = z.enum([
   'input',
   'agent',
@@ -326,6 +359,8 @@ export type {
   FindingRepository,
   EvidenceRepository,
   ValidationRunRepository,
+  ConnectorSourceListFilters,
+  ConnectorSourceRepository,
 } from './repositories.js'
 
 export {

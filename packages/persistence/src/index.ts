@@ -17,6 +17,13 @@ export { InMemoryExposureFindingRepository } from './in-memory-exposure-finding-
 export { InMemoryGovernanceCaseRepository } from './in-memory-governance-case-repository.js'
 export { InMemoryManifestIngestionRepository } from './in-memory-manifest-ingestion-repository.js'
 export {
+  InMemoryConnectorSourceRepository,
+} from './in-memory-connector-source-repository.js'
+export {
   CosmosManifestIngestionRepository,
   type CosmosManifestIngestionRepositoryOptions,
 } from './cosmos-manifest-ingestion-repository.js'
+export {
+  CosmosConnectorSourceRepository,
+  type CosmosConnectorSourceRepositoryOptions,
+} from './cosmos-connector-source-repository.js'

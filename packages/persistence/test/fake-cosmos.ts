@@ -33,6 +33,13 @@ export class FakeCosmosStore {
         if (!document) return Promise.reject(notFound())
         return Promise.resolve({ resource: clone(document) })
       },
+      delete: () => {
+        const key = this.key(partitionKey, id)
+        const document = this.documents.get(key)
+        if (!document) return Promise.reject(notFound())
+        this.documents.delete(key)
+        return Promise.resolve({ statusCode: 204 })
+      },
     }),
     items: {
       create: (resource: StoredDocument) => this.create(resource),
@@ -154,6 +161,46 @@ export class FakeCosmosStore {
         ),
       )
       return clone(documents.slice(0, 1))
+    }
+
+    if (documentType === 'connector-source') {
+      documents = documents.filter((document) => {
+        const source = document.source as { estateId?: string; id?: string; displayName?: string; connectorType?: string } | undefined
+        if (parameters.has('@estateId') && source?.estateId !== parameters.get('@estateId')) return false
+        if (parameters.has('@enabled') && source?.enabled !== parameters.get('@enabled')) return false
+        if (parameters.has('@connectorType') && source?.connectorType !== parameters.get('@connectorType')) return false
+        if (parameters.has('@origin') && source?.origin !== parameters.get('@origin')) return false
+        const rawSearch = parameters.get('@search')
+        const search = typeof rawSearch === 'string' ? rawSearch : ''
+        if (search.length > 0) {
+          const haystack = [source?.id, source?.displayName, source?.connectorType, source?.status]
+            .filter((value): value is string => typeof value === 'string')
+            .join(' ')
+            .toLocaleLowerCase()
+          return haystack.includes(search.toLocaleLowerCase())
+        }
+        return true
+      })
+      documents.sort((left, right) => {
+        const leftSource = left.source as { updatedAt: string; id: string }
+        const rightSource = right.source as { updatedAt: string; id: string }
+        return (
+          rightSource.updatedAt.localeCompare(leftSource.updatedAt) ||
+          leftSource.id.localeCompare(rightSource.id)
+        )
+      })
+      const offset = Number(parameters.get('@offset') ?? 0)
+      const pageSize = Number(parameters.get('@pageSize') ?? 50)
+      return clone(documents.slice(offset, offset + pageSize))
+    }
+
+    if (documentType === 'connector-source-audit') {
+      documents = documents.filter((document) => {
+        const audit = document.audit as { sourceId?: string } | undefined
+        if (parameters.has('@estateId') && document.estateId !== parameters.get('@estateId')) return false
+        return audit?.sourceId === parameters.get('@sourceId')
+      })
+      return clone(documents)
     }
 
     documents = documents.filter((document) => {

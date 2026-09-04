@@ -1,5 +1,11 @@
 import type { EstateContext, EstateSnapshot, Evidence, Finding, ValidationRun } from './index.js'
 import type {
+  ConnectorSourceActor,
+  ConnectorSourceAuditTransition,
+  ConnectorSourceDefinition,
+  ConnectorSourceOrigin,
+} from './connector-source.js'
+import type {
   GovernanceCase,
   GovernanceCaseKind,
   GovernanceCaseStatus,
@@ -100,4 +106,53 @@ export interface GovernanceCaseRepository {
         reason: 'not_found' | 'idempotency_conflict' | 'state_conflict'
       }
   >
+}
+
+export interface ConnectorSourceListFilters {
+  enabled?: boolean
+  connectorType?: string
+  origin?: ConnectorSourceOrigin
+  search?: string
+  page?: number
+  pageSize?: number
+}
+
+export interface ConnectorSourceRepository {
+  create(
+    estate: EstateContext,
+    source: ConnectorSourceDefinition,
+    idempotencyKey: string,
+  ): Promise<{ source: ConnectorSourceDefinition; created: boolean; reason?: 'idempotency_conflict' | 'source_conflict' }>
+  update(
+    estate: EstateContext,
+    sourceId: string,
+    expectedEtag: string,
+    updated: ConnectorSourceDefinition,
+    idempotencyKey: string,
+  ): Promise<
+    | {
+        applied: true
+        source: ConnectorSourceDefinition
+        audit: ConnectorSourceAuditTransition[]
+      }
+    | {
+        applied: false
+        reason: 'not_found' | 'idempotency_conflict' | 'etag_conflict' | 'immutable_origin'
+      }
+  >
+  findById(estate: EstateContext, sourceId: string): Promise<ConnectorSourceDefinition | null>
+  list(
+    estate: EstateContext,
+    filters?: ConnectorSourceListFilters,
+  ): Promise<{ items: ConnectorSourceDefinition[]; total: number }>
+  delete(
+    estate: EstateContext,
+    sourceId: string,
+    expectedEtag: string,
+    actor: ConnectorSourceActor,
+  ): Promise<{ deleted: boolean; reason?: 'not_found' | 'etag_conflict' | 'immutable_origin' }>
+  getAuditHistory(
+    estate: EstateContext,
+    sourceId: string,
+  ): Promise<ConnectorSourceAuditTransition[]>
 }
