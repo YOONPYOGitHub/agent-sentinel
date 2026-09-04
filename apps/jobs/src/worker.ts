@@ -8,7 +8,7 @@ import type {
   ExposureFindingRepository,
   SnapshotRepository,
 } from '@agent-sentinel/domain'
-import { InMemoryDeduplicator, domainEventSchema, withIdempotency } from '@agent-sentinel/messaging'
+import { InMemoryDeduplicator, withIdempotency } from '@agent-sentinel/messaging'
 import {
   CosmosExposureFindingRepository,
   CosmosManifestIngestionRepository,
@@ -19,6 +19,7 @@ import {
 } from '@agent-sentinel/persistence'
 
 import { buildConnector } from './connector-factory.js'
+import { validateWorkerEventEstate } from './event-boundary.js'
 import { IngestionService, defaultLogger } from './ingestion-service.js'
 import { initTelemetry } from './telemetry.js'
 
@@ -84,12 +85,20 @@ function buildRepositories(
   }
 }
 
-async function processMessage(message: IncomingMessage, run: () => Promise<void>): Promise<void> {
+async function processMessage(
+  message: IncomingMessage,
+  estate: EstateContext,
+  run: () => Promise<void>,
+): Promise<void> {
   const correlationId = correlationIdFrom(
     message.applicationProperties?.[CORRELATION_ID_HEADER] ?? message.messageId,
   )
-  const event = domainEventSchema.parse(message.body)
-  defaultLogger.info('worker.event.received', { correlationId, eventType: event.type })
+  const event = validateWorkerEventEstate(message.body, estate)
+  defaultLogger.info('worker.event.received', {
+    correlationId,
+    eventType: event.type,
+    estateId: estate.id,
+  })
   if (event.type === 'snapshot.ingested') {
     await run()
   }
@@ -159,7 +168,9 @@ async function main(): Promise<void> {
     receiver.subscribe({
       async processMessage(message) {
         const messageId = String(message.messageId ?? '')
-        await withIdempotency(deduplicator, messageId, () => processMessage(message, runOnce))
+        await withIdempotency(deduplicator, messageId, () =>
+          processMessage(message, estate, runOnce),
+        )
       },
       processError(args) {
         defaultLogger.error('worker.sb.error', {

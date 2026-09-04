@@ -11,7 +11,9 @@ import {
 const event: FindingDetectedEvent = {
   type: 'finding.detected',
   correlationId: '11111111-1111-4111-8111-111111111111',
+  estateId: 'default',
   tenantId: 'tenant-one',
+  environment: 'production',
   findingId: 'finding-1',
   severity: 'high',
   timestamp: '2024-01-01T00:00:00.000Z',
