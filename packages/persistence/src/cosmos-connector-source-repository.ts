@@ -27,6 +27,8 @@ type BatchBody = Extract<OperationInput, { operationType: 'Create' }>['resourceB
 interface SourceDocument {
   id: string
   estateId: string
+  tenantId: string
+  environment: string
   documentType: typeof SOURCE_TYPE
   source: ConnectorSourceDefinition
   deleted?: boolean
@@ -36,6 +38,8 @@ interface SourceDocument {
 interface AuditDocument {
   id: string
   estateId: string
+  tenantId: string
+  environment: string
   documentType: typeof AUDIT_TYPE
   sourceId: string
   occurredAt: string
@@ -45,6 +49,8 @@ interface AuditDocument {
 interface IdempotencyDocument {
   id: string
   estateId: string
+  tenantId: string
+  environment: string
   documentType: typeof IDEMPOTENCY_TYPE
   fingerprint: string
   sourceId: string
@@ -134,7 +140,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
       throw new Error('Deployment sources must be created by a deployment actor.')
     }
     const fingerprint = digest(['create', input, mutation])
-    const replay = await this.replay(estate, mutation, fingerprint)
+    const replay = await this.replay(estate, input.sourceId, mutation, fingerprint)
     if (replay) return replay
     const source = connectorSourceDefinitionSchema.parse({
       ...input,
@@ -152,17 +158,18 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
       {
         operationType: 'Create',
         resourceBody: asBody(
-          this.idempotencyDocument(estate.id, source.sourceId, mutation, fingerprint),
+          this.idempotencyDocument(estate, source.sourceId, mutation, fingerprint),
         ),
       },
     ])
     if (isSuccess(code)) return { status: 'applied', source: clone(source), audit: clone(audit) }
     if (code === 409) {
-      const concurrentReplay = await this.replay(estate, mutation, fingerprint)
+      const concurrentReplay = await this.replay(estate, input.sourceId, mutation, fingerprint)
       if (concurrentReplay) return concurrentReplay
       if (await this.readSource(estate, input.sourceId)) {
         return { status: 'conflict', reason: 'already_exists' }
       }
+      await this.readAudit(estate, mutation.auditId)
       return { status: 'conflict', reason: 'audit_id_reuse' }
     }
     throw new Error(`Cosmos connector source create batch failed with status ${code}.`)
@@ -209,7 +216,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     const patch = connectorSourceUpdateInputSchema.parse(patchValue)
     const mutation = connectorSourceMutationContextSchema.parse(mutationValue)
     const fingerprint = digest(['update', logicalSourceId, expectedEtag, patch, mutation])
-    const replay = await this.replay(estate, mutation, fingerprint)
+    const replay = await this.replay(estate, logicalSourceId, mutation, fingerprint)
     if (replay) return replay
     const document = await this.readSource(estate, logicalSourceId)
     if (!document || document.deleted === true) return { status: 'not_found' }
@@ -242,12 +249,12 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
       {
         operationType: 'Create',
         resourceBody: asBody(
-          this.idempotencyDocument(estate.id, logicalSourceId, mutation, fingerprint),
+          this.idempotencyDocument(estate, logicalSourceId, mutation, fingerprint),
         ),
       },
     ])
     if (isSuccess(code)) return { status: 'applied', source: clone(source), audit: clone(audit) }
-    return this.writeConflict(estate, mutation, fingerprint, code)
+    return this.writeConflict(estate, logicalSourceId, mutation, fingerprint, code)
   }
 
   async delete(
@@ -259,7 +266,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     const estate = estateContextSchema.parse(estateValue)
     const mutation = connectorSourceMutationContextSchema.parse(mutationValue)
     const fingerprint = digest(['delete', logicalSourceId, expectedEtag, mutation])
-    const replay = await this.replay(estate, mutation, fingerprint)
+    const replay = await this.replay(estate, logicalSourceId, mutation, fingerprint)
     if (replay) return replay
     const document = await this.readSource(estate, logicalSourceId)
     if (!document || document.deleted === true) return { status: 'not_found' }
@@ -281,12 +288,12 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
       {
         operationType: 'Create',
         resourceBody: asBody(
-          this.idempotencyDocument(estate.id, logicalSourceId, mutation, fingerprint),
+          this.idempotencyDocument(estate, logicalSourceId, mutation, fingerprint),
         ),
       },
     ])
     if (isSuccess(code)) return { status: 'applied', source: null, audit: clone(audit) }
-    return this.writeConflict(estate, mutation, fingerprint, code)
+    return this.writeConflict(estate, logicalSourceId, mutation, fingerprint, code)
   }
 
   async listAudit(
@@ -310,19 +317,14 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
       )
       .fetchAll()
     return resources.map((document) => {
-      if (
-        document.estateId !== estate.id ||
-        document.documentType !== AUDIT_TYPE ||
-        document.sourceId !== logicalSourceId
-      ) {
-        throw new Error(`Invalid Cosmos connector source audit document: ${document.id}`)
-      }
-      return clone(connectorSourceAuditRecordSchema.parse(document.audit))
+      this.assertAuditDocument(estate, document, logicalSourceId, document.audit.id)
+      return clone(document.audit)
     })
   }
 
   private async writeConflict(
     estate: EstateContext,
+    logicalSourceId: string,
     mutation: ConnectorSourceMutationContext,
     fingerprint: string,
     code: number,
@@ -330,18 +332,17 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     if (code === 404) return { status: 'not_found' }
     if (code === 412) return { status: 'conflict', reason: 'etag_mismatch' }
     if (code === 409) {
-      return (
-        (await this.replay(estate, mutation, fingerprint)) ?? {
-          status: 'conflict',
-          reason: 'audit_id_reuse',
-        }
-      )
+      const replay = await this.replay(estate, logicalSourceId, mutation, fingerprint)
+      if (replay) return replay
+      await this.readAudit(estate, mutation.auditId)
+      return { status: 'conflict', reason: 'audit_id_reuse' }
     }
     throw new Error(`Cosmos connector source write batch failed with status ${code}.`)
   }
 
   private async replay(
     estate: EstateContext,
+    logicalSourceId: string,
     mutation: ConnectorSourceMutationContext,
     fingerprint: string,
   ): Promise<ConnectorSourceWriteResult | null> {
@@ -350,9 +351,17 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     if (marker.fingerprint !== fingerprint) {
       return { status: 'conflict', reason: 'idempotency_key_reuse' }
     }
+    if (marker.sourceId !== logicalSourceId) {
+      throw new Error(`Invalid Cosmos connector source idempotency document: ${marker.id}`)
+    }
     const audit = await this.readAudit(estate, marker.auditId)
     if (!audit) {
       throw new Error(`Connector source idempotency marker references missing audit: ${marker.id}`)
+    }
+    if (audit.sourceId !== marker.sourceId) {
+      throw new Error(
+        `Connector source idempotency marker references mismatched audit: ${marker.id}`,
+      )
     }
     return { status: 'idempotent', source: clone(audit.after), audit: clone(audit) }
   }
@@ -383,14 +392,8 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
         .item(auditId(estate.id, logicalAuditId), estate.id)
         .read<AuditDocument>()
       if (!resource) return null
-      if (
-        resource.estateId !== estate.id ||
-        resource.documentType !== AUDIT_TYPE ||
-        resource.audit.id !== logicalAuditId
-      ) {
-        throw new Error(`Invalid Cosmos connector source audit document: ${logicalAuditId}`)
-      }
-      return connectorSourceAuditRecordSchema.parse(resource.audit)
+      this.assertAuditDocument(estate, resource, resource.sourceId, logicalAuditId)
+      return resource.audit
     } catch (error: unknown) {
       if (errorCode(error) === 404) return null
       throw error
@@ -406,7 +409,13 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
         .item(idempotencyId(estate.id, key), estate.id)
         .read<IdempotencyDocument>()
       if (!resource) return null
-      if (resource.estateId !== estate.id || resource.documentType !== IDEMPOTENCY_TYPE) {
+      if (
+        resource.id !== idempotencyId(estate.id, key) ||
+        resource.estateId !== estate.id ||
+        resource.tenantId !== estate.tenantId ||
+        resource.environment !== estate.environment ||
+        resource.documentType !== IDEMPOTENCY_TYPE
+      ) {
         throw new Error(`Invalid Cosmos connector source idempotency document: ${resource.id}`)
       }
       return resource
@@ -447,6 +456,8 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     const source = connectorSourceDefinitionSchema.parse(document.source)
     if (
       document.estateId !== estate.id ||
+      document.tenantId !== estate.tenantId ||
+      document.environment !== estate.environment ||
       document.documentType !== SOURCE_TYPE ||
       document.id !== sourceId(estate.id, logicalSourceId) ||
       source.estateId !== estate.id ||
@@ -468,6 +479,8 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     return connectorSourceAuditRecordSchema.parse({
       id: mutation.auditId,
       estateId: source.estateId,
+      tenantId: source.tenantId,
+      environment: source.environment,
       sourceId: source.sourceId,
       operation,
       actor: mutation.actor,
@@ -482,6 +495,8 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     return {
       id: sourceId(source.estateId, source.sourceId),
       estateId: source.estateId,
+      tenantId: source.tenantId,
+      environment: source.environment,
       documentType: SOURCE_TYPE,
       source,
     }
@@ -491,6 +506,8 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     return {
       id: auditId(audit.estateId, audit.id),
       estateId: audit.estateId,
+      tenantId: audit.tenantId,
+      environment: audit.environment,
       documentType: AUDIT_TYPE,
       sourceId: audit.sourceId,
       occurredAt: audit.occurredAt,
@@ -499,18 +516,44 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
   }
 
   private idempotencyDocument(
-    estateId: string,
+    estate: EstateContext,
     logicalSourceId: string,
     mutation: ConnectorSourceMutationContext,
     fingerprint: string,
   ): IdempotencyDocument {
     return {
-      id: idempotencyId(estateId, mutation.idempotencyKey),
-      estateId,
+      id: idempotencyId(estate.id, mutation.idempotencyKey),
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
       documentType: IDEMPOTENCY_TYPE,
       fingerprint,
       sourceId: logicalSourceId,
       auditId: mutation.auditId,
+    }
+  }
+
+  private assertAuditDocument(
+    estate: EstateContext,
+    document: AuditDocument,
+    logicalSourceId: string,
+    logicalAuditId: string,
+  ): void {
+    const audit = connectorSourceAuditRecordSchema.parse(document.audit)
+    if (
+      document.id !== auditId(estate.id, logicalAuditId) ||
+      document.estateId !== estate.id ||
+      document.tenantId !== estate.tenantId ||
+      document.environment !== estate.environment ||
+      document.documentType !== AUDIT_TYPE ||
+      document.sourceId !== logicalSourceId ||
+      audit.id !== logicalAuditId ||
+      audit.estateId !== estate.id ||
+      audit.tenantId !== estate.tenantId ||
+      audit.environment !== estate.environment ||
+      audit.sourceId !== logicalSourceId
+    ) {
+      throw new Error(`Invalid Cosmos connector source audit document: ${logicalAuditId}`)
     }
   }
 }

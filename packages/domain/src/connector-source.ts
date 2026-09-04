@@ -364,6 +364,8 @@ export const connectorSourceAuditRecordSchema = z
   .strictObject({
     id: boundedIdentifierSchema,
     estateId: estateIdSchema,
+    tenantId: z.string().trim().min(1).max(128),
+    environment: boundedEnvironmentSchema,
     sourceId: sourceIdSchema,
     operation: z.enum(['create', 'update', 'delete']),
     actor: connectorSourceActorSchema,
@@ -376,7 +378,10 @@ export const connectorSourceAuditRecordSchema = z
     for (const snapshot of [audit.before, audit.after]) {
       if (
         snapshot !== null &&
-        (snapshot.estateId !== audit.estateId || snapshot.sourceId !== audit.sourceId)
+        (snapshot.estateId !== audit.estateId ||
+          snapshot.tenantId !== audit.tenantId ||
+          snapshot.environment !== audit.environment ||
+          snapshot.sourceId !== audit.sourceId)
       ) {
         context.addIssue({
           code: 'custom',
@@ -439,14 +444,17 @@ export const connectorSourceAuditRecordSchema = z
     }
     if (
       audit.operation === 'update' &&
+      audit.before !== null &&
       audit.after !== null &&
-      (audit.after.updatedAt !== audit.occurredAt ||
+      (audit.occurredAt < audit.before.updatedAt ||
+        audit.after.updatedAt !== audit.occurredAt ||
         !actorMatches(audit.actor, audit.after.updatedBy))
     ) {
       context.addIssue({
         code: 'custom',
         path: ['after'],
-        message: 'An update audit must bind its actor and timestamp to the resulting source.',
+        message:
+          'An update audit cannot precede the current source version and must bind its actor and timestamp to the resulting source.',
       })
     }
     if (

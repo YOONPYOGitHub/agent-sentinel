@@ -58,8 +58,12 @@ and timestamps. Deployment-origin records are immutable.
 
 The `connector-sources` container stores source, append-only audit, and
 idempotency documents under `/estateId` using estate-scoped SHA-256 physical IDs
-and native Cosmos ETag concurrency. Existing deployment JSON remains the active
-runtime source until a later activation task.
+and native Cosmos ETag concurrency. Every document envelope repeats `estateId`,
+`tenantId`, and `environment`; point reads, lists, audit reads, and idempotent
+replays require all three values to match the requested estate before returning
+data. Deletes retain a hidden tombstone so a source identity cannot be recreated,
+while exact delete retries still replay their immutable audit result. Existing
+deployment JSON remains the active runtime source until a later activation task.
 
 ### PostgreSQL (pg-as-260814)
 

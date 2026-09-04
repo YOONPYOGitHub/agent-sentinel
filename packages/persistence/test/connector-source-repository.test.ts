@@ -17,10 +17,20 @@ const ESTATE_A: EstateContext = {
   tenantId: '00000000-0000-0000-0000-000000000001',
   environment: 'production',
 }
-const ESTATE_B: EstateContext = {
+const ESTATE_A_OTHER_ID: EstateContext = {
   id: 'estate-b',
+  tenantId: ESTATE_A.tenantId,
+  environment: ESTATE_A.environment,
+}
+const ESTATE_A_WRONG_TENANT: EstateContext = {
+  id: ESTATE_A.id,
   tenantId: '00000000-0000-0000-0000-000000000002',
-  environment: 'production',
+  environment: ESTATE_A.environment,
+}
+const ESTATE_A_WRONG_ENVIRONMENT: EstateContext = {
+  id: ESTATE_A.id,
+  tenantId: ESTATE_A.tenantId,
+  environment: 'staging',
 }
 
 function source(
@@ -74,36 +84,150 @@ const factories: Array<[string, () => ConnectorSourceRepository]> = [
 ]
 
 describe.each(factories)('%s connector source repository', (_name, createRepository) => {
-  it('isolates identical IDs and idempotency keys by estate', async () => {
+  it('isolates identical IDs and idempotency keys by exact estate ID', async () => {
     const repository = createRepository()
     const operation = mutation('create')
     await expect(repository.create(ESTATE_A, source(ESTATE_A), operation)).resolves.toMatchObject({
       status: 'applied',
     })
-    await expect(repository.create(ESTATE_B, source(ESTATE_B), operation)).resolves.toMatchObject({
-      status: 'applied',
-    })
+    await expect(repository.findById(ESTATE_A_OTHER_ID, 'shared-source')).resolves.toBeNull()
+    await expect(repository.list(ESTATE_A_OTHER_ID)).resolves.toEqual([])
+    await expect(repository.listAudit(ESTATE_A_OTHER_ID, 'shared-source')).resolves.toEqual([])
+    await expect(
+      repository.update(
+        ESTATE_A_OTHER_ID,
+        'shared-source',
+        'unknown-etag',
+        { enabled: false },
+        mutation('missing-update'),
+      ),
+    ).resolves.toEqual({ status: 'not_found' })
+    await expect(
+      repository.delete(
+        ESTATE_A_OTHER_ID,
+        'shared-source',
+        'unknown-etag',
+        mutation('missing-delete'),
+      ),
+    ).resolves.toEqual({ status: 'not_found' })
+    await expect(
+      repository.create(ESTATE_A_OTHER_ID, source(ESTATE_A_OTHER_ID), operation),
+    ).resolves.toMatchObject({ status: 'applied' })
     expect((await repository.findById(ESTATE_A, 'shared-source'))?.tenantId).toBe(ESTATE_A.tenantId)
-    expect((await repository.findById(ESTATE_B, 'shared-source'))?.tenantId).toBe(ESTATE_B.tenantId)
+    expect((await repository.findById(ESTATE_A_OTHER_ID, 'shared-source'))?.estateId).toBe(
+      ESTATE_A_OTHER_ID.id,
+    )
     await expect(repository.list(ESTATE_A)).resolves.toHaveLength(1)
-    await expect(repository.list(ESTATE_B)).resolves.toHaveLength(1)
+    await expect(repository.list(ESTATE_A_OTHER_ID)).resolves.toHaveLength(1)
   })
 
-  it('reports duplicate IDs and rejects mismatched boundaries', async () => {
+  it.each([
+    ['estate ID', { estateId: ESTATE_A_OTHER_ID.id }],
+    ['tenant ID', { tenantId: ESTATE_A_WRONG_TENANT.tenantId }],
+    ['environment ID', { environment: ESTATE_A_WRONG_ENVIRONMENT.environment }],
+  ])('rejects a mismatched create %s boundary', async (_boundary, overrides) => {
+    const repository = createRepository()
+    await expect(
+      Promise.resolve().then(() =>
+        repository.create(ESTATE_A, source(ESTATE_A, overrides), mutation('wrong-boundary')),
+      ),
+    ).rejects.toThrow('boundary')
+  })
+
+  it('reports duplicate IDs', async () => {
     const repository = createRepository()
     await repository.create(ESTATE_A, source(ESTATE_A), mutation('create'))
     await expect(
       repository.create(ESTATE_A, source(ESTATE_A), mutation('duplicate')),
     ).resolves.toEqual({ status: 'conflict', reason: 'already_exists' })
+  })
+
+  it.each([
+    ['tenant ID', ESTATE_A_WRONG_TENANT],
+    ['environment ID', ESTATE_A_WRONG_ENVIRONMENT],
+  ])('fails closed on a mismatched %s for every method and replay path', async (_label, estate) => {
+    const repository = createRepository()
+    const createMutation = mutation('boundary-create')
+    const created = requireSource(
+      await repository.create(ESTATE_A, source(ESTATE_A), createMutation),
+    )
+
+    await expect(
+      Promise.resolve().then(() => repository.create(estate, source(estate), createMutation)),
+    ).rejects.toThrow(/connector source/i)
     await expect(
       Promise.resolve().then(() =>
-        repository.create(
-          ESTATE_A,
-          source(ESTATE_A, { tenantId: ESTATE_B.tenantId }),
-          mutation('wrong-estate'),
+        repository.create(estate, source(estate), mutation('boundary-create-distinct')),
+      ),
+    ).rejects.toThrow(/connector source/i)
+    await expect(
+      Promise.resolve().then(() =>
+        repository.create(estate, source(estate, { sourceId: 'audit-boundary-source' }), {
+          ...mutation('boundary-audit-reuse'),
+          auditId: createMutation.auditId,
+        }),
+      ),
+    ).rejects.toThrow(/connector source/i)
+    await expect(
+      Promise.resolve().then(() => repository.findById(estate, created.sourceId)),
+    ).rejects.toThrow(/connector source/i)
+    await expect(Promise.resolve().then(() => repository.list(estate))).rejects.toThrow(
+      /connector source/i,
+    )
+    await expect(
+      Promise.resolve().then(() => repository.listAudit(estate, created.sourceId)),
+    ).rejects.toThrow(/connector source/i)
+    await expect(
+      Promise.resolve().then(() =>
+        repository.update(
+          estate,
+          created.sourceId,
+          created.etag,
+          { enabled: false },
+          mutation('boundary-update-source'),
         ),
       ),
-    ).rejects.toThrow('boundary')
+    ).rejects.toThrow(/connector source/i)
+    await expect(
+      Promise.resolve().then(() =>
+        repository.delete(
+          estate,
+          created.sourceId,
+          created.etag,
+          mutation('boundary-delete-source'),
+        ),
+      ),
+    ).rejects.toThrow(/connector source/i)
+
+    const updateMutation = mutation('boundary-update', '2026-09-04T00:01:00.000Z')
+    const updated = requireSource(
+      await repository.update(
+        ESTATE_A,
+        created.sourceId,
+        created.etag,
+        { displayName: 'Updated source' },
+        updateMutation,
+      ),
+    )
+    await expect(
+      Promise.resolve().then(() =>
+        repository.update(
+          estate,
+          created.sourceId,
+          created.etag,
+          { displayName: 'Updated source' },
+          updateMutation,
+        ),
+      ),
+    ).rejects.toThrow(/connector source/i)
+
+    const deleteMutation = mutation('boundary-delete', '2026-09-04T00:02:00.000Z')
+    await repository.delete(ESTATE_A, updated.sourceId, updated.etag, deleteMutation)
+    await expect(
+      Promise.resolve().then(() =>
+        repository.delete(estate, updated.sourceId, updated.etag, deleteMutation),
+      ),
+    ).rejects.toThrow(/connector source/i)
   })
 
   it('uses ETags and permits only one concurrent update', async () => {
@@ -192,12 +316,56 @@ describe.each(factories)('%s connector source repository', (_name, createReposit
     await expect(
       repository.delete(ESTATE_A, created.sourceId, created.etag, operation),
     ).resolves.toMatchObject({ status: 'idempotent', source: null })
+    await expect(
+      repository.delete(
+        ESTATE_A,
+        created.sourceId,
+        created.etag,
+        mutation('stale-delete', '2026-09-04T00:03:00.000Z'),
+      ),
+    ).resolves.toEqual({ status: 'not_found' })
+    await expect(
+      repository.create(
+        ESTATE_A,
+        source(ESTATE_A),
+        mutation('recreate', '2026-09-04T00:04:00.000Z'),
+      ),
+    ).resolves.toEqual({ status: 'conflict', reason: 'already_exists' })
     const audit = await repository.listAudit(ESTATE_A, created.sourceId)
     expect(audit.map((item) => item.operation)).toEqual(['create', 'delete'])
     audit[0]!.after!.displayName = 'tampered'
     expect((await repository.listAudit(ESTATE_A, created.sourceId))[0]?.after?.displayName).toBe(
       'Foundry source',
     )
+  })
+
+  it('rejects updates that occur before the current source version', async () => {
+    const repository = createRepository()
+    const created = requireSource(
+      await repository.create(ESTATE_A, source(ESTATE_A), mutation('create')),
+    )
+    const updated = requireSource(
+      await repository.update(
+        ESTATE_A,
+        created.sourceId,
+        created.etag,
+        { displayName: 'Current source' },
+        mutation('current-update', '2026-09-04T00:02:00.000Z'),
+      ),
+    )
+    await expect(
+      Promise.resolve().then(() =>
+        repository.update(
+          ESTATE_A,
+          updated.sourceId,
+          updated.etag,
+          { displayName: 'Regressed source' },
+          mutation('regressed-update', '2026-09-04T00:01:00.000Z'),
+        ),
+      ),
+    ).rejects.toThrow('cannot precede the current source version')
+    await expect(repository.findById(ESTATE_A, updated.sourceId)).resolves.toEqual(updated)
+    await expect(repository.listAudit(ESTATE_A, updated.sourceId)).resolves.toHaveLength(2)
   })
 
   it('rejects secret-shaped input and bounds reads', async () => {
@@ -232,6 +400,8 @@ describe('Cosmos connector source documents', () => {
     const documents = store.snapshot()
     expect(documents).toHaveLength(3)
     expect(documents.every((document) => document.estateId === ESTATE_A.id)).toBe(true)
+    expect(documents.every((document) => document.tenantId === ESTATE_A.tenantId)).toBe(true)
+    expect(documents.every((document) => document.environment === ESTATE_A.environment)).toBe(true)
     expect(documents.every((document) => !document.id.includes('shared-source'))).toBe(true)
     expect(JSON.stringify(documents)).not.toMatch(
       /password|clientSecret|accessToken|rawCredentials/i,

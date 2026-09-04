@@ -159,6 +159,8 @@ describe('connector source domain', () => {
       connectorSourceAuditRecordSchema.parse({
         id: 'audit-create',
         estateId: DEFINITION.estateId,
+        tenantId: DEFINITION.tenantId,
+        environment: DEFINITION.environment,
         sourceId: DEFINITION.sourceId,
         operation: 'create',
         actor: ACTOR,
@@ -172,6 +174,8 @@ describe('connector source domain', () => {
       connectorSourceAuditRecordSchema.parse({
         id: 'audit-update',
         estateId: DEFINITION.estateId,
+        tenantId: DEFINITION.tenantId,
+        environment: DEFINITION.environment,
         sourceId: DEFINITION.sourceId,
         operation: 'update',
         actor: { type: 'user', id: 'admin@example.test' },
@@ -188,5 +192,36 @@ describe('connector source domain', () => {
         },
       }),
     ).toThrow('immutable fields')
+  })
+
+  it('rejects an update audit that regresses from the prior updatedAt', () => {
+    const before = {
+      ...DEFINITION,
+      version: 2,
+      etag: 'source-etag-2',
+      updatedAt: '2026-09-04T00:02:00.000Z',
+    }
+    expect(() =>
+      connectorSourceAuditRecordSchema.parse({
+        id: 'audit-regressed-update',
+        estateId: DEFINITION.estateId,
+        tenantId: DEFINITION.tenantId,
+        environment: DEFINITION.environment,
+        sourceId: DEFINITION.sourceId,
+        operation: 'update',
+        actor: { type: 'user', id: 'admin@example.test' },
+        occurredAt: '2026-09-04T00:01:00.000Z',
+        idempotencyKey: 'regressed-update',
+        before,
+        after: {
+          ...before,
+          displayName: 'Regressed update',
+          version: 3,
+          etag: 'source-etag-3',
+          updatedBy: { type: 'user', id: 'admin@example.test' },
+          updatedAt: '2026-09-04T00:01:00.000Z',
+        },
+      }),
+    ).toThrow('cannot precede the current source version')
   })
 })

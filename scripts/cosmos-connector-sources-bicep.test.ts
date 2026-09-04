@@ -15,6 +15,8 @@ describe('connector sources Cosmos container', () => {
     )
     for (const path of [
       '/documentType/?',
+      '/tenantId/?',
+      '/environment/?',
       '/source/sourceId/?',
       '/source/updatedAt/?',
       '/deleted/?',

@@ -19,9 +19,27 @@ import {
 
 type AppliedResult = Extract<ConnectorSourceWriteResult, { status: 'applied' }>
 
+interface SourceRecord {
+  estateId: string
+  tenantId: string
+  environment: string
+  source: ConnectorSourceDefinition
+  deleted: boolean
+}
+
 interface IdempotencyRecord {
+  estateId: string
+  tenantId: string
+  environment: string
+  sourceId: string
   fingerprint: string
   result: AppliedResult
+}
+
+interface BoundaryRecord {
+  estateId: string
+  tenantId: string
+  environment: string
 }
 
 function clone<T>(value: T): T {
@@ -41,9 +59,9 @@ function boundedLimit(limit: number | undefined): number {
 }
 
 export class InMemoryConnectorSourceRepository implements ConnectorSourceRepository {
-  private readonly sources = new Map<string, ConnectorSourceDefinition>()
+  private readonly sources = new Map<string, SourceRecord>()
   private readonly audits = new Map<string, ConnectorSourceAuditRecord[]>()
-  private readonly auditIds = new Set<string>()
+  private readonly auditIds = new Map<string, BoundaryRecord>()
   private readonly idempotency = new Map<string, IdempotencyRecord>()
 
   create(
@@ -59,13 +77,15 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
       throw new Error('Deployment sources must be created by a deployment actor.')
     }
     const fingerprint = digest(['create', input, mutation])
-    const replay = this.replay(estate, mutation, fingerprint)
+    const replay = this.replay(estate, input.sourceId, mutation, fingerprint)
     if (replay) return Promise.resolve(replay)
     const key = this.sourceKey(estate.id, input.sourceId)
-    if (this.sources.has(key)) {
+    const existing = this.sources.get(key)
+    if (existing) {
+      this.assertSourceRecord(estate, existing, input.sourceId)
       return Promise.resolve({ status: 'conflict', reason: 'already_exists' })
     }
-    if (this.auditIds.has(this.auditKey(estate.id, mutation.auditId))) {
+    if (this.hasAuditId(estate, mutation.auditId)) {
       return Promise.resolve({ status: 'conflict', reason: 'audit_id_reuse' })
     }
     const source = connectorSourceDefinitionSchema.parse({
@@ -79,7 +99,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     })
     const audit = this.createAudit('create', source, null, source, mutation)
     const result: AppliedResult = { status: 'applied', source, audit }
-    this.sources.set(key, clone(source))
+    this.sources.set(key, this.sourceRecord(source, false))
     this.appendAudit(estate.id, audit)
     this.remember(estate, mutation, fingerprint, result)
     return Promise.resolve(clone(result))
@@ -90,8 +110,10 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     sourceId: string,
   ): Promise<ConnectorSourceDefinition | null> {
     const estate = estateContextSchema.parse(estateValue)
-    const source = this.sources.get(this.sourceKey(estate.id, sourceId))
-    return Promise.resolve(source === undefined ? null : clone(source))
+    const record = this.sources.get(this.sourceKey(estate.id, sourceId))
+    if (record === undefined) return Promise.resolve(null)
+    this.assertSourceRecord(estate, record, sourceId)
+    return Promise.resolve(record.deleted ? null : clone(record.source))
   }
 
   list(estateValue: EstateContext, limit?: number): Promise<ConnectorSourceDefinition[]> {
@@ -100,7 +122,12 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     return Promise.resolve(
       [...this.sources.entries()]
         .filter(([key]) => key.startsWith(prefix))
-        .map(([, source]) => source)
+        .map(([, record]) => {
+          this.assertSourceRecord(estate, record, record.source.sourceId)
+          return record
+        })
+        .filter((record) => !record.deleted)
+        .map((record) => record.source)
         .sort((left, right) => left.sourceId.localeCompare(right.sourceId))
         .slice(0, boundedLimit(limit))
         .map(clone),
@@ -118,11 +145,14 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     const patch = connectorSourceUpdateInputSchema.parse(patchValue)
     const mutation = connectorSourceMutationContextSchema.parse(mutationValue)
     const fingerprint = digest(['update', sourceId, expectedEtag, patch, mutation])
-    const replay = this.replay(estate, mutation, fingerprint)
+    const replay = this.replay(estate, sourceId, mutation, fingerprint)
     if (replay) return Promise.resolve(replay)
     const key = this.sourceKey(estate.id, sourceId)
-    const existing = this.sources.get(key)
-    if (!existing) return Promise.resolve({ status: 'not_found' })
+    const record = this.sources.get(key)
+    if (!record) return Promise.resolve({ status: 'not_found' })
+    this.assertSourceRecord(estate, record, sourceId)
+    if (record.deleted) return Promise.resolve({ status: 'not_found' })
+    const existing = record.source
     if (existing.origin === 'deployment') return Promise.resolve({ status: 'immutable' })
     if (existing.etag !== expectedEtag) {
       return Promise.resolve({ status: 'conflict', reason: 'etag_mismatch' })
@@ -130,7 +160,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     if (patch.configuration && patch.configuration.type !== existing.connectorType) {
       throw new Error('Connector configuration must match the existing connector type.')
     }
-    if (this.auditIds.has(this.auditKey(estate.id, mutation.auditId))) {
+    if (this.hasAuditId(estate, mutation.auditId)) {
       return Promise.resolve({ status: 'conflict', reason: 'audit_id_reuse' })
     }
     const source = connectorSourceDefinitionSchema.parse({
@@ -143,7 +173,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     })
     const audit = this.createAudit('update', source, existing, source, mutation)
     const result: AppliedResult = { status: 'applied', source, audit }
-    this.sources.set(key, clone(source))
+    this.sources.set(key, this.sourceRecord(source, false))
     this.appendAudit(estate.id, audit)
     this.remember(estate, mutation, fingerprint, result)
     return Promise.resolve(clone(result))
@@ -158,21 +188,24 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     const estate = estateContextSchema.parse(estateValue)
     const mutation = connectorSourceMutationContextSchema.parse(mutationValue)
     const fingerprint = digest(['delete', sourceId, expectedEtag, mutation])
-    const replay = this.replay(estate, mutation, fingerprint)
+    const replay = this.replay(estate, sourceId, mutation, fingerprint)
     if (replay) return Promise.resolve(replay)
     const key = this.sourceKey(estate.id, sourceId)
-    const existing = this.sources.get(key)
-    if (!existing) return Promise.resolve({ status: 'not_found' })
+    const record = this.sources.get(key)
+    if (!record) return Promise.resolve({ status: 'not_found' })
+    this.assertSourceRecord(estate, record, sourceId)
+    if (record.deleted) return Promise.resolve({ status: 'not_found' })
+    const existing = record.source
     if (existing.origin === 'deployment') return Promise.resolve({ status: 'immutable' })
     if (existing.etag !== expectedEtag) {
       return Promise.resolve({ status: 'conflict', reason: 'etag_mismatch' })
     }
-    if (this.auditIds.has(this.auditKey(estate.id, mutation.auditId))) {
+    if (this.hasAuditId(estate, mutation.auditId)) {
       return Promise.resolve({ status: 'conflict', reason: 'audit_id_reuse' })
     }
     const audit = this.createAudit('delete', existing, existing, null, mutation)
     const result: AppliedResult = { status: 'applied', source: null, audit }
-    this.sources.delete(key)
+    this.sources.set(key, this.sourceRecord(existing, true))
     this.appendAudit(estate.id, audit)
     this.remember(estate, mutation, fingerprint, result)
     return Promise.resolve(clone(result))
@@ -187,6 +220,10 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     return Promise.resolve(
       (this.audits.get(this.sourceKey(estate.id, sourceId)) ?? [])
         .slice()
+        .map((audit) => {
+          this.assertAudit(estate, audit, sourceId)
+          return audit
+        })
         .sort(
           (left, right) =>
             left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id),
@@ -216,6 +253,8 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     return connectorSourceAuditRecordSchema.parse({
       id: mutation.auditId,
       estateId: source.estateId,
+      tenantId: source.tenantId,
+      environment: source.environment,
       sourceId: source.sourceId,
       operation,
       actor: mutation.actor,
@@ -229,18 +268,40 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
   private appendAudit(estateId: string, audit: ConnectorSourceAuditRecord): void {
     const key = this.sourceKey(estateId, audit.sourceId)
     this.audits.set(key, [...(this.audits.get(key) ?? []), clone(audit)])
-    this.auditIds.add(this.auditKey(estateId, audit.id))
+    this.auditIds.set(this.auditKey(estateId, audit.id), {
+      estateId: audit.estateId,
+      tenantId: audit.tenantId,
+      environment: audit.environment,
+    })
+  }
+
+  private hasAuditId(estate: EstateContext, auditId: string): boolean {
+    const boundary = this.auditIds.get(this.auditKey(estate.id, auditId))
+    if (!boundary) return false
+    if (
+      boundary.estateId !== estate.id ||
+      boundary.tenantId !== estate.tenantId ||
+      boundary.environment !== estate.environment
+    ) {
+      throw new Error(`Invalid in-memory connector source audit record: ${auditId}`)
+    }
+    return true
   }
 
   private replay(
     estate: EstateContext,
+    sourceId: string,
     mutation: ConnectorSourceMutationContext,
     fingerprint: string,
   ): ConnectorSourceWriteResult | null {
     const record = this.idempotency.get(this.idempotencyKey(estate.id, mutation.idempotencyKey))
     if (!record) return null
+    this.assertIdempotencyRecord(estate, record)
     if (record.fingerprint !== fingerprint) {
       return { status: 'conflict', reason: 'idempotency_key_reuse' }
+    }
+    if (record.sourceId !== sourceId) {
+      throw new Error(`Invalid in-memory connector source idempotency record: ${sourceId}`)
     }
     return { ...clone(record.result), status: 'idempotent' }
   }
@@ -252,9 +313,71 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     result: AppliedResult,
   ): void {
     this.idempotency.set(this.idempotencyKey(estate.id, mutation.idempotencyKey), {
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      sourceId: result.audit.sourceId,
       fingerprint,
       result: clone(result),
     })
+  }
+
+  private sourceRecord(source: ConnectorSourceDefinition, deleted: boolean): SourceRecord {
+    return clone({
+      estateId: source.estateId,
+      tenantId: source.tenantId,
+      environment: source.environment,
+      source,
+      deleted,
+    })
+  }
+
+  private assertSourceRecord(estate: EstateContext, record: SourceRecord, sourceId: string): void {
+    const source = connectorSourceDefinitionSchema.parse(record.source)
+    if (
+      record.estateId !== estate.id ||
+      record.tenantId !== estate.tenantId ||
+      record.environment !== estate.environment ||
+      source.estateId !== estate.id ||
+      source.tenantId !== estate.tenantId ||
+      source.environment !== estate.environment ||
+      source.sourceId !== sourceId
+    ) {
+      throw new Error(`Invalid in-memory connector source record: ${sourceId}`)
+    }
+  }
+
+  private assertAudit(
+    estate: EstateContext,
+    auditValue: ConnectorSourceAuditRecord,
+    sourceId: string,
+  ): void {
+    const audit = connectorSourceAuditRecordSchema.parse(auditValue)
+    if (
+      audit.estateId !== estate.id ||
+      audit.tenantId !== estate.tenantId ||
+      audit.environment !== estate.environment ||
+      audit.sourceId !== sourceId
+    ) {
+      throw new Error(`Invalid in-memory connector source audit record: ${audit.id}`)
+    }
+  }
+
+  private assertIdempotencyRecord(estate: EstateContext, record: IdempotencyRecord): void {
+    if (
+      record.estateId !== estate.id ||
+      record.tenantId !== estate.tenantId ||
+      record.environment !== estate.environment
+    ) {
+      throw new Error(`Invalid in-memory connector source idempotency record: ${record.sourceId}`)
+    }
+    this.assertAudit(estate, record.result.audit, record.sourceId)
+    if (record.result.source !== null) {
+      this.assertBoundary(estate, record.result.source)
+      if (record.result.source.sourceId !== record.sourceId) {
+        throw new Error(`Invalid in-memory connector source idempotency result: ${record.sourceId}`)
+      }
+    }
   }
 
   private sourceEtag(estateId: string, sourceId: string, version: number, auditId: string): string {

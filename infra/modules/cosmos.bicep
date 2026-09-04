@@ -147,6 +147,12 @@ resource connectorSourcesContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDat
             path: '/documentType/?'
           }
           {
+            path: '/tenantId/?'
+          }
+          {
+            path: '/environment/?'
+          }
+          {
             path: '/source/sourceId/?'
           }
           {
