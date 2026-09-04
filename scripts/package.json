@@ -9,6 +9,8 @@
     "validate-live": "tsx validate-live.ts",
     "validate-onerai-live": "tsx validate-onerai-live.ts",
     "validate-telemetry-live": "AGENT_SENTINEL_TELEMETRY_PROBE_ONLY=true tsx validate-live.ts",
+    "release-evidence:generate": "tsx generate-release-evidence.ts",
+    "release-evidence:validate": "tsx validate-release-evidence.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

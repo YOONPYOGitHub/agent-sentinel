@@ -1,0 +1,152 @@
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { basename, join } from 'node:path'
+
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import {
+  generateReleaseEvidence,
+  parseGenerateArgs,
+  readRepositoryState,
+  validateReleaseEvidenceFile,
+  type ExecFileImplementation,
+} from './release-evidence-cli.js'
+import { releaseEvidenceManifestSchema } from './release-evidence-schema.js'
+
+const temporaryDirectories: string[] = []
+
+async function temporaryDirectory(): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), 'agent-sentinel-release-evidence-'))
+  temporaryDirectories.push(directory)
+  return directory
+}
+
+afterEach(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })))
+})
+
+describe('release evidence CLI', () => {
+  it('parses a repository-only generation command', () => {
+    expect(
+      parseGenerateArgs([
+        '--output',
+        'release-evidence/generated/local.json',
+        '--timestamp',
+        '2026-09-04T00:00:00.000Z',
+      ]),
+    ).toEqual({
+      outputPath: 'release-evidence/generated/local.json',
+      generatedAt: '2026-09-04T00:00:00.000Z',
+    })
+  })
+
+  it('rejects duplicate and unknown command options', () => {
+    expect(() => parseGenerateArgs(['--output', 'one.json', '--output', 'two.json'])).toThrow(
+      '--output may be provided only once',
+    )
+    expect(() => parseGenerateArgs(['--output', 'one.json', '--environment-dump', 'env.txt'])).toThrow(
+      'Unknown option --environment-dump',
+    )
+  })
+
+  it('reads commit and dirty state using argument-safe git commands', async () => {
+    const run = vi.fn<ExecFileImplementation>()
+    run
+      .mockResolvedValueOnce({ stdout: `${'a'.repeat(40)}\n`, stderr: '' })
+      .mockResolvedValueOnce({ stdout: ' M docs/current-status.md\n', stderr: '' })
+
+    await expect(readRepositoryState(run)).resolves.toEqual({
+      commitSha: 'a'.repeat(40),
+      dirty: true,
+    })
+    expect(run).toHaveBeenNthCalledWith(1, 'git', ['rev-parse', 'HEAD'])
+    expect(run).toHaveBeenNthCalledWith(2, 'git', [
+      'status',
+      '--porcelain',
+      '--untracked-files=normal',
+    ])
+  })
+
+  it('fails when an explicitly supplied input file is missing without writing output', async () => {
+    const directory = await temporaryDirectory()
+    const missingInput = join(directory, 'private-live-results.json')
+    const output = join(directory, 'manifest.json')
+
+    await expect(
+      generateReleaseEvidence(
+        {
+          inputPath: missingInput,
+          outputPath: output,
+          generatedAt: '2026-09-04T00:00:00.000Z',
+        },
+        {
+          readRepositoryState: () =>
+            Promise.resolve({ commitSha: 'a'.repeat(40), dirty: false }),
+        },
+      ),
+    ).rejects.toThrow(`Could not read input file ${basename(missingInput)}.`)
+
+    await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('generates and validates repository-only evidence', async () => {
+    const directory = await temporaryDirectory()
+    const output = join(directory, 'manifest.json')
+
+    await generateReleaseEvidence(
+      {
+        outputPath: output,
+        generatedAt: '2026-09-04T00:00:00.000Z',
+      },
+      {
+        readRepositoryState: () =>
+          Promise.resolve({ commitSha: 'b'.repeat(40), dirty: false }),
+      },
+    )
+
+    const raw = JSON.parse(await readFile(output, 'utf8')) as unknown
+    const manifest = releaseEvidenceManifestSchema.parse(raw)
+    expect(manifest.release.commitSha).toBe('b'.repeat(40))
+    expect(manifest.checks.lint.outcome).toBe('not-run')
+    expect(manifest.images.deployed.web.tag).toBeNull()
+    expect(await readFile(output, 'utf8')).toMatch(/\n$/)
+    await expect(validateReleaseEvidenceFile(output)).resolves.toBeUndefined()
+  })
+
+  it('validates an explicitly supplied sanitized input file', async () => {
+    const directory = await temporaryDirectory()
+    const input = join(directory, 'sanitized.json')
+    const output = join(directory, 'manifest.json')
+    await writeFile(
+      input,
+      `${JSON.stringify({
+        safeConfiguration: {
+          AUTH_MODE: 'disabled',
+          AGENT_SENTINEL_WRITE_ENABLED: false,
+        },
+      })}\n`,
+    )
+
+    await generateReleaseEvidence(
+      {
+        inputPath: input,
+        outputPath: output,
+        generatedAt: '2026-09-04T00:00:00.000Z',
+      },
+      {
+        readRepositoryState: () =>
+          Promise.resolve({ commitSha: 'c'.repeat(40), dirty: true }),
+      },
+    )
+
+    const manifest = releaseEvidenceManifestSchema.parse(
+      JSON.parse(await readFile(output, 'utf8')) as unknown,
+    )
+    expect(manifest.release.dirty).toBe(true)
+    expect(manifest.configuration.classification).toBe('tested')
+    expect(manifest.configuration.keys).toEqual([
+      'AGENT_SENTINEL_WRITE_ENABLED',
+      'AUTH_MODE',
+    ])
+  })
+})
