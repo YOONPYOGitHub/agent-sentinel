@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type { AgentSentinelState } from '@agent-sentinel/domain'
 import { connectorApi, demoApi, type ConnectorStatus } from '../api'
@@ -9,20 +9,28 @@ export function DemoStateProvider({ children }: { children: ReactNode }) {
   const [connectorStatus, setConnectorStatus] = useState<ConnectorStatus>()
   const [operation, setOperation] = useState<Operation>('loading')
   const [error, setError] = useState<string>()
+  const loadSequence = useRef(0)
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current
     try {
       setError(undefined)
       setOperation('loading')
+      setState(undefined)
+      setConnectorStatus(undefined)
       const [nextState, status] = await Promise.all([
         demoApi.getState(),
         connectorApi.getConnectorStatus(),
       ])
+      if (sequence !== loadSequence.current) return
       setState(nextState)
       setConnectorStatus(status)
     } catch (caught) {
+      if (sequence !== loadSequence.current) return
       setError(caught instanceof Error ? caught.message : 'Agent estate could not be loaded.')
     } finally {
-      setOperation(undefined)
+      if (sequence === loadSequence.current) {
+        setOperation(undefined)
+      }
     }
   }, [])
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { connectorApi, demoApi } from './api'
+import { apiFetch, setActiveEstateId } from './api/auth-fetch'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -66,5 +67,31 @@ describe('connectorApi', () => {
       connectorId: 'mock-agent-estate',
       mode: 'mock',
     })
+  })
+})
+
+describe('apiFetch', () => {
+  it('adds the active estate header on each request', async () => {
+    setActiveEstateId('korea')
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiFetch('/api/demo/state')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const call = fetchMock.mock.calls[0]
+    expect(call).toBeDefined()
+    const [, requestInit] = call!
+    expect(requestInit).toBeDefined()
+    expect((requestInit as RequestInit).headers).toBeInstanceOf(Headers)
+    expect(new Headers((requestInit as RequestInit).headers).get('x-agent-sentinel-estate-id')).toBe(
+      'korea',
+    )
+    setActiveEstateId(undefined)
   })
 })
