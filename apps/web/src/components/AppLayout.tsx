@@ -24,8 +24,10 @@ import { Link, NavLink, Outlet } from 'react-router-dom'
 
 import { useDemoState } from '../hooks/useDemoState'
 import { useAuth } from '../hooks/useAuth'
+import { useEstate } from '../hooks/useEstate'
 import { usePreferences } from '../hooks/usePreferences'
 import { GlobalSearchDialog } from './GlobalSearchDialog'
+import { EstateSelector } from './EstateSelector'
 import { ReadOnlyBanner } from './ReadOnlyBanner'
 import { ShellMenu } from './ShellMenu'
 
@@ -129,6 +131,11 @@ export function AppLayout() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [prefs] = usePreferences()
   const { connectorStatus, state } = useDemoState()
+  const { state: estateState } = useEstate()
+  if (estateState.status !== 'ready') {
+    throw new Error('AppLayout requires a selected estate.')
+  }
+  const { selectedEstate } = estateState
   const liveFoundry = connectorStatus?.mode === 'foundry'
   const searchTriggerRef = useRef<HTMLDivElement>(null)
   const closeSearch = useCallback(() => {
@@ -219,18 +226,19 @@ export function AppLayout() {
           </div>
         </div>
         <div className="top-bar__right">
+          <EstateSelector />
           <ShellMenu
             label="Scope information"
             trigger={
               <span className="scope-selector">
                 <span className="status-dot status-dot--healthy" />
-                {liveFoundry ? 'Foundry scope' : 'Demo scope'}
+                {selectedEstate.name}
                 <ChevronRightRegular />
               </span>
             }
           >
             <div className="shell-menu__status">
-              <strong>Configured agent scope</strong>
+              <strong>{selectedEstate.name}</strong>
               <span>
                 {liveFoundry
                   ? 'Foundry-connected portfolio · active'
@@ -239,9 +247,9 @@ export function AppLayout() {
             </div>
             <div className="shell-menu__meta">
               <span>Tenant</span>
-              <b>{state?.snapshot.tenantId ?? 'Unavailable'}</b>
+              <b>{selectedEstate.tenantId}</b>
               <span>Environment</span>
-              <b>{state?.snapshot.environment ?? 'Unavailable'}</b>
+              <b>{selectedEstate.environment}</b>
             </div>
             <Link to="/settings">View scope settings</Link>
           </ShellMenu>

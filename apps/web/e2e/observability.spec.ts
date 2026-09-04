@@ -14,7 +14,7 @@ test('observability reports only available evidence operations', async ({ page }
   await expect(page.getByText('Latest evidence observed')).toBeVisible()
   await expect(
     page.getByText(
-      /Runtime latency, reliability, token, and cost telemetry are not yet connected/i,
+      /Runtime latency, reliability, token, and cost remain insufficient until measured windows meet their evidence thresholds/i,
     ),
   ).toBeVisible()
   await page.getByRole('button', { name: 'Open connector health' }).click()

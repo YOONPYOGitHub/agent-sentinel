@@ -1,6 +1,24 @@
-# React + TypeScript + Vite
+# Agent Sentinel web
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The web console loads authenticated estate authorization from `/api/estates`
+before mounting estate data views. Selection uses a valid stored estate ID,
+then the valid server default, then the first authorized estate. The browser
+stores only the opaque ID under `agent-sentinel.estate-id`.
+
+All estate-scoped requests use the shared `apiFetch`, which preserves caller
+headers and existing bearer-token behavior while injecting
+`x-agent-sentinel-estate-id`. Switching estates aborts requests from the prior
+scope and remounts estate-dependent state so drift, economics, business value,
+governance, exposure, and demo data cannot cross estate boundaries. Server-side
+blocks remain authoritative for APIs not enabled for non-default estates; when
+one of those blocks prevents estate data from loading, the selector remains
+available so the operator can return to an enabled estate.
+
+Estate discovery mounts after the existing authentication gate. The dedicated
+`auth-redirect.html` MSAL bridge remains a separate Vite build entry, and estate
+selection does not replace or persist authentication redirect state.
+
+## Development
 
 Currently, two official plugins are available:
 

@@ -3,10 +3,13 @@ import { AlertRegular, ShieldCheckmarkRegular } from '@fluentui/react-icons'
 import { Navigate, Route, Routes, useParams } from 'react-router-dom'
 
 import { AppLayout } from './components/AppLayout'
-import { DemoStateProvider } from './hooks/DemoStateProvider'
+import { EstateSelector } from './components/EstateSelector'
 import { AuthProvider } from './hooks/AuthProvider'
+import { DemoStateProvider } from './hooks/DemoStateProvider'
+import { EstateProvider } from './hooks/EstateProvider'
 import { useAuth } from './hooks/useAuth'
 import { useDemoState } from './hooks/useDemoState'
+import { useEstate } from './hooks/useEstate'
 import { usePreferences } from './hooks/usePreferences'
 import { AgentCatalogPage } from './pages/AgentCatalogPage'
 import { AgentDetailPage } from './pages/AgentDetailPage'
@@ -52,10 +55,11 @@ function RoutedApplication() {
   if (state === undefined) {
     return (
       <div className="center-state">
-        <div className="empty-state">
+        <div className="empty-state" role="alert">
           <AlertRegular aria-hidden="true" />
           <h1>Agent estate is unavailable</h1>
           <p>{error ?? 'No estate snapshot was returned.'}</p>
+          <EstateSelector />
           <Button appearance="primary" onClick={() => void load()}>
             Try again
           </Button>
@@ -141,9 +145,78 @@ export function AuthenticatedApplication() {
   }
 
   return (
+    <EstateProvider>
+      <EstateApplication />
+    </EstateProvider>
+  )
+}
+
+function EstateApplication() {
+  const { reload, state } = useEstate()
+
+  if (state.status === 'loading') {
+    return (
+      <div className="center-state" role="status">
+        <div className="brand-mark brand-mark--large">
+          <ShieldCheckmarkRegular />
+        </div>
+        <Spinner size="large" label="Loading authorized estates..." />
+      </div>
+    )
+  }
+  if (state.status === 'empty') {
+    return (
+      <EstateFailure
+        title="No authorized estates"
+        message="Your account is authenticated but is not authorized for an Agent Sentinel estate."
+      />
+    )
+  }
+  if (state.status === 'unauthorized') {
+    return <EstateFailure title="Authentication required" message={state.message} />
+  }
+  if (state.status === 'forbidden') {
+    return <EstateFailure title="Estate access denied" message={state.message} />
+  }
+  if (state.status === 'unavailable') {
+    return (
+      <EstateFailure
+        title="Estate service unavailable"
+        message={state.message}
+        onRetry={() => void reload()}
+      />
+    )
+  }
+
+  return (
     <DemoStateProvider>
       <RoutedApplication />
     </DemoStateProvider>
+  )
+}
+
+function EstateFailure({
+  title,
+  message,
+  onRetry,
+}: {
+  title: string
+  message: string
+  onRetry?: () => void
+}) {
+  return (
+    <div className="center-state">
+      <div className="empty-state" role="alert">
+        <AlertRegular aria-hidden="true" />
+        <h1>{title}</h1>
+        <p>{message}</p>
+        {onRetry === undefined ? null : (
+          <Button appearance="primary" onClick={onRetry}>
+            Try again
+          </Button>
+        )}
+      </div>
+    </div>
   )
 }
 

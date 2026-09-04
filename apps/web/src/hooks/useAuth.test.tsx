@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import React from 'react'
 
+import { apiFetch, setActiveEstateId, setTokenProvider } from '../api/auth-fetch'
 import { AuthContext, type AuthContextValue, type WebAuthPrincipal } from './AuthContext'
 import { usePermission, usePermissionMessage } from './usePermission'
 import { AuthenticatedApplication } from '../App'
@@ -154,6 +155,8 @@ describe('usePermissionMessage', () => {
 
 describe('apiFetch token injection', () => {
   afterEach(() => {
+    setActiveEstateId(undefined)
+    setTokenProvider(undefined)
     vi.unstubAllGlobals()
   })
 
@@ -219,5 +222,81 @@ describe('apiFetch token injection', () => {
     const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers)
     expect(headers.get('Authorization')).toBe('Bearer request-token')
     setTokenProvider(undefined)
+  })
+
+  it('preserves the redirect mode of an authenticated Request object', async () => {
+    setActiveEstateId('estate-primary')
+    setTokenProvider(() => Promise.resolve('provider-token'))
+    let sentRequest: Request | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockImplementation((input, init) => {
+        sentRequest = new Request(input, init)
+        return Promise.resolve(new Response('{}'))
+      }),
+    )
+    const request = new Request('http://localhost/api/test', { redirect: 'manual' })
+
+    await apiFetch(request)
+
+    expect(sentRequest?.redirect).toBe('manual')
+    expect(sentRequest?.headers.get('Authorization')).toBe('Bearer provider-token')
+    expect(sentRequest?.headers.get('x-agent-sentinel-estate-id')).toBe('estate-primary')
+  })
+
+  it('injects the selected estate while preserving caller and Authorization headers', async () => {
+    setActiveEstateId('estate-primary')
+    setTokenProvider(() => Promise.resolve('provider-token'))
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}'))
+    vi.stubGlobal('fetch', fetchMock)
+    const request = new Request('http://localhost/api/test', {
+      headers: { 'x-request-header': 'request-value' },
+    })
+    await apiFetch(request, {
+      headers: {
+        Authorization: 'Bearer caller-token',
+        'x-init-header': 'init-value',
+        'x-agent-sentinel-estate-id': 'caller-estate',
+      },
+    })
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers)
+    expect(headers.get('Authorization')).toBe('Bearer caller-token')
+    expect(headers.get('x-agent-sentinel-estate-id')).toBe('estate-primary')
+    expect(headers.get('x-request-header')).toBe('request-value')
+    expect(headers.get('x-init-header')).toBe('init-value')
+  })
+
+  it('aborts requests created for the prior estate when selection changes', async () => {
+    setActiveEstateId('estate-primary')
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(() => new Promise(() => undefined))
+    vi.stubGlobal('fetch', fetchMock)
+    void apiFetch('/api/test')
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    const previousSignal = fetchMock.mock.calls[0]?.[1]?.signal
+    expect(previousSignal?.aborted).toBe(false)
+    setActiveEstateId('estate-research')
+    expect(previousSignal?.aborted).toBe(true)
+  })
+
+  it('keeps a request bound to its original estate while token acquisition is pending', async () => {
+    let resolveToken!: (token: string) => void
+    setTokenProvider(
+      () =>
+        new Promise((resolve) => {
+          resolveToken = resolve
+        }),
+    )
+    setActiveEstateId('estate-primary')
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const request = apiFetch('/api/test')
+    setActiveEstateId('estate-research')
+    resolveToken('provider-token')
+    await request
+
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers)
+    expect(headers.get('x-agent-sentinel-estate-id')).toBe('estate-primary')
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
   })
 })

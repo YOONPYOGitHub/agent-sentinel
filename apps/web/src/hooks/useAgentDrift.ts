@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { DriftAnalysisResult } from '@agent-sentinel/domain'
 
 import { behaviorApi } from '../api/behavior-api'
+import { getActiveEstateId } from '../api/auth-fetch'
 
 export type AgentDriftState =
   | { status: 'loading' }
@@ -60,11 +61,16 @@ export function clearAgentDriftCache(): void {
 export function loadAgentDrift(agentId: string, scope = 'default'): Promise<DriftAnalysisResult> {
   if (agentId.trim() === '') return Promise.reject(new Error('Agent ID is required.'))
   const now = Date.now()
-  const cacheKey = `${scope}\0${agentId}`
+  const estateId = getActiveEstateId()
+  const cacheKey = `${estateId ?? 'unselected'}\0${scope}\0${agentId}`
   const cached = cache.get(cacheKey)
   if (cached !== undefined && cached.expiresAt > now) return cached.promise
 
-  const promise = schedule((signal) => behaviorApi.getDrift(agentId, signal))
+  const promise = schedule((signal) =>
+    getActiveEstateId() === estateId
+      ? behaviorApi.getDrift(agentId, signal)
+      : Promise.reject(new Error('Active estate changed before runtime drift request started.')),
+  )
   cache.set(cacheKey, { expiresAt: Number.POSITIVE_INFINITY, promise })
   void promise.then(
     () => {

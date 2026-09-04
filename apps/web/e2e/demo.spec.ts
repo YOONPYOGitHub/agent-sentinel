@@ -12,12 +12,15 @@ test('contains a validated attack path and preserves the business workflow', asy
   await expect(page.getByText('Exploit safely reproduced')).toBeVisible()
   await page.getByRole('button', { name: 'Build response plan' }).click()
   await expect(page.getByText('Block unapproved MCP egress')).toBeVisible()
+  await page
+    .getByRole('textbox', { name: 'Approval reason' })
+    .fill('Validated evidence supports this reversible containment.')
   await page.getByRole('button', { name: 'Approve response' }).click()
   await expect(page.getByText('Approved by Local demo operator')).toBeVisible()
   await page.getByRole('button', { name: 'Execute containment' }).click()
   await expect(page.getByText('Exposure removed')).toBeVisible()
-  await expect(page.getByText('Residual risk')).toBeVisible()
-  await expect(page.getByText('Critical route removed')).toBeVisible()
+  await expect(page.getByText('Residual risk unknown')).toBeVisible()
+  await expect(page.getByText('Mitigation status does not recalculate risk')).toBeVisible()
   await expect(page.getByTestId('graph-node-agent')).toContainText('Sales Research Agent')
 })
 
@@ -69,7 +72,10 @@ test('shows assurance scorecard dimensions in agent detail', async ({ page }) =>
   await expect(qualityCard.getByText(/Azure AI Foundry Evaluation/)).toBeVisible()
   const reliabilityCard = scorecard.getByRole('article').filter({ hasText: 'Reliability' })
   await expect(reliabilityCard.getByRole('heading', { name: 'Reliability' })).toBeVisible()
-  await expect(reliabilityCard.getByText(/Azure Monitor/)).toBeVisible()
+  await expect(reliabilityCard.getByText('Unknown', { exact: true })).toBeVisible()
+  await expect(
+    reliabilityCard.getByText(/does not contain the exact baseline and observed runtime evidence/i),
+  ).toBeVisible()
 })
 test('supports required routes and wildcard 404', async ({ page }) => {
   await page.goto('/agent-inventory/code-review-copilot')

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { DriftAnalysisResult } from '@agent-sentinel/domain'
 
+import { setActiveEstateId } from '../api/auth-fetch'
 import {
   clearAgentDriftCache,
   loadAgentDrift,
@@ -33,6 +34,7 @@ function result(agentId: string): DriftAnalysisResult {
 
 beforeEach(() => {
   clearAgentDriftCache()
+  setActiveEstateId(undefined)
   vi.clearAllMocks()
   vi.useRealTimers()
 })
@@ -84,6 +86,44 @@ describe('useAgentDrift', () => {
 
     hook.rerender({ scope: 'foundry:tenant:snapshot-2' })
     await waitFor(() => expect(getDriftMock).toHaveBeenCalledTimes(2))
+  })
+
+  it('isolates cached results by active estate', async () => {
+    getDriftMock.mockResolvedValue(result('agent-a'))
+    setActiveEstateId('estate-primary')
+    await loadAgentDrift('agent-a', 'shared-snapshot')
+    setActiveEstateId('estate-research')
+    await loadAgentDrift('agent-a', 'shared-snapshot')
+    expect(getDriftMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not start queued drift work under a different estate', async () => {
+    const blockers: Array<(value: DriftAnalysisResult) => void> = []
+    getDriftMock.mockImplementation(
+      (agentId) =>
+        new Promise((resolve) => {
+          if (agentId === 'queued-agent') {
+            resolve(result(agentId))
+            return
+          }
+          blockers.push(resolve)
+        }),
+    )
+    setActiveEstateId('estate-primary')
+    const active = Array.from({ length: 4 }, (_, index) =>
+      loadAgentDrift(`blocking-agent-${index}`),
+    )
+    await vi.waitFor(() => expect(getDriftMock).toHaveBeenCalledTimes(4))
+    const queued = loadAgentDrift('queued-agent')
+    const queuedFailure = expect(queued).rejects.toThrow(
+      'Active estate changed before runtime drift request started.',
+    )
+
+    setActiveEstateId('estate-research')
+    blockers.forEach((resolve, index) => resolve(result(`blocking-agent-${index}`)))
+    await Promise.all(active)
+    await queuedFailure
+    expect(getDriftMock).not.toHaveBeenCalledWith('queued-agent', expect.any(AbortSignal))
   })
 })
 

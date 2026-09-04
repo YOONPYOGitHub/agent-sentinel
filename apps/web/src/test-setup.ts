@@ -1,5 +1,7 @@
 import { beforeEach, vi } from 'vitest'
 
+import { setActiveEstateId, setTokenProvider } from './api/auth-fetch'
+
 class ResizeObserverMock implements ResizeObserver {
   observe(): void {}
 
@@ -15,6 +17,8 @@ Object.defineProperty(globalThis, 'ResizeObserver', {
 })
 
 beforeEach(() => {
+  setActiveEstateId(undefined)
+  setTokenProvider(undefined)
   const nativeFetch = globalThis.fetch
   vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
     if (input === '/api/auth/config') {
@@ -23,6 +27,25 @@ beforeEach(() => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
+      )
+    }
+    if (input === '/api/estates') {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            defaultEstateId: 'default',
+            estates: [
+              {
+                id: 'default',
+                name: 'Default estate',
+                tenantId: 'test',
+                environment: 'test',
+                isDefault: true,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
       )
     }
     return nativeFetch(input, init)

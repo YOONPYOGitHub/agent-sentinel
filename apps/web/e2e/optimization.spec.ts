@@ -2,7 +2,9 @@ import { expect, test } from '@playwright/test'
 
 test('optimization ranks bounded recommendations and opens simulation', async ({ page }) => {
   await page.goto('/optimization')
-  await expect(page.getByRole('heading', { name: 'Evidence-backed recommendations' })).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Evidence-backed recommendations', exact: true }),
+  ).toBeVisible()
   await expect(
     page.getByText('Recommendation scope is bounded by available evidence'),
   ).toBeVisible()

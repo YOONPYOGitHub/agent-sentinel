@@ -10,6 +10,7 @@ import { connectorApi, demoApi } from './api'
 import { connectorsApi } from './api/connectors-api'
 import { governanceApi } from './api/governance-api'
 import { exposureApi } from './api/exposure-api'
+import { EstateApiError, estateApi } from './api/estate-api'
 import { governancePostureFixture, testState } from './test-fixture'
 
 vi.mock('./api')
@@ -18,7 +19,10 @@ vi.mock('./api/governance-api')
 vi.mock('./api/exposure-api')
 vi.mock('./components/ExposureGraph', () => ({ ExposureGraph: () => <div /> }))
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 beforeEach(() => {
   localStorage.clear()
@@ -70,6 +74,131 @@ async function renderRoute(route: string) {
 }
 
 describe('application routing', () => {
+  it('keeps one-estate deployments compatible without a selector', async () => {
+    await renderRoute('/overview')
+    expect(await screen.findByRole('heading', { name: 'Agent operations overview' })).toBeVisible()
+    expect(screen.queryByRole('combobox', { name: 'Active estate' })).not.toBeInTheDocument()
+  })
+
+  it('renders a multi-estate selector and reloads state after switching', async () => {
+    let resolveReload!: (state: typeof testState) => void
+    const reload = new Promise<typeof testState>((resolve) => {
+      resolveReload = resolve
+    })
+    vi.mocked(demoApi.getState).mockResolvedValueOnce(testState).mockReturnValueOnce(reload)
+    vi.spyOn(estateApi, 'list').mockResolvedValue({
+      defaultEstateId: 'default',
+      estates: [
+        {
+          id: 'default',
+          name: 'Default estate',
+          tenantId: 'test',
+          environment: 'test',
+          isDefault: true,
+        },
+        {
+          id: 'research',
+          name: 'Research estate',
+          tenantId: 'research-tenant',
+          environment: 'research',
+          isDefault: false,
+        },
+      ],
+    })
+    await renderRoute('/overview')
+    const initialLoads = vi.mocked(demoApi.getState).mock.calls.length
+    fireEvent.change(screen.getByRole('combobox', { name: 'Active estate' }), {
+      target: { value: 'research' },
+    })
+    expect(
+      screen.queryByRole('heading', { name: 'Agent operations overview' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('Connecting the agent evidence graph…')).toBeVisible()
+    await waitFor(() =>
+      expect(vi.mocked(demoApi.getState).mock.calls.length).toBeGreaterThan(initialLoads),
+    )
+    resolveReload(testState)
+    expect(await screen.findByRole('heading', { name: 'Agent operations overview' })).toBeVisible()
+    expect(localStorage.getItem('agent-sentinel.estate-id')).toBe('research')
+    fireEvent.click(screen.getByRole('button', { name: 'Scope information' }))
+    expect(screen.getByText('research-tenant')).toBeVisible()
+    expect(screen.getByText('research')).toBeVisible()
+  })
+
+  it('keeps estate selection available when the selected estate cannot load data', async () => {
+    vi.spyOn(estateApi, 'list').mockResolvedValue({
+      defaultEstateId: 'default',
+      estates: [
+        {
+          id: 'default',
+          name: 'Default estate',
+          tenantId: 'test',
+          environment: 'test',
+          isDefault: true,
+        },
+        {
+          id: 'research',
+          name: 'Research estate',
+          tenantId: 'research-tenant',
+          environment: 'research',
+          isDefault: false,
+        },
+      ],
+    })
+    vi.mocked(demoApi.getState)
+      .mockResolvedValueOnce(testState)
+      .mockRejectedValueOnce(new Error('This API is not yet enabled for non-default estates.'))
+      .mockResolvedValueOnce(testState)
+
+    await renderRoute('/overview')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Active estate' }), {
+      target: { value: 'research' },
+    })
+
+    const unavailableHeading = await screen.findByRole('heading', {
+      name: 'Agent estate is unavailable',
+    })
+    expect(screen.getByRole('alert')).toContainElement(unavailableHeading)
+    const recoverySelector = screen.getByRole('combobox', { name: 'Active estate' })
+    expect(recoverySelector).toHaveValue('research')
+    fireEvent.change(recoverySelector, { target: { value: 'default' } })
+
+    expect(await screen.findByRole('heading', { name: 'Agent operations overview' })).toBeVisible()
+    expect(localStorage.getItem('agent-sentinel.estate-id')).toBe('default')
+  })
+
+  it.each([
+    ['unauthorized', 'Authentication required'],
+    ['forbidden', 'Estate access denied'],
+    ['unavailable', 'Estate service unavailable'],
+  ] as const)('renders the %s estate failure explicitly', async (kind, title) => {
+    vi.spyOn(estateApi, 'list').mockRejectedValue(
+      new EstateApiError(kind, `${kind} estate response`),
+    )
+    render(
+      <MemoryRouter initialEntries={['/overview']}>
+        <App />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByRole('heading', { name: title })).toBeVisible()
+    expect(screen.getByText(`${kind} estate response`)).toBeVisible()
+    expect(demoApi.getState).not.toHaveBeenCalled()
+  })
+
+  it('renders an empty authorization set explicitly', async () => {
+    vi.spyOn(estateApi, 'list').mockResolvedValue({
+      defaultEstateId: 'default',
+      estates: [],
+    })
+    render(
+      <MemoryRouter initialEntries={['/overview']}>
+        <App />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByRole('heading', { name: 'No authorized estates' })).toBeVisible()
+    expect(demoApi.getState).not.toHaveBeenCalled()
+  })
+
   it('redirects root to overview and uses functional active navigation', async () => {
     await renderRoute('/')
     expect(await screen.findByRole('heading', { name: 'Agent operations overview' })).toBeVisible()
