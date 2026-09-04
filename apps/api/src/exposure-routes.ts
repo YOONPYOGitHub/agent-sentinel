@@ -358,6 +358,7 @@ export function buildRemediationPreview(
     residualFindings,
     residualRoutes,
     uncertainty,
+    citedEvidence: analysisEvidence,
     beforeGraph: buildComparisonGraph(snapshot, comparisonNodeIds),
     afterGraph: buildComparisonGraph(previewSnapshot, comparisonNodeIds),
   })
@@ -546,23 +547,6 @@ export function registerExposureRoutes(app: FastifyInstance, options: ExposureRo
       if (!context) {
         void reply.status(404)
         return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
-      }
-      if (context.finding.affectedEdgeIds.length === 0) {
-        void reply.status(409)
-        return {
-          error: 'preview_unavailable',
-          message: 'This finding has no active route that can be previewed.',
-        }
-      }
-      const hasActiveTargetEdge = context.finding.affectedEdgeIds.some((edgeId) =>
-        context.snapshot.edges.some((edge) => edge.id === edgeId && edge.active),
-      )
-      if (!hasActiveTargetEdge) {
-        void reply.status(409)
-        return {
-          error: 'preview_unavailable',
-          message: 'The affected route is no longer active.',
-        }
       }
       return buildRemediationPreview(context.snapshot, context.finding)
     },

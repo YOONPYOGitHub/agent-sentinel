@@ -120,6 +120,7 @@ const samplePreview = {
   residualFindings: [],
   residualRoutes: [],
   uncertainty: [],
+  citedEvidence: sampleGraph.evidence,
   beforeGraph: sampleGraph,
   afterGraph: sampleGraph,
 }
@@ -275,7 +276,7 @@ describe('ExposureDetailPage', () => {
     await waitFor(() => expect(screen.getByText('Simulation only')).toBeInTheDocument())
     expect(screen.getByText('91 → 0')).toBeInTheDocument()
     expect(screen.getByText('Workflow preservation unverified')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'After remediation' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'After simulation' })).toHaveAttribute(
       'aria-pressed',
       'true',
     )
@@ -283,6 +284,60 @@ describe('ExposureDetailPage', () => {
       `${sampleFinding.title}:mitigated`,
     )
     expect(exposureApi.getRemediationPreview).toHaveBeenCalledWith(sampleFinding.id)
+  })
+
+  it('renders residual findings, active routes, uncertainty, and cited evidence without predicted labels', async () => {
+    vi.mocked(exposureApi.getRemediationPreview).mockResolvedValue({
+      ...samplePreview,
+      after: { riskScore: 91, blastRadiusCount: 3 },
+      impact: {
+        ...samplePreview.impact,
+        riskReduction: 0,
+        blastRadiusReduction: 0,
+      },
+      residualFindings: [sampleFinding],
+      residualRoutes: [
+        {
+          findingId: sampleFinding.id,
+          policyId: sampleFinding.policyId,
+          riskScore: sampleFinding.riskScore,
+          nodeIds: sampleFinding.affectedNodeIds,
+          edgeIds: ['edge-residual'],
+          evidenceIds: sampleFinding.evidenceIds,
+        },
+      ],
+      uncertainty: [
+        {
+          code: 'no-active-target-routes',
+          message: 'No requested route is active, so the simulation makes no graph change.',
+          evidenceIds: sampleFinding.evidenceIds,
+        },
+      ],
+    })
+    render(
+      <AuthContext.Provider value={disabledAuth}>
+        <MemoryRouter initialEntries={[`/exposure/${sampleFinding.id}`]}>
+          <Routes>
+            <Route path="/exposure/:findingId" element={<ExposureDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview response' }))
+
+    expect(await screen.findByRole('heading', { name: 'Residual findings' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Active residual routes' })).toBeVisible()
+    expect(screen.getByText('edge-residual · risk 91')).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Uncertainty' })).toBeVisible()
+    expect(screen.getByText('no-active-target-routes')).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Cited evidence' })).toBeVisible()
+    expect(screen.getByText(/Synthetic connector · live · synthetic_validation/)).toBeVisible()
+    expect(screen.getByText('No deterministic reduction calculated')).toBeVisible()
+    expect(screen.queryByText(/predicted/i)).not.toBeInTheDocument()
+    expect(screen.getByTestId('exposure-graph')).toHaveTextContent(
+      `${sampleFinding.title}:theoretical`,
+    )
   })
 
   it('generates an advisory narrative and opens cited evidence', async () => {

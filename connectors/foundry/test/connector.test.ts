@@ -1,10 +1,11 @@
 import type { AccessToken, TokenCredential } from '@azure/core-auth'
-import type { Remediation } from '@agent-sentinel/domain'
+import type { EvidenceType, Remediation } from '@agent-sentinel/domain'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   FoundryAgentConnector,
   FOUNDRY_TRUST_REQUIRED_PLANES,
   MultiFoundryConnector,
+  composeFoundryTrustAssessment,
   foundryAgentPageSchema,
   foundryConnectorConfigSchema,
   parseFoundryPortfolioConfig,
@@ -42,38 +43,52 @@ const approvalAgent = {
   metadata: { approvalRequired: 'true' },
 }
 
-function completeTrustAssessment(
+const defaultTrustSubject = {
+  agentId: 'assessed-agent',
+  sourceId: 'primary',
+  tenantId: config.tenantId,
+  environment: config.environment,
+}
+
+function trustCompositionInput(
   overrides: {
-    sourceMode?: 'live' | 'synthetic'
-    freshness?: 'live' | 'recent' | 'stale'
-    evidenceTypes?: Array<
-      'declared_configuration' | 'observed_runtime' | 'synthetic_validation' | 'unknown'
-    >
+    subject?: Partial<typeof defaultTrustSubject>
+    observedAt?: string
+    evidenceTypes?: EvidenceType[]
+    runtimeEvidenceTypes?: EvidenceType[]
+    omitPlane?: (typeof FOUNDRY_TRUST_REQUIRED_PLANES)[number]
   } = {},
 ) {
-  const sourceMode = overrides.sourceMode ?? 'live'
-  const freshness = overrides.freshness ?? 'live'
   const evidenceTypes = overrides.evidenceTypes ?? ['observed_runtime']
+  const subject = { ...defaultTrustSubject, ...overrides.subject }
   return {
     tier: 'trusted' as const,
-    sourceMode,
-    assessedAt: '2026-09-04T08:00:00.000Z',
-    requiredPlanes: [...FOUNDRY_TRUST_REQUIRED_PLANES],
-    planeEvidence: FOUNDRY_TRUST_REQUIRED_PLANES.map((plane) => ({
-      plane,
-      evidenceReferences: [`${plane}-evidence`],
-    })),
-    evidence: FOUNDRY_TRUST_REQUIRED_PLANES.map((plane) => ({
-      id: `${plane}-evidence`,
-      source: `Trust source for ${plane}`,
-      sourceObjectId: `${plane}-object`,
-      observedAt: '2026-09-04T08:00:00.000Z',
-      freshness,
-      confidence: 1,
-      evidenceTypes,
-      summary: `Evidence for ${plane}.`,
-    })),
+    subject,
+    issuer: {
+      id: 'agent-sentinel-trust-composer',
+      authenticationMode: 'managed-identity' as const,
+      authenticated: true as const,
+    },
+    assessedAt: '2026-09-04T08:10:00.000Z',
+    evidence: FOUNDRY_TRUST_REQUIRED_PLANES.filter((plane) => plane !== overrides.omitPlane).map(
+      (plane) => ({
+        id: `${plane}-evidence`,
+        plane,
+        subject,
+        source: `Trust source for ${plane}`,
+        sourceObjectId: `${plane}-object`,
+        observedAt: overrides.observedAt ?? '2026-09-04T08:05:00.000Z',
+        confidence: 1,
+        evidenceTypes:
+          plane === 'runtime' ? (overrides.runtimeEvidenceTypes ?? evidenceTypes) : evidenceTypes,
+        summary: `Evidence for ${plane}.`,
+      }),
+    ),
   }
+}
+
+function completeTrustAssessment(overrides: Parameters<typeof trustCompositionInput>[0] = {}) {
+  return composeFoundryTrustAssessment(trustCompositionInput(overrides))
 }
 function connector(fetcher: typeof fetch) {
   vi.stubGlobal('fetch', fetcher)
@@ -188,17 +203,43 @@ describe('Foundry connector', () => {
       ],
     ).toBe('unknown')
   })
+  it('discards a trust claim embedded in the raw Foundry inventory payload', () => {
+    const snapshot = mapAgentToSnapshot(
+      [
+        {
+          id: 'raw-self-promoter',
+          trustAssessment: {
+            tier: 'trusted',
+            sourceMode: 'live',
+            assessedAt: '2026-09-04T08:10:00.000Z',
+            requiredPlanes: [...FOUNDRY_TRUST_REQUIRED_PLANES],
+            planeEvidence: [],
+            evidence: [],
+          },
+        },
+      ],
+      'v1',
+      config,
+    )
+
+    expect(snapshot.nodes[0]).toMatchObject({
+      trust: 'conditional',
+      metadata: { trustAssessmentStatus: 'missing' },
+    })
+    expect(snapshot.evidence).toHaveLength(1)
+  })
   it('emits trusted only for a complete live assessment with cited evidence for every plane', () => {
+    const assessment = completeTrustAssessment()
     const snapshot = mapAgentToSnapshot(
       [
         {
           id: 'assessed-agent',
           metadata: { approvalRequired: 'true' },
-          trustAssessment: completeTrustAssessment(),
         },
       ],
       'v1',
       config,
+      { sourceId: 'primary', trustAssessments: [assessment] },
     )
     const agent = snapshot.nodes.find((node) => node.id === 'foundry-agent-assessed-agent')
 
@@ -207,17 +248,23 @@ describe('Foundry connector', () => {
       metadata: {
         trustAssessmentStatus: 'complete',
         trustAssessmentSourceMode: 'live',
+        trustAssessmentIssuerId: 'agent-sentinel-trust-composer',
       },
     })
     expect(agent?.evidenceIds).toHaveLength(FOUNDRY_TRUST_REQUIRED_PLANES.length + 1)
     expect(
       snapshot.evidence.filter((item) => item.metadata?.['trustAssessmentSourceMode'] === 'live'),
     ).toHaveLength(FOUNDRY_TRUST_REQUIRED_PLANES.length)
+    expect(
+      snapshot.evidence.every((item) =>
+        item.id.startsWith('foundry-trust-evidence-') ? item.freshness === 'live' : true,
+      ),
+    ).toBe(true)
   })
   it.each([
     {
       name: 'stale evidence',
-      assessment: completeTrustAssessment({ freshness: 'stale' }),
+      assessment: completeTrustAssessment({ observedAt: '2026-09-02T08:05:00.000Z' }),
       sourceMode: 'live',
     },
     {
@@ -228,34 +275,23 @@ describe('Foundry connector', () => {
     {
       name: 'synthetic evidence',
       assessment: completeTrustAssessment({
-        sourceMode: 'synthetic',
         evidenceTypes: ['synthetic_validation'],
       }),
       sourceMode: 'synthetic',
     },
     {
-      name: 'synthetic evidence mislabeled as live',
-      assessment: completeTrustAssessment({
-        sourceMode: 'live',
-        evidenceTypes: ['synthetic_validation'],
-      }),
-      sourceMode: 'live',
-    },
-    {
       name: 'declared configuration without observed evidence',
       assessment: completeTrustAssessment({
-        sourceMode: 'live',
         evidenceTypes: ['declared_configuration'],
       }),
       sourceMode: 'live',
     },
   ])('keeps a trusted claim conditional when it relies on $name', ({ assessment, sourceMode }) => {
-    const snapshot = mapAgentToSnapshot(
-      [{ id: 'incomplete-assessment', trustAssessment: assessment }],
-      'v1',
-      config,
-    )
-    const agent = snapshot.nodes.find((node) => node.id === 'foundry-agent-incomplete-assessment')
+    const snapshot = mapAgentToSnapshot([{ id: 'assessed-agent' }], 'v1', config, {
+      sourceId: 'primary',
+      trustAssessments: [assessment],
+    })
+    const agent = snapshot.nodes.find((node) => node.id === 'foundry-agent-assessed-agent')
 
     expect(agent).toMatchObject({
       trust: 'conditional',
@@ -265,22 +301,124 @@ describe('Foundry connector', () => {
       },
     })
   })
-  it('keeps a trusted claim conditional when a required plane is missing', () => {
-    const assessment = completeTrustAssessment()
-    assessment.requiredPlanes = assessment.requiredPlanes.filter((plane) => plane !== 'runtime')
-    assessment.planeEvidence = assessment.planeEvidence.filter((plane) => plane.plane !== 'runtime')
-    const snapshot = mapAgentToSnapshot(
-      [{ id: 'missing-plane', trustAssessment: assessment }],
-      'v1',
-      config,
-    )
+  it('requires runtime-plane evidence itself to contain an observed runtime signal', () => {
+    const assessment = completeTrustAssessment({
+      evidenceTypes: ['observed_runtime'],
+      runtimeEvidenceTypes: ['declared_configuration'],
+    })
+    const snapshot = mapAgentToSnapshot([{ id: 'assessed-agent' }], 'v1', config, {
+      sourceId: 'primary',
+      trustAssessments: [assessment],
+    })
 
-    const agent = snapshot.nodes.find((node) => node.id === 'foundry-agent-missing-plane')
+    expect(snapshot.nodes[0]).toMatchObject({
+      trust: 'conditional',
+      metadata: { trustAssessmentStatus: 'incomplete' },
+    })
+  })
+  it('keeps a trusted claim conditional when a required plane is missing', () => {
+    const assessment = completeTrustAssessment({ omitPlane: 'runtime' })
+    const snapshot = mapAgentToSnapshot([{ id: 'assessed-agent' }], 'v1', config, {
+      sourceId: 'primary',
+      trustAssessments: [assessment],
+    })
+
+    const agent = snapshot.nodes.find((node) => node.id === 'foundry-agent-assessed-agent')
     expect(agent).toMatchObject({
       trust: 'conditional',
       metadata: { trustAssessmentStatus: 'incomplete' },
     })
     expect(agent?.metadata['trustAssessmentMissingPlanes']).toContain('runtime')
+  })
+  it.each([
+    {
+      name: 'agent',
+      subject: { agentId: 'different-agent' },
+      expectedStatus: 'missing',
+    },
+    {
+      name: 'source',
+      subject: { sourceId: 'different-source' },
+      expectedStatus: 'binding-mismatch',
+    },
+    {
+      name: 'tenant',
+      subject: { tenantId: 'different-tenant' },
+      expectedStatus: 'binding-mismatch',
+    },
+    {
+      name: 'environment',
+      subject: { environment: 'production' },
+      expectedStatus: 'binding-mismatch',
+    },
+  ])(
+    'does not apply an authenticated assessment with a mismatched $name binding',
+    ({ subject, expectedStatus }) => {
+      const assessment = completeTrustAssessment({ subject })
+      const snapshot = mapAgentToSnapshot([{ id: 'assessed-agent' }], 'v1', config, {
+        sourceId: 'primary',
+        trustAssessments: [assessment],
+      })
+
+      expect(snapshot.nodes[0]).toMatchObject({
+        trust: 'conditional',
+        environment: config.environment,
+        metadata: { trustAssessmentStatus: expectedStatus },
+      })
+      expect(snapshot.nodes[0]?.evidenceIds).toEqual(['foundry-evidence-assessed-agent'])
+    },
+  )
+  it('rejects unauthenticated issuers and caller-supplied freshness or source mode', () => {
+    const input = trustCompositionInput()
+    expect(() =>
+      composeFoundryTrustAssessment({
+        ...input,
+        issuer: { ...input.issuer, authenticated: false },
+      }),
+    ).toThrow()
+    expect(() =>
+      composeFoundryTrustAssessment({
+        ...input,
+        sourceMode: 'live',
+      }),
+    ).toThrow()
+    expect(() =>
+      composeFoundryTrustAssessment({
+        ...input,
+        evidence: input.evidence.map((item) => ({ ...item, freshness: 'live' })),
+      }),
+    ).toThrow()
+    expect(() =>
+      composeFoundryTrustAssessment({
+        ...input,
+        subject: { ...input.subject, sourceId: ' primary ' },
+      }),
+    ).toThrow('must not contain surrounding whitespace')
+  })
+  it('does not accept a serialized assessment as authenticated server composition', () => {
+    const forgedAssessment = structuredClone(completeTrustAssessment())
+    const snapshot = mapAgentToSnapshot([{ id: 'assessed-agent' }], 'v1', config, {
+      sourceId: 'primary',
+      trustAssessments: [forgedAssessment],
+    })
+
+    expect(snapshot.nodes[0]).toMatchObject({
+      trust: 'conditional',
+      metadata: { trustAssessmentStatus: 'missing' },
+    })
+  })
+  it('rejects evidence whose subject differs from the assessment subject', () => {
+    const input = trustCompositionInput()
+    expect(() =>
+      composeFoundryTrustAssessment({
+        ...input,
+        evidence: input.evidence.map((item, index) =>
+          index === 0
+            ? { ...item, subject: { ...item.subject, tenantId: 'different-tenant' } }
+            : item,
+        ),
+      }),
+    ).toThrow('Trust evidence subject binding must exactly match')
   })
   it('preserves every supplied Entra identity identifier for fail-closed correlation', () => {
     const snapshot = mapAgentToSnapshot(
@@ -482,11 +620,19 @@ describe('multi-Foundry connector', () => {
   })
 
   it('preserves trust assessment mode and connector source provenance together', async () => {
+    const assessment = completeTrustAssessment({
+      subject: {
+        agentId: approvalAgent.id,
+        sourceId: 'tenant-a-project',
+        tenantId: 'tenant-a',
+        environment: 'production',
+      },
+    })
     vi.stubGlobal(
       'fetch',
       vi.fn<typeof fetch>().mockResolvedValue(
         Response.json({
-          data: [{ ...approvalAgent, trustAssessment: completeTrustAssessment() }],
+          data: [approvalAgent],
           has_more: false,
         }),
       ),
@@ -498,6 +644,7 @@ describe('multi-Foundry connector', () => {
         sources: [portfolio.sources[0]!],
       },
       () => new Credential(),
+      [assessment],
     )
 
     const snapshot = await connector.discover()

@@ -104,6 +104,7 @@ describe('exposureApi', () => {
           residualFindings: [],
           residualRoutes: [],
           uncertainty: [],
+          citedEvidence: [],
           beforeGraph: {
             tenantId: 'tenant-demo',
             environment: 'validation',

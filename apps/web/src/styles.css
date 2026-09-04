@@ -3473,6 +3473,52 @@ button {
   font-size: 1.05rem;
   text-transform: capitalize;
 }
+.remediation-preview__details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.remediation-preview__details > div {
+  padding: 13px;
+  background: rgba(8, 13, 22, 0.72);
+  border: 1px solid #273247;
+  border-radius: 7px;
+}
+.remediation-preview__details h3 {
+  margin: 0 0 8px;
+  color: #f5f7fb;
+  font-size: 0.92rem;
+}
+.remediation-preview__details p,
+.remediation-preview__details ul {
+  margin: 0;
+  color: #aeb9ca;
+  font-size: 0.84rem;
+}
+.remediation-preview__details ul {
+  display: grid;
+  gap: 9px;
+  padding-left: 18px;
+}
+.remediation-preview__details li {
+  display: grid;
+  gap: 3px;
+}
+.remediation-preview__details button,
+.remediation-preview__references button {
+  padding: 0;
+  color: #7db7ff;
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.remediation-preview__references {
+  color: #8d9bb0;
+  font-size: 0.76rem;
+}
 
 .incident-narrative {
   margin: 18px 0;

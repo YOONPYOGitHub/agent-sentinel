@@ -455,6 +455,7 @@ export const remediationPreviewSchema = z.object({
       evidenceIds: z.array(z.string().min(1)),
     }),
   ),
+  citedEvidence: z.array(evidenceSchema),
   beforeGraph: estateSnapshotSchema,
   afterGraph: estateSnapshotSchema,
 })

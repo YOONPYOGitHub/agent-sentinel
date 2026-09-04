@@ -184,7 +184,13 @@ export function ExposureDetailPage() {
   }
 
   const displayedGraph = preview ? (showPreview ? preview.afterGraph : preview.beforeGraph) : graph
-  const displayedPathStatus = showPreview ? 'mitigated' : finding.validationStatus
+  const displayedPathStatus =
+    showPreview &&
+    preview !== undefined &&
+    preview.targetEdgeIds.length > 0 &&
+    preview.after.riskScore === 0
+      ? 'mitigated'
+      : finding.validationStatus
   const queueParams = new URLSearchParams({
     create: 'remediation-proposal',
     findingId: finding.id,
@@ -236,16 +242,14 @@ export function ExposureDetailPage() {
             Create governance case
           </Button>
         )}
-        {finding.affectedEdgeIds.length > 0 ? (
-          <Button
-            appearance="primary"
-            icon={<ShieldCheckmarkRegular />}
-            disabled={previewLoading}
-            onClick={() => void loadPreview()}
-          >
-            {previewLoading ? 'Calculating impact…' : 'Preview response'}
-          </Button>
-        ) : null}
+        <Button
+          appearance="primary"
+          icon={<ShieldCheckmarkRegular />}
+          disabled={previewLoading}
+          onClick={() => void loadPreview()}
+        >
+          {previewLoading ? 'Calculating impact…' : 'Preview response'}
+        </Button>
         {advisoryPermMsg !== null ? (
           <Tooltip content={advisoryPermMsg} relationship="label">
             <span>
@@ -320,7 +324,9 @@ export function ExposureDetailPage() {
         </div>
       </section>
 
-      {preview ? <RemediationPreviewCard preview={preview} /> : null}
+      {preview ? (
+        <RemediationPreviewCard preview={preview} onEvidenceSelect={setSelectedEvidence} />
+      ) : null}
       {narrative ? (
         <IncidentNarrativeCard
           narrative={narrative}
@@ -352,7 +358,7 @@ export function ExposureDetailPage() {
                   aria-pressed={showPreview}
                   onClick={() => setShowPreview(true)}
                 >
-                  After remediation
+                  After simulation
                 </Button>
               </div>
             ) : null}
@@ -508,7 +514,15 @@ function NarrativeSection({
   )
 }
 
-function RemediationPreviewCard({ preview }: { preview: RemediationPreview }) {
+function RemediationPreviewCard({
+  preview,
+  onEvidenceSelect,
+}: {
+  preview: RemediationPreview
+  onEvidenceSelect: (evidence: RemediationPreview['citedEvidence'][number]) => void
+}) {
+  const evidenceById = new Map(preview.citedEvidence.map((item) => [item.id, item]))
+
   return (
     <section className="remediation-preview" aria-labelledby="remediation-preview-title">
       <div className="remediation-preview__header">
@@ -527,14 +541,18 @@ function RemediationPreviewCard({ preview }: { preview: RemediationPreview }) {
           <strong>
             {preview.before.riskScore} → {preview.after.riskScore}
           </strong>
-          <small>-{preview.impact.riskReduction} predicted</small>
+          <small>
+            {preview.impact.riskReduction === 0
+              ? 'No deterministic reduction calculated'
+              : `Deterministic simulated reduction: ${preview.impact.riskReduction}`}
+          </small>
         </div>
         <div>
           <span>Blast radius</span>
           <strong>
             {preview.before.blastRadiusCount} → {preview.after.blastRadiusCount}
           </strong>
-          <small>-{preview.impact.blastRadiusReduction} reachable assets</small>
+          <small>Simulated reachability reduction: {preview.impact.blastRadiusReduction}</small>
         </div>
         <div>
           <span>Business disruption</span>
@@ -553,6 +571,124 @@ function RemediationPreviewCard({ preview }: { preview: RemediationPreview }) {
           <small>No changes have been executed</small>
         </div>
       </div>
+      <div className="remediation-preview__details">
+        <div>
+          <h3>Residual findings</h3>
+          {preview.residualFindings.length === 0 ? (
+            <p>No residual finding was produced by the current deterministic policy catalog.</p>
+          ) : (
+            <ul>
+              {preview.residualFindings.map((finding) => (
+                <li key={finding.id}>
+                  <strong>{finding.title}</strong>
+                  <span>
+                    {finding.policyId} · risk {finding.riskScore}
+                  </span>
+                  <EvidenceReferences
+                    evidenceIds={finding.evidenceIds}
+                    evidenceById={evidenceById}
+                    onEvidenceSelect={onEvidenceSelect}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div>
+          <h3>Active residual routes</h3>
+          {preview.residualRoutes.length === 0 ? (
+            <p>No active residual route was identified in the simulated graph.</p>
+          ) : (
+            <ul>
+              {preview.residualRoutes.map((route) => (
+                <li key={`${route.findingId}-${route.edgeIds.join('-')}`}>
+                  <strong>{route.policyId}</strong>
+                  <span>
+                    {route.edgeIds.join(', ')} · risk {route.riskScore}
+                  </span>
+                  <EvidenceReferences
+                    evidenceIds={route.evidenceIds}
+                    evidenceById={evidenceById}
+                    onEvidenceSelect={onEvidenceSelect}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div>
+          <h3>Uncertainty</h3>
+          {preview.uncertainty.length === 0 ? (
+            <p>No additional uncertainty was identified for this deterministic simulation.</p>
+          ) : (
+            <ul>
+              {preview.uncertainty.map((item) => (
+                <li key={`${item.code}-${item.evidenceIds.join('-')}`}>
+                  <strong>{item.code}</strong>
+                  <span>{item.message}</span>
+                  <EvidenceReferences
+                    evidenceIds={item.evidenceIds}
+                    evidenceById={evidenceById}
+                    onEvidenceSelect={onEvidenceSelect}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div>
+          <h3>Cited evidence</h3>
+          {preview.citedEvidence.length === 0 ? (
+            <p>No cited evidence is available in the snapshot.</p>
+          ) : (
+            <ul>
+              {preview.citedEvidence.map((evidence) => (
+                <li key={evidence.id}>
+                  <button type="button" onClick={() => onEvidenceSelect(evidence)}>
+                    {evidence.id}
+                  </button>
+                  <span>
+                    {evidence.source} · {evidence.freshness} · {evidence.evidenceTypes.join(', ')}
+                  </span>
+                  <small>{evidence.summary}</small>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
     </section>
+  )
+}
+
+function EvidenceReferences({
+  evidenceIds,
+  evidenceById,
+  onEvidenceSelect,
+}: {
+  evidenceIds: string[]
+  evidenceById: ReadonlyMap<string, RemediationPreview['citedEvidence'][number]>
+  onEvidenceSelect: (evidence: RemediationPreview['citedEvidence'][number]) => void
+}) {
+  if (evidenceIds.length === 0) return null
+  return (
+    <span className="remediation-preview__references">
+      Evidence:{' '}
+      {evidenceIds.map((evidenceId, index) => {
+        const evidence = evidenceById.get(evidenceId)
+        return (
+          <span key={evidenceId}>
+            {index > 0 ? ', ' : null}
+            {evidence === undefined ? (
+              evidenceId
+            ) : (
+              <button type="button" onClick={() => onEvidenceSelect(evidence)}>
+                {evidenceId}
+              </button>
+            )}
+          </span>
+        )
+      })}
+    </span>
   )
 }

@@ -7,6 +7,7 @@ import type {
 import {
   assertEstateSnapshot,
   evidenceSchema,
+  evidenceTypeSchema,
   type EstateSnapshot,
   type Evidence,
   type GraphEdge,
@@ -204,39 +205,52 @@ export const FOUNDRY_TRUST_REQUIRED_PLANES = [
 ] as const
 
 const foundryTrustPlaneSchema = z.enum(FOUNDRY_TRUST_REQUIRED_PLANES)
-const foundryTrustAssessmentSchema = z
-  .object({
-    tier: z.enum(['trusted', 'conditional', 'untrusted']),
-    sourceMode: z.enum(['live', 'synthetic']),
-    assessedAt: z.iso.datetime(),
-    requiredPlanes: z.array(foundryTrustPlaneSchema).min(1),
-    planeEvidence: z
-      .array(
-        z.object({
-          plane: foundryTrustPlaneSchema,
-          evidenceReferences: z.array(z.string().min(1)).min(1),
-        }),
-      )
-      .min(1),
-    evidence: z.array(evidenceSchema).min(1),
+const exactTrustIdentifierSchema = z
+  .string()
+  .min(1)
+  .refine((value) => value.trim() === value, {
+    message: 'Trust binding identifiers must not contain surrounding whitespace.',
   })
-  .superRefine((assessment, context) => {
-    if (new Set(assessment.requiredPlanes).size !== assessment.requiredPlanes.length) {
-      context.addIssue({
-        code: 'custom',
-        path: ['requiredPlanes'],
-        message: 'Trust assessment required planes must be unique.',
-      })
-    }
-    const planeNames = assessment.planeEvidence.map((plane) => plane.plane)
-    if (new Set(planeNames).size !== planeNames.length) {
-      context.addIssue({
-        code: 'custom',
-        path: ['planeEvidence'],
-        message: 'Trust assessment plane evidence must contain each plane at most once.',
-      })
-    }
-    const evidenceIds = assessment.evidence.map((item) => item.id)
+const foundryTrustSubjectSchema = z.strictObject({
+  agentId: exactTrustIdentifierSchema,
+  sourceId: exactTrustIdentifierSchema,
+  tenantId: exactTrustIdentifierSchema,
+  environment: exactTrustIdentifierSchema,
+})
+const foundryTrustIssuerSchema = z.strictObject({
+  id: exactTrustIdentifierSchema,
+  authenticationMode: z.enum(['managed-identity', 'workload-identity', 'jwt']),
+  authenticated: z.literal(true),
+})
+const foundryTrustEvidenceInputSchema = z.strictObject({
+  id: exactTrustIdentifierSchema,
+  plane: foundryTrustPlaneSchema,
+  subject: foundryTrustSubjectSchema,
+  source: z.string().trim().min(1),
+  sourceObjectId: exactTrustIdentifierSchema,
+  observedAt: z.iso.datetime(),
+  confidence: z.number().min(0).max(1),
+  evidenceTypes: z
+    .array(evidenceTypeSchema)
+    .min(1)
+    .max(evidenceTypeSchema.options.length)
+    .refine((types) => new Set(types).size === types.length, {
+      message: 'Trust evidence types must be unique.',
+    }),
+  uri: z.url().optional(),
+  summary: z.string().trim().min(1),
+  metadata: z.record(z.string(), z.string()).optional(),
+})
+const foundryTrustCompositionInputSchema = z
+  .strictObject({
+    tier: z.enum(['trusted', 'conditional', 'untrusted']),
+    subject: foundryTrustSubjectSchema,
+    issuer: foundryTrustIssuerSchema,
+    assessedAt: z.iso.datetime(),
+    evidence: z.array(foundryTrustEvidenceInputSchema).min(1),
+  })
+  .superRefine((input, context) => {
+    const evidenceIds = input.evidence.map((item) => item.id)
     if (new Set(evidenceIds).size !== evidenceIds.length) {
       context.addIssue({
         code: 'custom',
@@ -244,7 +258,100 @@ const foundryTrustAssessmentSchema = z
         message: 'Trust assessment evidence identifiers must be unique.',
       })
     }
+    const assessedAt = Date.parse(input.assessedAt)
+    for (const [index, item] of input.evidence.entries()) {
+      if (
+        item.subject.agentId !== input.subject.agentId ||
+        item.subject.sourceId !== input.subject.sourceId ||
+        item.subject.tenantId !== input.subject.tenantId ||
+        item.subject.environment !== input.subject.environment
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['evidence', index, 'subject'],
+          message: 'Trust evidence subject binding must exactly match the assessment subject.',
+        })
+      }
+      if (Date.parse(item.observedAt) > assessedAt) {
+        context.addIssue({
+          code: 'custom',
+          path: ['evidence', index, 'observedAt'],
+          message: 'Trust evidence cannot be observed after the assessment time.',
+        })
+      }
+    }
   })
+const foundryTrustAssessmentSchema = z.strictObject({
+  tier: z.enum(['trusted', 'conditional', 'untrusted']),
+  subject: foundryTrustSubjectSchema,
+  issuer: foundryTrustIssuerSchema,
+  assessedAt: z.iso.datetime(),
+  sourceMode: z.enum(['live', 'synthetic']),
+  planeEvidence: z.array(
+    z.strictObject({
+      plane: foundryTrustPlaneSchema,
+      evidenceReferences: z.array(z.string().min(1)).min(1),
+    }),
+  ),
+  evidence: z.array(evidenceSchema).min(1),
+})
+export type FoundryTrustAssessment = z.output<typeof foundryTrustAssessmentSchema>
+
+const authenticatedServerAssessments = new WeakSet<object>()
+const LIVE_EVIDENCE_WINDOW_MS = 15 * 60 * 1000
+const RECENT_EVIDENCE_WINDOW_MS = 24 * 60 * 60 * 1000
+
+function derivedFreshness(observedAt: string, assessedAt: string): Evidence['freshness'] {
+  const age = Date.parse(assessedAt) - Date.parse(observedAt)
+  if (age <= LIVE_EVIDENCE_WINDOW_MS) return 'live'
+  if (age <= RECENT_EVIDENCE_WINDOW_MS) return 'recent'
+  return 'stale'
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value
+  Object.freeze(value)
+  for (const child of Object.values(value)) deepFreeze(child)
+  return value
+}
+
+export function composeFoundryTrustAssessment(input: unknown): FoundryTrustAssessment {
+  const parsed = foundryTrustCompositionInputSchema.parse(input)
+  const planeEvidence = FOUNDRY_TRUST_REQUIRED_PLANES.flatMap((plane) => {
+    const evidenceReferences = parsed.evidence
+      .filter((item) => item.plane === plane)
+      .map((item) => item.id)
+    return evidenceReferences.length > 0 ? [{ plane, evidenceReferences }] : []
+  })
+  const sourceMode = parsed.evidence.some((item) =>
+    item.evidenceTypes.includes('synthetic_validation'),
+  )
+    ? 'synthetic'
+    : 'live'
+  const assessment = foundryTrustAssessmentSchema.parse({
+    tier: parsed.tier,
+    subject: parsed.subject,
+    issuer: parsed.issuer,
+    assessedAt: parsed.assessedAt,
+    sourceMode,
+    planeEvidence,
+    evidence: parsed.evidence.map(({ plane, subject, ...item }) => ({
+      ...item,
+      freshness: derivedFreshness(item.observedAt, parsed.assessedAt),
+      metadata: {
+        ...item.metadata,
+        trustPlane: plane,
+        trustSubjectAgentId: subject.agentId,
+        trustSubjectSourceId: subject.sourceId,
+        trustSubjectTenantId: subject.tenantId,
+        trustSubjectEnvironment: subject.environment,
+      },
+    })),
+  })
+  const immutableAssessment = deepFreeze(assessment)
+  authenticatedServerAssessments.add(immutableAssessment)
+  return immutableAssessment
+}
 
 const agentVersionSchema = z
   .object({
@@ -273,14 +380,16 @@ export const foundryAgentDefinitionSchema = z
     instructions: z.string().nullable().optional(),
     tools: z.array(functionToolSchema).optional(),
     metadata: z.record(z.string(), z.string()).optional(),
-    trustAssessment: foundryTrustAssessmentSchema.optional(),
+    trustAssessment: z.unknown().optional(),
     versions: z.object({ latest: agentVersionSchema }).optional(),
   })
   .passthrough()
   .transform((agent) => {
+    const { trustAssessment: ignoredTrustAssessment, ...inventory } = agent
+    void ignoredTrustAssessment
     const latest = agent.versions?.latest
     return {
-      ...agent,
+      ...inventory,
       version: agent.version ?? latest?.version,
       description: agent.description ?? latest?.description,
       model: agent.model ?? latest?.definition.model,
@@ -321,31 +430,72 @@ type NormalizedFoundryAgent = z.output<typeof foundryAgentDefinitionSchema>
 
 interface FoundryTrustResult {
   trust: 'trusted' | 'conditional' | 'untrusted'
-  status: 'missing' | 'complete' | 'incomplete'
+  status: 'missing' | 'binding-mismatch' | 'complete' | 'incomplete'
   evidence: Evidence[]
   evidenceIds: string[]
   missingPlanes: string[]
   sourceMode: 'live' | 'synthetic' | undefined
+  issuerId: string | undefined
+  assessedAt: string | undefined
 }
 
 function normalizedTrustEvidenceId(agentId: string, evidenceId: string): string {
   return `foundry-trust-evidence-${agentId}-${evidenceId}`
 }
 
-function evaluateTrust(agent: NormalizedFoundryAgent): FoundryTrustResult {
+export interface FoundrySnapshotComposition {
+  sourceId: string
+  trustAssessments: readonly FoundryTrustAssessment[]
+}
+
+function exactTrustSubject(
+  assessment: FoundryTrustAssessment,
+  agentId: string,
+  composition: FoundrySnapshotComposition,
+  config: Pick<FoundryConnectorConfig, 'tenantId' | 'environment'>,
+): boolean {
+  return (
+    assessment.subject.agentId === agentId &&
+    assessment.subject.sourceId === composition.sourceId &&
+    assessment.subject.tenantId === config.tenantId &&
+    assessment.subject.environment === config.environment
+  )
+}
+
+function evaluateTrust(
+  agent: NormalizedFoundryAgent,
+  config: Pick<FoundryConnectorConfig, 'tenantId' | 'environment'>,
+  composition: FoundrySnapshotComposition,
+): FoundryTrustResult {
   const names = toolNames(agent)
-  const assessment = agent.trustAssessment
+  const serverAssessments = composition.trustAssessments.filter((assessment) =>
+    authenticatedServerAssessments.has(assessment),
+  )
+  const matchingAssessments = serverAssessments.filter((assessment) =>
+    exactTrustSubject(assessment, agent.id, composition, config),
+  )
+  if (matchingAssessments.length > 1) {
+    throw new FoundryConnectorError(
+      `Multiple authenticated trust assessments bind to Foundry agent ${agent.id}.`,
+    )
+  }
+  const assessment = matchingAssessments[0]
   if (assessment === undefined) {
+    const bindingMismatch = serverAssessments.some(
+      (candidate) => candidate.subject.agentId === agent.id,
+    )
     return {
       trust:
         names.includes('external_send') || names.includes('external_transfer')
           ? 'untrusted'
           : 'conditional',
-      status: 'missing',
+      status: bindingMismatch ? 'binding-mismatch' : 'missing',
       evidence: [],
       evidenceIds: [],
       missingPlanes: [...FOUNDRY_TRUST_REQUIRED_PLANES],
       sourceMode: undefined,
+      issuerId: undefined,
+      assessedAt: undefined,
     }
   }
 
@@ -356,7 +506,6 @@ function evaluateTrust(agent: NormalizedFoundryAgent): FoundryTrustResult {
   const missingPlanes = FOUNDRY_TRUST_REQUIRED_PLANES.filter((plane) => {
     const references = planeEvidence.get(plane)
     return (
-      !assessment.requiredPlanes.includes(plane) ||
       references === undefined ||
       references.length === 0 ||
       references.some((reference) => !evidenceById.has(reference))
@@ -368,12 +517,14 @@ function evaluateTrust(agent: NormalizedFoundryAgent): FoundryTrustResult {
   const citedEvidence = [...citedEvidenceIds]
     .map((id) => evidenceById.get(id))
     .filter((item): item is Evidence => item !== undefined)
+  const runtimeEvidenceIds = new Set(planeEvidence.get('runtime') ?? [])
   const complete =
-    assessment.tier === 'trusted' &&
     assessment.sourceMode === 'live' &&
     missingPlanes.length === 0 &&
     citedEvidence.length > 0 &&
-    citedEvidence.some((item) => item.evidenceTypes.includes('observed_runtime')) &&
+    citedEvidence.some(
+      (item) => runtimeEvidenceIds.has(item.id) && item.evidenceTypes.includes('observed_runtime'),
+    ) &&
     citedEvidence.every(
       (item) =>
         item.freshness === 'live' &&
@@ -389,21 +540,27 @@ function evaluateTrust(agent: NormalizedFoundryAgent): FoundryTrustResult {
       trustAssessmentSourceMode: assessment.sourceMode,
       trustAssessmentTier: assessment.tier,
       trustAssessmentObservedAt: assessment.assessedAt,
+      trustAssessmentIssuerId: assessment.issuer.id,
+      trustAssessmentIssuerAuthenticationMode: assessment.issuer.authenticationMode,
     },
   }))
 
   return {
     trust:
-      complete || assessment.tier === 'untrusted'
-        ? assessment.tier
-        : names.includes('external_send') || names.includes('external_transfer')
-          ? 'untrusted'
-          : 'conditional',
+      assessment.tier === 'untrusted'
+        ? 'untrusted'
+        : complete && assessment.tier === 'trusted'
+          ? 'trusted'
+          : names.includes('external_send') || names.includes('external_transfer')
+            ? 'untrusted'
+            : 'conditional',
     status: complete ? 'complete' : 'incomplete',
     evidence,
     evidenceIds: citedEvidence.map((item) => normalizedTrustEvidenceId(agent.id, item.id)),
     missingPlanes,
     sourceMode: assessment.sourceMode,
+    issuerId: assessment.issuer.id,
+    assessedAt: assessment.assessedAt,
   }
 }
 
@@ -435,6 +592,10 @@ export function mapAgentToSnapshot(
     tenantId: 'unknown',
     environment: 'unknown',
   },
+  composition: FoundrySnapshotComposition = {
+    sourceId: 'primary',
+    trustAssessments: [],
+  },
 ): EstateSnapshot {
   const generatedAt = new Date().toISOString()
   const nodes: GraphNode[] = []
@@ -445,13 +606,13 @@ export function mapAgentToSnapshot(
     const agentId = `foundry-agent-${agent.id}`
     const evidenceId = `foundry-evidence-${agent.id}`
     const metadata = agent.metadata ?? {}
-    const trustResult = evaluateTrust(agent)
+    const trustResult = evaluateTrust(agent, config, composition)
     nodes.push({
       id: agentId,
       kind: 'agent',
       name: agent.name ?? agent.displayName ?? agent.id,
       description: agent.description ?? 'No description declared.',
-      environment: metadata.environment ?? config.environment,
+      environment: config.environment,
       owner: metadata.owner,
       trust: trustResult.trust,
       evidenceIds: [evidenceId, ...trustResult.evidenceIds],
@@ -467,6 +628,12 @@ export function mapAgentToSnapshot(
         trustAssessmentStatus: trustResult.status,
         ...(trustResult.sourceMode !== undefined
           ? { trustAssessmentSourceMode: trustResult.sourceMode }
+          : {}),
+        ...(trustResult.issuerId !== undefined
+          ? { trustAssessmentIssuerId: trustResult.issuerId }
+          : {}),
+        ...(trustResult.assessedAt !== undefined
+          ? { trustAssessmentAssessedAt: trustResult.assessedAt }
           : {}),
         ...(trustResult.evidenceIds.length > 0
           ? { trustAssessmentEvidenceIds: trustResult.evidenceIds.join(',') }
@@ -490,7 +657,7 @@ export function mapAgentToSnapshot(
         kind: 'tool',
         name: toolName,
         description: toolDescription ?? `Declared function ${toolName}.`,
-        environment: metadata.environment ?? config.environment,
+        environment: config.environment,
         trust: 'conditional',
         evidenceIds: [evidenceId],
         metadata: { platform: 'Azure AI Foundry Agent Service', apiVersion },
@@ -556,6 +723,10 @@ export class FoundryAgentConnector implements AgentConnector {
   constructor(
     config: FoundryConnectorConfig,
     private readonly credential: TokenCredential,
+    private readonly composition: FoundrySnapshotComposition = {
+      sourceId: 'primary',
+      trustAssessments: [],
+    },
   ) {
     this.config = foundryConnectorConfigSchema.parse(config)
   }
@@ -573,7 +744,12 @@ export class FoundryAgentConnector implements AgentConnector {
     }
   }
   async discover(): Promise<EstateSnapshot> {
-    const snapshot = mapAgentToSnapshot(await this.listAgents(), FOUNDRY_API_VERSION, this.config)
+    const snapshot = mapAgentToSnapshot(
+      await this.listAgents(),
+      FOUNDRY_API_VERSION,
+      this.config,
+      this.composition,
+    )
     this.evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]))
     return snapshot
   }
@@ -764,6 +940,7 @@ export class MultiFoundryConnector implements AgentConnector {
   constructor(
     configInput: FoundryPortfolioConfig,
     credentialFactory: FoundryCredentialFactory = createFoundrySourceCredential,
+    trustAssessments: readonly FoundryTrustAssessment[] = [],
   ) {
     this.config = foundryPortfolioConfigSchema.parse(configInput)
     this.sources = this.config.sources.map((config) => ({
@@ -775,6 +952,10 @@ export class MultiFoundryConnector implements AgentConnector {
           environment: config.environment,
         },
         credentialFactory(config),
+        {
+          sourceId: config.id,
+          trustAssessments,
+        },
       ),
       readiness: 'unavailable',
       checkedAt: undefined,

@@ -293,6 +293,7 @@ describe('exposure API (mock mode)', () => {
         residualFindings: ExposureFinding[]
         residualRoutes: Array<{ edgeIds: string[]; riskScore: number }>
         uncertainty: Array<{ code: string; evidenceIds: string[] }>
+        citedEvidence: Evidence[]
         beforeGraph: EstateSnapshot
         afterGraph: EstateSnapshot
       } = response.json()
@@ -319,6 +320,9 @@ describe('exposure API (mock mode)', () => {
       )
       expect(preview.beforeGraph.edges.map((edge) => edge.id).sort()).toEqual(
         preview.afterGraph.edges.map((edge) => edge.id).sort(),
+      )
+      expect(preview.citedEvidence.map((item) => item.id)).toEqual(
+        expect.arrayContaining(finding.evidenceIds),
       )
     } finally {
       await app.close()
@@ -648,6 +652,56 @@ describe('exposure API (live mode)', () => {
         tenantId: 'tenant-demo',
         environment: 'validation',
       })
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('returns a deterministic residual preview when the target route is no longer active', async () => {
+    const finding = makeFinding()
+    const snapshot = makePreviewSnapshot({ alternateRoute: true })
+    snapshot.edges = snapshot.edges.map((edge) =>
+      edge.id === 'edge-1' ? { ...edge, active: false } : edge,
+    )
+    const repository: ExposureFindingRepository = {
+      upsert: (_estate, value) => Promise.resolve(value),
+      findById: () => Promise.resolve(finding),
+      listByTenant: () => Promise.resolve({ items: [], total: 0 }),
+      getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),
+      resolveAbsent: () => Promise.resolve([]),
+    }
+    const snapshotRepository: SnapshotRepository = {
+      save: () => Promise.resolve(),
+      findLatest: () => Promise.resolve(null),
+      findById: () => Promise.resolve(snapshot),
+      list: () => Promise.resolve([]),
+    }
+    const app = await makeApp('live', repository, snapshotRepository)
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/exposures/${finding.id}/remediation-preview`,
+      })
+
+      expect(response.statusCode).toBe(200)
+      const body: {
+        title: string
+        targetEdgeIds: string[]
+        after: { riskScore: number }
+        impact: { riskReduction: number }
+        residualRoutes: Array<{ edgeIds: string[]; riskScore: number }>
+        uncertainty: Array<{ code: string }>
+      } = response.json()
+      expect(body).toMatchObject({
+        title: 'No active risky routes to block',
+        targetEdgeIds: [],
+        after: { riskScore: 91 },
+        impact: { riskReduction: 0 },
+        residualRoutes: [{ edgeIds: ['edge-2'], riskScore: 91 }],
+      })
+      expect(body.uncertainty).toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: 'no-active-target-routes' })]),
+      )
     } finally {
       await app.close()
     }

@@ -19,11 +19,16 @@ Represents a point-in-time view of an agent estate.
 - `name`, `description`, `environment`, `owner`
 - `sensitivity`, `trust`, `evidenceIds`, `metadata`
 - Foundry declared inventory defaults agent trust to `conditional` (or
-  `untrusted` for known external transfer capabilities). `trusted` requires an
-  explicit live assessment with current, attributed evidence references for
-  identity, runtime, tools, data, distribution, cloud resources, approval
-  controls, and provenance. Synthetic, stale, unknown, missing, or incomplete
-  assessment evidence cannot produce `trusted`.
+  `untrusted` for known external transfer capabilities). Trust content embedded
+  in a Foundry inventory payload is discarded. `trusted` requires a separately
+  authenticated server-side assessment whose agent, source, tenant, and
+  environment subject binding exactly matches the authoritative inventory
+  object.
+- The server derives trust evidence freshness from observation and assessment
+  times and derives source mode from evidence types. Every required plane must
+  cite its own evidence, and the runtime plane must cite non-synthetic
+  `observed_runtime` evidence. Synthetic, stale, unknown, missing, mismatched,
+  unauthenticated, or incomplete assessment evidence cannot produce `trusted`.
 
 ### GraphEdge
 
@@ -129,8 +134,13 @@ provider write.
 - `uncertainty` cites stale, unknown, synthetic, declared-only, theoretical, or
   missing analysis evidence, unsupported policy coverage, and no-op or partial
   target coverage.
+- `citedEvidence` carries the available evidence used by the deterministic
+  analysis. Missing references remain explicit in `uncertainty`.
 - `beforeGraph` and `afterGraph` preserve the same evidence-backed comparison
   scope, with target edges disabled only in the simulated snapshot.
+- A finding with no currently active target route returns a deterministic no-op
+  preview with residual findings, routes, and uncertainty rather than a route
+  conflict.
 
 ### GovernanceCase
 
