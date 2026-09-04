@@ -15,7 +15,7 @@ import {
 } from '../api/estate-api'
 import { behaviorApi } from '../api/behavior-api'
 import { getActiveEstateId, setActiveEstateId } from '../api/auth-fetch'
-import { EstateProvider } from './EstateProvider'
+import { ESTATE_STORAGE_KEY, EstateProvider } from './EstateProvider'
 import { clearAgentDriftCache, loadAgentDrift } from './useAgentDrift'
 import { useEstate } from './useEstate'
 
@@ -39,13 +39,16 @@ const response: EstatesResponse = {
 }
 
 function Probe() {
-  const { selectEstate, state } = useEstate()
+  const { reload, selectEstate, state } = useEstate()
   const [draft, setDraft] = useState('clean')
   if (state.status !== 'ready') {
     return (
       <>
         <span data-testid="status">{state.status}</span>
         {'message' in state ? <span>{state.message}</span> : null}
+        <button type="button" onClick={() => void reload()}>
+          Retry
+        </button>
       </>
     )
   }
@@ -221,6 +224,7 @@ describe('EstateProvider', () => {
   })
 
   it('represents an empty authorization set explicitly', async () => {
+    localStorage.setItem(ESTATE_STORAGE_KEY, research.id)
     vi.mocked(estateApi.list).mockResolvedValue({ defaultEstateId: primary.id, estates: [] })
     render(
       <EstateProvider>
@@ -228,6 +232,7 @@ describe('EstateProvider', () => {
       </EstateProvider>,
     )
     expect(await screen.findByTestId('status')).toHaveTextContent('empty')
+    expect(localStorage.getItem(ESTATE_STORAGE_KEY)).toBeNull()
   })
 
   it.each([
@@ -244,4 +249,37 @@ describe('EstateProvider', () => {
     expect(await screen.findByTestId('status')).toHaveTextContent(kind)
     expect(screen.getByText(`${kind} estates`)).toBeVisible()
   })
+
+  it.each([
+    ['network', new Error('network failed'), 'unavailable'],
+    ['HTTP 5xx', new EstateApiError('unavailable', 'service failed', 503), 'unavailable'],
+    ['HTTP 401', new EstateApiError('unauthorized', 'sign in again', 401), 'unauthorized'],
+    ['HTTP 403', new EstateApiError('forbidden', 'access denied', 403), 'forbidden'],
+    [
+      'response validation',
+      new EstateApiError('unavailable', 'authorized estates response was invalid', 200),
+      'unavailable',
+    ],
+  ] as const)(
+    'preserves the persisted estate through a %s failure and restores it on retry',
+    async (_failure, error, status) => {
+      localStorage.setItem(ESTATE_STORAGE_KEY, research.id)
+      vi.mocked(estateApi.list).mockRejectedValueOnce(error).mockResolvedValueOnce(response)
+
+      render(
+        <EstateProvider>
+          <Probe />
+        </EstateProvider>,
+      )
+
+      expect(await screen.findByTestId('status')).toHaveTextContent(status)
+      expect(localStorage.getItem(ESTATE_STORAGE_KEY)).toBe(research.id)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+      expect(await screen.findByTestId('selected')).toHaveTextContent(research.id)
+      expect(localStorage.getItem(ESTATE_STORAGE_KEY)).toBe(research.id)
+      expect(estateApi.list).toHaveBeenCalledTimes(2)
+    },
+  )
 })

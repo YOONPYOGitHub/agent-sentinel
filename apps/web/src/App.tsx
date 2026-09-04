@@ -152,6 +152,7 @@ export function AuthenticatedApplication() {
 }
 
 function EstateApplication() {
+  const { isConfigured, signIn, signOut } = useAuth()
   const { reload, state } = useEstate()
 
   if (state.status === 'loading') {
@@ -169,21 +170,56 @@ function EstateApplication() {
       <EstateFailure
         title="No authorized estates"
         message="Your account is authenticated but is not authorized for an Agent Sentinel estate."
+        {...(isConfigured
+          ? {
+              action: {
+                label: 'Sign out and switch account',
+                run: () => void signOut(),
+              },
+            }
+          : {})}
       />
     )
   }
   if (state.status === 'unauthorized') {
-    return <EstateFailure title="Authentication required" message={state.message} />
+    return (
+      <EstateFailure
+        title="Authentication required"
+        message={state.message}
+        action={{
+          label: isConfigured ? 'Sign in again' : 'Try again',
+          run: () => {
+            void (async () => {
+              if (isConfigured) await signIn()
+              await reload()
+            })()
+          },
+        }}
+      />
+    )
   }
   if (state.status === 'forbidden') {
-    return <EstateFailure title="Estate access denied" message={state.message} />
+    return (
+      <EstateFailure
+        title="Estate access denied"
+        message={state.message}
+        {...(isConfigured
+          ? {
+              action: {
+                label: 'Sign out and switch account',
+                run: () => void signOut(),
+              },
+            }
+          : {})}
+      />
+    )
   }
   if (state.status === 'unavailable') {
     return (
       <EstateFailure
         title="Estate service unavailable"
         message={state.message}
-        onRetry={() => void reload()}
+        action={{ label: 'Try again', run: () => void reload() }}
       />
     )
   }
@@ -198,11 +234,14 @@ function EstateApplication() {
 function EstateFailure({
   title,
   message,
-  onRetry,
+  action,
 }: {
   title: string
   message: string
-  onRetry?: () => void
+  action?: {
+    label: string
+    run: () => void
+  }
 }) {
   return (
     <div className="center-state">
@@ -210,9 +249,9 @@ function EstateFailure({
         <AlertRegular aria-hidden="true" />
         <h1>{title}</h1>
         <p>{message}</p>
-        {onRetry === undefined ? null : (
-          <Button appearance="primary" onClick={onRetry}>
-            Try again
+        {action === undefined ? null : (
+          <Button appearance="primary" onClick={action.run}>
+            {action.label}
           </Button>
         )}
       </div>

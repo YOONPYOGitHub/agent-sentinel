@@ -5,12 +5,13 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
-import App from './App'
+import App, { AuthenticatedApplication } from './App'
 import { connectorApi, demoApi } from './api'
 import { connectorsApi } from './api/connectors-api'
 import { governanceApi } from './api/governance-api'
 import { exposureApi } from './api/exposure-api'
 import { EstateApiError, estateApi } from './api/estate-api'
+import { AuthContext, type AuthContextValue } from './hooks/AuthContext'
 import { governancePostureFixture, testState } from './test-fixture'
 
 vi.mock('./api')
@@ -71,6 +72,43 @@ async function renderRoute(route: string) {
     </MemoryRouter>,
   )
   await waitFor(() => expect(demoApi.getState).toHaveBeenCalled())
+}
+
+function authenticatedContext(overrides: Partial<AuthContextValue> = {}): AuthContextValue {
+  return {
+    isConfigured: true,
+    spaConfig: {
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      clientId: '22222222-2222-4222-8222-222222222222',
+      authority: 'https://login.microsoftonline.com/11111111-1111-4111-8111-111111111111',
+      scopes: ['api://agent-sentinel/AgentSentinel.Read'],
+      redirectUri: 'http://localhost:3000/auth-redirect.html',
+      postLogoutRedirectUri: 'http://localhost:3000/',
+    },
+    isLoading: false,
+    isSignedIn: true,
+    principal: {
+      subject: 'subject-id',
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      roles: ['Viewer'],
+      capabilities: ['read'],
+    },
+    authError: null,
+    signIn: vi.fn().mockResolvedValue(undefined),
+    signOut: vi.fn().mockResolvedValue(undefined),
+    getAccessToken: vi.fn().mockResolvedValue('access-token'),
+    ...overrides,
+  }
+}
+
+function renderAuthenticatedRoute(auth: AuthContextValue, route = '/overview') {
+  render(
+    <AuthContext.Provider value={auth}>
+      <MemoryRouter initialEntries={[route]}>
+        <AuthenticatedApplication />
+      </MemoryRouter>
+    </AuthContext.Provider>,
+  )
 }
 
 describe('application routing', () => {
@@ -196,6 +234,59 @@ describe('application routing', () => {
       </MemoryRouter>,
     )
     expect(await screen.findByRole('heading', { name: 'No authorized estates' })).toBeVisible()
+    expect(demoApi.getState).not.toHaveBeenCalled()
+  })
+
+  it('reauthenticates and retries estate authorization after a 401', async () => {
+    const auth = authenticatedContext()
+    vi.spyOn(estateApi, 'list')
+      .mockRejectedValueOnce(new EstateApiError('unauthorized', 'Session expired.', 401))
+      .mockResolvedValueOnce({
+        defaultEstateId: 'default',
+        estates: [
+          {
+            id: 'default',
+            name: 'Default estate',
+            tenantId: 'test',
+            environment: 'test',
+            isDefault: true,
+          },
+        ],
+      })
+
+    renderAuthenticatedRoute(auth)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in again' }))
+
+    await waitFor(() => expect(auth.signIn).toHaveBeenCalledOnce())
+    expect(await screen.findByRole('heading', { name: 'Agent operations overview' })).toBeVisible()
+    expect(estateApi.list).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ['empty authorization', undefined, 'No authorized estates'],
+    [
+      'forbidden authorization',
+      new EstateApiError('forbidden', 'Account is not assigned.', 403),
+      'Estate access denied',
+    ],
+  ] as const)('offers account switching for %s', async (_case, error, title) => {
+    const auth = authenticatedContext()
+    if (error === undefined) {
+      vi.spyOn(estateApi, 'list').mockResolvedValue({
+        defaultEstateId: 'default',
+        estates: [],
+      })
+    } else {
+      vi.spyOn(estateApi, 'list').mockRejectedValue(error)
+    }
+
+    renderAuthenticatedRoute(auth)
+
+    expect(await screen.findByRole('heading', { name: title })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out and switch account' }))
+
+    expect(auth.signOut).toHaveBeenCalledOnce()
     expect(demoApi.getState).not.toHaveBeenCalled()
   })
 

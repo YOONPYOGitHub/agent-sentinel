@@ -58,7 +58,6 @@ export function EstateProvider({ children }: { children: ReactNode }) {
       setState({ status: 'ready', estates: response.estates, selectedEstate })
     } catch (error: unknown) {
       if (controller.signal.aborted || loadId.current !== currentLoad) return
-      localStorage.removeItem(ESTATE_STORAGE_KEY)
       setState(failureState(error))
     }
   }, [])

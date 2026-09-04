@@ -64,6 +64,24 @@ describe('estate API contract', () => {
     })
   })
 
+  it('classifies response-validation failures as unavailable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify({ ...responseBody, estates: [{ id: 'invalid/estate' }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    )
+
+    await expect(estateApi.list()).rejects.toMatchObject({
+      name: 'EstateApiError',
+      kind: 'unavailable',
+      status: 200,
+    })
+  })
+
   it('loads and parses the authenticated endpoint', async () => {
     setTokenProvider(() => Promise.resolve('estate-access-token'))
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
