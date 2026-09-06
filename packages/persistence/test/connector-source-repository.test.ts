@@ -607,4 +607,135 @@ describe('Cosmos connector source documents', () => {
       /password|clientSecret|accessToken|rawCredentials/i,
     )
   })
+
+  it('returns the exact idempotent result for concurrent identical updates', async () => {
+    const store = new FakeCosmosStore()
+    const repository = new CosmosConnectorSourceRepository(store.client)
+    const created = requireSource(
+      await repository.create(ESTATE_A, source(ESTATE_A), mutation('race-update-create')),
+    )
+    const operation = mutation('race-update', '2026-09-04T00:01:00.000Z')
+    const patch = { displayName: 'Concurrently updated source' }
+
+    store.barrierNextBatches()
+    const results = await Promise.all([
+      repository.update(ESTATE_A, created.sourceId, created.etag, patch, operation),
+      repository.update(ESTATE_A, created.sourceId, created.etag, patch, operation),
+    ])
+
+    expect(results.map((result) => result.status).sort()).toEqual(['applied', 'idempotent'])
+    const applied = results.find((result) => result.status === 'applied')
+    const idempotent = results.find((result) => result.status === 'idempotent')
+    if (applied?.status !== 'applied' || idempotent?.status !== 'idempotent') {
+      throw new Error('Expected one applied and one idempotent update result.')
+    }
+    expect(idempotent.source).toEqual(applied.source)
+    expect(idempotent.audit).toEqual(applied.audit)
+    expect(applied.source).toMatchObject({
+      displayName: patch.displayName,
+      version: 2,
+      updatedAt: operation.occurredAt,
+    })
+    expect(applied.source?.etag).not.toBe(created.etag)
+
+    const documents = store.snapshot()
+    expect(
+      documents.filter((document) => document.documentType === 'connector-source'),
+    ).toHaveLength(1)
+    expect(
+      documents.filter((document) => document.documentType === 'connector-source-audit'),
+    ).toHaveLength(2)
+    expect(
+      documents.filter((document) => document.documentType === 'connector-source-idempotency'),
+    ).toHaveLength(2)
+    expect(documents).toHaveLength(6)
+    expect(documents.every((document) => document.estateId === ESTATE_A.id)).toBe(true)
+    expect(documents.every((document) => document.tenantId === ESTATE_A.tenantId)).toBe(true)
+    expect(documents.every((document) => document.environment === ESTATE_A.environment)).toBe(true)
+    await expect(repository.findById(ESTATE_A, created.sourceId)).resolves.toEqual(applied.source)
+    await expect(repository.listAudit(ESTATE_A, created.sourceId)).resolves.toEqual([
+      expect.objectContaining({ operation: 'create' }),
+      applied.audit,
+    ])
+    await expect(
+      repository.update(
+        ESTATE_A,
+        created.sourceId,
+        created.etag,
+        { displayName: 'Different update' },
+        operation,
+      ),
+    ).resolves.toEqual({ status: 'conflict', reason: 'idempotency_key_reuse' })
+    await expect(
+      Promise.resolve().then(() =>
+        repository.update(ESTATE_A_WRONG_TENANT, created.sourceId, created.etag, patch, operation),
+      ),
+    ).rejects.toThrow(/estate boundary/i)
+    expect(store.snapshot()).toEqual(documents)
+  })
+
+  it('returns the exact idempotent result for concurrent identical deletes', async () => {
+    const store = new FakeCosmosStore()
+    const repository = new CosmosConnectorSourceRepository(store.client)
+    const created = requireSource(
+      await repository.create(ESTATE_A, source(ESTATE_A), mutation('race-delete-create')),
+    )
+    const operation = mutation('race-delete', '2026-09-04T00:01:00.000Z')
+
+    store.barrierNextBatches(2, 404)
+    const results = await Promise.all([
+      repository.delete(ESTATE_A, created.sourceId, created.etag, operation),
+      repository.delete(ESTATE_A, created.sourceId, created.etag, operation),
+    ])
+
+    expect(results.map((result) => result.status).sort()).toEqual(['applied', 'idempotent'])
+    const applied = results.find((result) => result.status === 'applied')
+    const idempotent = results.find((result) => result.status === 'idempotent')
+    if (applied?.status !== 'applied' || idempotent?.status !== 'idempotent') {
+      throw new Error('Expected one applied and one idempotent delete result.')
+    }
+    expect(applied.source).toBeNull()
+    expect(idempotent.source).toBeNull()
+    expect(idempotent.audit).toEqual(applied.audit)
+    expect(applied.audit).toMatchObject({
+      operation: 'delete',
+      occurredAt: operation.occurredAt,
+      before: { etag: created.etag, updatedAt: created.updatedAt },
+      after: null,
+    })
+
+    const documents = store.snapshot()
+    const sourceDocuments = documents.filter(
+      (document) => document.documentType === 'connector-source',
+    )
+    expect(sourceDocuments).toHaveLength(1)
+    expect(sourceDocuments[0]).toMatchObject({
+      deleted: true,
+      source: { etag: created.etag, updatedAt: created.updatedAt },
+    })
+    expect(
+      documents.filter((document) => document.documentType === 'connector-source-audit'),
+    ).toHaveLength(2)
+    expect(
+      documents.filter((document) => document.documentType === 'connector-source-idempotency'),
+    ).toHaveLength(2)
+    expect(documents).toHaveLength(6)
+    expect(documents.every((document) => document.estateId === ESTATE_A.id)).toBe(true)
+    expect(documents.every((document) => document.tenantId === ESTATE_A.tenantId)).toBe(true)
+    expect(documents.every((document) => document.environment === ESTATE_A.environment)).toBe(true)
+    await expect(repository.findById(ESTATE_A, created.sourceId)).resolves.toBeNull()
+    await expect(repository.listAudit(ESTATE_A, created.sourceId)).resolves.toEqual([
+      expect.objectContaining({ operation: 'create' }),
+      applied.audit,
+    ])
+    await expect(
+      repository.delete(ESTATE_A, created.sourceId, 'different-etag', operation),
+    ).resolves.toEqual({ status: 'conflict', reason: 'idempotency_key_reuse' })
+    await expect(
+      Promise.resolve().then(() =>
+        repository.delete(ESTATE_A_WRONG_ENVIRONMENT, created.sourceId, created.etag, operation),
+      ),
+    ).rejects.toThrow(/estate boundary/i)
+    expect(store.snapshot()).toEqual(documents)
+  })
 })

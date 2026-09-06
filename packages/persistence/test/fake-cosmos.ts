@@ -8,6 +8,13 @@ type StoredDocument = Record<string, unknown> & {
   estateId?: string
 }
 
+interface BatchBarrier {
+  arrivalsRemaining: number
+  loserStatusCode: 404 | 409 | 412 | undefined
+  release: () => void
+  released: Promise<void>
+}
+
 function clone<T>(value: T): T {
   return structuredClone(value)
 }
@@ -19,6 +26,7 @@ function notFound(): Error & { code: number } {
 export class FakeCosmosStore {
   private documents = new Map<string, StoredDocument>()
   private etagSequence = 0
+  private batchBarrier: BatchBarrier | null = null
   readonly queries: SqlQuerySpec[] = []
 
   readonly client = {
@@ -29,6 +37,20 @@ export class FakeCosmosStore {
 
   snapshot(): StoredDocument[] {
     return [...this.documents.values()].map((document) => clone(document))
+  }
+
+  barrierNextBatches(count = 2, loserStatusCode?: 404 | 409 | 412): void {
+    if (!Number.isSafeInteger(count) || count < 2) {
+      throw new Error('A fake Cosmos batch barrier requires at least two arrivals.')
+    }
+    if (this.batchBarrier) {
+      throw new Error('A fake Cosmos batch barrier is already active.')
+    }
+    let release = (): void => undefined
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    this.batchBarrier = { arrivalsRemaining: count, loserStatusCode, release, released }
   }
 
   private readonly container = {
@@ -42,7 +64,7 @@ export class FakeCosmosStore {
     items: {
       create: (resource: StoredDocument) => this.create(resource),
       batch: (operations: OperationInput[], partitionKey: string) =>
-        Promise.resolve(this.batch(operations, partitionKey)),
+        this.runBatch(operations, partitionKey),
       query: <T>(query: SqlQuerySpec, options: { partitionKey: string }) => ({
         fetchAll: () =>
           Promise.resolve({
@@ -85,6 +107,26 @@ export class FakeCosmosStore {
     const stored = { ...clone(resource), _etag: this.nextEtag() }
     this.documents.set(key, stored)
     return Promise.resolve({ resource: clone(stored), statusCode: 201 })
+  }
+
+  private async runBatch(operations: OperationInput[], partitionKey: string) {
+    const barrier = this.batchBarrier
+    if (barrier) {
+      barrier.arrivalsRemaining -= 1
+      const isLastArrival = barrier.arrivalsRemaining === 0
+      if (isLastArrival) {
+        this.batchBarrier = null
+        barrier.release()
+      }
+      await barrier.released
+      if (isLastArrival && barrier.loserStatusCode !== undefined) {
+        return {
+          code: barrier.loserStatusCode,
+          result: [{ statusCode: barrier.loserStatusCode, requestCharge: 1 }],
+        }
+      }
+    }
+    return this.batch(operations, partitionKey)
   }
 
   private batch(operations: OperationInput[], partitionKey: string) {

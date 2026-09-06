@@ -385,15 +385,15 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     fingerprint: string,
     code: number,
   ): Promise<ConnectorSourceWriteResult> {
+    if (code !== 404 && code !== 409 && code !== 412) {
+      throw new Error(`Cosmos connector source write batch failed with status ${code}.`)
+    }
+    const replay = await this.replay(estate, logicalSourceId, mutation, fingerprint)
+    if (replay) return replay
     if (code === 404) return { status: 'not_found' }
     if (code === 412) return { status: 'conflict', reason: 'etag_mismatch' }
-    if (code === 409) {
-      const replay = await this.replay(estate, logicalSourceId, mutation, fingerprint)
-      if (replay) return replay
-      await this.readAudit(estate, mutation.auditId)
-      return { status: 'conflict', reason: 'audit_id_reuse' }
-    }
-    throw new Error(`Cosmos connector source write batch failed with status ${code}.`)
+    await this.readAudit(estate, mutation.auditId)
+    return { status: 'conflict', reason: 'audit_id_reuse' }
   }
 
   private async replay(
