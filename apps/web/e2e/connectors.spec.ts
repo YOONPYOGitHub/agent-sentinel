@@ -94,6 +94,112 @@ test('connector source management preserves exact IDs and honest read-only healt
   )
 })
 
+test('connector source pagination labels synthetic evidence and suppresses duplicate page requests', async ({
+  page,
+}) => {
+  let cursorRequests = 0
+  const source = {
+    estateId: 'default',
+    tenantId: 'tenant-demo',
+    environment: 'validation',
+    sourceId: 'primary',
+    connectorType: 'foundry',
+    displayName: 'Synthetic Foundry',
+    enabled: true,
+    origin: 'user',
+    configuration: {
+      type: 'foundry',
+      projectEndpoint: 'https://safe.services.ai.azure.com/api/projects/primary',
+    },
+    credential: { mode: 'default' },
+    testStatus: {
+      status: 'degraded',
+      evidenceBasis: 'synthetic',
+      evidenceIds: ['synthetic-evidence'],
+      checkedAt: '2026-09-06T00:00:00.000Z',
+      checkedBy: { type: 'user', id: 'administrator-object-id' },
+      summary: 'A bounded synthetic probe observed a degraded result.',
+    },
+    version: 1,
+    etag: 'etag-one',
+    createdBy: { type: 'user', id: 'administrator-object-id' },
+    updatedBy: { type: 'user', id: 'administrator-object-id' },
+    createdAt: '2026-09-06T00:00:00.000Z',
+    updatedAt: '2026-09-06T00:00:00.000Z',
+  }
+  const mutationPolicy = {
+    enabled: false,
+    requiresAuthentication: true,
+    requiredCapability: 'configure',
+  }
+
+  await page.route('**/api/connector-sources?*', async (route) => {
+    const cursor = new URL(route.request().url()).searchParams.get('cursor')
+    if (cursor === null) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [source],
+          page: { limit: 50, nextCursor: 'primary' },
+          mutationPolicy,
+        }),
+      })
+      return
+    }
+
+    cursorRequests += 1
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: [
+          {
+            ...source,
+            displayName: 'Synthetic Foundry updated',
+            etag: 'etag-two',
+            version: 2,
+          },
+          {
+            ...source,
+            sourceId: 'later',
+            displayName: 'Later source',
+            etag: 'etag-later',
+          },
+        ],
+        page: { limit: 50, nextCursor: null },
+        mutationPolicy,
+      }),
+    })
+  })
+
+  await page.goto('/connectors')
+  const synthetic = page.getByRole('article', { name: 'Synthetic Foundry' })
+  await expect(synthetic).toContainText('Synthetic evidence - not live provider evidence')
+
+  await page.evaluate(() => {
+    const button = Array.from(document.querySelectorAll('button')).find(
+      (candidate) => candidate.textContent?.trim() === 'Load more sources',
+    )
+    button?.click()
+    button?.click()
+  })
+
+  await expect(page.getByRole('button', { name: 'Loading more...' })).toBeDisabled()
+  await expect(page.getByRole('article', { name: 'Later source' })).toBeVisible()
+  expect(cursorRequests).toBe(1)
+  await expect(page.locator('.connector-source-grid > article')).toHaveCount(2)
+  await expect(page.locator('.connector-source-grid > article').nth(0)).toHaveAttribute(
+    'aria-label',
+    'Synthetic Foundry updated',
+  )
+  await expect(page.locator('.connector-source-grid > article').nth(1)).toHaveAttribute(
+    'aria-label',
+    'Later source',
+  )
+})
+
 test('connectors page shows active connector details', async ({ page }) => {
   await page.goto('/connectors')
   await expect(page.getByRole('heading', { name: 'Data connectors' })).toBeVisible()

@@ -7,7 +7,7 @@ import {
   LockClosedRegular,
   PlugConnectedRegular,
 } from '@fluentui/react-icons'
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
 
 import type {
   ConnectorCredentialMetadata,
@@ -24,6 +24,7 @@ import {
   type ConnectorSourcePage,
   type ConnectorSourceUpdateRequest,
 } from '../api/connectors-api'
+import { getActiveEstateId } from '../api/auth-fetch'
 import { useAuth } from '../hooks/useAuth'
 
 const STALE_AFTER_MS = 24 * 60 * 60 * 1_000
@@ -285,6 +286,56 @@ function mutationKey(operation: string, sourceId: string): string {
   return `connector-source-${operation}-${sourceId}-${globalThis.crypto.randomUUID()}`
 }
 
+type MutationIntent =
+  | { operation: 'create'; input: ConnectorSourceCreateRequest }
+  | {
+      operation: 'update'
+      sourceId: string
+      etag: string
+      patch: ConnectorSourceUpdateRequest
+    }
+  | { operation: 'toggle'; sourceId: string; etag: string; enabled: boolean }
+  | { operation: 'delete'; sourceId: string; etag: string }
+
+function mutationIntentSlot(intent: MutationIntent): string {
+  return intent.operation === 'create' ? 'create' : `${intent.operation}:${intent.sourceId}`
+}
+
+function mutationFingerprint(intent: MutationIntent): string {
+  return JSON.stringify(intent)
+}
+
+function retainMutationKey(error: unknown): boolean {
+  const status =
+    error instanceof ConnectorSourceApiError
+      ? error.status
+      : typeof error === 'object' &&
+          error !== null &&
+          'status' in error &&
+          typeof error.status === 'number'
+        ? error.status
+        : undefined
+  return status === undefined || status >= 500 || status === 408 || status === 429
+}
+
+function mergeSourcePages(
+  current: readonly ConnectorSourceDefinition[],
+  incoming: readonly ConnectorSourceDefinition[],
+): ConnectorSourceDefinition[] {
+  const merged = [...current]
+  const indexBySourceId = new Map(current.map((source, index) => [source.sourceId, index] as const))
+  for (const source of incoming) {
+    const existingIndex = indexBySourceId.get(source.sourceId)
+    if (existingIndex === undefined) {
+      indexBySourceId.set(source.sourceId, merged.length)
+      merged.push(source)
+    } else {
+      merged[existingIndex] = source
+    }
+  }
+  return merged
+}
+
 function statusLabel(
   status: ConnectorSourceDefinition['testStatus']['status'] | 'unknown',
 ): string {
@@ -298,6 +349,12 @@ function isStale(checkedAt: string | null | undefined): boolean {
   return checkedAt !== null && checkedAt !== undefined
     ? Date.now() - Date.parse(checkedAt) > STALE_AFTER_MS
     : false
+}
+
+function evidenceBasisLabel(basis: 'provider-response' | 'synthetic' | null | undefined): string {
+  if (basis === 'provider-response') return 'Provider response evidence'
+  if (basis === 'synthetic') return 'Synthetic evidence - not live provider evidence'
+  return 'Unknown / no evidence'
 }
 
 function mutationError(error: unknown): string {
@@ -411,11 +468,13 @@ function LimitsFields({
 function SourceForm({
   source,
   busy,
+  error,
   onCancel,
   onSubmit,
 }: {
   source?: ConnectorSourceDefinition
   busy: boolean
+  error?: string
   onCancel: () => void
   onSubmit: (form: SourceFormState) => Promise<void>
 }) {
@@ -423,6 +482,10 @@ function SourceForm({
     source === undefined ? { ...defaultForm } : formForSource(source),
   )
   const formRef = useRef<HTMLFormElement>(null)
+  const id = useId()
+  const titleId = `${id}-title`
+  const descriptionId = `${id}-description`
+  const errorId = `${id}-error`
   const setField = <K extends keyof SourceFormState>(field: K, value: SourceFormState[K]): void =>
     setForm((current) => ({ ...current, [field]: value }))
   const type = form.connectorType
@@ -438,7 +501,8 @@ function SourceForm({
       className="connector-source-dialog-backdrop"
       role="dialog"
       aria-modal="true"
-      aria-label={source === undefined ? 'Add connector source' : `Edit ${source.displayName}`}
+      aria-labelledby={titleId}
+      aria-describedby={error === undefined ? descriptionId : `${descriptionId} ${errorId}`}
       onKeyDown={(event) => {
         if (event.key === 'Escape' && !busy) {
           event.preventDefault()
@@ -466,12 +530,25 @@ function SourceForm({
     >
       <form ref={formRef} className="connector-source-dialog" onSubmit={submit}>
         <div>
-          <h3>{source === undefined ? 'Add connector source' : `Edit ${source.displayName}`}</h3>
-          <p>
+          <h3 id={titleId}>
+            {source === undefined ? 'Add connector source' : `Edit ${source.displayName}`}
+          </h3>
+          <p id={descriptionId}>
             Store only non-secret configuration. Use managed identity, federation metadata, or a Key
             Vault reference; never enter credential values.
           </p>
         </div>
+
+        {error === undefined ? null : (
+          <div
+            id={errorId}
+            className="connector-source-dialog__error"
+            role="alert"
+            aria-live="assertive"
+          >
+            {error}
+          </div>
+        )}
 
         <div className="connector-source-form-grid">
           <label className="connector-source-field" htmlFor="source-id">
@@ -791,6 +868,7 @@ function ConnectorSourceCard({
   onEdit,
   onToggle,
   onDelete,
+  onCancelDelete,
 }: {
   source: ConnectorSourceDefinition
   canConfigure: boolean
@@ -798,6 +876,7 @@ function ConnectorSourceCard({
   onEdit: () => void
   onToggle: () => Promise<void>
   onDelete: () => Promise<void>
+  onCancelDelete: () => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [testStatus, setTestStatus] = useState<ConnectorSourceConnectionStatus>()
@@ -805,6 +884,8 @@ function ConnectorSourceCard({
   const [testing, setTesting] = useState(false)
   const deploymentManaged = source.origin === 'deployment'
   const sourceStatus = source.testStatus.status
+  const sourceEvidenceBasis =
+    source.testStatus.status === 'not-tested' ? null : source.testStatus.evidenceBasis
   const stale = source.testStatus.status !== 'not-tested' && isStale(source.testStatus.checkedAt)
 
   const checkTestEvidence = async (): Promise<void> => {
@@ -857,6 +938,10 @@ function ConnectorSourceCard({
           <dt>Connection evidence</dt>
           <dd>{statusLabel(sourceStatus === 'not-tested' ? 'unknown' : sourceStatus)}</dd>
         </div>
+        <div className="connector-source-card__evidence-basis">
+          <dt>Evidence basis</dt>
+          <dd>{evidenceBasisLabel(sourceEvidenceBasis)}</dd>
+        </div>
       </dl>
       <div className="connector-source-card__actions">
         <Button
@@ -869,7 +954,13 @@ function ConnectorSourceCard({
         </Button>
         {!deploymentManaged && canConfigure ? (
           <>
-            <Button appearance="secondary" icon={<EditRegular />} onClick={onEdit} disabled={busy}>
+            <Button
+              appearance="secondary"
+              icon={<EditRegular />}
+              data-connector-focus={`edit:${source.sourceId}`}
+              onClick={onEdit}
+              disabled={busy}
+            >
               Edit
             </Button>
             <Button appearance="secondary" onClick={() => void onToggle()} disabled={busy}>
@@ -891,7 +982,10 @@ function ConnectorSourceCard({
                 </Button>
                 <Button
                   appearance="secondary"
-                  onClick={() => setConfirmDelete(false)}
+                  onClick={() => {
+                    onCancelDelete()
+                    setConfirmDelete(false)
+                  }}
                   disabled={busy}
                 >
                   Cancel delete
@@ -911,6 +1005,9 @@ function ConnectorSourceCard({
       {testStatus !== undefined ? (
         <div className="connector-source-test-result" role="status">
           <strong>{statusLabel(testStatus.status)}</strong>
+          <strong className="connector-source-test-result__basis">
+            {evidenceBasisLabel(testStatus.evidenceBasis)}
+          </strong>
           <span>{testStatus.summary}</span>
           {isStale(testStatus.checkedAt) ? <span>Evidence is stale.</span> : null}
         </div>
@@ -932,50 +1029,114 @@ export function ConnectorSourceManager() {
   const [page, setPage] = useState<ConnectorSourcePage>()
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string>()
   const [operationError, setOperationError] = useState<string>()
   const [editing, setEditing] = useState<ConnectorSourceDefinition | 'new'>()
   const [busySourceId, setBusySourceId] = useState<string>()
-  const editorTrigger = useRef<HTMLElement | null>(null)
+  const pageRef = useRef<ConnectorSourcePage | undefined>(undefined)
+  const mounted = useRef(false)
+  const requestGeneration = useRef(0)
+  const inFlightCursors = useRef(new Map<string, number>())
+  const mutationKeys = useRef(new Map<string, { fingerprint: string; key: string }>())
+  const editorTrigger = useRef<{ element: HTMLElement; focusId?: string } | null>(null)
 
   useEffect(() => {
-    if (editing === undefined && editorTrigger.current !== null) {
-      editorTrigger.current.focus()
-      editorTrigger.current = null
-    }
-  }, [editing])
+    pageRef.current = page
+  }, [page])
 
-  const load = useCallback(
-    async (cursor?: string) => {
-      if (cursor === undefined) {
-        setLoading((current) => current && page === undefined)
-        setRefreshing(page !== undefined)
+  useEffect(() => {
+    if (
+      editing !== undefined ||
+      busySourceId !== undefined ||
+      loading ||
+      refreshing ||
+      loadingMore ||
+      editorTrigger.current === null
+    ) {
+      return
+    }
+    const target = editorTrigger.current
+    const replacement =
+      target.focusId === undefined
+        ? undefined
+        : Array.from(document.querySelectorAll<HTMLElement>('[data-connector-focus]')).find(
+            (element) => element.dataset.connectorFocus === target.focusId,
+          )
+    const element = target.element.isConnected ? target.element : replacement
+    if (element === undefined || element.matches(':disabled')) return
+    element.focus()
+    editorTrigger.current = null
+  }, [busySourceId, editing, loading, loadingMore, page, refreshing])
+
+  const load = useCallback(async (cursor?: string) => {
+    const estateId = getActiveEstateId()
+    const cursorRequestKey = cursor === undefined ? undefined : `${estateId ?? ''}:${cursor}`
+    if (cursorRequestKey !== undefined && inFlightCursors.current.has(cursorRequestKey)) {
+      return
+    }
+
+    const generation =
+      cursorRequestKey === undefined ? requestGeneration.current + 1 : requestGeneration.current
+    if (cursorRequestKey === undefined) {
+      requestGeneration.current = generation
+      inFlightCursors.current.clear()
+      setLoadingMore(false)
+      if (pageRef.current === undefined) {
+        setLoading(true)
+      } else {
+        setRefreshing(true)
       }
-      setError(undefined)
-      try {
-        const next = await connectorSourcesApi.list(cursor)
-        setPage((current) =>
+    } else {
+      inFlightCursors.current.set(cursorRequestKey, generation)
+      setLoadingMore(true)
+    }
+    setError(undefined)
+
+    const requestIsCurrent = (): boolean =>
+      mounted.current &&
+      requestGeneration.current === generation &&
+      getActiveEstateId() === estateId
+
+    try {
+      const next = await connectorSourcesApi.list(cursor)
+      if (!requestIsCurrent()) return
+      setPage((current) => {
+        const updated =
           cursor === undefined || current === undefined
             ? next
-            : { ...next, items: [...current.items, ...next.items] },
-        )
-      } catch (caught: unknown) {
-        setError(
-          caught instanceof Error ? caught.message : 'Connector sources could not be loaded.',
-        )
-      } finally {
+            : { ...next, items: mergeSourcePages(current.items, next.items) }
+        pageRef.current = updated
+        return updated
+      })
+    } catch (caught: unknown) {
+      if (!requestIsCurrent()) return
+      setError(caught instanceof Error ? caught.message : 'Connector sources could not be loaded.')
+    } finally {
+      if (
+        cursorRequestKey !== undefined &&
+        inFlightCursors.current.get(cursorRequestKey) === generation
+      ) {
+        inFlightCursors.current.delete(cursorRequestKey)
+      }
+      if (requestIsCurrent()) {
         setLoading(false)
         setRefreshing(false)
+        if (cursor !== undefined) setLoadingMore(false)
       }
-    },
-    [page],
-  )
+    }
+  }, [])
 
   useEffect(() => {
+    const cursors = inFlightCursors.current
+    mounted.current = true
     void load()
-    // The active estate aborts stale requests in apiFetch; reload only when this component mounts.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    return () => {
+      mounted.current = false
+      requestGeneration.current += 1
+      cursors.clear()
+    }
+  }, [load])
 
   const hasConfigureCapability =
     principal?.capabilities.includes(page?.mutationPolicy.requiredCapability ?? 'configure') ??
@@ -993,9 +1154,41 @@ export function ConnectorSourceManager() {
   }, [hasConfigureCapability, isConfigured, page, principal])
 
   const openEditor = (value: ConnectorSourceDefinition | 'new'): void => {
+    const activeElement =
+      document.activeElement instanceof HTMLElement ? document.activeElement : undefined
     editorTrigger.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null
+      activeElement === undefined
+        ? null
+        : {
+            element: activeElement,
+            ...(activeElement.dataset.connectorFocus === undefined
+              ? {}
+              : { focusId: activeElement.dataset.connectorFocus }),
+          }
+    setOperationError(undefined)
     setEditing(value)
+  }
+
+  const keyForIntent = (intent: MutationIntent): string => {
+    const slot = mutationIntentSlot(intent)
+    const fingerprint = mutationFingerprint(intent)
+    const pending = mutationKeys.current.get(slot)
+    if (pending?.fingerprint === fingerprint) return pending.key
+    const sourceId =
+      intent.operation === 'create' ? intent.input.sourceId || 'new-source' : intent.sourceId
+    const key = mutationKey(intent.operation, sourceId)
+    mutationKeys.current.set(slot, { fingerprint, key })
+    return key
+  }
+
+  const clearIntent = (intent: MutationIntent): void => {
+    mutationKeys.current.delete(mutationIntentSlot(intent))
+  }
+
+  const clearMutationSlot = (operation: MutationIntent['operation'], sourceId?: string): void => {
+    mutationKeys.current.delete(
+      operation === 'create' ? 'create' : `${operation}:${sourceId ?? ''}`,
+    )
   }
 
   const save = async (form: SourceFormState): Promise<void> => {
@@ -1011,10 +1204,15 @@ export function ConnectorSourceManager() {
         credential: credential(form),
       }
       if (editing === 'new') {
-        await connectorSourcesApi.create(
-          input,
-          mutationKey('create', form.sourceId || 'new-source'),
-        )
+        const intent = { operation: 'create', input } as const
+        const key = keyForIntent(intent)
+        try {
+          await connectorSourcesApi.create(input, key)
+          clearIntent(intent)
+        } catch (caught: unknown) {
+          if (!retainMutationKey(caught)) clearIntent(intent)
+          throw caught
+        }
       } else if (editing !== undefined) {
         const patch: ConnectorSourceUpdateRequest = {
           displayName: input.displayName,
@@ -1022,12 +1220,20 @@ export function ConnectorSourceManager() {
           configuration: input.configuration,
           credential: input.credential,
         }
-        await connectorSourcesApi.update(
-          editing.sourceId,
+        const intent = {
+          operation: 'update',
+          sourceId: editing.sourceId,
+          etag: editing.etag,
           patch,
-          editing.etag,
-          mutationKey('update', editing.sourceId),
-        )
+        } as const
+        const key = keyForIntent(intent)
+        try {
+          await connectorSourcesApi.update(editing.sourceId, patch, editing.etag, key)
+          clearIntent(intent)
+        } catch (caught: unknown) {
+          if (!retainMutationKey(caught)) clearIntent(intent)
+          throw caught
+        }
       }
       setEditing(undefined)
       await load()
@@ -1041,15 +1247,23 @@ export function ConnectorSourceManager() {
   const updateEnabled = async (source: ConnectorSourceDefinition): Promise<void> => {
     setOperationError(undefined)
     setBusySourceId(source.sourceId)
+    const intent = {
+      operation: 'toggle',
+      sourceId: source.sourceId,
+      etag: source.etag,
+      enabled: !source.enabled,
+    } as const
     try {
       await connectorSourcesApi.update(
         source.sourceId,
-        { enabled: !source.enabled },
+        { enabled: intent.enabled },
         source.etag,
-        mutationKey(source.enabled ? 'disable' : 'enable', source.sourceId),
+        keyForIntent(intent),
       )
+      clearIntent(intent)
       await load()
     } catch (caught: unknown) {
+      if (!retainMutationKey(caught)) clearIntent(intent)
       setOperationError(mutationError(caught))
     } finally {
       setBusySourceId(undefined)
@@ -1059,14 +1273,17 @@ export function ConnectorSourceManager() {
   const remove = async (source: ConnectorSourceDefinition): Promise<void> => {
     setOperationError(undefined)
     setBusySourceId(source.sourceId)
+    const intent = {
+      operation: 'delete',
+      sourceId: source.sourceId,
+      etag: source.etag,
+    } as const
     try {
-      await connectorSourcesApi.delete(
-        source.sourceId,
-        source.etag,
-        mutationKey('delete', source.sourceId),
-      )
+      await connectorSourcesApi.delete(source.sourceId, source.etag, keyForIntent(intent))
+      clearIntent(intent)
       await load()
     } catch (caught: unknown) {
+      if (!retainMutationKey(caught)) clearIntent(intent)
       setOperationError(mutationError(caught))
     } finally {
       setBusySourceId(undefined)
@@ -1098,6 +1315,7 @@ export function ConnectorSourceManager() {
             appearance="primary"
             icon={<AddRegular />}
             disabled={!canConfigure}
+            data-connector-focus="add"
             onClick={() => openEditor('new')}
           >
             Add connector source
@@ -1111,7 +1329,7 @@ export function ConnectorSourceManager() {
           {disabledReason}
         </p>
       ) : null}
-      {operationError !== undefined ? (
+      {operationError !== undefined && editing === undefined ? (
         <div className="connector-source-operation-error" role="alert">
           {operationError}
         </div>
@@ -1159,16 +1377,17 @@ export function ConnectorSourceManager() {
                 onEdit={() => openEditor(source)}
                 onToggle={() => updateEnabled(source)}
                 onDelete={() => remove(source)}
+                onCancelDelete={() => clearMutationSlot('delete', source.sourceId)}
               />
             ))}
           </div>
           {page.page.nextCursor !== null ? (
             <Button
               appearance="secondary"
-              disabled={refreshing}
+              disabled={refreshing || loadingMore}
               onClick={() => void load(page.page.nextCursor ?? undefined)}
             >
-              Load more sources
+              {loadingMore ? 'Loading more...' : 'Load more sources'}
             </Button>
           ) : null}
         </>
@@ -1178,7 +1397,13 @@ export function ConnectorSourceManager() {
         <SourceForm
           {...(editing === 'new' ? {} : { source: editing })}
           busy={busySourceId !== undefined}
+          {...(operationError === undefined ? {} : { error: operationError })}
           onCancel={() => {
+            if (editing === 'new') {
+              clearMutationSlot('create')
+            } else {
+              clearMutationSlot('update', editing.sourceId)
+            }
             setEditing(undefined)
             setOperationError(undefined)
           }}
