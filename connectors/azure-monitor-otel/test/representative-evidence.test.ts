@@ -78,23 +78,23 @@ describe('representative OpenTelemetry evidence normalization', () => {
         correlations: [
           { kind: 'correlation-id', value: '11111111111111111111111111111111' },
         ],
-        otelProvenance: expect.objectContaining({
-          estateId: 'estate-a',
-          estateTenantId: 'tenant-a',
-          estateEnvironment: 'portfolio',
-          sourceConnectorId: 'source-a',
-          sourceTenantId: 'tenant-a',
-          sourceEnvironment: 'production',
-          providerResourceId: binding.providerResourceId,
-          providerAgentId: 'provider-agent-a',
-          traceId: '11111111111111111111111111111111',
-          spanId: 'aaaaaaaaaaaaaaaa',
-          classification: 'live',
-          sampling: { state: 'complete', rate: 1 },
-          aggregation: { kind: 'raw' },
-        }),
       }),
     ])
+    expect(result.window.observations[0]?.otelProvenance).toMatchObject({
+      estateId: 'estate-a',
+      estateTenantId: 'tenant-a',
+      estateEnvironment: 'portfolio',
+      sourceConnectorId: 'source-a',
+      sourceTenantId: 'tenant-a',
+      sourceEnvironment: 'production',
+      providerResourceId: binding.providerResourceId,
+      providerAgentId: 'provider-agent-a',
+      traceId: '11111111111111111111111111111111',
+      spanId: 'aaaaaaaaaaaaaaaa',
+      classification: 'live',
+      sampling: { state: 'complete', rate: 1 },
+      aggregation: { kind: 'raw' },
+    })
     expect(result.window.observations[0]?.otelProvenance?.evidenceIds).toHaveLength(6)
   })
 
