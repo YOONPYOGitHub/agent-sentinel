@@ -7,7 +7,13 @@ import type {
   ManifestIngestionRepository,
 } from '@agent-sentinel/connector-sdk'
 import type { EstateSnapshot } from '@agent-sentinel/domain'
-import { FOUNDRY_API_VERSION, mapAgentToSnapshot } from '@agent-sentinel/foundry-connector'
+import {
+  FOUNDRY_API_VERSION,
+  MultiFoundryConnector,
+  mapAgentToSnapshot,
+  type FoundryConnectorOptions,
+  type FoundryDiscoveryFailureReason,
+} from '@agent-sentinel/foundry-connector'
 import { ManifestConnector } from '@agent-sentinel/manifest-connector'
 import {
   InMemoryConnectorHealthRepository,
@@ -67,6 +73,69 @@ const testEstate = {
   id: 'default',
   tenantId: 'tenant-demo',
   environment: 'validation',
+}
+const liveFoundryPortfolio = {
+  estateTenantId: testEstate.tenantId,
+  estateEnvironment: testEstate.environment,
+  sources: [
+    {
+      id: 'primary',
+      name: 'Validation project',
+      projectEndpoint: 'https://example.services.ai.azure.com/api/projects/validation',
+      tenantId: testEstate.tenantId,
+      environment: testEstate.environment,
+    },
+  ],
+}
+
+function liveFoundryConnector(fetcher: typeof fetch, options: FoundryConnectorOptions = {}) {
+  return new MultiFoundryConnector(
+    liveFoundryPortfolio,
+    () => ({
+      getToken: () =>
+        Promise.resolve({ token: 'test-token', expiresOnTimestamp: Date.now() + 60_000 }),
+    }),
+    [],
+    { ...options, fetch: fetcher },
+  )
+}
+
+async function expectFailedDiscoveryNotPromoted(
+  connector: MultiFoundryConnector,
+  reason: FoundryDiscoveryFailureReason,
+): Promise<void> {
+  const snapshots = new InMemorySnapshotRepository()
+  const exposures = new InMemoryExposureFindingRepository()
+  const baseline = fullSnapshot()
+  baseline.generatedAt = '2026-09-05T08:00:00.000Z'
+  await snapshots.save(testEstate, baseline)
+  const service = new IngestionService(connector, snapshots, exposures, {
+    estate: testEstate,
+    sourceMode: 'foundry',
+  })
+
+  await expect(service.run()).rejects.toThrow('No configured Foundry source completed discovery')
+  expect(await snapshots.list(testEstate)).toEqual([baseline])
+  expect(connector.getConnectorHealth()).toMatchObject({
+    overall: reason === 'authentication-or-access' ? 'unavailable' : 'degraded',
+    partial: false,
+    sources: [
+      {
+        id: 'foundry:primary',
+        readiness: reason === 'authentication-or-access' ? 'unavailable' : 'degraded',
+        reason,
+        provenance: {
+          estateTenantId: testEstate.tenantId,
+          estateEnvironment: testEstate.environment,
+          sourceConnectorId: 'primary',
+          sourceTenantId: testEstate.tenantId,
+          sourceEnvironment: testEstate.environment,
+          provider: 'azure-ai-foundry-agent-service',
+          providerObjectId: 'validation',
+        },
+      },
+    ],
+  })
 }
 
 async function manifestRecord(): Promise<ManifestIngestionRecord> {
@@ -245,6 +314,7 @@ describe('IngestionService', () => {
       newFindings: [],
       resolvedFindings: [],
     })
+
     expect(await snapshots.list(testEstate)).toHaveLength(1)
     expect(await snapshots.findLatest(testEstate)).toMatchObject({
       generatedAt: completeSnapshot.generatedAt,
@@ -363,6 +433,144 @@ describe('IngestionService', () => {
           reason: 'authorization (403)',
         },
       ],
+    })
+  })
+
+  it.each([
+    {
+      name: 'repeated continuation',
+      reason: 'repeated-continuation' as const,
+      create: () =>
+        liveFoundryConnector(
+          vi.fn<typeof fetch>(() =>
+            Promise.resolve(Response.json({ data: [], continuationToken: 'same-token' })),
+          ),
+        ),
+    },
+    {
+      name: 'oversized page',
+      reason: 'item-limit-exceeded' as const,
+      create: () =>
+        liveFoundryConnector(
+          vi.fn<typeof fetch>().mockResolvedValue(
+            Response.json({
+              data: [
+                { id: 'agent-a', name: 'Agent A' },
+                { id: 'agent-b', name: 'Agent B' },
+              ],
+            }),
+          ),
+          { limits: { maxItems: 1 } },
+        ),
+    },
+    {
+      name: 'oversized body',
+      reason: 'response-too-large' as const,
+      create: () =>
+        liveFoundryConnector(
+          vi.fn<typeof fetch>().mockResolvedValue(
+            Response.json({
+              data: [{ id: 'agent-a', name: 'Agent A', description: 'x'.repeat(200) }],
+            }),
+          ),
+          { limits: { maxResponseBytes: 100, maxTotalResponseBytes: 200 } },
+        ),
+    },
+    {
+      name: 'request timeout',
+      reason: 'request-timeout' as const,
+      create: () =>
+        liveFoundryConnector(
+          vi.fn<typeof fetch>(
+            (_input, init) =>
+              new Promise<Response>((_resolve, reject) => {
+                const signal = init?.signal
+                if (signal === undefined || signal === null) {
+                  reject(new Error('Missing request abort signal.'))
+                  return
+                }
+                signal.addEventListener('abort', () => reject(new Error('Request aborted.')), {
+                  once: true,
+                })
+              }),
+          ),
+          { limits: { requestTimeoutMs: 10 } },
+        ),
+    },
+    {
+      name: 'explicit abort',
+      reason: 'request-aborted' as const,
+      create: () => {
+        const abortController = new AbortController()
+        abortController.abort()
+        return liveFoundryConnector(vi.fn<typeof fetch>(), {
+          signal: abortController.signal,
+        })
+      },
+    },
+    {
+      name: 'partial second-page failure',
+      reason: 'provider-request-failed' as const,
+      create: () =>
+        liveFoundryConnector(
+          vi
+            .fn<typeof fetch>()
+            .mockResolvedValueOnce(
+              Response.json({
+                data: [{ id: 'agent-a', name: 'Agent A' }],
+                continuationToken: 'second-page',
+              }),
+            )
+            .mockResolvedValueOnce(
+              Response.json({ error: { message: 'Service unavailable' } }, { status: 503 }),
+            ),
+        ),
+    },
+  ])('does not promote prior-page inventory after $name', async ({ create, reason }) => {
+    await expectFailedDiscoveryNotPromoted(create(), reason)
+  })
+
+  it('promotes only a successful discovery completed within every bound', async () => {
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          data: [{ id: 'agent-a', name: 'Agent A' }],
+          continuationToken: 'second-page',
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ data: [{ id: 'agent-b', name: 'Agent B' }] }))
+    const connector = liveFoundryConnector(fetcher, {
+      limits: {
+        maxPages: 2,
+        maxItems: 2,
+        maxResponseBytes: 1_024,
+        maxTotalResponseBytes: 2_048,
+      },
+    })
+    const service = new IngestionService(connector, snapshots, exposures, {
+      estate: testEstate,
+      sourceMode: 'foundry',
+    })
+
+    const result = await service.run()
+    expect(result).toMatchObject({ outcome: 'succeeded', persisted: true })
+    expect(result.snapshot.nodes.filter((node) => node.kind === 'agent')).toHaveLength(2)
+    expect(result.snapshot.nodes[0]?.metadata).toMatchObject({
+      sourceConnectorId: 'primary',
+      sourceTenantId: testEstate.tenantId,
+      sourceEnvironment: testEstate.environment,
+      sourceProjectId: 'validation',
+      sourceObjectId: 'agent-a',
+    })
+    expect(await snapshots.list(testEstate)).toHaveLength(1)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(connector.getConnectorHealth()).toMatchObject({
+      overall: 'ready',
+      partial: false,
+      sources: [{ readiness: 'ready' }],
     })
   })
 

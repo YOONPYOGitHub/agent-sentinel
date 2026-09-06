@@ -100,9 +100,12 @@ function trustComposition(assessment: ReturnType<typeof completeTrustAssessment>
     clock: trustServerContext.clock,
   }
 }
-function connector(fetcher: typeof fetch) {
+function connector(
+  fetcher: typeof fetch,
+  options: ConstructorParameters<typeof FoundryAgentConnector>[3] = {},
+) {
   vi.stubGlobal('fetch', fetcher)
-  return new FoundryAgentConnector(config, new Credential())
+  return new FoundryAgentConnector(config, new Credential(), undefined, options)
 }
 afterEach(() => vi.unstubAllGlobals())
 describe('Foundry connector', () => {
@@ -526,11 +529,164 @@ describe('Foundry connector', () => {
     expect(snapshot.nodes.filter((n) => n.kind === 'agent')).toHaveLength(2)
     expect(fetcher).toHaveBeenCalledTimes(2)
   })
+  it('rejects a repeated continuation token instead of paginating forever', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation(() =>
+        Promise.resolve(Response.json({ data: [], continuationToken: 'same-token' })),
+      )
+    const foundry = connector(fetcher)
+
+    await expect(foundry.discover()).rejects.toMatchObject({
+      reason: 'repeated-continuation',
+    })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(foundry.getLastFailureReason()).toBe('repeated-continuation')
+  })
+  it('stops unique infinite pagination at the configured page bound', async () => {
+    let page = 0
+    const fetcher = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        Response.json({
+          data: [],
+          continuationToken: `token-${++page}`,
+        }),
+      ),
+    )
+
+    await expect(connector(fetcher, { limits: { maxPages: 2 } }).discover()).rejects.toMatchObject({
+      reason: 'page-limit-exceeded',
+    })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+  it('rejects a page that exceeds the item bound', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json({ data: [externalAgent, approvalAgent] }))
+
+    await expect(connector(fetcher, { limits: { maxItems: 1 } }).discover()).rejects.toMatchObject({
+      reason: 'item-limit-exceeded',
+    })
+  })
+  it('rejects a response body that exceeds the byte bound', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        Response.json({ data: [{ ...externalAgent, description: 'x'.repeat(200) }] }),
+      )
+
+    await expect(
+      connector(fetcher, {
+        limits: { maxResponseBytes: 100, maxTotalResponseBytes: 200 },
+      }).discover(),
+    ).rejects.toMatchObject({
+      reason: 'response-too-large',
+    })
+  })
+  it('rejects discovery that exceeds the cumulative response byte bound', async () => {
+    const page = { data: [], continuationToken: 'next' }
+    const firstSize = new TextEncoder().encode(JSON.stringify(page)).byteLength
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(page))
+      .mockResolvedValueOnce(Response.json({ data: [] }))
+
+    await expect(
+      connector(fetcher, {
+        limits: {
+          maxResponseBytes: firstSize + 20,
+          maxTotalResponseBytes: firstSize + 5,
+        },
+      }).discover(),
+    ).rejects.toMatchObject({
+      reason: 'total-response-too-large',
+    })
+  })
+  it('times out and aborts a stalled request', async () => {
+    const fetcher = vi.fn<typeof fetch>(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal
+          if (signal === undefined || signal === null) {
+            reject(new Error('Missing request abort signal.'))
+            return
+          }
+          signal.addEventListener('abort', () => reject(new Error('Request aborted.')), {
+            once: true,
+          })
+        }),
+    )
+
+    await expect(
+      connector(fetcher, { limits: { requestTimeoutMs: 10 } }).discover(),
+    ).rejects.toMatchObject({
+      reason: 'request-timeout',
+    })
+    expect(fetcher.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal)
+  })
+  it('honors an explicit caller abort before issuing a request', async () => {
+    const abortController = new AbortController()
+    abortController.abort()
+    const fetcher = vi.fn<typeof fetch>()
+
+    await expect(
+      connector(fetcher, { signal: abortController.signal }).discover(),
+    ).rejects.toMatchObject({
+      reason: 'request-aborted',
+    })
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+  it('rejects unsafe continuation URLs', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        data: [externalAgent],
+        nextLink: 'https://attacker.example/agents?continuationToken=stolen',
+      }),
+    )
+
+    await expect(connector(fetcher).discover()).rejects.toMatchObject({
+      reason: 'unsafe-continuation-url',
+    })
+  })
+  it('does not promote first-page inventory after a second-page failure', async () => {
+    const foundry = connector(
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          Response.json({ data: [externalAgent], continuationToken: 'second-page' }),
+        )
+        .mockResolvedValueOnce(
+          Response.json({ error: { message: 'Service unavailable' } }, { status: 503 }),
+        ),
+    )
+
+    await expect(foundry.discover()).rejects.toMatchObject({
+      reason: 'provider-request-failed',
+    })
+    expect(() => foundry.getEvidence('foundry-evidence-a1')).toThrow(
+      'Foundry evidence was not found',
+    )
+  })
   it('rejects invalid API shape', async () => {
     expect(() => foundryAgentPageSchema.parse({ object: 'list' })).toThrow()
-    await expect(
-      connector(vi.fn<typeof fetch>().mockResolvedValue(Response.json({ nope: [] }))).discover(),
-    ).rejects.toThrow()
+    const foundry = connector(vi.fn<typeof fetch>().mockResolvedValue(Response.json({ nope: [] })))
+    await expect(foundry.discover()).rejects.toMatchObject({ reason: 'malformed-page' })
+    expect(foundry.getLastFailureReason()).toBe('malformed-page')
+  })
+  it('accepts a bounded header continuation only when another page exists', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json(
+          { data: [externalAgent], has_more: true },
+          { headers: { 'x-ms-continuation': 'second-page' } },
+        ),
+      )
+      .mockResolvedValueOnce(Response.json({ data: [approvalAgent], has_more: false }))
+
+    const snapshot = await connector(fetcher).discover()
+    expect(snapshot.nodes.filter((node) => node.kind === 'agent')).toHaveLength(2)
+    expect(fetcher).toHaveBeenCalledTimes(2)
   })
   it('handles auth errors', async () => {
     const result = await connector(
@@ -742,5 +898,55 @@ describe('multi-Foundry connector', () => {
     await expect(connector.discover()).rejects.toThrow(
       'No configured Foundry source completed discovery',
     )
+  })
+
+  it('reports bounded discovery failure with exact source provenance', async () => {
+    const connector = new MultiFoundryConnector(
+      {
+        estateTenantId: 'estate',
+        estateEnvironment: 'portfolio',
+        sources: [portfolio.sources[0]!],
+      },
+      () => new Credential(),
+      [],
+      {
+        fetch: vi
+          .fn<typeof fetch>()
+          .mockImplementation(() =>
+            Promise.resolve(Response.json({ data: [], continuationToken: 'same-token' })),
+          ),
+      },
+    )
+
+    await expect(connector.discover()).rejects.toThrow(
+      'No configured Foundry source completed discovery',
+    )
+    const health = connector.getConnectorHealth()
+    expect(health.sources[0]?.checkedAt).toBeDefined()
+    expect(health).toEqual({
+      overall: 'degraded',
+      partial: false,
+      sources: [
+        {
+          id: 'foundry:tenant-a-project',
+          name: 'Tenant A project',
+          role: 'discovery',
+          enabled: true,
+          configured: true,
+          readiness: 'degraded',
+          checkedAt: health.sources[0]?.checkedAt,
+          reason: 'repeated-continuation',
+          provenance: {
+            estateTenantId: 'estate',
+            estateEnvironment: 'portfolio',
+            sourceConnectorId: 'tenant-a-project',
+            sourceTenantId: 'tenant-a',
+            sourceEnvironment: 'production',
+            provider: 'azure-ai-foundry-agent-service',
+            providerObjectId: 'project-a',
+          },
+        },
+      ],
+    })
   })
 })

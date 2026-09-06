@@ -77,10 +77,15 @@ falling back. `GET /api/connectors/status` returns the selected mode,
 capabilities, permissions, API maturity, known blind spots, and a measured
 connection result. The web **Connectors** page presents the same evidence.
 
-The connector validates Foundry responses, safely follows same-collection
-`nextLink` and body/header continuation tokens, and maps each source object to
-evidence and an estate agent. It does not infer tools, relationships, owners,
-or health that Foundry did not return.
+The connector validates Foundry responses and safely follows same-origin,
+same-collection `nextLink` and body/header continuation tokens. Live discovery
+is bounded to 100 pages, 10,000 agents, 4 MiB per response, 16 MiB across the
+discovery run, and 30 seconds per request. Repeated continuations, malformed
+pages, oversized responses, timeouts, and aborts fail the affected source with
+a stable reason code. No agents accumulated before that failure are promoted.
+The connector maps each completed source object to evidence and an estate agent;
+it does not infer tools, relationships, owners, or health that Foundry did not
+return.
 
 ### Multiple tenants and projects
 
@@ -117,6 +122,8 @@ export FOUNDRY_SOURCES_JSON='[
 Use source id `primary` for the existing project to preserve its node and
 finding identifiers. Additional sources are namespaced by source id. Every
 node records `sourceConnectorId`, source tenant, project, and environment.
+Connector health records the aggregate estate tenant/environment plus the exact
+source connector, source tenant/environment, provider, and project object ID.
 
 Same-tenant sources can use the default managed identity/developer credential.
 Cross-tenant sources use secretless workload identity federation: create an app

@@ -52,6 +52,16 @@ export interface ExactIdentityCorrelationDiagnostics {
   readonly evidenceReferences: readonly string[]
 }
 
+export interface ConnectorSourceProvenance {
+  readonly estateTenantId: string
+  readonly estateEnvironment: string
+  readonly sourceConnectorId: string
+  readonly sourceTenantId: string
+  readonly sourceEnvironment: string
+  readonly provider: string
+  readonly providerObjectId: string
+}
+
 export interface ConnectorSourceHealth {
   readonly id: string
   readonly name: string
@@ -63,6 +73,7 @@ export interface ConnectorSourceHealth {
   /** Stable, sanitized reason code. Never contains provider response data. */
   readonly reason?: string
   readonly diagnostics?: ExactIdentityCorrelationDiagnostics
+  readonly provenance?: ConnectorSourceProvenance
 }
 
 export interface ConnectorHealthReport {

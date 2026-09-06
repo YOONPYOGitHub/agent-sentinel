@@ -1,6 +1,8 @@
 import type {
   AgentConnector,
   ApprovalContext,
+  ConnectorSourceHealth,
+  ConnectorSourceProvenance,
   ConnectorHealthReport,
   ConnectorDescriptor,
 } from '@agent-sentinel/connector-sdk'
@@ -24,6 +26,84 @@ import { z } from 'zod'
 
 export const FOUNDRY_API_VERSION = 'v1'
 const TOKEN_SCOPE = 'https://ai.azure.com/.default'
+const FOUNDRY_PROVIDER = 'azure-ai-foundry-agent-service'
+
+export interface FoundryDiscoveryLimits {
+  readonly requestTimeoutMs: number
+  readonly maxPages: number
+  readonly maxItems: number
+  readonly maxResponseBytes: number
+  readonly maxTotalResponseBytes: number
+  readonly maxContinuationLength: number
+}
+
+export const DEFAULT_FOUNDRY_DISCOVERY_LIMITS: FoundryDiscoveryLimits = Object.freeze({
+  requestTimeoutMs: 30_000,
+  maxPages: 100,
+  maxItems: 10_000,
+  maxResponseBytes: 4 * 1024 * 1024,
+  maxTotalResponseBytes: 16 * 1024 * 1024,
+  maxContinuationLength: 4_096,
+})
+
+const foundryDiscoveryLimitsSchema = z.strictObject({
+  requestTimeoutMs: z.number().int().positive().max(300_000),
+  maxPages: z.number().int().positive().max(1_000),
+  maxItems: z.number().int().positive().max(100_000),
+  maxResponseBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(64 * 1024 * 1024),
+  maxTotalResponseBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(256 * 1024 * 1024),
+  maxContinuationLength: z.number().int().positive().max(16_384),
+})
+
+export interface FoundryConnectorOptions {
+  readonly fetch?: typeof fetch
+  readonly limits?: Partial<FoundryDiscoveryLimits>
+  readonly signal?: AbortSignal
+}
+
+export interface FoundryDiscoveryRequest {
+  readonly signal?: AbortSignal
+}
+
+export type FoundryDiscoveryFailureReason =
+  | 'not-queried'
+  | 'authentication-or-access'
+  | 'credential-failed'
+  | 'request-timeout'
+  | 'request-aborted'
+  | 'provider-request-failed'
+  | 'response-too-large'
+  | 'total-response-too-large'
+  | 'page-limit-exceeded'
+  | 'item-limit-exceeded'
+  | 'malformed-page'
+  | 'repeated-continuation'
+  | 'unsafe-continuation-url'
+  | 'unexpected-failure'
+
+export interface FoundrySourceProvenance extends ConnectorSourceProvenance {
+  readonly provider: typeof FOUNDRY_PROVIDER
+}
+
+export interface FoundryConnectorSourceHealth extends Omit<
+  ConnectorSourceHealth,
+  'reason' | 'provenance'
+> {
+  readonly reason?: FoundryDiscoveryFailureReason
+  readonly provenance: FoundrySourceProvenance
+}
+
+export interface FoundryConnectorHealthReport extends Omit<ConnectorHealthReport, 'sources'> {
+  readonly sources: readonly FoundryConnectorSourceHealth[]
+}
 
 export function sanitizeFoundryProjectEndpoint(endpoint: string): string {
   let url: URL
@@ -434,10 +514,22 @@ export const foundryAgentPageSchema = z
   .superRefine((page, ctx) => {
     if (page.data === undefined && page.value === undefined)
       ctx.addIssue({ code: 'custom', message: 'Agent list response must contain data or value.' })
+    if (page.data !== undefined && page.value !== undefined)
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Agent list response must not contain both data and value.',
+      })
   })
 
 export class FoundryConnectorError extends Error {
   override readonly name = 'FoundryConnectorError'
+
+  constructor(
+    message: string,
+    readonly reason: FoundryDiscoveryFailureReason = 'unexpected-failure',
+  ) {
+    super(message)
+  }
 }
 function toolNames(agent: FoundryAgentDefinition): string[] {
   return (agent.tools ?? []).flatMap((tool) =>
@@ -748,6 +840,18 @@ function errorMessage(value: unknown): string | undefined {
   return undefined
 }
 
+function discoveryFailureReason(error: unknown): FoundryDiscoveryFailureReason {
+  if (error instanceof FoundryConnectorError) return error.reason
+  if (error instanceof z.ZodError) return 'malformed-page'
+  return 'unexpected-failure'
+}
+
+function readinessForFailure(reason: FoundryDiscoveryFailureReason): 'degraded' | 'unavailable' {
+  return reason === 'authentication-or-access' || reason === 'credential-failed'
+    ? 'unavailable'
+    : 'degraded'
+}
+
 export class FoundryAgentConnector implements AgentConnector {
   readonly descriptor: ConnectorDescriptor = {
     id: 'azure-ai-foundry-agent-service',
@@ -759,7 +863,11 @@ export class FoundryAgentConnector implements AgentConnector {
     blindSpots: ['Declared configuration does not prove observed runtime behavior.'],
   }
   private readonly config: FoundryConnectorConfig
+  private readonly fetcher: typeof fetch
+  private readonly limits: FoundryDiscoveryLimits
+  private readonly defaultSignal: AbortSignal | undefined
   private evidenceById = new Map<string, Evidence>()
+  private lastFailureReason: FoundryDiscoveryFailureReason | undefined = 'not-queried'
   constructor(
     config: FoundryConnectorConfig,
     private readonly credential: TokenCredential,
@@ -767,15 +875,24 @@ export class FoundryAgentConnector implements AgentConnector {
       sourceId: 'primary',
       trustAssessments: [],
     },
+    options: FoundryConnectorOptions = {},
   ) {
     this.config = foundryConnectorConfigSchema.parse(config)
+    this.fetcher = options.fetch ?? globalThis.fetch
+    this.defaultSignal = options.signal
+    this.limits = foundryDiscoveryLimitsSchema.parse({
+      ...DEFAULT_FOUNDRY_DISCOVERY_LIMITS,
+      ...options.limits,
+    })
   }
   async testConnection() {
     const checkedAt = new Date().toISOString()
     try {
-      await this.listAgents(1)
+      await this.listAgents(1, this.defaultSignal)
+      this.lastFailureReason = undefined
       return { ok: true, checkedAt, message: 'Azure AI Foundry Agent Service is reachable.' }
     } catch (error: unknown) {
+      this.lastFailureReason = discoveryFailureReason(error)
       return {
         ok: false,
         checkedAt,
@@ -783,15 +900,24 @@ export class FoundryAgentConnector implements AgentConnector {
       }
     }
   }
-  async discover(): Promise<EstateSnapshot> {
-    const snapshot = mapAgentToSnapshot(
-      await this.listAgents(),
-      FOUNDRY_API_VERSION,
-      this.config,
-      this.composition,
-    )
-    this.evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]))
-    return snapshot
+  async discover(request: FoundryDiscoveryRequest = {}): Promise<EstateSnapshot> {
+    try {
+      const snapshot = mapAgentToSnapshot(
+        await this.listAgents(undefined, request.signal ?? this.defaultSignal),
+        FOUNDRY_API_VERSION,
+        this.config,
+        this.composition,
+      )
+      this.evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]))
+      this.lastFailureReason = undefined
+      return snapshot
+    } catch (error: unknown) {
+      this.lastFailureReason = discoveryFailureReason(error)
+      throw error
+    }
+  }
+  getLastFailureReason(): FoundryDiscoveryFailureReason | undefined {
+    return this.lastFailureReason
   }
   getEvidence(id: string): Promise<Evidence> {
     const item = this.evidenceById.get(id)
@@ -806,66 +932,281 @@ export class FoundryAgentConnector implements AgentConnector {
     void approval
     return Promise.reject(new Error('Live remediation not supported for Foundry connector'))
   }
-  private async listAgents(maximum?: number): Promise<FoundryAgentDefinition[]> {
+  private async listAgents(
+    maximum?: number,
+    signal?: AbortSignal,
+  ): Promise<FoundryAgentDefinition[]> {
     const initial = new URL(`${this.config.projectEndpoint.replace(/\/+$/, '')}/agents`)
     initial.searchParams.set('api-version', FOUNDRY_API_VERSION)
     const agents: FoundryAgentDefinition[] = []
+    const seenContinuations = new Set<string>([initial.href])
+    let pageCount = 0
+    let totalResponseBytes = 0
     let next: URL | undefined = initial
     while (next !== undefined) {
-      const response = await this.request(next)
-      const page = foundryAgentPageSchema.parse(response.body)
-      agents.push(...(page.data ?? page.value ?? []))
+      if (pageCount >= this.limits.maxPages) {
+        throw new FoundryConnectorError(
+          `Foundry discovery exceeded the ${this.limits.maxPages} page limit.`,
+          'page-limit-exceeded',
+        )
+      }
+      const response = await this.request(next, totalResponseBytes, signal)
+      pageCount += 1
+      totalResponseBytes += response.bytes
+      let page: z.output<typeof foundryAgentPageSchema>
+      try {
+        page = foundryAgentPageSchema.parse(response.body)
+      } catch {
+        throw new FoundryConnectorError(
+          'Foundry returned a malformed agent list page.',
+          'malformed-page',
+        )
+      }
+      const pageAgents = page.data ?? page.value ?? []
+      if (agents.length + pageAgents.length > this.limits.maxItems) {
+        throw new FoundryConnectorError(
+          `Foundry discovery exceeded the ${this.limits.maxItems} item limit.`,
+          'item-limit-exceeded',
+        )
+      }
+      agents.push(...pageAgents)
       if (maximum !== undefined && agents.length >= maximum) return agents.slice(0, maximum)
       next = undefined
+      if (page.has_more === false) continue
+      if (
+        page.has_more === true &&
+        page.nextLink === undefined &&
+        page.continuationToken === undefined &&
+        response.continuation === undefined
+      ) {
+        throw new FoundryConnectorError(
+          'Foundry returned a page marked incomplete without a continuation.',
+          'malformed-page',
+        )
+      }
       if (page.nextLink !== undefined) {
-        const candidate = new URL(page.nextLink, initial)
-        if (candidate.origin !== initial.origin || candidate.pathname !== initial.pathname)
-          throw new FoundryConnectorError('Untrusted agents nextLink.')
+        const candidate = this.validateContinuationUrl(page.nextLink, initial)
         candidate.searchParams.set('api-version', FOUNDRY_API_VERSION)
         next = candidate
       } else {
         const token = page.continuationToken ?? response.continuation
         if (token !== undefined) {
+          this.validateContinuationToken(token)
           next = new URL(initial)
           next.searchParams.set('continuationToken', token)
         }
       }
+      if (next !== undefined && seenContinuations.has(next.href)) {
+        throw new FoundryConnectorError(
+          'Foundry returned a repeated pagination continuation.',
+          'repeated-continuation',
+        )
+      }
+      if (next !== undefined) seenContinuations.add(next.href)
     }
     return agents
   }
-  private async request(url: URL): Promise<{ body: unknown; continuation?: string }> {
-    const token = await this.credential.getToken(TOKEN_SCOPE)
-    if (token === null)
-      throw new FoundryConnectorError('Azure credential did not return a Foundry access token.')
-    const response = await fetch(url, {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${token.token}` },
-    })
-    let body: unknown
-    try {
-      body = await response.json()
-    } catch (error: unknown) {
+
+  private validateContinuationUrl(value: string, initial: URL): URL {
+    if (
+      value.length === 0 ||
+      value.length > this.limits.maxContinuationLength ||
+      value.trim() !== value
+    ) {
       throw new FoundryConnectorError(
-        `Foundry returned an unreadable response: ${error instanceof Error ? error.message : 'non-JSON response'}`,
+        'Foundry returned an invalid agents nextLink.',
+        'unsafe-continuation-url',
       )
     }
-    if (!response.ok)
+    let candidate: URL
+    try {
+      candidate = new URL(value, initial)
+    } catch {
+      throw new FoundryConnectorError(
+        'Foundry returned an invalid agents nextLink.',
+        'unsafe-continuation-url',
+      )
+    }
+    if (
+      candidate.protocol !== 'https:' ||
+      candidate.username !== '' ||
+      candidate.password !== '' ||
+      candidate.hash !== '' ||
+      candidate.origin !== initial.origin ||
+      candidate.pathname !== initial.pathname
+    ) {
+      throw new FoundryConnectorError(
+        'Foundry returned an untrusted agents nextLink.',
+        'unsafe-continuation-url',
+      )
+    }
+    return candidate
+  }
+
+  private validateContinuationToken(token: string): void {
+    if (
+      token.length === 0 ||
+      token.length > this.limits.maxContinuationLength ||
+      token.trim() !== token
+    ) {
+      throw new FoundryConnectorError(
+        'Foundry returned an invalid continuation token.',
+        'malformed-page',
+      )
+    }
+  }
+  private async request(
+    url: URL,
+    totalResponseBytes: number,
+    externalSignal?: AbortSignal,
+  ): Promise<{ body: unknown; bytes: number; continuation?: string }> {
+    if (externalSignal?.aborted === true) {
+      throw new FoundryConnectorError('Foundry discovery was aborted.', 'request-aborted')
+    }
+    const timeoutController = new AbortController()
+    const timeoutState = { expired: false }
+    const timeout = setTimeout(() => {
+      timeoutState.expired = true
+      timeoutController.abort()
+    }, this.limits.requestTimeoutMs)
+    const signal =
+      externalSignal === undefined
+        ? timeoutController.signal
+        : AbortSignal.any([externalSignal, timeoutController.signal])
+    try {
+      return await this.requestWithSignal(url, totalResponseBytes, signal, timeoutController)
+    } catch (error: unknown) {
+      if (error instanceof FoundryConnectorError) throw error
+      if (timeoutState.expired)
+        throw new FoundryConnectorError('Foundry request timed out.', 'request-timeout')
+      if (signal.aborted)
+        throw new FoundryConnectorError('Foundry discovery was aborted.', 'request-aborted')
+      throw new FoundryConnectorError(
+        'Foundry request failed before a complete response was received.',
+        'provider-request-failed',
+      )
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  private async requestWithSignal(
+    url: URL,
+    totalResponseBytes: number,
+    signal: AbortSignal,
+    abortController: AbortController,
+  ): Promise<{ body: unknown; bytes: number; continuation?: string }> {
+    let token
+    try {
+      token = await this.credential.getToken(TOKEN_SCOPE, { abortSignal: signal })
+    } catch {
+      if (signal.aborted) throw signal.reason
+      throw new FoundryConnectorError(
+        'Azure credential failed to return a Foundry access token.',
+        'credential-failed',
+      )
+    }
+    if (token === null)
+      throw new FoundryConnectorError(
+        'Azure credential did not return a Foundry access token.',
+        'credential-failed',
+      )
+    const response = await this.fetcher(url, {
+      signal,
+      headers: { Accept: 'application/json', Authorization: `Bearer ${token.token}` },
+    })
+    const bytes = await this.readResponseBytes(response, totalResponseBytes, abortController)
+    let body: unknown
+    try {
+      body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+    } catch {
+      throw new FoundryConnectorError(
+        'Foundry returned a malformed JSON response.',
+        'malformed-page',
+      )
+    }
+    if (!response.ok) {
+      const reason =
+        response.status === 401 || response.status === 403
+          ? 'authentication-or-access'
+          : 'provider-request-failed'
       throw new FoundryConnectorError(
         errorMessage(body) ?? `Foundry request failed with status ${response.status}.`,
+        reason,
       )
+    }
     const continuation =
       response.headers.get('x-ms-continuation') ??
       response.headers.get('x-ms-continuation-token') ??
       undefined
-    return continuation === undefined ? { body } : { body, continuation }
+    return continuation === undefined
+      ? { body, bytes: bytes.byteLength }
+      : { body, bytes: bytes.byteLength, continuation }
+  }
+
+  private async readResponseBytes(
+    response: Response,
+    totalResponseBytes: number,
+    abortController: AbortController,
+  ): Promise<Uint8Array> {
+    const declaredLength = response.headers.get('content-length')
+    if (declaredLength !== null && /^\d+$/.test(declaredLength)) {
+      const bytes = Number(declaredLength)
+      if (bytes > this.limits.maxResponseBytes) {
+        abortController.abort()
+        throw new FoundryConnectorError(
+          `Foundry response exceeded the ${this.limits.maxResponseBytes} byte response limit.`,
+          'response-too-large',
+        )
+      }
+      if (totalResponseBytes + bytes > this.limits.maxTotalResponseBytes) {
+        abortController.abort()
+        throw new FoundryConnectorError(
+          `Foundry discovery exceeded the ${this.limits.maxTotalResponseBytes} byte total response limit.`,
+          'total-response-too-large',
+        )
+      }
+    }
+    if (response.body === null) return new Uint8Array()
+    const reader = response.body.getReader()
+    const chunks: Uint8Array[] = []
+    let bytesRead = 0
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      bytesRead += chunk.value.byteLength
+      if (bytesRead > this.limits.maxResponseBytes) {
+        abortController.abort()
+        throw new FoundryConnectorError(
+          `Foundry response exceeded the ${this.limits.maxResponseBytes} byte response limit.`,
+          'response-too-large',
+        )
+      }
+      if (totalResponseBytes + bytesRead > this.limits.maxTotalResponseBytes) {
+        abortController.abort()
+        throw new FoundryConnectorError(
+          `Foundry discovery exceeded the ${this.limits.maxTotalResponseBytes} byte total response limit.`,
+          'total-response-too-large',
+        )
+      }
+      chunks.push(chunk.value)
+    }
+    const body = new Uint8Array(bytesRead)
+    let offset = 0
+    for (const chunk of chunks) {
+      body.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    return body
   }
 }
 
 interface FoundrySourceState {
   config: FoundrySourceConfig
   connector: FoundryAgentConnector
-  readiness: 'ready' | 'unavailable'
+  readiness: 'ready' | 'degraded' | 'unavailable'
   checkedAt: string | undefined
-  reason: 'not-queried' | 'authentication-or-access' | 'discovery-failed' | undefined
+  reason: FoundryDiscoveryFailureReason | undefined
 }
 
 function sourceProjectId(endpoint: string): string {
@@ -981,6 +1322,7 @@ export class MultiFoundryConnector implements AgentConnector {
     configInput: FoundryPortfolioConfig,
     credentialFactory: FoundryCredentialFactory = createFoundrySourceCredential,
     trustAssessments: readonly FoundryTrustAssessment[] = [],
+    options: FoundryConnectorOptions = {},
   ) {
     this.config = foundryPortfolioConfigSchema.parse(configInput)
     this.sources = this.config.sources.map((config) => ({
@@ -996,6 +1338,7 @@ export class MultiFoundryConnector implements AgentConnector {
           sourceId: config.id,
           trustAssessments,
         },
+        options,
       ),
       readiness: 'unavailable',
       checkedAt: undefined,
@@ -1012,8 +1355,8 @@ export class MultiFoundryConnector implements AgentConnector {
     )
     for (const { source, result } of results) {
       source.checkedAt = result.checkedAt
-      source.readiness = result.ok ? 'ready' : 'unavailable'
-      source.reason = result.ok ? undefined : 'authentication-or-access'
+      source.reason = result.ok ? undefined : source.connector.getLastFailureReason()
+      source.readiness = source.reason === undefined ? 'ready' : readinessForFailure(source.reason)
     }
     const ready = results.filter(({ result }) => result.ok).length
     return {
@@ -1049,8 +1392,8 @@ export class MultiFoundryConnector implements AgentConnector {
           ),
         )
       } else {
-        source.readiness = 'unavailable'
-        source.reason = 'discovery-failed'
+        source.reason = discoveryFailureReason(result.reason)
+        source.readiness = readinessForFailure(source.reason)
       }
     }
     if (snapshots.length === 0) {
@@ -1065,10 +1408,16 @@ export class MultiFoundryConnector implements AgentConnector {
     return snapshot
   }
 
-  getConnectorHealth(): ConnectorHealthReport {
+  getConnectorHealth(): FoundryConnectorHealthReport {
     const ready = this.sources.filter((source) => source.readiness === 'ready').length
+    const degraded = this.sources.some((source) => source.readiness === 'degraded')
     return {
-      overall: ready === 0 ? 'unavailable' : ready === this.sources.length ? 'ready' : 'degraded',
+      overall:
+        ready === this.sources.length
+          ? 'ready'
+          : ready > 0 || degraded
+            ? 'degraded'
+            : 'unavailable',
       partial: ready > 0 && ready < this.sources.length,
       sources: this.sources.map((source) => ({
         id: `foundry:${source.config.id}`,
@@ -1077,6 +1426,15 @@ export class MultiFoundryConnector implements AgentConnector {
         enabled: true,
         configured: true,
         readiness: source.readiness,
+        provenance: {
+          estateTenantId: this.config.estateTenantId,
+          estateEnvironment: this.config.estateEnvironment,
+          sourceConnectorId: source.config.id,
+          sourceTenantId: source.config.tenantId,
+          sourceEnvironment: source.config.environment,
+          provider: FOUNDRY_PROVIDER,
+          providerObjectId: sourceProjectId(source.config.projectEndpoint),
+        },
         ...(source.checkedAt !== undefined ? { checkedAt: source.checkedAt } : {}),
         ...(source.reason !== undefined ? { reason: source.reason } : {}),
       })),
