@@ -1,3 +1,4 @@
+import { AzureMonitorOtelConfigurationError } from '@agent-sentinel/azure-monitor-otel-connector'
 import { describe, expect, it } from 'vitest'
 
 import { buildDeploymentConnectorSources } from '../src/deployment-connector-sources.js'
@@ -107,25 +108,56 @@ describe('deployment Azure Monitor OTel source projection', () => {
     })
   })
 
-  it('omits empty and partial legacy tuples', () => {
+  it('omits an empty legacy tuple', () => {
     expect(buildDeploymentConnectorSources({}, registry, 'live')).toEqual([])
-    expect(
-      buildDeploymentConnectorSources(
-        {
-          AZURE_MONITOR_SOURCES_JSON: '',
-          AZURE_MONITOR_WORKSPACE_ID: '11111111-1111-4111-8111-111111111111',
-          AZURE_MONITOR_TENANT_ID: estate.tenantId,
-        },
-        registry,
-        'live',
-      ),
-    ).toEqual([])
+  })
+
+  it.each([
+    ['workspace only', { AZURE_MONITOR_WORKSPACE_ID: '11111111-1111-4111-8111-111111111111' }],
+    ['tenant only', { AZURE_MONITOR_TENANT_ID: estate.tenantId }],
+    ['environment only', { AZURE_MONITOR_ENVIRONMENT: estate.environment }],
+    [
+      'workspace and tenant',
+      {
+        AZURE_MONITOR_SOURCES_JSON: '',
+        AZURE_MONITOR_WORKSPACE_ID: '11111111-1111-4111-8111-111111111111',
+        AZURE_MONITOR_TENANT_ID: estate.tenantId,
+      },
+    ],
+    [
+      'workspace and environment',
+      {
+        AZURE_MONITOR_WORKSPACE_ID: '11111111-1111-4111-8111-111111111111',
+        AZURE_MONITOR_ENVIRONMENT: estate.environment,
+      },
+    ],
+    [
+      'tenant and environment',
+      {
+        AZURE_MONITOR_TENANT_ID: estate.tenantId,
+        AZURE_MONITOR_ENVIRONMENT: estate.environment,
+      },
+    ],
+  ])('rejects partial legacy configuration before projection: %s', (_label, environment) => {
+    expect(() => buildDeploymentConnectorSources(environment, registry, 'live')).toThrow(
+      AzureMonitorOtelConfigurationError,
+    )
   })
 
   it('does not parse or project Azure Monitor configuration in mock mode', () => {
     expect(buildDeploymentConnectorSources(configuredEnvironment, registry, 'mock')).toEqual([])
     expect(
       buildDeploymentConnectorSources({ AZURE_MONITOR_SOURCES_JSON: '{invalid' }, registry, 'mock'),
+    ).toEqual([])
+    expect(
+      buildDeploymentConnectorSources(
+        {
+          AZURE_MONITOR_WORKSPACE_ID: '11111111-1111-4111-8111-111111111111',
+          AZURE_MONITOR_TENANT_ID: estate.tenantId,
+        },
+        registry,
+        'mock',
+      ),
     ).toEqual([])
   })
 

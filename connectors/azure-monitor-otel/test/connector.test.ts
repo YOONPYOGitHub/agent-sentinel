@@ -4,6 +4,7 @@ import type { AccessToken, TokenCredential } from '@azure/core-auth'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  AzureMonitorOtelConfigurationError,
   AzureMonitorOtelConnector,
   MultiAzureMonitorOtelConnector,
   azureMonitorOtelConfigSchema,
@@ -261,14 +262,8 @@ describe('Azure Monitor OTel connector', () => {
     expect(reversed.observedEvidenceId).toBe(first.observedEvidenceId)
   })
 
-  it('activates a complete legacy source in live mode and ignores empty or partial tuples', () => {
+  it('activates a complete legacy source in live mode and ignores an empty tuple', () => {
     expect(createAzureMonitorOtelConnector({}, new Credential())).toBeUndefined()
-    expect(
-      createAzureMonitorOtelConnector(
-        { AZURE_MONITOR_WORKSPACE_ID: config.workspaceId },
-        new Credential(),
-      ),
-    ).toBeUndefined()
     expect(
       createAzureMonitorOtelConnector(
         {
@@ -304,19 +299,44 @@ describe('Azure Monitor OTel connector', () => {
         },
       ],
     })
-    expect(
-      resolveAzureMonitorOtelRuntimeActivation(
-        {
-          AZURE_MONITOR_WORKSPACE_ID: config.workspaceId,
-          AZURE_MONITOR_TENANT_ID: '   ',
-        },
-        'live',
-      ),
-    ).toEqual({ active: false, sources: [] })
     expect(resolveAzureMonitorOtelRuntimeActivation({}, 'live')).toEqual({
       active: false,
       sources: [],
     })
+  })
+
+  it.each([
+    ['workspace only', { AZURE_MONITOR_WORKSPACE_ID: config.workspaceId }],
+    ['tenant only', { AZURE_MONITOR_TENANT_ID: config.tenantId }],
+    ['environment only', { AZURE_MONITOR_ENVIRONMENT: config.environment }],
+    [
+      'workspace and tenant',
+      {
+        AZURE_MONITOR_WORKSPACE_ID: config.workspaceId,
+        AZURE_MONITOR_TENANT_ID: config.tenantId,
+      },
+    ],
+    [
+      'workspace and environment',
+      {
+        AZURE_MONITOR_WORKSPACE_ID: config.workspaceId,
+        AZURE_MONITOR_ENVIRONMENT: config.environment,
+      },
+    ],
+    [
+      'tenant and environment',
+      {
+        AZURE_MONITOR_TENANT_ID: config.tenantId,
+        AZURE_MONITOR_ENVIRONMENT: config.environment,
+      },
+    ],
+  ])('rejects partial legacy configuration in live mode: %s', (_label, environment) => {
+    expect(() => resolveAzureMonitorOtelRuntimeActivation(environment, 'live')).toThrow(
+      AzureMonitorOtelConfigurationError,
+    )
+    expect(() => createAzureMonitorOtelConnector(environment, new Credential(), 'live')).toThrow(
+      AzureMonitorOtelConfigurationError,
+    )
   })
 
   it('gives non-empty JSON precedence over the legacy tuple and release flags', () => {
@@ -386,6 +406,15 @@ describe('Azure Monitor OTel connector', () => {
     expect(isAzureMonitorOtelRuntimeActive('live', [])).toBe(false)
     expect(
       resolveAzureMonitorOtelRuntimeActivation({ AZURE_MONITOR_SOURCES_JSON: '{invalid' }, 'mock'),
+    ).toEqual({ active: false, sources: [] })
+    expect(
+      resolveAzureMonitorOtelRuntimeActivation(
+        {
+          AZURE_MONITOR_WORKSPACE_ID: config.workspaceId,
+          AZURE_MONITOR_TENANT_ID: config.tenantId,
+        },
+        'mock',
+      ),
     ).toEqual({ active: false, sources: [] })
     expect(
       createAzureMonitorOtelConnector(sourceEnvironment, new Credential(), 'mock'),

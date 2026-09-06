@@ -178,7 +178,11 @@ export const azureMonitorLogsQueryResponseSchema = z.strictObject({
 export type AzureMonitorLogsQueryResponse = z.infer<typeof azureMonitorLogsQueryResponseSchema>
 
 export class AzureMonitorOtelConnectorError extends Error {
-  override readonly name = 'AzureMonitorOtelConnectorError'
+  override readonly name: string = 'AzureMonitorOtelConnectorError'
+}
+
+export class AzureMonitorOtelConfigurationError extends AzureMonitorOtelConnectorError {
+  override readonly name: string = 'AzureMonitorOtelConfigurationError'
 }
 
 function assertColumns(response: AzureMonitorLogsQueryResponse): void {
@@ -678,7 +682,7 @@ export function parseAzureMonitorOtelSources(
     try {
       sources = JSON.parse(sourcesJson)
     } catch {
-      throw new AzureMonitorOtelConnectorError('AZURE_MONITOR_SOURCES_JSON must be valid JSON.')
+      throw new AzureMonitorOtelConfigurationError('AZURE_MONITOR_SOURCES_JSON must be valid JSON.')
     }
     return azureMonitorOtelSourcesConfigSchema.parse(sources)
   }
@@ -689,7 +693,12 @@ export function parseAzureMonitorOtelSources(
   ] as const
   const configured = names.filter((name) => (environment[name]?.trim().length ?? 0) > 0)
   if (configured.length === 0) return []
-  if (configured.length !== names.length) return []
+  if (configured.length !== names.length) {
+    const missing = names.filter((name) => !configured.includes(name))
+    throw new AzureMonitorOtelConfigurationError(
+      `Legacy Azure Monitor configuration requires all of ${names.join(', ')} when any are configured. Missing: ${missing.join(', ')}.`,
+    )
+  }
   return [
     azureMonitorOtelSourceConfigSchema.parse({
       id: 'primary',

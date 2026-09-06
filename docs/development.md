@@ -115,6 +115,10 @@ Deployment-source projection uses the same activation resolution as the runtime:
 live mode projects validated JSON sources or the complete legacy tuple, while
 mock mode does not parse or project Azure Monitor configuration. Projected
 records remain read-only and `not-tested`; projection is not readiness evidence.
+In live mode, configuring any legacy tuple field requires all three fields;
+an incomplete tuple is a configuration error rather than an inactive connector.
+Leaving all three fields empty keeps the connector inactive. Non-empty source
+JSON takes precedence over the legacy tuple.
 
 Optional bounds are `AZURE_MONITOR_BASELINE_WINDOW_HOURS` (default 168),
 `AZURE_MONITOR_OBSERVED_WINDOW_HOURS` (default 24), and
