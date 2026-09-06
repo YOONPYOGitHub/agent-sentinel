@@ -130,8 +130,11 @@ Cross-tenant sources use secretless workload identity federation: create an app
 in the target tenant, configure a federated identity credential that trusts the
 Agent Sentinel managed identity assertion, and grant that app `Azure AI User`
 on the target project. A source without authorization reports unavailable; if
-any configured discovery source fails, the aggregate reports degraded and jobs
-does not promote the incomplete snapshot.
+any configured discovery source fails, the connector updates every source's
+health and rejects with `FoundryPortfolioIncompleteError`. No partial aggregate
+snapshot escapes, jobs preserve the latest durable complete snapshot, and the
+connector invalidates in-memory evidence from the preceding discovery
+generation.
 
 ## Live validation
 

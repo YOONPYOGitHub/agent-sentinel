@@ -75,6 +75,7 @@ export interface FoundryDiscoveryRequest {
 
 export type FoundryDiscoveryFailureReason =
   | 'not-queried'
+  | 'portfolio-incomplete'
   | 'authentication-or-access'
   | 'credential-failed'
   | 'request-timeout'
@@ -522,13 +523,42 @@ export const foundryAgentPageSchema = z
   })
 
 export class FoundryConnectorError extends Error {
-  override readonly name = 'FoundryConnectorError'
+  override readonly name: string = 'FoundryConnectorError'
 
   constructor(
     message: string,
     readonly reason: FoundryDiscoveryFailureReason = 'unexpected-failure',
   ) {
     super(message)
+  }
+}
+
+export interface FoundryPortfolioSourceFailure {
+  readonly sourceId: string
+  readonly reason: FoundryDiscoveryFailureReason
+  readonly provenance: FoundrySourceProvenance
+}
+
+export class FoundryPortfolioIncompleteError extends FoundryConnectorError {
+  override readonly name = 'FoundryPortfolioIncompleteError'
+  readonly failures: readonly FoundryPortfolioSourceFailure[]
+
+  constructor(
+    failures: readonly FoundryPortfolioSourceFailure[],
+    readonly configuredSourceCount: number,
+  ) {
+    super(
+      `Foundry portfolio discovery incomplete: ${failures.length} of ${configuredSourceCount} configured sources failed.`,
+      'portfolio-incomplete',
+    )
+    this.failures = Object.freeze(
+      failures.map((failure) =>
+        Object.freeze({
+          ...failure,
+          provenance: Object.freeze({ ...failure.provenance }),
+        }),
+      ),
+    )
   }
 }
 function toolNames(agent: FoundryAgentDefinition): string[] {
@@ -901,6 +931,7 @@ export class FoundryAgentConnector implements AgentConnector {
     }
   }
   async discover(request: FoundryDiscoveryRequest = {}): Promise<EstateSnapshot> {
+    this.evidenceById = new Map()
     try {
       const snapshot = mapAgentToSnapshot(
         await this.listAgents(undefined, request.signal ?? this.defaultSignal),
@@ -1394,6 +1425,7 @@ export class MultiFoundryConnector implements AgentConnector {
   }
 
   async discover(): Promise<EstateSnapshot> {
+    this.evidenceById = new Map()
     const results = await Promise.allSettled(
       this.sources.map(async (source) => ({
         source,
@@ -1401,9 +1433,11 @@ export class MultiFoundryConnector implements AgentConnector {
       })),
     )
     const snapshots: EstateSnapshot[] = []
+    const failures: FoundryPortfolioSourceFailure[] = []
+    const checkedAt = new Date().toISOString()
     for (const [index, result] of results.entries()) {
       const source = this.sources[index]!
-      source.checkedAt = new Date().toISOString()
+      source.checkedAt = checkedAt
       if (result.status === 'fulfilled') {
         source.readiness = 'ready'
         source.reason = undefined
@@ -1418,10 +1452,15 @@ export class MultiFoundryConnector implements AgentConnector {
       } else {
         source.reason = discoveryFailureReason(result.reason)
         source.readiness = readinessForFailure(source.reason)
+        failures.push({
+          sourceId: source.config.id,
+          reason: source.reason,
+          provenance: this.sourceProvenance(source.config),
+        })
       }
     }
-    if (snapshots.length === 0) {
-      throw new FoundryConnectorError('No configured Foundry source completed discovery.')
+    if (failures.length > 0) {
+      throw new FoundryPortfolioIncompleteError(failures, this.sources.length)
     }
     const snapshot = mergeFoundrySnapshots(
       snapshots,
@@ -1430,6 +1469,18 @@ export class MultiFoundryConnector implements AgentConnector {
     )
     this.evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]))
     return snapshot
+  }
+
+  private sourceProvenance(source: FoundrySourceConfig): FoundrySourceProvenance {
+    return {
+      estateTenantId: this.config.estateTenantId,
+      estateEnvironment: this.config.estateEnvironment,
+      sourceConnectorId: source.id,
+      sourceTenantId: source.tenantId,
+      sourceEnvironment: source.environment,
+      provider: FOUNDRY_PROVIDER,
+      providerObjectId: sourceProjectId(source.projectEndpoint),
+    }
   }
 
   getConnectorHealth(): FoundryConnectorHealthReport {
@@ -1450,15 +1501,7 @@ export class MultiFoundryConnector implements AgentConnector {
         enabled: true,
         configured: true,
         readiness: source.readiness,
-        provenance: {
-          estateTenantId: this.config.estateTenantId,
-          estateEnvironment: this.config.estateEnvironment,
-          sourceConnectorId: source.config.id,
-          sourceTenantId: source.config.tenantId,
-          sourceEnvironment: source.config.environment,
-          provider: FOUNDRY_PROVIDER,
-          providerObjectId: sourceProjectId(source.config.projectEndpoint),
-        },
+        provenance: this.sourceProvenance(source.config),
         ...(source.checkedAt !== undefined ? { checkedAt: source.checkedAt } : {}),
         ...(source.reason !== undefined ? { reason: source.reason } : {}),
       })),

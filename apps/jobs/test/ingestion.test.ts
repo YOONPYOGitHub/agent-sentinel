@@ -9,6 +9,7 @@ import type {
 import type { EstateSnapshot } from '@agent-sentinel/domain'
 import {
   FOUNDRY_API_VERSION,
+  FoundryPortfolioIncompleteError,
   MultiFoundryConnector,
   mapAgentToSnapshot,
   type FoundryConnectorOptions,
@@ -114,7 +115,7 @@ async function expectFailedDiscoveryNotPromoted(
     sourceMode: 'foundry',
   })
 
-  await expect(service.run()).rejects.toThrow('No configured Foundry source completed discovery')
+  await expect(service.run()).rejects.toBeInstanceOf(FoundryPortfolioIncompleteError)
   expect(await snapshots.list(testEstate)).toEqual([baseline])
   expect(connector.getConnectorHealth()).toMatchObject({
     overall: reason === 'authentication-or-access' ? 'unavailable' : 'degraded',
@@ -528,6 +529,68 @@ describe('IngestionService', () => {
     },
   ])('does not promote prior-page inventory after $name', async ({ create, reason }) => {
     await expectFailedDiscoveryNotPromoted(create(), reason)
+  })
+
+  it('preserves the durable snapshot when one configured Foundry source fails', async () => {
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const baseline = fullSnapshot()
+    baseline.generatedAt = '2026-09-05T08:00:00.000Z'
+    await snapshots.save(testEstate, baseline)
+    const connector = new MultiFoundryConnector(
+      {
+        ...liveFoundryPortfolio,
+        sources: [
+          liveFoundryPortfolio.sources[0]!,
+          {
+            id: 'secondary',
+            name: 'Secondary validation project',
+            projectEndpoint: 'https://secondary.services.ai.azure.com/api/projects/validation-b',
+            tenantId: testEstate.tenantId,
+            environment: testEstate.environment,
+          },
+        ],
+      },
+      () => ({
+        getToken: () =>
+          Promise.resolve({ token: 'test-token', expiresOnTimestamp: Date.now() + 60_000 }),
+      }),
+      [],
+      {
+        fetch: vi.fn<typeof fetch>((input) => {
+          const url = new URL(input instanceof Request ? input.url : input.toString())
+          return Promise.resolve(
+            url.hostname.startsWith('secondary.')
+              ? Response.json({ error: { message: 'Forbidden' } }, { status: 403 })
+              : Response.json({ data: [{ id: 'new-agent', name: 'New agent' }], has_more: false }),
+          )
+        }),
+      },
+    )
+    const service = new IngestionService(connector, snapshots, exposures, {
+      estate: testEstate,
+      sourceMode: 'foundry',
+    })
+
+    await expect(service.run()).rejects.toBeInstanceOf(FoundryPortfolioIncompleteError)
+    expect(await snapshots.list(testEstate)).toEqual([baseline])
+    expect(connector.getConnectorHealth()).toMatchObject({
+      overall: 'degraded',
+      partial: true,
+      sources: [
+        {
+          id: 'foundry:primary',
+          readiness: 'ready',
+          provenance: { sourceConnectorId: 'primary', providerObjectId: 'validation' },
+        },
+        {
+          id: 'foundry:secondary',
+          readiness: 'unavailable',
+          reason: 'authentication-or-access',
+          provenance: { sourceConnectorId: 'secondary', providerObjectId: 'validation-b' },
+        },
+      ],
+    })
   })
 
   it('promotes only a successful discovery completed within every bound', async () => {

@@ -3,6 +3,7 @@ import type { EvidenceType, Remediation } from '@agent-sentinel/domain'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   FoundryAgentConnector,
+  FoundryPortfolioIncompleteError,
   FOUNDRY_TRUST_REQUIRED_PLANES,
   MultiFoundryConnector,
   composeFoundryTrustAssessment,
@@ -667,6 +668,30 @@ describe('Foundry connector', () => {
       'Foundry evidence was not found',
     )
   })
+  it('invalidates evidence from the prior generation when discovery fails', async () => {
+    const foundry = connector(
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(Response.json({ data: [externalAgent], has_more: false }))
+        .mockResolvedValueOnce(
+          Response.json({ error: { message: 'Service unavailable' } }, { status: 503 }),
+        ),
+    )
+
+    await expect(foundry.discover()).resolves.toMatchObject({
+      evidence: [expect.objectContaining({ id: 'foundry-evidence-a1' })],
+    })
+    await expect(foundry.getEvidence('foundry-evidence-a1')).resolves.toMatchObject({
+      id: 'foundry-evidence-a1',
+    })
+
+    await expect(foundry.discover()).rejects.toMatchObject({
+      reason: 'provider-request-failed',
+    })
+    expect(() => foundry.getEvidence('foundry-evidence-a1')).toThrow(
+      'Foundry evidence was not found',
+    )
+  })
   it('rejects invalid API shape', async () => {
     expect(() => foundryAgentPageSchema.parse({ object: 'list' })).toThrow()
     const foundry = connector(vi.fn<typeof fetch>().mockResolvedValue(Response.json({ nope: [] })))
@@ -922,7 +947,7 @@ describe('multi-Foundry connector', () => {
     })
   })
 
-  it('reports partial discovery without claiming all configured sources', async () => {
+  it('fails closed with typed source failures and exact health provenance', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn<typeof fetch>((input) => {
@@ -935,16 +960,133 @@ describe('multi-Foundry connector', () => {
       }),
     )
     const connector = new MultiFoundryConnector(portfolio, () => new Credential())
-    const snapshot = await connector.discover()
-    expect(snapshot.nodes.filter((node) => node.kind === 'agent')).toHaveLength(1)
-    expect(connector.getConnectorHealth()).toMatchObject({
+    const error: unknown = await connector.discover().catch((failure: unknown) => failure)
+
+    expect(error).toBeInstanceOf(FoundryPortfolioIncompleteError)
+    expect(error).toMatchObject({
+      reason: 'portfolio-incomplete',
+      configuredSourceCount: 2,
+      failures: [
+        {
+          sourceId: 'tenant-b-project',
+          reason: 'authentication-or-access',
+          provenance: {
+            estateTenantId: 'estate',
+            estateEnvironment: 'portfolio',
+            sourceConnectorId: 'tenant-b-project',
+            sourceTenantId: 'tenant-b',
+            sourceEnvironment: 'validation',
+            provider: 'azure-ai-foundry-agent-service',
+            providerObjectId: 'project-b',
+          },
+        },
+      ],
+    })
+    const health = connector.getConnectorHealth()
+    expect(health.sources.every((source) => source.checkedAt !== undefined)).toBe(true)
+    expect(
+      health.sources.every((source) => source.checkedAt === health.sources[0]?.checkedAt),
+    ).toBe(true)
+    expect(health).toMatchObject({
       overall: 'degraded',
       partial: true,
       sources: [
-        { id: 'foundry:tenant-a-project', readiness: 'ready' },
-        { id: 'foundry:tenant-b-project', readiness: 'unavailable' },
+        {
+          id: 'foundry:tenant-a-project',
+          readiness: 'ready',
+          provenance: {
+            estateTenantId: 'estate',
+            estateEnvironment: 'portfolio',
+            sourceConnectorId: 'tenant-a-project',
+            sourceTenantId: 'tenant-a',
+            sourceEnvironment: 'production',
+            provider: 'azure-ai-foundry-agent-service',
+            providerObjectId: 'project-a',
+          },
+        },
+        {
+          id: 'foundry:tenant-b-project',
+          readiness: 'unavailable',
+          reason: 'authentication-or-access',
+          provenance: {
+            estateTenantId: 'estate',
+            estateEnvironment: 'portfolio',
+            sourceConnectorId: 'tenant-b-project',
+            sourceTenantId: 'tenant-b',
+            sourceEnvironment: 'validation',
+            provider: 'azure-ai-foundry-agent-service',
+            providerObjectId: 'project-b',
+          },
+        },
       ],
     })
+    expect(() =>
+      connector.getEvidence('foundry-source-tenant-a-project--foundry-evidence-a1'),
+    ).toThrow('Aggregated Foundry evidence was not found')
+  })
+
+  it('recovers with a complete snapshot after a failed portfolio generation', async () => {
+    let failTenantB = true
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) => {
+        const url = new URL(input instanceof Request ? input.url : input.toString())
+        if (failTenantB && url.hostname.startsWith('b.')) {
+          return Promise.resolve(
+            Response.json({ error: { message: 'Forbidden' } }, { status: 403 }),
+          )
+        }
+        return Promise.resolve(Response.json({ data: [externalAgent], has_more: false }))
+      }),
+    )
+    const connector = new MultiFoundryConnector(portfolio, () => new Credential())
+
+    await expect(connector.discover()).rejects.toBeInstanceOf(FoundryPortfolioIncompleteError)
+    failTenantB = false
+
+    const snapshot = await connector.discover()
+    expect(snapshot.nodes.filter((node) => node.kind === 'agent')).toHaveLength(2)
+    await expect(
+      connector.getEvidence('foundry-source-tenant-b-project--foundry-evidence-a1'),
+    ).resolves.toMatchObject({
+      metadata: {
+        sourceConnectorId: 'tenant-b-project',
+        sourceTenantId: 'tenant-b',
+      },
+    })
+    expect(connector.getConnectorHealth()).toMatchObject({
+      overall: 'ready',
+      partial: false,
+      sources: [{ readiness: 'ready' }, { readiness: 'ready' }],
+    })
+  })
+
+  it('invalidates aggregate evidence when a later portfolio generation is incomplete', async () => {
+    let failTenantB = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) => {
+        const url = new URL(input instanceof Request ? input.url : input.toString())
+        if (failTenantB && url.hostname.startsWith('b.')) {
+          return Promise.resolve(
+            Response.json({ error: { message: 'Service unavailable' } }, { status: 503 }),
+          )
+        }
+        return Promise.resolve(Response.json({ data: [externalAgent], has_more: false }))
+      }),
+    )
+    const connector = new MultiFoundryConnector(portfolio, () => new Credential())
+    const evidenceId = 'foundry-source-tenant-a-project--foundry-evidence-a1'
+
+    const snapshot = await connector.discover()
+    expect(snapshot.evidence.some((item) => item.id === evidenceId)).toBe(true)
+    await expect(connector.getEvidence(evidenceId)).resolves.toMatchObject({ id: evidenceId })
+    failTenantB = true
+
+    await expect(connector.discover()).rejects.toBeInstanceOf(FoundryPortfolioIncompleteError)
+    expect(() => connector.getEvidence(evidenceId)).toThrow(
+      'Aggregated Foundry evidence was not found',
+    )
   })
 
   it('preserves legacy ids for the primary source during migration', async () => {
@@ -1019,14 +1161,29 @@ describe('multi-Foundry connector', () => {
   it('fails when no configured source completes discovery', async () => {
     vi.stubGlobal(
       'fetch',
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(Response.json({ error: { message: 'Forbidden' } }, { status: 403 })),
+      vi.fn<typeof fetch>(() =>
+        Promise.resolve(Response.json({ error: { message: 'Forbidden' } }, { status: 403 })),
+      ),
     )
     const connector = new MultiFoundryConnector(portfolio, () => new Credential())
-    await expect(connector.discover()).rejects.toThrow(
-      'No configured Foundry source completed discovery',
-    )
+    const error: unknown = await connector.discover().catch((failure: unknown) => failure)
+    expect(error).toBeInstanceOf(FoundryPortfolioIncompleteError)
+    expect(error).toMatchObject({
+      reason: 'portfolio-incomplete',
+      configuredSourceCount: 2,
+      failures: [
+        { sourceId: 'tenant-a-project', reason: 'authentication-or-access' },
+        { sourceId: 'tenant-b-project', reason: 'authentication-or-access' },
+      ],
+    })
+    expect(connector.getConnectorHealth()).toMatchObject({
+      overall: 'unavailable',
+      partial: false,
+      sources: [
+        { id: 'foundry:tenant-a-project', readiness: 'unavailable' },
+        { id: 'foundry:tenant-b-project', readiness: 'unavailable' },
+      ],
+    })
   })
 
   it('reports bounded discovery failure with exact source provenance', async () => {
@@ -1047,9 +1204,7 @@ describe('multi-Foundry connector', () => {
       },
     )
 
-    await expect(connector.discover()).rejects.toThrow(
-      'No configured Foundry source completed discovery',
-    )
+    await expect(connector.discover()).rejects.toBeInstanceOf(FoundryPortfolioIncompleteError)
     const health = connector.getConnectorHealth()
     expect(health.sources[0]?.checkedAt).toBeDefined()
     expect(health).toEqual({
