@@ -383,16 +383,19 @@ export class EntraGraphClient {
     if (signal.aborted) {
       throw new EntraGraphError('cancelled', 'Microsoft Graph request was cancelled.')
     }
-    await Promise.race([
-      this.sleep(milliseconds),
-      new Promise<never>((_, reject) =>
-        signal.addEventListener(
-          'abort',
-          () =>
-            reject(new EntraGraphError('cancelled', 'Microsoft Graph request was cancelled.')),
-          { once: true },
-        ),
-      ),
-    ])
+    let removeAbortListener = (): void => undefined
+    try {
+      await Promise.race([
+        this.sleep(milliseconds),
+        new Promise<never>((_, reject) => {
+          const onAbort = (): void =>
+            reject(new EntraGraphError('cancelled', 'Microsoft Graph request was cancelled.'))
+          signal.addEventListener('abort', onAbort, { once: true })
+          removeAbortListener = () => signal.removeEventListener('abort', onAbort)
+        }),
+      ])
+    } finally {
+      removeAbortListener()
+    }
   }
 }

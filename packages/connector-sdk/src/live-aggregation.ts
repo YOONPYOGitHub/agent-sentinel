@@ -121,12 +121,11 @@ export async function aggregateLiveSources<
       outcomes[index] = cancelledOutcome(source, cancellationReason ?? 'cancelled')
       return
     }
+    let removeAbortListener = (): void => undefined
     const aborted = new Promise<never>((_, reject) => {
-      controller.signal.addEventListener(
-        'abort',
-        () => reject(new Error(cancellationReason ?? 'cancelled')),
-        { once: true },
-      )
+      const onAbort = (): void => reject(new Error(cancellationReason ?? 'cancelled'))
+      controller.signal.addEventListener('abort', onAbort, { once: true })
+      removeAbortListener = () => controller.signal.removeEventListener('abort', onAbort)
     })
     try {
       const result = await Promise.race([
@@ -183,6 +182,8 @@ export async function aggregateLiveSources<
             evidenceIds: [],
             reason: options.failureReason?.(error) ?? 'source-failed',
           }
+    } finally {
+      removeAbortListener()
     }
   }
   const worker = async (): Promise<void> => {
