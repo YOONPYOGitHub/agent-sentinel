@@ -740,6 +740,135 @@ describe('multi-Foundry connector', () => {
     ],
   }
 
+  function connectionTestConnector(fetcher: typeof fetch): MultiFoundryConnector {
+    return new MultiFoundryConnector(
+      {
+        estateTenantId: 'estate',
+        estateEnvironment: 'portfolio',
+        sources: [portfolio.sources[0]!],
+      },
+      () => new Credential(),
+      [],
+      { fetch: fetcher },
+    )
+  }
+
+  it.each([
+    {
+      name: 'has_more without continuation',
+      response: () => Response.json({ data: [externalAgent], has_more: true }),
+      reason: 'malformed-page',
+    },
+    {
+      name: 'continuation when has_more is false',
+      response: () =>
+        Response.json({
+          data: [externalAgent],
+          has_more: false,
+          continuationToken: 'unexpected-next-page',
+        }),
+      reason: 'malformed-page',
+    },
+    {
+      name: 'cross-origin nextLink',
+      response: () =>
+        Response.json({
+          data: [externalAgent],
+          has_more: true,
+          nextLink: 'https://attacker.example/agents?continuationToken=stolen',
+        }),
+      reason: 'unsafe-continuation-url',
+    },
+    {
+      name: 'cross-path nextLink',
+      response: () =>
+        Response.json({
+          data: [externalAgent],
+          has_more: true,
+          nextLink: `${portfolio.sources[0]!.projectEndpoint}/runs?continuationToken=next`,
+        }),
+      reason: 'unsafe-continuation-url',
+    },
+    {
+      name: 'invalid continuation token',
+      response: () =>
+        Response.json({
+          data: [externalAgent],
+          has_more: true,
+          continuationToken: ' invalid-token ',
+        }),
+      reason: 'malformed-page',
+    },
+    {
+      name: 'repeated continuation state',
+      response: () =>
+        Response.json({
+          data: [externalAgent],
+          has_more: true,
+          nextLink: `${portfolio.sources[0]!.projectEndpoint}/agents?api-version=v1`,
+        }),
+      reason: 'repeated-continuation',
+    },
+  ])('keeps testConnection degraded for invalid first-page $name', async ({ response, reason }) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response())
+    const connector = connectionTestConnector(fetcher)
+
+    await expect(connector.testConnection()).resolves.toMatchObject({ ok: false })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(connector.getConnectorHealth()).toMatchObject({
+      overall: 'degraded',
+      partial: false,
+      sources: [{ readiness: 'degraded', reason }],
+    })
+    expect(() => connector.getEvidence('foundry-evidence-a1')).toThrow(
+      'Aggregated Foundry evidence was not found',
+    )
+  })
+
+  it.each([
+    {
+      name: 'nextLink',
+      response: () =>
+        Response.json({
+          data: [externalAgent],
+          has_more: true,
+          nextLink: `${portfolio.sources[0]!.projectEndpoint}/agents?after=a1`,
+        }),
+    },
+    {
+      name: 'body continuation token',
+      response: () =>
+        Response.json({
+          data: [externalAgent],
+          has_more: true,
+          continuationToken: 'next-page',
+        }),
+    },
+    {
+      name: 'header continuation token',
+      response: () =>
+        Response.json(
+          { data: [externalAgent], has_more: true },
+          { headers: { 'x-ms-continuation': 'next-page' } },
+        ),
+    },
+  ])(
+    'accepts valid first-page $name metadata in testConnection without fetching it',
+    async ({ response }) => {
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response())
+      const connector = connectionTestConnector(fetcher)
+
+      await expect(connector.testConnection()).resolves.toMatchObject({ ok: true })
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      expect(connector.getConnectorHealth()).toMatchObject({
+        overall: 'ready',
+        partial: false,
+        sources: [{ readiness: 'ready' }],
+      })
+      expect(connector.getConnectorHealth().sources[0]?.reason).toBeUndefined()
+    },
+  )
+
   it('aggregates colliding provider ids with source provenance and estate isolation', async () => {
     vi.stubGlobal(
       'fetch',

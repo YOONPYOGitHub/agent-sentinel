@@ -970,32 +970,7 @@ export class FoundryAgentConnector implements AgentConnector {
         )
       }
       agents.push(...pageAgents)
-      if (maximum !== undefined && agents.length >= maximum) return agents.slice(0, maximum)
-      next = undefined
-      if (page.has_more === false) continue
-      if (
-        page.has_more === true &&
-        page.nextLink === undefined &&
-        page.continuationToken === undefined &&
-        response.continuation === undefined
-      ) {
-        throw new FoundryConnectorError(
-          'Foundry returned a page marked incomplete without a continuation.',
-          'malformed-page',
-        )
-      }
-      if (page.nextLink !== undefined) {
-        const candidate = this.validateContinuationUrl(page.nextLink, initial)
-        candidate.searchParams.set('api-version', FOUNDRY_API_VERSION)
-        next = candidate
-      } else {
-        const token = page.continuationToken ?? response.continuation
-        if (token !== undefined) {
-          this.validateContinuationToken(token)
-          next = new URL(initial)
-          next.searchParams.set('continuationToken', token)
-        }
-      }
+      next = this.resolveContinuation(page, response.continuation, initial)
       if (next !== undefined && seenContinuations.has(next.href)) {
         throw new FoundryConnectorError(
           'Foundry returned a repeated pagination continuation.',
@@ -1003,8 +978,57 @@ export class FoundryAgentConnector implements AgentConnector {
         )
       }
       if (next !== undefined) seenContinuations.add(next.href)
+      if (maximum !== undefined && agents.length >= maximum) return agents.slice(0, maximum)
     }
     return agents
+  }
+
+  private resolveContinuation(
+    page: z.output<typeof foundryAgentPageSchema>,
+    responseContinuation: string | undefined,
+    initial: URL,
+  ): URL | undefined {
+    const nextLink =
+      page.nextLink === undefined ? undefined : this.validateContinuationUrl(page.nextLink, initial)
+    if (page.continuationToken !== undefined) {
+      this.validateContinuationToken(page.continuationToken)
+    }
+    if (responseContinuation !== undefined) {
+      this.validateContinuationToken(responseContinuation)
+    }
+    if (
+      page.continuationToken !== undefined &&
+      responseContinuation !== undefined &&
+      page.continuationToken !== responseContinuation
+    ) {
+      throw new FoundryConnectorError(
+        'Foundry returned conflicting continuation tokens.',
+        'malformed-page',
+      )
+    }
+    const continuationToken = page.continuationToken ?? responseContinuation
+    const hasContinuation = nextLink !== undefined || continuationToken !== undefined
+    if (page.has_more === true && !hasContinuation) {
+      throw new FoundryConnectorError(
+        'Foundry returned a page marked incomplete without a continuation.',
+        'malformed-page',
+      )
+    }
+    if (page.has_more === false && hasContinuation) {
+      throw new FoundryConnectorError(
+        'Foundry returned continuation metadata for a complete page.',
+        'malformed-page',
+      )
+    }
+    if (page.has_more === false) return undefined
+    if (nextLink !== undefined) {
+      nextLink.searchParams.set('api-version', FOUNDRY_API_VERSION)
+      return nextLink
+    }
+    if (continuationToken === undefined) return undefined
+    const next = new URL(initial)
+    next.searchParams.set('continuationToken', continuationToken)
+    return next
   }
 
   private validateContinuationUrl(value: string, initial: URL): URL {
