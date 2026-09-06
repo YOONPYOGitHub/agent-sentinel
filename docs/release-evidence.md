@@ -53,9 +53,11 @@ Every evidence-bearing record uses one of these classifications:
 | `planned`      | No observation was supplied; this is not evidence of success.                             |
 
 Check and validation outcomes are `pass`, `fail`, `unknown`, `blocked`, or
-`not-run`. A pass is rejected when its required command, timestamp, source,
-scope, or evidence reference is missing. Missing files and commands never
-become pass.
+`not-run`. Every evaluated live-validation pass or fail requires a non-null
+sanitized source, observation timestamp, scope, and at least one evidence
+reference regardless of classification. OneRAI evidence requires the same
+attribution when it is classified `tested` or has a `pass` or `fail` outcome.
+Missing or unknown provenance never becomes pass.
 
 Connector readiness is separately typed as `ready`, `degraded`,
 `authorization-required`, `insufficient-data`, `unknown`, `blocked`, or
@@ -178,6 +180,9 @@ TEAMS_DISTRIBUTION_CONNECTOR_ENABLED
 
 Values are canonicalized by sorted key and hashed with SHA-256. The manifest
 retains the algorithm, hash, and sorted key names, but never the values.
+Configuration classified `tested` requires a non-null hash and at least one
+allow-listed key. Configuration classified `planned` requires a null hash and
+an empty key list.
 
 ## Rejected content and contradictions
 
@@ -192,8 +197,10 @@ path and never echo the value.
 The validator also rejects contradictions including:
 
 - a passing check without a command and completion timestamp;
-- live evidence without observation time, source, sanitized scope, and evidence
-  references;
+- live evidence, or any evaluated live-validation pass/fail, without observation
+  time, source, sanitized scope, and evidence references;
+- tested or evaluated OneRAI evidence without equivalent attribution;
+- configuration classification that contradicts its hash or key list;
 - duplicate live-validation IDs, connector IDs, or evidence references;
 - timestamps later than `release.generatedAt`;
 - freshness values that contradict the explicit 24-hour window;

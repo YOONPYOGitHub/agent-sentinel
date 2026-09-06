@@ -136,15 +136,22 @@ Create a separate single-tenant SPA app:
 
 ## Activation and rollback
 
-Activation:
+The replacement deployment currently uses `AUTH_MODE=disabled` with
+`AGENT_SENTINEL_WRITE_ENABLED=false`. It has not activated JWT authentication,
+and the WAF pre-auth mutation block remains in place.
 
-1. Preserve tenant, API audience, client, scope, and role settings through the
+Future approved JWT activation:
+
+1. Obtain approval for a JWT authentication deployment.
+2. Preserve tenant, API audience, client, scope, and role settings through the
    approved deployment path.
-2. Keep the deployed `AUTH_MODE=jwt`, writes-false switch, and WAF block.
-3. Validate sign-in and all four roles before changing the write posture.
-4. Confirm anonymous requests return `401` and insufficient roles return `403`.
-5. Validate an authorized write path.
-6. Only then narrow the pre-auth mutation WAF rule.
+3. Set `AUTH_MODE=jwt` while keeping `AGENT_SENTINEL_WRITE_ENABLED=false` and
+   the WAF pre-auth mutation block.
+4. Validate sign-in and all four roles without changing the write posture.
+5. Confirm anonymous requests return `401`, insufficient roles return `403`,
+   and writes remain disabled.
+6. Treat any future write activation or WAF narrowing as a separate approved
+   change.
 
 Rollback:
 

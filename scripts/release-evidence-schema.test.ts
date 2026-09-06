@@ -116,6 +116,45 @@ describe('release evidence schema', () => {
     expect(JSON.stringify(first)).not.toContain('live')
   })
 
+  it.each([
+    {
+      classification: 'tested',
+      algorithm: 'sha256',
+      hash: null,
+      keys: ['AUTH_MODE'],
+    },
+    {
+      classification: 'tested',
+      algorithm: 'sha256',
+      hash: 'c'.repeat(64),
+      keys: [],
+    },
+    {
+      classification: 'planned',
+      algorithm: 'sha256',
+      hash: 'c'.repeat(64),
+      keys: [],
+    },
+    {
+      classification: 'planned',
+      algorithm: 'sha256',
+      hash: null,
+      keys: ['AUTH_MODE'],
+    },
+  ] as const)(
+    'rejects adversarial externally-authored configuration evidence %#',
+    (configuration) => {
+      const manifest = buildReleaseEvidence(cleanRepository, {}, generatedAt)
+
+      expect(
+        releaseEvidenceManifestSchema.safeParse({
+          ...manifest,
+          configuration,
+        }).success,
+      ).toBe(false)
+    },
+  )
+
   it('rejects forbidden keys without echoing their values', () => {
     const value = 'never-print-this-secret'
 
@@ -248,21 +287,37 @@ describe('release evidence schema', () => {
     ).toThrow(/passing check requires command and completedAt/)
   })
 
-  it('rejects a live pass without a source and observation timestamp', () => {
-    expect(() =>
-      sanitizeReleaseEvidenceInput({
-        liveValidations: [
-          {
-            id: 'replacement-readiness',
-            classification: 'live',
-            outcome: 'pass',
-            freshness: 'fresh',
-            summary: 'Provider reads passed.',
-          },
-        ],
-      }),
-    ).toThrow(/live evidence requires source and observedAt/)
-  })
+  it.each([
+    ['live', 'pass'],
+    ['live', 'fail'],
+    ['synthetic', 'pass'],
+    ['synthetic', 'fail'],
+    ['tested', 'pass'],
+    ['tested', 'fail'],
+    ['blocked', 'pass'],
+    ['blocked', 'fail'],
+    ['planned', 'pass'],
+    ['planned', 'fail'],
+  ] as const)(
+    'rejects %s live-validation %s without complete attribution',
+    (classification, outcome) => {
+      expect(() =>
+        sanitizeReleaseEvidenceInput({
+          liveValidations: [
+            {
+              id: 'replacement-readiness',
+              classification,
+              outcome,
+              freshness: 'unknown',
+              summary: 'An evaluated result cannot omit provenance.',
+            },
+          ],
+        }),
+      ).toThrow(
+        /live or evaluated validation evidence requires source, observedAt, sanitized scope, and evidence references/,
+      )
+    },
+  )
 
   it('rejects connector readiness that is not live and fresh', () => {
     expect(() =>
@@ -341,23 +396,34 @@ describe('release evidence schema', () => {
     },
   )
 
-  it('requires sanitized scope and evidence references on live evidence', () => {
-    expect(() =>
-      sanitizeReleaseEvidenceInput({
-        liveValidations: [
-          {
-            id: 'replacement-readiness',
-            classification: 'live',
-            outcome: 'pass',
-            freshness: 'fresh',
-            observedAt: '2026-09-04T00:00:00.000Z',
-            source: 'sanitized-validation',
-            summary: 'Provider reads passed.',
-          },
-        ],
-      }),
-    ).toThrow(/live evidence requires sanitized scope and evidence references/)
-  })
+  it.each(['observedAt', 'source', 'scope', 'evidenceRefs'] as const)(
+    'rejects a tested live-validation pass with missing %s provenance',
+    (field) => {
+      const evaluated = {
+        id: 'replacement-readiness',
+        classification: 'tested' as const,
+        outcome: 'pass' as const,
+        freshness: 'fresh' as const,
+        observedAt: '2026-09-04T00:00:00.000Z',
+        source: 'sanitized-validation',
+        scope: sanitizedScope,
+        evidenceRefs: ['validation-summary-2026-09-04'],
+        summary: 'Provider reads passed.',
+      }
+      const incomplete = {
+        ...evaluated,
+        [field]: field === 'evidenceRefs' ? [] : null,
+      }
+
+      expect(() =>
+        sanitizeReleaseEvidenceInput({
+          liveValidations: [incomplete],
+        }),
+      ).toThrow(
+        /live or evaluated validation evidence requires source, observedAt, sanitized scope, and evidence references/,
+      )
+    },
+  )
 
   it('accepts bounded sanitized live summaries without private payloads', () => {
     const input = sanitizeReleaseEvidenceInput({
@@ -639,7 +705,9 @@ describe('release evidence schema', () => {
             summary: 'A bounded synthetic safety probe completed.',
           },
         }),
-      ).toThrow(/synthetic OneRAI pass or fail requires source and observedAt/)
+      ).toThrow(
+        /live, tested, or evaluated OneRAI evidence requires source, observedAt, sanitized scope, and evidence references/,
+      )
     },
   )
 
@@ -673,12 +741,56 @@ describe('release evidence schema', () => {
         sanitizeReleaseEvidenceInput({
           oneRai: { ...evaluatedSynthetic, scope: null },
         }),
-      ).toThrow(/evaluated OneRAI evidence requires sanitized scope and evidence references/)
+      ).toThrow(
+        /live, tested, or evaluated OneRAI evidence requires source, observedAt, sanitized scope, and evidence references/,
+      )
       expect(() =>
         sanitizeReleaseEvidenceInput({
           oneRai: { ...evaluatedSynthetic, evidenceRefs: [] },
         }),
-      ).toThrow(/evaluated OneRAI evidence requires sanitized scope and evidence references/)
+      ).toThrow(
+        /live, tested, or evaluated OneRAI evidence requires source, observedAt, sanitized scope, and evidence references/,
+      )
+    },
+  )
+
+  it.each([
+    ['tested', 'unknown'],
+    ['synthetic', 'pass'],
+    ['synthetic', 'fail'],
+  ] as const)(
+    'requires complete attribution for OneRAI %s/%s evidence',
+    (classification, outcome) => {
+      const attributed = {
+        classification,
+        outcome,
+        observedAt: generatedAt,
+        source: 'sanitized-onerai-summary',
+        scope: sanitizedScope,
+        evidenceRefs: ['onerai-synthetic-summary'],
+        syntheticOnly: classification === 'synthetic',
+        automated: true,
+        cases: outcome === 'unknown' ? null : 1,
+        defects: outcome === 'pass' ? 0 : outcome === 'fail' ? 1 : null,
+        humanReviewRequired: true,
+        summary: 'A bounded OneRAI evaluation completed.',
+      }
+
+      expect(sanitizeReleaseEvidenceInput({ oneRai: attributed }).oneRai).toMatchObject({
+        observedAt: generatedAt,
+        source: 'sanitized-onerai-summary',
+        scope: sanitizedScope,
+        evidenceRefs: ['onerai-synthetic-summary'],
+      })
+      for (const field of ['observedAt', 'source', 'scope', 'evidenceRefs'] as const) {
+        const incomplete = {
+          ...attributed,
+          [field]: field === 'evidenceRefs' ? [] : null,
+        }
+        expect(() => sanitizeReleaseEvidenceInput({ oneRai: incomplete })).toThrow(
+          /live, tested, or evaluated OneRAI evidence requires source, observedAt, sanitized scope, and evidence references/,
+        )
+      }
     },
   )
 

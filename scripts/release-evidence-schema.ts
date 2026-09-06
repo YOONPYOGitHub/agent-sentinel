@@ -140,15 +140,25 @@ export const safeConfigurationSchema = z
   .strictObject(safeConfigurationShape)
   .refine((value) => Object.keys(value).length > 0, 'safeConfiguration must not be empty')
 
-const configurationEvidenceSchema = z.strictObject({
-  classification: z.enum(['tested', 'planned']),
-  algorithm: z.literal('sha256'),
-  hash: z
-    .string()
-    .regex(/^[a-f0-9]{64}$/)
-    .nullable(),
-  keys: z.array(z.enum(SAFE_CONFIGURATION_KEYS)).max(SAFE_CONFIGURATION_KEYS.length),
-})
+const configurationHashSchema = z.string().regex(/^[a-f0-9]{64}$/)
+const configurationKeysSchema = z
+  .array(z.enum(SAFE_CONFIGURATION_KEYS))
+  .max(SAFE_CONFIGURATION_KEYS.length)
+
+const configurationEvidenceSchema = z.discriminatedUnion('classification', [
+  z.strictObject({
+    classification: z.literal('tested'),
+    algorithm: z.literal('sha256'),
+    hash: configurationHashSchema,
+    keys: configurationKeysSchema.min(1),
+  }),
+  z.strictObject({
+    classification: z.literal('planned'),
+    algorithm: z.literal('sha256'),
+    hash: z.null(),
+    keys: configurationKeysSchema.length(0),
+  }),
+])
 
 const checkEvidenceSchema = z
   .strictObject({
@@ -221,19 +231,18 @@ const liveValidationEvidenceSchema = z
     summary: boundedTextSchema,
   })
   .superRefine((value, context) => {
-    if (value.classification === 'live' && (value.observedAt === null || value.source === null)) {
-      context.addIssue({
-        code: 'custom',
-        message: 'live evidence requires source and observedAt',
-      })
-    }
+    const evaluated = value.outcome === 'pass' || value.outcome === 'fail'
     if (
-      value.classification === 'live' &&
-      (value.scope === null || value.evidenceRefs.length === 0)
+      (value.classification === 'live' || evaluated) &&
+      (value.observedAt === null ||
+        value.source === null ||
+        value.scope === null ||
+        value.evidenceRefs.length === 0)
     ) {
       context.addIssue({
         code: 'custom',
-        message: 'live evidence requires sanitized scope and evidence references',
+        message:
+          'live or evaluated validation evidence requires source, observedAt, sanitized scope, and evidence references',
       })
     }
     if (
@@ -314,31 +323,22 @@ const oneRaiEvidenceSchema = z
     summary: boundedTextSchema,
   })
   .superRefine((value, context) => {
-    if (value.classification === 'live' && (value.observedAt === null || value.source === null)) {
-      context.addIssue({
-        code: 'custom',
-        message: 'live evidence requires source and observedAt',
-      })
-    }
+    const requiresAttribution =
+      value.classification === 'live' ||
+      value.classification === 'tested' ||
+      value.outcome === 'pass' ||
+      value.outcome === 'fail'
     if (
-      value.classification === 'synthetic' &&
-      (value.outcome === 'pass' || value.outcome === 'fail') &&
-      (value.observedAt === null || value.source === null)
+      requiresAttribution &&
+      (value.observedAt === null ||
+        value.source === null ||
+        value.scope === null ||
+        value.evidenceRefs.length === 0)
     ) {
       context.addIssue({
         code: 'custom',
-        message: 'synthetic OneRAI pass or fail requires source and observedAt',
-      })
-    }
-    const evaluatedSynthetic =
-      value.classification === 'synthetic' && (value.outcome === 'pass' || value.outcome === 'fail')
-    if (
-      (value.classification === 'live' || value.outcome === 'pass' || evaluatedSynthetic) &&
-      (value.scope === null || value.evidenceRefs.length === 0)
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message: 'evaluated OneRAI evidence requires sanitized scope and evidence references',
+        message:
+          'live, tested, or evaluated OneRAI evidence requires source, observedAt, sanitized scope, and evidence references',
       })
     }
     if (value.syntheticOnly === true && value.classification !== 'synthetic') {
