@@ -95,6 +95,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const accountRef = useRef<AccountInfo | null>(null)
   const configuredScopes = useRef<string[]>([])
 
+  const clearFailedAccount = useCallback(
+    async (msal: IPublicClientApplication, account: AccountInfo | null): Promise<string | null> => {
+      accountRef.current = null
+      setPrincipal(null)
+      setIsSignedIn(false)
+      setTokenProvider(undefined)
+      if (account === null) return null
+      try {
+        await msal.clearCache({ account })
+        return null
+      } catch (error: unknown) {
+        return `The cached Microsoft session could not be cleared: ${errorMessage(error)}`
+      }
+    },
+    [],
+  )
+
   const getAccessToken = useCallback(async (): Promise<string | null> => {
     const msal = msalRef.current
     const account = accountRef.current
@@ -138,26 +155,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsSignedIn(true)
       return { status: 'success' }
     } catch (err: unknown) {
-      accountRef.current = null
-      setPrincipal(null)
-      setIsSignedIn(false)
-      setTokenProvider(undefined)
-      const message = errorMessage(err)
-      if (stage === 'popup' && isUserCancellation(err)) {
-        return {
-          status: 'failure',
-          reason: 'cancelled',
-          message: 'Sign-in was cancelled.',
-        }
-      }
-      setAuthError(message)
+      const cancelled = stage === 'popup' && isUserCancellation(err)
+      const message = cancelled ? 'Sign-in was cancelled.' : errorMessage(err)
+      const cleanupError = await clearFailedAccount(msal, accountRef.current)
+      const recoveryMessage = cleanupError === null ? message : `${message} ${cleanupError}`
+      setAuthError(recoveryMessage)
       return {
         status: 'failure',
-        reason: stage,
-        message,
+        reason: cancelled ? 'cancelled' : stage,
+        message: recoveryMessage,
       }
     }
-  }, [getAccessToken])
+  }, [clearFailedAccount, getAccessToken])
 
   const signOut = useCallback(async () => {
     const msal = msalRef.current
@@ -253,11 +262,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           } catch {
             if (!cancelled) {
-              accountRef.current = null
-              setPrincipal(null)
-              setIsSignedIn(false)
-              setTokenProvider(undefined)
-              setAuthError('The previous session could not be restored. Sign in again.')
+              const message = 'The previous session could not be restored. Sign in again.'
+              const cleanupError = await clearFailedAccount(msal, accounts[0])
+              if (!cancelled) {
+                setAuthError(cleanupError === null ? message : `${message} ${cleanupError}`)
+              }
             }
           }
         }
@@ -275,7 +284,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true
       setTokenProvider(undefined)
     }
-  }, [getAccessToken])
+  }, [clearFailedAccount, getAccessToken])
 
   // Update the token provider whenever sign-in state changes
   useEffect(() => {

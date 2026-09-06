@@ -141,7 +141,7 @@ function StatefulReauthentication({ attempt }: { attempt: () => Promise<SignInRe
       setAuthState({
         isSignedIn: false,
         principal: null,
-        authError: result.reason === 'cancelled' ? null : result.message,
+        authError: result.message,
       })
     }
     return result
@@ -152,6 +152,54 @@ function StatefulReauthentication({ attempt }: { attempt: () => Promise<SignInRe
       <span data-testid="reauth-signed-in">{String(authState.isSignedIn)}</span>
       <span data-testid="reauth-principal">{authState.principal?.subject ?? 'none'}</span>
       <span data-testid="reauth-error">{authState.authError ?? 'none'}</span>
+      <MemoryRouter initialEntries={['/overview']}>
+        <AuthenticatedApplication />
+      </MemoryRouter>
+    </AuthContext.Provider>
+  )
+}
+
+function StatefulAuthErrorRecovery({
+  attempt,
+  signOut = vi.fn().mockResolvedValue(undefined),
+}: {
+  attempt: () => Promise<SignInResult>
+  signOut?: () => Promise<void>
+}) {
+  const [authState, setAuthState] = useState<{
+    isSignedIn: boolean
+    principal: WebAuthPrincipal | null
+    authError: string | null
+  }>({
+    isSignedIn: false,
+    principal: null,
+    authError: 'The previous session could not be restored. Sign in again.',
+  })
+  const signIn = async (): Promise<SignInResult> => {
+    const result = await attempt()
+    if (result.status === 'success') {
+      setAuthState({
+        isSignedIn: true,
+        principal: {
+          subject: 'recovered-subject',
+          tenantId: '11111111-1111-4111-8111-111111111111',
+          roles: ['Viewer'],
+          capabilities: ['read'],
+        },
+        authError: null,
+      })
+    } else {
+      setAuthState({
+        isSignedIn: false,
+        principal: null,
+        authError: result.message,
+      })
+    }
+    return result
+  }
+  const auth = authenticatedContext({ ...authState, signIn, signOut })
+  return (
+    <AuthContext.Provider value={auth}>
       <MemoryRouter initialEntries={['/overview']}>
         <AuthenticatedApplication />
       </MemoryRouter>
@@ -293,8 +341,8 @@ describe('application routing', () => {
         reason: 'cancelled',
         message: 'Sign-in was cancelled.',
       } satisfies SignInResult,
-      'Sign in to Agent Sentinel',
-      'none',
+      'Authentication is unavailable',
+      'Sign-in was cancelled.',
     ],
     [
       'popup failure',
@@ -410,6 +458,86 @@ describe('application routing', () => {
 
     expect(auth.signOut).toHaveBeenCalledOnce()
     expect(demoApi.getState).not.toHaveBeenCalled()
+  })
+
+  it('offers safe recovery actions after cached-session restoration fails', () => {
+    const attempt = vi.fn().mockResolvedValue({
+      status: 'failure',
+      reason: 'popup',
+      message: 'Popup was blocked.',
+    } satisfies SignInResult)
+    const signOut = vi.fn().mockResolvedValue(undefined)
+    const list = vi.spyOn(estateApi, 'list')
+
+    render(<StatefulAuthErrorRecovery attempt={attempt} signOut={signOut} />)
+
+    const heading = screen.getByRole('heading', { name: 'Authentication is unavailable' })
+    expect(screen.getByRole('alert')).toContainElement(heading)
+    expect(screen.getByRole('button', { name: 'Retry Microsoft sign-in' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Sign out and switch account' })).toBeEnabled()
+    expect(list).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['popup cancellation', 'cancelled', 'Sign-in was cancelled.'],
+    ['popup error', 'popup', 'Popup was blocked.'],
+    ['token failure', 'token', 'Token acquisition failed.'],
+    ['principal failure', 'principal', 'Principal lookup failed.'],
+  ] as const)(
+    'does not load estates anonymously after retrying a %s',
+    async (_case, reason, message) => {
+      const attempt = vi.fn().mockResolvedValue({
+        status: 'failure',
+        reason,
+        message,
+      } satisfies SignInResult)
+      const list = vi.spyOn(estateApi, 'list')
+
+      render(<StatefulAuthErrorRecovery attempt={attempt} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Retry Microsoft sign-in' }))
+
+      expect(await screen.findByText(message)).toBeVisible()
+      expect(attempt).toHaveBeenCalledOnce()
+      expect(list).not.toHaveBeenCalled()
+      expect(demoApi.getState).not.toHaveBeenCalled()
+    },
+  )
+
+  it('loads estates only after retry confirms authentication', async () => {
+    const attempt = vi.fn().mockResolvedValue({ status: 'success' } satisfies SignInResult)
+    const list = vi.spyOn(estateApi, 'list').mockResolvedValue({
+      defaultEstateId: 'default',
+      estates: [
+        {
+          id: 'default',
+          name: 'Default estate',
+          tenantId: 'test',
+          environment: 'test',
+          isDefault: true,
+        },
+      ],
+    })
+
+    render(<StatefulAuthErrorRecovery attempt={attempt} />)
+    expect(list).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Microsoft sign-in' }))
+
+    expect(await screen.findByRole('heading', { name: 'Agent operations overview' })).toBeVisible()
+    expect(attempt).toHaveBeenCalledOnce()
+    expect(list).toHaveBeenCalledOnce()
+  })
+
+  it('signs out to switch accounts without loading estates from the auth error state', () => {
+    const attempt = vi.fn().mockResolvedValue({ status: 'success' } satisfies SignInResult)
+    const signOut = vi.fn().mockResolvedValue(undefined)
+    const list = vi.spyOn(estateApi, 'list')
+
+    render(<StatefulAuthErrorRecovery attempt={attempt} signOut={signOut} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out and switch account' }))
+
+    expect(signOut).toHaveBeenCalledOnce()
+    expect(attempt).not.toHaveBeenCalled()
+    expect(list).not.toHaveBeenCalled()
   })
 
   it('redirects root to overview and uses functional active navigation', async () => {

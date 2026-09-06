@@ -1,5 +1,6 @@
 import { Button, Spinner } from '@fluentui/react-components'
 import { AlertRegular, ShieldCheckmarkRegular } from '@fluentui/react-icons'
+import { useState } from 'react'
 import { Navigate, Route, Routes, useParams } from 'react-router-dom'
 
 import { AppLayout } from './components/AppLayout'
@@ -104,7 +105,13 @@ function App() {
 }
 
 export function AuthenticatedApplication() {
-  const { authError, isConfigured, isLoading, isSignedIn, signIn } = useAuth()
+  const { authError, isConfigured, isLoading, isSignedIn, signIn, signOut } = useAuth()
+  const [isRecovering, setIsRecovering] = useState(false)
+
+  const retrySignIn = () => {
+    setIsRecovering(true)
+    void signIn().finally(() => setIsRecovering(false))
+  }
 
   if (isLoading) {
     return (
@@ -120,10 +127,20 @@ export function AuthenticatedApplication() {
   if (authError !== null) {
     return (
       <div className="center-state">
-        <div className="empty-state" role="alert">
+        <div className="empty-state" role="alert" aria-busy={isRecovering}>
           <AlertRegular aria-hidden="true" />
           <h1>Authentication is unavailable</h1>
           <p>{authError}</p>
+          {isConfigured ? (
+            <>
+              <Button appearance="primary" disabled={isRecovering} onClick={retrySignIn}>
+                {isRecovering ? 'Signing in...' : 'Retry Microsoft sign-in'}
+              </Button>
+              <Button disabled={isRecovering} onClick={() => void signOut()}>
+                Sign out and switch account
+              </Button>
+            </>
+          ) : null}
         </div>
       </div>
     )

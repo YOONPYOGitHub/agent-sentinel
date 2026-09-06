@@ -10,6 +10,7 @@ const msal = vi.hoisted(() => ({
   handleRedirectPromise: vi.fn(),
   loginPopup: vi.fn(),
   logoutRedirect: vi.fn(),
+  clearCache: vi.fn(),
   acquireTokenSilent: vi.fn(),
   getAllAccounts: vi.fn(),
 }))
@@ -78,6 +79,7 @@ beforeEach(() => {
   msal.initialize.mockResolvedValue(undefined)
   msal.handleRedirectPromise.mockResolvedValue(null)
   msal.logoutRedirect.mockResolvedValue(undefined)
+  msal.clearCache.mockResolvedValue(undefined)
   msal.getAllAccounts.mockReturnValue([])
 })
 
@@ -142,7 +144,8 @@ describe('AuthProvider', () => {
     expect(fetchMock).not.toHaveBeenCalled()
     expect(screen.getByTestId('signed-in')).toHaveTextContent('false')
     expect(screen.getByTestId('principal')).toHaveTextContent('none')
-    expect(screen.getByTestId('error')).toHaveTextContent('none')
+    expect(screen.getByTestId('error')).toHaveTextContent('Sign-in was cancelled.')
+    expect(msal.clearCache).not.toHaveBeenCalled()
   })
 
   it('returns an explicit popup failure without fetching a principal', async () => {
@@ -170,6 +173,7 @@ describe('AuthProvider', () => {
     expect(screen.getByTestId('signed-in')).toHaveTextContent('false')
     expect(screen.getByTestId('principal')).toHaveTextContent('none')
     expect(screen.getByTestId('error')).toHaveTextContent('Popup was blocked.')
+    expect(msal.clearCache).not.toHaveBeenCalled()
   })
 
   it('returns an explicit popup failure when sign-in does not establish an account', async () => {
@@ -234,12 +238,14 @@ describe('AuthProvider', () => {
     expect(screen.getByTestId('signed-in')).toHaveTextContent('false')
     expect(screen.getByTestId('principal')).toHaveTextContent('none')
     expect(screen.getByTestId('error')).toHaveTextContent('Token acquisition failed.')
+    expect(msal.clearCache).toHaveBeenCalledWith({ account })
   })
 
   it('returns an explicit principal failure and clears the popup account', async () => {
     vi.mocked(authApi.getConfig).mockResolvedValue(enabledConfig)
+    const account = { homeAccountId: 'popup-home' }
     msal.loginPopup.mockResolvedValue({
-      account: { homeAccountId: 'popup-home' },
+      account,
       accessToken: 'popup-access-token',
     })
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
@@ -269,6 +275,7 @@ describe('AuthProvider', () => {
     expect(screen.getByTestId('signed-in')).toHaveTextContent('false')
     expect(screen.getByTestId('principal')).toHaveTextContent('none')
     expect(screen.getByTestId('error')).toHaveTextContent('Principal lookup failed.')
+    expect(msal.clearCache).toHaveBeenCalledWith({ account })
 
     fireEvent.click(screen.getByRole('button', { name: 'Get access token test' }))
     expect(
@@ -367,6 +374,35 @@ describe('AuthProvider', () => {
 
     expect(await screen.findByText('Alice Analyst')).toBeVisible()
     expect(screen.getByTestId('signed-in')).toHaveTextContent('true')
+  })
+
+  it('clears a cached account when the previous session cannot be restored', async () => {
+    vi.mocked(authApi.getConfig).mockResolvedValue(enabledConfig)
+    const account = { homeAccountId: 'stale-home' }
+    msal.getAllAccounts.mockReturnValue([account])
+    msal.acquireTokenSilent.mockRejectedValue(new Error('Cached token is expired.'))
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <AuthProvider>
+        <AuthState />
+      </AuthProvider>,
+    )
+
+    expect(
+      await screen.findByText('The previous session could not be restored. Sign in again.'),
+    ).toBeVisible()
+    expect(msal.clearCache).toHaveBeenCalledWith({ account })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId('signed-in')).toHaveTextContent('false')
+    expect(screen.getByTestId('principal')).toHaveTextContent('none')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Get access token test' }))
+    expect(
+      await screen.findByText('none', { selector: '[data-testid="access-token"]' }),
+    ).toBeVisible()
+    expect(msal.acquireTokenSilent).toHaveBeenCalledOnce()
   })
 
   it('uses full-page logout so the application is not initialized inside a popup', async () => {
