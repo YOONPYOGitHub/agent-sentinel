@@ -74,7 +74,10 @@ test('shows assurance scorecard dimensions in agent detail', async ({ page }) =>
   await expect(reliabilityCard.getByRole('heading', { name: 'Reliability' })).toBeVisible()
   await expect(reliabilityCard.getByText('Unknown', { exact: true })).toBeVisible()
   await expect(
-    reliabilityCard.getByText(/does not contain the exact baseline and observed runtime evidence/i),
+    reliabilityCard.getByText(
+      'The estate snapshot does not contain the exact baseline and observed runtime evidence linked to this agent, so no reliability posture is inferred.',
+      { exact: true },
+    ),
   ).toBeVisible()
 })
 test('supports required routes and wildcard 404', async ({ page }) => {

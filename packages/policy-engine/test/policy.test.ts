@@ -48,11 +48,10 @@ function scenarioSnapshot(agentName: string): EstateSnapshot {
 }
 
 function fullSnapshot(): EstateSnapshot {
-  return mapAgentToSnapshot(
-    foundryManifest.agents.map(agentToFoundry),
-    FOUNDRY_API_VERSION,
-    { tenantId: 'tenant-demo', environment: 'validation' },
-  )
+  return mapAgentToSnapshot(foundryManifest.agents.map(agentToFoundry), FOUNDRY_API_VERSION, {
+    tenantId: 'tenant-demo',
+    environment: 'validation',
+  })
 }
 
 const legacySnapshot: EstateSnapshot = {
@@ -116,7 +115,9 @@ describe('uncontrolled egress policy (AS-POL-004)', () => {
 
 describe('AS-POL-001 unapproved external transfer', () => {
   it('flags sales-research-vulnerable', () => {
-    const findings = evaluateUnapprovedExternalTransfer(scenarioSnapshot('sales-research-vulnerable'))
+    const findings = evaluateUnapprovedExternalTransfer(
+      scenarioSnapshot('sales-research-vulnerable'),
+    )
     expect(findings).toHaveLength(1)
     expect(findings[0]?.severity).toBe('critical')
     expect(findings[0]?.riskScore).toBe(91)
@@ -149,7 +150,9 @@ describe('AS-POL-001 unapproved external transfer', () => {
   })
 
   it('flags external-transfer-unsafe', () => {
-    const findings = evaluateUnapprovedExternalTransfer(scenarioSnapshot('external-transfer-unsafe'))
+    const findings = evaluateUnapprovedExternalTransfer(
+      scenarioSnapshot('external-transfer-unsafe'),
+    )
     expect(findings).toHaveLength(1)
     expect(findings[0]?.policyId).toBe('AS-POL-001')
   })
@@ -171,13 +174,17 @@ describe('AS-POL-001 unapproved external transfer', () => {
 
   it('does not flag customer-support-safe or incident-triage-readonly', () => {
     expect(evaluateAllExposurePolicies(scenarioSnapshot('customer-support-safe'))).toHaveLength(0)
-    expect(evaluateAllExposurePolicies(scenarioSnapshot('incident-triage-readonly'))).toHaveLength(0)
+    expect(evaluateAllExposurePolicies(scenarioSnapshot('incident-triage-readonly'))).toHaveLength(
+      0,
+    )
   })
 })
 
 describe('AS-POL-002 overprivileged employee lookup', () => {
   it('flags hr-policy-overprivileged', () => {
-    const findings = evaluateOverprivilegedEmployeeLookup(scenarioSnapshot('hr-policy-overprivileged'))
+    const findings = evaluateOverprivilegedEmployeeLookup(
+      scenarioSnapshot('hr-policy-overprivileged'),
+    )
     expect(findings).toHaveLength(1)
     expect(findings[0]?.severity).toBe('high')
     expect(findings[0]?.riskScore).toBe(76)
