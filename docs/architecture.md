@@ -123,7 +123,12 @@ measurement is keyed and queried by estate ID, data tenant, environment, and
 connector ID. Cosmos stores immutable timestamped measurements in the snapshots
 container under the existing tenant partition and derives document IDs from a
 SHA-256 hash of the canonical scope-and-time tuple; the in-memory adapter
-follows the same boundary contract for local execution and tests.
+follows the same boundary contract for local execution and tests. Writes use
+atomic create semantics: the first measurement for an exact
+estate/tenant/environment/connector/timestamp tuple wins, byte-equivalent
+retries are idempotent, and differing retries raise a typed conflict without
+changing health or diagnostics. A conflicting hash is verified against the
+full tuple rather than treated as an idempotent retry.
 
 In live mode, `GET /api/connectors` reads the latest persisted measurement for
 the authorized request estate and active connector. It does not probe providers

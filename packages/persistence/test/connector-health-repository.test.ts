@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto'
+
 import { describe, expect, it } from 'vitest'
 
-import type {
-  ConnectorHealthMeasurement,
-  ConnectorHealthRepository,
-  ExactIdentityCorrelationDiagnostics,
+import {
+  ConnectorHealthConflictError,
+  type ConnectorHealthMeasurement,
+  type ConnectorHealthRepository,
+  type ExactIdentityCorrelationDiagnostics,
 } from '@agent-sentinel/connector-sdk'
 
 import { CosmosConnectorHealthRepository, InMemoryConnectorHealthRepository } from '../src/index.js'
@@ -135,6 +138,58 @@ describe.each(repositories())('$name connector health repository', ({ create }) 
     await Promise.all([repository.save(estateA, latest), repository.save(estateA, stale)])
 
     await expect(repository.findLatest(estateA, 'foundry')).resolves.toEqual(latest)
+  })
+
+  it('atomically preserves the first concurrent measurement for the same identity', async () => {
+    const { repository } = create()
+    const measuredAt = '2026-09-04T13:00:00.000Z'
+    const ready = measurement('foundry', measuredAt)
+    const degraded = measurement('foundry', measuredAt, 'degraded')
+
+    const results = await Promise.allSettled([
+      repository.save(estateA, ready),
+      repository.save(estateA, degraded),
+    ])
+    expect(results[0]).toMatchObject({ status: 'fulfilled' })
+    expect(results[0]).toMatchObject({ status: 'fulfilled' })
+    expect(results[1]?.status).toBe('rejected')
+    if (results[1]?.status !== 'rejected') throw new Error('Expected the second write to conflict.')
+    expect(results[1].reason).toBeInstanceOf(ConnectorHealthConflictError)
+    await expect(repository.findLatest(estateA, 'foundry')).resolves.toEqual(ready)
+  })
+
+  it('treats concurrent byte-equivalent duplicates as idempotent', async () => {
+    const { repository } = create()
+    const first = diagnosticMeasurement()
+    const duplicate = structuredClone(first)
+
+    await expect(
+      Promise.all([repository.save(estateA, first), repository.save(estateA, duplicate)]),
+    ).resolves.toEqual([undefined, undefined])
+    await expect(repository.findLatest(estateA, 'foundry')).resolves.toEqual(first)
+  })
+
+  it('does not partially overwrite health or diagnostics on conflict', async () => {
+    const { repository } = create()
+    const first = diagnosticMeasurement()
+    const conflicting = {
+      ...structuredClone(first),
+      health: {
+        ...structuredClone(first.health),
+        overall: 'degraded' as const,
+        partial: true,
+        sources: first.health.sources.map((source) => ({
+          ...structuredClone(source),
+          readiness: 'degraded' as const,
+        })),
+      },
+    }
+
+    await repository.save(estateA, first)
+    await expect(repository.save(estateA, conflicting)).rejects.toBeInstanceOf(
+      ConnectorHealthConflictError,
+    )
+    await expect(repository.findLatest(estateA, 'foundry')).resolves.toEqual(first)
   })
 
   it('isolates measurements by estate and connector source', async () => {
@@ -272,6 +327,42 @@ describe('Cosmos connector health query', () => {
 
     await expect(repository.findLatest(expandedEnvironment, 'otel')).resolves.toEqual(first)
     await expect(repository.findLatest(estateA, 'west:otel')).resolves.toEqual(second)
+  })
+
+  it('treats a physical ID collision with a different canonical tuple as a conflict', async () => {
+    const store = new FakeCosmosStore()
+    const repository = new CosmosConnectorHealthRepository(store.client)
+    const measuredAt = '2026-09-04T13:00:00.000Z'
+    const incoming = measurement('foundry', measuredAt)
+    const colliding = measurement('entra', measuredAt, 'degraded')
+    const incomingTuple = JSON.stringify([
+      incoming.estateId,
+      incoming.tenantId,
+      incoming.environment,
+      incoming.connectorId,
+      incoming.measuredAt,
+    ])
+    const id = `connector-health:${createHash('sha256').update(incomingTuple, 'utf8').digest('hex')}`
+    await store.client
+      .database('agent-sentinel-db')
+      .container('snapshots')
+      .items.create({
+        id,
+        documentType: 'connector-health-measurement',
+        estateId: colliding.estateId,
+        tenantId: colliding.tenantId,
+        environment: colliding.environment,
+        connectorId: colliding.connectorId,
+        measuredAt: colliding.measuredAt,
+        measurementBytes: JSON.stringify(colliding),
+        measurement: colliding,
+      })
+
+    await expect(repository.save(estateA, incoming)).rejects.toBeInstanceOf(
+      ConnectorHealthConflictError,
+    )
+    await expect(repository.findLatest(estateA, 'foundry')).resolves.toBeNull()
+    await expect(repository.findLatest(estateA, 'entra')).resolves.toEqual(colliding)
   })
 
   it('rejects persisted diagnostics with inconsistent correlation accounting', async () => {

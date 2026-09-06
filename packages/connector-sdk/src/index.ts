@@ -162,6 +162,22 @@ export const connectorHealthMeasurementSchema = estateContextSchema
   .omit({ id: true })
   .strict()
 
+export interface ConnectorHealthMeasurementIdentity {
+  readonly estateId: string
+  readonly tenantId: string
+  readonly environment: string
+  readonly connectorId: string
+  readonly measuredAt: string
+}
+
+export class ConnectorHealthConflictError extends Error {
+  override readonly name = 'ConnectorHealthConflictError'
+
+  constructor(readonly identity: ConnectorHealthMeasurementIdentity) {
+    super('A differing connector health measurement already exists for this identity.')
+  }
+}
+
 export interface ConnectorHealthRepository {
   save(estate: EstateContext, measurement: ConnectorHealthMeasurement): Promise<void>
   findLatest(estate: EstateContext, connectorId: string): Promise<ConnectorHealthMeasurement | null>

@@ -3,8 +3,10 @@ import { createHash } from 'node:crypto'
 import type { Container, CosmosClient, SqlQuerySpec } from '@azure/cosmos'
 
 import {
+  ConnectorHealthConflictError,
   connectorHealthMeasurementSchema,
   type ConnectorHealthMeasurement,
+  type ConnectorHealthMeasurementIdentity,
   type ConnectorHealthRepository,
 } from '@agent-sentinel/connector-sdk'
 import type { EstateContext } from '@agent-sentinel/domain'
@@ -17,6 +19,7 @@ interface ConnectorHealthDocument {
   environment: string
   connectorId: string
   measuredAt: string
+  measurementBytes?: string
   measurement: ConnectorHealthMeasurement
 }
 
@@ -49,16 +52,45 @@ function assertDocumentBoundary(
   assertBoundary(estate, document.measurement)
 }
 
-function physicalId(measurement: ConnectorHealthMeasurement): string {
-  const canonicalTuple = JSON.stringify([
-    measurement.estateId,
-    measurement.tenantId,
-    measurement.environment,
-    measurement.connectorId,
-    measurement.measuredAt,
+function identity(measurement: ConnectorHealthMeasurement): ConnectorHealthMeasurementIdentity {
+  return {
+    estateId: measurement.estateId,
+    tenantId: measurement.tenantId,
+    environment: measurement.environment,
+    connectorId: measurement.connectorId,
+    measuredAt: measurement.measuredAt,
+  }
+}
+
+function identityBytes(identityValue: ConnectorHealthMeasurementIdentity): string {
+  return JSON.stringify([
+    identityValue.estateId,
+    identityValue.tenantId,
+    identityValue.environment,
+    identityValue.connectorId,
+    identityValue.measuredAt,
   ])
-  const digest = createHash('sha256').update(canonicalTuple, 'utf8').digest('hex')
+}
+
+function sameIdentity(
+  left: ConnectorHealthMeasurementIdentity,
+  right: ConnectorHealthMeasurementIdentity,
+): boolean {
+  return identityBytes(left) === identityBytes(right)
+}
+
+function physicalId(measurementIdentity: ConnectorHealthMeasurementIdentity): string {
+  const digest = createHash('sha256')
+    .update(identityBytes(measurementIdentity), 'utf8')
+    .digest('hex')
   return `connector-health:${digest}`
+}
+
+function statusCode(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  if ('code' in error && typeof error.code === 'number') return error.code
+  if ('statusCode' in error && typeof error.statusCode === 'number') return error.statusCode
+  return undefined
 }
 
 function latestQuery(estate: EstateContext, connectorId: string): SqlQuerySpec {
@@ -88,16 +120,45 @@ export class CosmosConnectorHealthRepository implements ConnectorHealthRepositor
   async save(estate: EstateContext, measurement: ConnectorHealthMeasurement): Promise<void> {
     connectorHealthMeasurementSchema.parse(measurement)
     assertBoundary(estate, measurement)
-    await this.container.items.upsert<ConnectorHealthDocument>({
-      id: physicalId(measurement),
+    const measurementIdentity = identity(measurement)
+    const id = physicalId(measurementIdentity)
+    const measurementBytes = JSON.stringify(measurement)
+    const document: ConnectorHealthDocument = {
+      id,
       documentType: 'connector-health-measurement',
       estateId: estate.id,
       tenantId: estate.tenantId,
       environment: estate.environment,
       connectorId: measurement.connectorId,
       measuredAt: measurement.measuredAt,
+      measurementBytes,
       measurement,
-    })
+    }
+    try {
+      await this.container.items.create<ConnectorHealthDocument>(document)
+    } catch (error: unknown) {
+      if (statusCode(error) !== 409) throw error
+      const existing = await this.readDocument(id, estate.tenantId)
+      if (existing === null) {
+        throw new Error('Conflicting connector health measurement could not be read.')
+      }
+      const existingIdentity = identity(existing.measurement)
+      if (!sameIdentity(existingIdentity, measurementIdentity)) {
+        throw new ConnectorHealthConflictError(measurementIdentity)
+      }
+      connectorHealthMeasurementSchema.parse(existing.measurement)
+      assertDocumentBoundary(estate, measurement.connectorId, existing)
+      const existingBytes = existing.measurementBytes ?? JSON.stringify(existing.measurement)
+      if (
+        existing.measurementBytes !== undefined &&
+        existing.measurementBytes !== JSON.stringify(existing.measurement)
+      ) {
+        throw new Error('Stored connector health measurement bytes are inconsistent.')
+      }
+      if (existingBytes !== measurementBytes) {
+        throw new ConnectorHealthConflictError(measurementIdentity)
+      }
+    }
   }
 
   async findLatest(
@@ -113,6 +174,25 @@ export class CosmosConnectorHealthRepository implements ConnectorHealthRepositor
     if (document === undefined) return null
     connectorHealthMeasurementSchema.parse(document.measurement)
     assertDocumentBoundary(estate, connectorId, document)
+    if (
+      document.measurementBytes !== undefined &&
+      document.measurementBytes !== JSON.stringify(document.measurement)
+    ) {
+      throw new Error('Stored connector health measurement bytes are inconsistent.')
+    }
     return structuredClone(document.measurement)
+  }
+
+  private async readDocument(
+    id: string,
+    tenantId: string,
+  ): Promise<ConnectorHealthDocument | null> {
+    try {
+      const { resource } = await this.container.item(id, tenantId).read<ConnectorHealthDocument>()
+      return resource ?? null
+    } catch (error: unknown) {
+      if (statusCode(error) === 404) return null
+      throw error
+    }
   }
 }
