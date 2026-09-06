@@ -36,6 +36,37 @@ export type { AgentCorrelationKind, AgentCorrelation } from './correlation.js'
 export { evidenceSchema, evidenceTypeSchema } from './evidence.js'
 export type { Evidence, EvidenceType } from './evidence.js'
 
+export {
+  otelEvidenceStatusSchema,
+  otelEvidenceClassificationSchema,
+  otelSignalTypeSchema,
+  otelEvidenceCaveatSchema,
+  otelSamplingSchema,
+  otelAggregationSchema,
+  otelEvidenceProvenanceSchema,
+  otelEvidenceClaimSchema,
+  representativeOtelEvidenceSchema,
+  otelWindowQualitySchema,
+  runtimeOtelProvenanceSchema,
+  runtimeOtelEvidenceItemSchema,
+  otelEvidenceDetailsSchema,
+} from './otel-evidence.js'
+export type {
+  OtelEvidenceStatus,
+  OtelEvidenceClassification,
+  OtelSignalType,
+  OtelEvidenceCaveat,
+  OtelSampling,
+  OtelAggregation,
+  OtelEvidenceProvenance,
+  OtelEvidenceClaim,
+  RepresentativeOtelEvidence,
+  OtelWindowQuality,
+  RuntimeOtelProvenance,
+  RuntimeOtelEvidenceItem,
+  OtelEvidenceDetails,
+} from './otel-evidence.js'
+
 export const nodeKindSchema = z.enum([
   'input',
   'agent',

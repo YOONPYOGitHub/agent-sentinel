@@ -6,6 +6,7 @@ import {
   type GraphEdge,
   type GraphNode,
   type ObservationWindow,
+  type RuntimeOtelEvidenceItem,
   type RuntimeObservation,
 } from '@agent-sentinel/domain'
 
@@ -51,16 +52,33 @@ export function runtimeTelemetryRequestForAgent(
 export function withoutSyntheticObservations(
   windows: RuntimeObservationWindows,
 ): RuntimeObservationWindows {
+  const withoutSynthetic = (window: ObservationWindow): ObservationWindow => {
+    const observations = window.observations.filter((item) => !item.synthetic)
+    if (
+      window.otelQuality === undefined ||
+      observations.length > 0 ||
+      window.observations.every((item) => !item.synthetic)
+    ) {
+      return { ...window, observations }
+    }
+    return {
+      ...window,
+      observations,
+      otelQuality: {
+        status: 'unknown',
+        classification: 'unknown',
+        caveats: ['empty'],
+        recordsReceived: window.otelQuality.recordsReceived,
+        recordsAccepted: 0,
+        duplicatesRemoved: 0,
+        pagesProcessed: window.otelQuality.pagesProcessed,
+      },
+    }
+  }
   return runtimeObservationWindowsSchema.parse({
     ...windows,
-    baseline: {
-      ...windows.baseline,
-      observations: windows.baseline.observations.filter((item) => !item.synthetic),
-    },
-    observed: {
-      ...windows.observed,
-      observations: windows.observed.observations.filter((item) => !item.synthetic),
-    },
+    baseline: withoutSynthetic(windows.baseline),
+    observed: withoutSynthetic(windows.observed),
   })
 }
 
@@ -72,6 +90,31 @@ function appendEvidenceId(ids: string[], id: string): string[] {
   return ids.includes(id) ? ids : [...ids, id]
 }
 
+function runtimeOtelEvidenceItem(observation: RuntimeObservation): RuntimeOtelEvidenceItem {
+  if (
+    observation.otelProvenance === undefined ||
+    observation.latencyMs === undefined ||
+    observation.inputTokens === undefined ||
+    observation.outputTokens === undefined ||
+    observation.costUsd === undefined
+  ) {
+    throw new Error(
+      'Normalized OpenTelemetry evidence requires exact invocation, latency, error, token, and cost claims.',
+    )
+  }
+  return {
+    id: observation.id,
+    observedAt: observation.observedAt,
+    latencyMs: observation.latencyMs,
+    inputTokens: observation.inputTokens,
+    outputTokens: observation.outputTokens,
+    costUsd: observation.costUsd,
+    success: observation.success,
+    ...(observation.errorCode !== undefined ? { errorCode: observation.errorCode } : {}),
+    provenance: observation.otelProvenance,
+  }
+}
+
 function evidenceForWindow(
   window: ObservationWindow,
   observations: RuntimeObservation[],
@@ -81,19 +124,34 @@ function evidenceForWindow(
   agentName: string,
   unmatchedToolCallNames: string[],
 ): Evidence {
+  const qualityStatus = window.otelQuality?.status ?? 'available'
   const successCount = observations.filter((item) => item.success).length
   const latestObservedAt = observations
     .map((item) => item.observedAt)
-    .sort((left, right) => right.localeCompare(left))[0]!
+    .sort((left, right) => right.localeCompare(left))[0]
+  const evidenceTypes =
+    qualityStatus === 'available'
+      ? [synthetic ? ('synthetic_validation' as const) : ('observed_runtime' as const)]
+      : synthetic
+        ? (['synthetic_validation', 'unknown'] as const)
+        : (['unknown'] as const)
+  const summary =
+    qualityStatus === 'available'
+      ? `${observations.length} directly measured ${synthetic ? 'synthetic validation' : 'runtime'} invocation${observations.length === 1 ? '' : 's'} for ${agentName}; ${successCount} succeeded and ${observations.length - successCount} failed.`
+      : `OpenTelemetry ${kind} evidence for ${agentName} is ${qualityStatus}; no runtime success claim was established.`
   return evidenceSchema.parse({
     id: evidenceId(baseId, synthetic),
     source: 'Azure Monitor OpenTelemetry',
     sourceObjectId: window.windowId,
-    observedAt: latestObservedAt,
-    freshness: kind === 'observed' ? 'live' : 'recent',
-    confidence: 1,
-    evidenceTypes: [synthetic ? 'synthetic_validation' : 'observed_runtime'],
-    summary: `${observations.length} directly measured ${synthetic ? 'synthetic validation' : 'runtime'} invocation${observations.length === 1 ? '' : 's'} for ${agentName}; ${successCount} succeeded and ${observations.length - successCount} failed.`,
+    observedAt: latestObservedAt ?? window.windowEnd,
+    freshness: window.otelQuality?.caveats.includes('stale')
+      ? 'stale'
+      : kind === 'observed'
+        ? 'live'
+        : 'recent',
+    confidence: qualityStatus === 'available' ? 1 : 0,
+    evidenceTypes,
+    summary,
     metadata: {
       sourceConnector: 'azure-monitor-otel',
       windowKind: kind,
@@ -103,9 +161,57 @@ function evidenceForWindow(
       successfulObservationCount: String(successCount),
       failedObservationCount: String(observations.length - successCount),
       synthetic: String(synthetic),
+      evidenceStatus: qualityStatus,
+      evidenceCaveats: JSON.stringify(window.otelQuality?.caveats ?? []),
+      recordsReceived: String(window.otelQuality?.recordsReceived ?? observations.length),
+      recordsAccepted: String(window.otelQuality?.recordsAccepted ?? observations.length),
+      duplicatesRemoved: String(window.otelQuality?.duplicatesRemoved ?? 0),
       unmatchedToolCallNames: JSON.stringify(unmatchedToolCallNames),
     },
+    ...(window.otelQuality !== undefined
+      ? {
+          otel: {
+            quality: window.otelQuality,
+            invocations: observations.map(runtimeOtelEvidenceItem),
+          },
+        }
+      : {}),
   })
+}
+
+function assertExactOtelProvenance(
+  snapshot: EstateSnapshot,
+  agent: GraphNode,
+  window: ObservationWindow,
+): void {
+  const sourceConnectorId = agent.metadata['sourceConnectorId']
+  const sourceTenantId = agent.metadata['sourceTenantId']
+  const sourceAgentId = agent.metadata['sourceObjectId']
+  const sourceEnvironment = agent.metadata['sourceEnvironment'] ?? agent.environment
+  for (const observation of window.observations) {
+    const provenance = observation.otelProvenance
+    if (provenance === undefined) {
+      if (window.otelQuality !== undefined) {
+        throw new Error('Normalized OpenTelemetry observations require exact provenance.')
+      }
+      continue
+    }
+    if (
+      sourceConnectorId === undefined ||
+      sourceTenantId === undefined ||
+      sourceAgentId === undefined ||
+      provenance.estateTenantId !== snapshot.tenantId ||
+      provenance.estateEnvironment !== snapshot.environment ||
+      provenance.sourceConnectorId !== sourceConnectorId ||
+      provenance.sourceTenantId !== sourceTenantId ||
+      provenance.sourceEnvironment !== sourceEnvironment ||
+      provenance.providerAgentId !== sourceAgentId
+    ) {
+      throw new Error(
+        'Normalized OpenTelemetry provenance does not match the exact estate and agent source binding.',
+      )
+    }
+  }
 }
 
 function exactToolMatches(
@@ -145,6 +251,8 @@ export function projectRuntimeEvidence(
   ) {
     throw new Error('Runtime telemetry does not match the estate tenant and agent environment.')
   }
+  assertExactOtelProvenance(snapshot, agent, windows.baseline)
+  assertExactOtelProvenance(snapshot, agent, windows.observed)
   const unmatched = new Set<string>()
   let addedEvidenceCount = 0
 
@@ -152,15 +260,22 @@ export function projectRuntimeEvidence(
     ['baseline', windows.baseline, windows.baselineEvidenceId],
     ['observed', windows.observed, windows.observedEvidenceId],
   ] as const) {
-    for (const synthetic of [false, true]) {
+    const classifications =
+      window.observations.length === 0 && window.otelQuality !== undefined
+        ? [window.otelQuality.classification === 'synthetic']
+        : [false, true]
+    for (const synthetic of classifications) {
       const observations = window.observations.filter((item) => item.synthetic === synthetic)
-      if (observations.length === 0) continue
+      if (observations.length === 0 && window.observations.length > 0) continue
+      if (observations.length === 0 && window.otelQuality === undefined) continue
       const toolNames = new Set(observations.flatMap((item) => item.toolCallNames))
       const matches = new Map<string, { node: GraphNode; edge: GraphEdge }>()
-      for (const toolName of toolNames) {
-        const match = exactToolMatches(snapshot.nodes, snapshot.edges, agent.id, toolName)
-        if (match === undefined) unmatched.add(toolName)
-        else matches.set(toolName, match)
+      if ((window.otelQuality?.status ?? 'available') === 'available') {
+        for (const toolName of toolNames) {
+          const match = exactToolMatches(snapshot.nodes, snapshot.edges, agent.id, toolName)
+          if (match === undefined) unmatched.add(toolName)
+          else matches.set(toolName, match)
+        }
       }
       const id = evidenceId(baseId, synthetic)
       const evidence = evidenceForWindow(

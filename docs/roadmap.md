@@ -148,6 +148,7 @@ The connector and engine bridge are implemented. Deployment prerequisites and th
 - [x] Strictly convert projected rows into bound `ObservationWindow` objects and feed behavior drift and token economics.
 - [x] Resolve aggregate agents to source-specific workspace, tenant, environment, and provider agent id; rebind measured windows to the aggregate estate identity.
 - [x] Support multiple workspace sources with independent default or secretless federated credentials and per-source health.
+- [x] Normalize bounded representative trace/span/metric fixtures with exact estate, source, resource, trace, and span provenance; retain live/synthetic, sampling, aggregation, freshness, duplicate, and pagination quality without provider calls.
 - [ ] Instrument the target agents, inject workspace/tenant/environment configuration, and grant read-only query permission.
 - [x] Map runtime spans to existing graph nodes and edges without inventing relationships.
 - [x] Distinguish observed runtime behavior from declared configuration at the evidence-type level.

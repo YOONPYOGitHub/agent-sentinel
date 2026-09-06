@@ -222,6 +222,22 @@ export function analyzeTokenEconomics(
     })
   }
 
+  if (observed.otelQuality !== undefined && observed.otelQuality.status !== 'available') {
+    return tokenEconomicsReportSchema.parse({
+      reportId: rid,
+      tenantId: observed.tenantId,
+      agentId: observed.agentId,
+      environment: observed.environment,
+      source: observed.source,
+      windowStart: observed.windowStart,
+      windowEnd: observed.windowEnd,
+      computedAt,
+      status:
+        observed.otelQuality.status === 'unknown' ? 'insufficient-data' : 'unavailable',
+      unavailableReason: `OpenTelemetry evidence is ${observed.otelQuality.status}: ${observed.otelQuality.caveats.join(', ')}.`,
+    })
+  }
+
   // Reject future windows (clock skew guard)
   if (windowEndMs > nowMs + MAX_CLOCK_SKEW_MINUTES * 60 * 1000) {
     return tokenEconomicsReportSchema.parse({

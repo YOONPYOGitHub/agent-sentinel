@@ -20,6 +20,21 @@ import {
 } from '@azure/identity'
 import { z } from 'zod'
 
+export {
+  MAX_REPRESENTATIVE_OTEL_PAGES,
+  MAX_REPRESENTATIVE_OTEL_OBSERVATIONS,
+  MAX_REPRESENTATIVE_OTEL_RECORDS,
+  MAX_REPRESENTATIVE_OTEL_RECORDS_PER_PAGE,
+  normalizeRepresentativeOtelEvidence,
+  representativeOtelInputRecordSchema,
+  representativeOtelPageSchema,
+  representativeOtelWindowBindingSchema,
+  type RepresentativeOtelInputRecord,
+  type RepresentativeOtelPage,
+  type RepresentativeOtelWindowBinding,
+  type RepresentativeOtelWindowNormalization,
+} from './representative-evidence.js'
+
 const LOGS_SCOPE = 'https://api.loganalytics.io/.default'
 const LOGS_ORIGIN = 'https://api.loganalytics.io'
 const MAX_QUERY_ROWS = 10_000

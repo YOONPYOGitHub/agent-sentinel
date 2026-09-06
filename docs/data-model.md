@@ -332,6 +332,50 @@ One dimension's result: `dimension` (`DriftDimension`), `drifted` (boolean), `se
 
 ---
 
+## Representative OpenTelemetry evidence
+
+`@agent-sentinel/domain` defines bounded contracts for representative trace,
+span, and metric evidence. The Azure Monitor OTel connector can normalize
+sanitized provider pages without network access and deterministically group
+claims only when the provider resource ID, source agent ID, trace ID, and span
+ID match exactly.
+
+Every normalized record preserves:
+
+- estate ID, estate tenant, and estate environment;
+- connector source ID, source tenant, and source environment;
+- provider resource and provider agent IDs;
+- OTel trace and span IDs plus the provider observation timestamp;
+- `live` or `synthetic` classification;
+- sampling state/rate and raw, delta, cumulative, or pre-aggregated semantics;
+- one bounded invocation, latency, error, input-token, output-token, cost, or
+  unsupported claim.
+
+An analysis-ready invocation requires one compatible trace invocation claim,
+span latency and error claims, and raw metric claims for input tokens, output
+tokens, and measured USD cost. It is projected into `RuntimeObservation` with
+structured `otelProvenance`; the backing `Evidence` retains up to 500 exact
+invocation records and the full bounded quality summary.
+
+`OtelWindowQuality.status` is `available`, `unknown`, or `degraded`. Empty input
+is `unknown`. Invalid or missing IDs, sampling, unknown sampling, partial
+records, stale/future timestamps, unsupported signals or claims, aggregated
+metrics, duplicates, mixed classification, and incomplete pagination are
+`degraded`. Drift, baseline, and token-economics analysis reject non-available
+quality, so these conditions cannot become a healthy or successful result.
+Synthetic records remain synthetic after normalization and are removed from
+live behavior analysis.
+
+| Bound                              | Limit  |
+| ---------------------------------- | ------ |
+| Provider pages                     | 20     |
+| Records per page                   | 500    |
+| Records per normalization          | 10,000 |
+| Projected invocations per window   | 500    |
+| Evidence records per invocation    | 6      |
+
+---
+
 ## Token Economics Domain Types (packages/domain/src/token-economics.ts)
 
 ### TokenEconomicsReport

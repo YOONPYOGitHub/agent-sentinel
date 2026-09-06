@@ -295,6 +295,13 @@ export function analyzeDrift(
     }
   }
 
+  if (observed.otelQuality !== undefined && observed.otelQuality.status !== 'available') {
+    return unavailable(
+      observed.otelQuality.status === 'unknown' ? 'insufficient-data' : 'invalid',
+      `OpenTelemetry evidence is ${observed.otelQuality.status}: ${observed.otelQuality.caveats.join(', ')}.`,
+    )
+  }
+
   // ── 1. Validate window boundaries ────────────────────────────────────────
   const baselineStartMs = new Date(baseline.windowStart).getTime()
   const baselineEndMs = new Date(baseline.windowEnd).getTime()
@@ -542,6 +549,13 @@ export function computeBaseline(
   opts: { minSamples?: number } = {},
 ): { baseline: BaselineWindow } | { error: AnalysisStatus; reason: string } {
   const minSamples = opts.minSamples ?? MIN_SAMPLES
+
+  if (window.otelQuality !== undefined && window.otelQuality.status !== 'available') {
+    return {
+      error: window.otelQuality.status === 'unknown' ? 'insufficient-data' : 'invalid',
+      reason: `OpenTelemetry evidence is ${window.otelQuality.status}: ${window.otelQuality.caveats.join(', ')}.`,
+    }
+  }
 
   const startMs = new Date(window.windowStart).getTime()
   const endMs = new Date(window.windowEnd).getTime()

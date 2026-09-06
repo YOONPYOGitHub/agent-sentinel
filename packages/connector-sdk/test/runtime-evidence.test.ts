@@ -188,4 +188,137 @@ describe('runtime evidence projection', () => {
       'does not match the estate tenant and agent environment',
     )
   })
+
+  it('projects empty representative telemetry as unknown evidence, not runtime success', () => {
+    const empty = windows()
+    for (const window of [empty.baseline, empty.observed]) {
+      window.observations = []
+      window.otelQuality = {
+        status: 'unknown',
+        classification: 'unknown',
+        caveats: ['empty'],
+        recordsReceived: 0,
+        recordsAccepted: 0,
+        duplicatesRemoved: 0,
+        pagesProcessed: 1,
+      }
+    }
+
+    const result = projectRuntimeEvidence(snapshot(), empty)
+    expect(result.addedEvidenceCount).toBe(2)
+    expect(
+      result.snapshot.evidence
+        .filter((item) => item.metadata?.sourceConnector === 'azure-monitor-otel')
+        .map((item) => item.evidenceTypes),
+    ).toEqual([['unknown'], ['unknown']])
+    expect(
+      result.snapshot.evidence
+        .filter((item) => item.metadata?.sourceConnector === 'azure-monitor-otel')
+        .every((item) => item.confidence === 0),
+    ).toBe(true)
+  })
+
+  it('retains exact normalized invocation provenance in projected evidence', () => {
+    const normalized = windows()
+    normalized.observed.observations = [
+      {
+        ...normalized.observed.observations[0]!,
+        latencyMs: 820,
+        inputTokens: 320,
+        outputTokens: 110,
+        costUsd: 0.012,
+        otelProvenance: {
+          estateId: 'estate-a',
+          estateTenantId: 'tenant-a',
+          estateEnvironment: 'portfolio',
+          sourceConnectorId: 'primary',
+          sourceTenantId: 'source-tenant',
+          sourceEnvironment: 'production',
+          provider: 'azure-monitor-otel',
+          providerResourceId: '/subscriptions/example/resource',
+          providerAgentId: 'provider-agent-a',
+          traceId: '11111111111111111111111111111111',
+          spanId: 'aaaaaaaaaaaaaaaa',
+          observedAt: '2026-08-29T12:00:00.000Z',
+          classification: 'live',
+          sampling: { state: 'complete', rate: 1 },
+          aggregation: { kind: 'raw' },
+          evidenceIds: [
+            'invocation',
+            'latency',
+            'error',
+            'input-tokens',
+            'output-tokens',
+            'cost',
+          ],
+        },
+      },
+    ]
+    normalized.observed.otelQuality = {
+      status: 'available',
+      classification: 'live',
+      caveats: [],
+      recordsReceived: 6,
+      recordsAccepted: 6,
+      duplicatesRemoved: 0,
+      pagesProcessed: 1,
+    }
+
+    const result = projectRuntimeEvidence(snapshot(), normalized)
+    expect(result.snapshot.evidence.find((item) => item.id === 'observed-evidence')?.otel).toEqual({
+      quality: normalized.observed.otelQuality,
+      invocations: [
+        expect.objectContaining({
+          id: 'observed-real',
+          success: true,
+          provenance: expect.objectContaining({
+            providerAgentId: 'provider-agent-a',
+            providerResourceId: '/subscriptions/example/resource',
+            traceId: '11111111111111111111111111111111',
+            spanId: 'aaaaaaaaaaaaaaaa',
+          }),
+        }),
+      ],
+    })
+  })
+
+  it('rejects normalized telemetry whose exact source provenance targets another agent', () => {
+    const normalized = windows()
+    normalized.observed.observations = normalized.observed.observations
+      .filter((item) => !item.synthetic)
+      .map((item) => ({
+        ...item,
+        otelProvenance: {
+          estateId: 'estate-a',
+          estateTenantId: 'tenant-a',
+          estateEnvironment: 'portfolio',
+          sourceConnectorId: 'primary',
+          sourceTenantId: 'source-tenant',
+          sourceEnvironment: 'production',
+          provider: 'azure-monitor-otel' as const,
+          providerResourceId: '/subscriptions/example/resource',
+          providerAgentId: 'provider-agent-b',
+          traceId: '11111111111111111111111111111111',
+          spanId: 'aaaaaaaaaaaaaaaa',
+          observedAt: item.observedAt,
+          classification: 'live' as const,
+          sampling: { state: 'complete' as const, rate: 1 },
+          aggregation: { kind: 'raw' as const },
+          evidenceIds: ['record-a'],
+        },
+      }))
+    normalized.observed.otelQuality = {
+      status: 'available',
+      classification: 'live',
+      caveats: [],
+      recordsReceived: 6,
+      recordsAccepted: 6,
+      duplicatesRemoved: 0,
+      pagesProcessed: 1,
+    }
+
+    expect(() => projectRuntimeEvidence(snapshot(), normalized)).toThrow(
+      'does not match the exact estate and agent source binding',
+    )
+  })
 })

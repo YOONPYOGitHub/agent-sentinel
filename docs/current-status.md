@@ -275,7 +275,7 @@ In dependency order. Each condition gates everything below it in its own track.
 1. **Replacement corporate API/SPA settings and least-privilege role assignments approved** → build the reviewed current commit, record its full-SHA image tags and canonical digests, deploy by digest, and activate `AUTH_MODE=jwt` with writes false and the WAF unchanged.
 2. **Real employee login plus read-phase live validation pass** → per-employee entitlement personalization and owner-scoped views become meaningful.
 3. **Private authenticated write smoke test passes** → the `BlockApiMutationPreAuth` WAF rule can be narrowly changed, followed by public-edge write and anonymous-denial validation.
-4. **Instrumented spans, Azure Monitor workspace settings, and least-privilege Logs query access are injected** → the implemented connector starts supplying real `ObservationWindow` objects; quality, reliability, and cost dimensions become evidence-backed instead of `unknown`.
+4. **Complete, fresh, unsampled instrumented spans and exactly correlated raw metrics, Azure Monitor workspace settings, and least-privilege Logs query access are injected** → the implemented connector starts supplying analysis-ready `ObservationWindow` objects; sampled, partial, aggregated, stale, unsupported, or incompletely paged telemetry remains degraded, and quality, reliability, and cost stay `unknown` until replacement-tenant validation confirms the representative mapping.
 
 Tracks 1–3 are identity- or edge-dependent; OneRAI onboarding is independent. Track 4 can proceed in parallel. See [roadmap.md](roadmap.md).
 

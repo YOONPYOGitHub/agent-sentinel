@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { otelEvidenceDetailsSchema } from './otel-evidence.js'
+
 export const evidenceTypeSchema = z.enum([
   'declared_configuration',
   'observed_runtime',
@@ -26,6 +28,7 @@ export const evidenceSchema = z.object({
   uri: z.url().optional(),
   summary: z.string().min(1),
   metadata: z.record(z.string(), z.string()).optional(),
+  otel: otelEvidenceDetailsSchema.optional(),
 })
 
 export type Evidence = z.infer<typeof evidenceSchema>

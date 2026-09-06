@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { agentCorrelationSchema } from './correlation.js'
+import { otelWindowQualitySchema, runtimeOtelProvenanceSchema } from './otel-evidence.js'
 
 // ---------------------------------------------------------------------------
 // Identity & Source
@@ -48,6 +49,7 @@ export const runtimeObservationSchema = z.object({
       'Runtime observation correlation kinds must be unique.',
     )
     .optional(),
+  otelProvenance: runtimeOtelProvenanceSchema.optional(),
 })
 export type RuntimeObservation = z.infer<typeof runtimeObservationSchema>
 
@@ -68,6 +70,7 @@ export const observationWindowSchema = z.object({
   windowStart: z.iso.datetime(),
   windowEnd: z.iso.datetime(),
   observations: z.array(runtimeObservationSchema).max(10_000),
+  otelQuality: otelWindowQualitySchema.optional(),
 })
 export type ObservationWindow = z.infer<typeof observationWindowSchema>
 
