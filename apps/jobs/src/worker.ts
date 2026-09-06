@@ -2,7 +2,10 @@ import { DefaultAzureCredential } from '@azure/identity'
 import { ServiceBusClient } from '@azure/service-bus'
 import { CosmosClient } from '@azure/cosmos'
 
-import type { ManifestIngestionRepository } from '@agent-sentinel/connector-sdk'
+import type {
+  ConnectorHealthRepository,
+  ManifestIngestionRepository,
+} from '@agent-sentinel/connector-sdk'
 import type {
   EstateContext,
   ExposureFindingRepository,
@@ -10,9 +13,11 @@ import type {
 } from '@agent-sentinel/domain'
 import { InMemoryDeduplicator, withIdempotency } from '@agent-sentinel/messaging'
 import {
+  CosmosConnectorHealthRepository,
   CosmosExposureFindingRepository,
   CosmosManifestIngestionRepository,
   CosmosSnapshotRepository,
+  InMemoryConnectorHealthRepository,
   InMemoryExposureFindingRepository,
   InMemoryManifestIngestionRepository,
   InMemorySnapshotRepository,
@@ -59,12 +64,14 @@ function buildRepositories(
   snapshots: SnapshotRepository
   exposures: ExposureFindingRepository
   manifestIngestions: ManifestIngestionRepository
+  connectorHealth: ConnectorHealthRepository
 } {
   if (mode === 'mock') {
     return {
       snapshots: new InMemorySnapshotRepository(),
       exposures: new InMemoryExposureFindingRepository(),
       manifestIngestions: new InMemoryManifestIngestionRepository(tenantId),
+      connectorHealth: new InMemoryConnectorHealthRepository(),
     }
   }
   const endpoint = required('COSMOS_ENDPOINT')
@@ -76,6 +83,7 @@ function buildRepositories(
   return {
     snapshots: new CosmosSnapshotRepository(client, databaseId),
     exposures: new CosmosExposureFindingRepository(client, databaseId),
+    connectorHealth: new CosmosConnectorHealthRepository(client, databaseId),
     manifestIngestions: new CosmosManifestIngestionRepository(client, {
       tenantId,
       databaseId,
@@ -124,12 +132,16 @@ async function main(): Promise<void> {
     10,
   )
   const connector = buildConnector(connectorMode, process.env)
-  const { snapshots, exposures, manifestIngestions } = buildRepositories(connectorMode, tenantId)
+  const { snapshots, exposures, manifestIngestions, connectorHealth } = buildRepositories(
+    connectorMode,
+    tenantId,
+  )
   const service = new IngestionService(connector, snapshots, exposures, {
     estate,
     sourceMode: connectorMode,
     logger: defaultLogger,
     manifestIngestions,
+    connectorHealthRepository: connectorHealth,
   })
 
   let running = false

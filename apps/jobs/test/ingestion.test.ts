@@ -10,6 +10,7 @@ import type { EstateSnapshot } from '@agent-sentinel/domain'
 import { FOUNDRY_API_VERSION, mapAgentToSnapshot } from '@agent-sentinel/foundry-connector'
 import { ManifestConnector } from '@agent-sentinel/manifest-connector'
 import {
+  InMemoryConnectorHealthRepository,
   InMemoryExposureFindingRepository,
   InMemoryManifestIngestionRepository,
   InMemorySnapshotRepository,
@@ -223,11 +224,18 @@ describe('IngestionService', () => {
       warn: vi.fn(),
       error: vi.fn(),
     }
+    const connectorHealth = new InMemoryConnectorHealthRepository()
     const partialService = new IngestionService(
       makeConnector(partialSnapshot, health),
       snapshots,
       exposures,
-      { estate: testEstate, sourceMode: 'foundry', logger },
+      {
+        estate: testEstate,
+        sourceMode: 'foundry',
+        logger,
+        clock: () => new Date('2026-09-04T13:00:00.000Z'),
+        connectorHealthRepository: connectorHealth,
+      },
     )
 
     const partial = await partialService.run()
@@ -242,6 +250,14 @@ describe('IngestionService', () => {
       generatedAt: completeSnapshot.generatedAt,
     })
     expect(await exposures.findById(complete.findings[0]!.id, testEstate)).toEqual(persistedFinding)
+    await expect(connectorHealth.findLatest(testEstate, 'fake')).resolves.toEqual({
+      estateId: testEstate.id,
+      tenantId: testEstate.tenantId,
+      environment: testEstate.environment,
+      connectorId: 'fake',
+      measuredAt: '2026-09-04T13:00:00.000Z',
+      health,
+    })
     expect(logger.warn).toHaveBeenCalledWith('ingestion.enrichment.degraded', {
       correlationId: expect.any(String),
       sources: [
@@ -257,6 +273,7 @@ describe('IngestionService', () => {
   it('persists stable inventory while reporting optional-only degradation', async () => {
     const snapshots = new InMemorySnapshotRepository()
     const exposures = new InMemoryExposureFindingRepository()
+    const connectorHealth = new InMemoryConnectorHealthRepository()
     const logger = {
       info: vi.fn(),
       warn: vi.fn(),
@@ -311,7 +328,13 @@ describe('IngestionService', () => {
       makeConnector(fullSnapshot(), health),
       snapshots,
       exposures,
-      { estate: testEstate, sourceMode: 'foundry', logger },
+      {
+        estate: testEstate,
+        sourceMode: 'foundry',
+        logger,
+        clock: () => new Date('2026-09-04T13:05:00.000Z'),
+        connectorHealthRepository: connectorHealth,
+      },
     )
 
     const result = await service.run()
@@ -322,6 +345,14 @@ describe('IngestionService', () => {
       connectorHealth: health,
     })
     expect(await snapshots.list(testEstate)).toHaveLength(1)
+    await expect(connectorHealth.findLatest(testEstate, 'fake')).resolves.toEqual({
+      estateId: testEstate.id,
+      tenantId: testEstate.tenantId,
+      environment: testEstate.environment,
+      connectorId: 'fake',
+      measuredAt: '2026-09-04T13:05:00.000Z',
+      health,
+    })
     expect(logger.warn).toHaveBeenCalledWith('ingestion.enrichment.degraded', {
       correlationId: expect.any(String),
       persisted: true,

@@ -115,6 +115,22 @@ Boundaries that hold by construction:
 - **Estate-scoped.** The envelope and every entity environment must match server-controlled estate tenant/environment values. The authenticated token tenant establishes caller identity and may differ from the Azure estate tenant.
 - **Availability isolation.** Manifest repository or composition failure degrades only the optional source; jobs still persists the authoritative Foundry snapshot.
 
+## Connector health measurements
+
+Jobs persist the connector health report produced by each completed discovery,
+including partial runs whose snapshot is intentionally not promoted. Each
+measurement is keyed and queried by estate ID, data tenant, environment, and
+connector ID. Cosmos stores immutable timestamped measurements in the snapshots
+container under the existing tenant partition; the in-memory adapter follows
+the same boundary contract for local execution and tests.
+
+In live mode, `GET /api/connectors` reads the latest persisted measurement for
+the authorized request estate and active connector. It does not probe providers
+on the request path and does not fall back to process-local or synthetic health.
+An absent measurement remains unavailable. Non-default estates also omit
+default-estate project endpoints and unscoped runtime or business-outcome
+health.
+
 ## Security
 
 - All inter-service communication uses Managed Identity (UAMI)

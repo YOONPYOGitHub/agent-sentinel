@@ -1,13 +1,29 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const jose = vi.hoisted(() => ({
+  createRemoteJWKSet: vi.fn(() => ({ mocked: 'jwks' })),
+  jwtVerify: vi.fn(),
+}))
+
+vi.mock('jose', () => jose)
 
 import { createApp } from '../src/app.js'
 import { buildConnectorsCollection, connectorBaseCatalog } from '../src/connectors-catalog.js'
 import { DemoService } from '../src/demo-service.js'
+import { buildEstateRegistry } from '../src/estate-config.js'
 import { MockAgentConnector } from '@agent-sentinel/mock-connector'
+import type { AuthConfig } from '../src/auth.js'
+import type { ConnectorHealthReport } from '@agent-sentinel/connector-sdk'
+import {
+  InMemoryConnectorHealthRepository,
+  InMemoryExposureFindingRepository,
+  InMemorySnapshotRepository,
+} from '@agent-sentinel/persistence'
 
 const apps: Awaited<ReturnType<typeof createApp>>[] = []
 
 beforeEach(() => {
+  jose.jwtVerify.mockReset()
   process.env['AGENT_SENTINEL_CONNECTOR'] = 'mock'
 })
 
@@ -16,6 +32,87 @@ afterEach(async () => {
   delete process.env['AGENT_SENTINEL_CONNECTOR']
   delete process.env['AGENT_SENTINEL_WRITE_ENABLED']
 })
+
+const jwtConfig: AuthConfig = {
+  mode: 'jwt',
+  tenantId: 'auth-tenant',
+  audience: 'api://agent-sentinel',
+  issuer: 'https://login.microsoftonline.com/auth-tenant/v2.0',
+  jwksUri: 'https://login.microsoftonline.com/auth-tenant/discovery/v2.0/keys',
+  allowedScopes: { read: ['AgentSentinel.Read'], write: ['AgentSentinel.Write'] },
+  spaConfig: {
+    tenantId: 'auth-tenant',
+    clientId: 'spa-client-id',
+    authority: 'https://login.microsoftonline.com/auth-tenant',
+    scopes: ['api://agent-sentinel/AgentSentinel.Read'],
+    redirectUri: 'https://sentinel.example/auth/callback',
+    postLogoutRedirectUri: 'https://sentinel.example/',
+  },
+}
+
+const estateRegistry = buildEstateRegistry(
+  {
+    AGENT_SENTINEL_ESTATES_JSON: JSON.stringify([
+      {
+        id: 'default',
+        name: 'Default',
+        tenantId: 'data-default',
+        environment: 'production',
+        isDefault: true,
+        allowedAuthTenantIds: ['auth-tenant'],
+      },
+      {
+        id: 'lab',
+        name: 'Lab',
+        tenantId: 'data-lab',
+        environment: 'validation',
+        isDefault: false,
+        allowedAuthTenantIds: ['auth-tenant'],
+      },
+    ]),
+  },
+  {
+    id: 'default',
+    tenantId: 'unused',
+    environment: 'unused',
+    authTenantId: 'auth-tenant',
+  },
+)
+
+function persistedHealth(sourceId: string, readiness: 'ready' | 'degraded'): ConnectorHealthReport {
+  return {
+    overall: readiness,
+    partial: readiness === 'degraded',
+    sources: [
+      {
+        id: `entra:${sourceId}`,
+        name: `Entra ${sourceId}`,
+        role: 'enrichment',
+        enabled: true,
+        configured: true,
+        readiness,
+        diagnostics: {
+          kind: 'exact-identity-correlation',
+          provider: 'microsoft-entra',
+          sourceId,
+          sourceTenantId: sourceId === 'default' ? 'data-default' : 'data-lab',
+          sourceEnvironment: sourceId === 'default' ? 'production' : 'validation',
+          authoritativeAgentsConsidered: 1,
+          exactObjectIdMatches: readiness === 'ready' ? 1 : 0,
+          exactApplicationIdMatches: 0,
+          exactAgentIdentityMatches: 0,
+          unmatched: readiness === 'ready' ? 0 : 1,
+          ambiguous: 0,
+          runsAsEdgesEmitted: readiness === 'ready' ? 1 : 0,
+          ownerCoverage: { status: 'disabled', evidenceReferences: [] },
+          appRoleCoverage: { status: 'disabled', evidenceReferences: [] },
+          previewCoverage: { status: 'disabled', evidenceReferences: [] },
+          evidenceReferences: [`evidence-${sourceId}`],
+        },
+      },
+    ],
+  }
+}
 
 describe('GET /api/connectors', () => {
   it('returns 200 with active connector and catalog', async () => {
@@ -72,6 +169,169 @@ describe('GET /api/connectors', () => {
       connectorId: 'mock-agent-estate',
       mode: 'mock',
     })
+  })
+
+  it('serves only the latest persisted health for the authorized estate', async () => {
+    jose.jwtVerify.mockResolvedValue({
+      payload: {
+        sub: 'viewer',
+        tid: 'auth-tenant',
+        roles: ['AgentSentinel.Viewer'],
+      },
+    })
+    const connector = new MockAgentConnector()
+    const testConnection = vi
+      .spyOn(connector, 'testConnection')
+      .mockRejectedValue(new Error('live route must not probe the provider'))
+    const connectorHealth = new InMemoryConnectorHealthRepository()
+    const connectorId = connector.descriptor.id
+    const defaultEstate = {
+      id: 'default',
+      tenantId: 'data-default',
+      environment: 'production',
+    }
+    const labEstate = {
+      id: 'lab',
+      tenantId: 'data-lab',
+      environment: 'validation',
+    }
+    await connectorHealth.save(defaultEstate, {
+      estateId: defaultEstate.id,
+      tenantId: defaultEstate.tenantId,
+      environment: defaultEstate.environment,
+      connectorId,
+      measuredAt: '2026-09-04T12:55:00.000Z',
+      health: persistedHealth('stale-default', 'degraded'),
+    })
+    await connectorHealth.save(defaultEstate, {
+      estateId: defaultEstate.id,
+      tenantId: defaultEstate.tenantId,
+      environment: defaultEstate.environment,
+      connectorId,
+      measuredAt: '2026-09-04T13:00:00.000Z',
+      health: persistedHealth('default', 'ready'),
+    })
+    await connectorHealth.save(labEstate, {
+      estateId: labEstate.id,
+      tenantId: labEstate.tenantId,
+      environment: labEstate.environment,
+      connectorId,
+      measuredAt: '2026-09-04T13:05:00.000Z',
+      health: persistedHealth('lab', 'degraded'),
+    })
+    await connectorHealth.save(defaultEstate, {
+      estateId: defaultEstate.id,
+      tenantId: defaultEstate.tenantId,
+      environment: defaultEstate.environment,
+      connectorId: 'another-connector',
+      measuredAt: '2026-09-04T13:10:00.000Z',
+      health: persistedHealth('wrong-connector', 'degraded'),
+    })
+    const app = await createApp(
+      new DemoService(
+        connector,
+        'foundry',
+        'https://default-estate.services.ai.azure.com/api/projects/default',
+      ),
+      jwtConfig,
+      {
+        dataMode: 'live',
+        estateRegistry,
+        connectorHealthRepository: connectorHealth,
+        exposureRepository: new InMemoryExposureFindingRepository(),
+        snapshotRepository: new InMemorySnapshotRepository(),
+        runtimeTelemetryConnector: null,
+        businessOutcomeConnector: null,
+      },
+    )
+    apps.push(app)
+
+    const defaultResponse = await app.inject({
+      method: 'GET',
+      url: '/api/connectors',
+      headers: { authorization: ['Bearer', 'valid-token'].join(' ') },
+    })
+    const labResponse = await app.inject({
+      method: 'GET',
+      url: '/api/connectors',
+      headers: {
+        authorization: ['Bearer', 'valid-token'].join(' '),
+        'x-agent-sentinel-estate-id': 'lab',
+      },
+    })
+
+    expect(defaultResponse.statusCode).toBe(200)
+    expect(defaultResponse.json()).toMatchObject({
+      active: { lifecycleState: 'connected' },
+      health: {
+        sources: [
+          {
+            id: 'entra:default',
+            diagnostics: {
+              sourceId: 'default',
+              evidenceReferences: ['evidence-default'],
+            },
+          },
+        ],
+      },
+    })
+    expect(labResponse.statusCode).toBe(200)
+    expect(labResponse.json()).toMatchObject({
+      active: { lifecycleState: 'degraded' },
+      health: {
+        sources: [
+          {
+            id: 'entra:lab',
+            diagnostics: {
+              sourceId: 'lab',
+              evidenceReferences: ['evidence-lab'],
+            },
+          },
+        ],
+      },
+    })
+    expect(labResponse.body).not.toContain('evidence-default')
+    expect(labResponse.body).not.toContain('default-estate.services.ai.azure.com')
+    expect(defaultResponse.body).not.toContain('evidence-stale-default')
+    expect(defaultResponse.body).not.toContain('evidence-wrong-connector')
+    expect(testConnection).not.toHaveBeenCalled()
+  })
+
+  it('reports unavailable when live connector health has not been measured', async () => {
+    jose.jwtVerify.mockResolvedValue({
+      payload: {
+        sub: 'viewer',
+        tid: 'auth-tenant',
+        roles: ['AgentSentinel.Viewer'],
+      },
+    })
+    const connector = new MockAgentConnector()
+    const testConnection = vi
+      .spyOn(connector, 'testConnection')
+      .mockRejectedValue(new Error('live route must not probe the provider'))
+    const app = await createApp(new DemoService(connector, 'foundry'), jwtConfig, {
+      dataMode: 'live',
+      estateRegistry,
+      connectorHealthRepository: new InMemoryConnectorHealthRepository(),
+      exposureRepository: new InMemoryExposureFindingRepository(),
+      snapshotRepository: new InMemorySnapshotRepository(),
+      runtimeTelemetryConnector: null,
+      businessOutcomeConnector: null,
+    })
+    apps.push(app)
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/connectors',
+      headers: { authorization: ['Bearer', 'valid-token'].join(' ') },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      active: { lifecycleState: 'unavailable' },
+    })
+    expect(response.json()).not.toHaveProperty('health')
+    expect(testConnection).not.toHaveBeenCalled()
   })
 })
 

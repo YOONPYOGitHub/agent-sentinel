@@ -9,6 +9,7 @@ import { runtimeTelemetryRequestForAgent } from '@agent-sentinel/connector-sdk'
 import type {
   BusinessOutcomeConnector,
   BusinessOutcomeRequest,
+  ConnectorHealthRepository,
   ManifestIngestionRepository,
   RuntimeTelemetryRequest,
   RuntimeTelemetryConnector,
@@ -21,6 +22,7 @@ import type {
   SnapshotRepository,
 } from '@agent-sentinel/domain'
 import {
+  CosmosConnectorHealthRepository,
   CosmosExposureFindingRepository,
   CosmosGovernanceCaseRepository,
   CosmosManifestIngestionRepository,
@@ -59,6 +61,7 @@ import {
 import { registerManifestIngestionRoutes } from './manifest-ingestion-routes.js'
 import { registerBusinessValueRoutes } from './business-value-routes.js'
 import { authorizedEstates, createEstateMiddleware } from './estate-auth.js'
+import { requireEstateContext } from './estate-auth.js'
 import { buildEstateRegistry, type EstateRegistry } from './estate-config.js'
 
 const localApprovalSchema = z.object({
@@ -165,6 +168,7 @@ export function buildLiveRepositories(clientOverride?: CosmosClient): {
   snapshotRepository: SnapshotRepository
   governanceCaseRepository: GovernanceCaseRepository
   manifestIngestionRepository: ManifestIngestionRepository
+  connectorHealthRepository: ConnectorHealthRepository
 } {
   const endpoint = process.env['COSMOS_ENDPOINT']?.trim()
   if (!clientOverride && !endpoint)
@@ -182,6 +186,7 @@ export function buildLiveRepositories(clientOverride?: CosmosClient): {
   return {
     exposureRepository: new CosmosExposureFindingRepository(client, databaseId),
     snapshotRepository: new CosmosSnapshotRepository(client, databaseId),
+    connectorHealthRepository: new CosmosConnectorHealthRepository(client, databaseId),
     governanceCaseRepository: new CosmosGovernanceCaseRepository(client, {
       tenantId: defaultTenantId(),
       databaseId,
@@ -201,6 +206,7 @@ export interface CreateAppOptions {
   snapshotRepository?: SnapshotRepository
   governanceCaseRepository?: GovernanceCaseRepository
   manifestIngestionRepository?: ManifestIngestionRepository
+  connectorHealthRepository?: ConnectorHealthRepository
   advisoryService?: AdvisoryService
   dataMode?: 'mock' | 'live'
   /** `null` explicitly keeps live telemetry unconfigured, including in tests. */
@@ -270,6 +276,8 @@ export async function createApp(
       : undefined
   const exposureRepository = options.exposureRepository ?? liveRepositories?.exposureRepository
   const snapshotRepository = options.snapshotRepository ?? liveRepositories?.snapshotRepository
+  const connectorHealthRepository =
+    options.connectorHealthRepository ?? liveRepositories?.connectorHealthRepository
   const governanceCaseRepository =
     options.governanceCaseRepository ??
     (resolvedDataMode === 'mock'
@@ -397,19 +405,44 @@ export async function createApp(
 
   app.get('/api/demo/state', async () => stateService.getState())
   app.get('/api/connector/status', async () => resolvedService.getConnectorStatus())
-  app.get('/api/connectors', async () => {
-    const connection = await resolvedService.testConnectorConnection()
+  app.get('/api/connectors', async (request) => {
+    const estate = requireEstateContext(request)
+    const isDefaultEstate =
+      estate.id === defaultEstate.id &&
+      estate.tenantId === defaultEstate.tenantId &&
+      estate.environment === defaultEstate.environment
     const status = await resolvedService.getConnectorStatus()
-    const connectorHealth = resolvedService.getConnectorHealth()
-    const runtimeTelemetryHealth = runtimeTelemetryConnector?.getConnectorHealth?.()
+    const persistedHealth =
+      resolvedDataMode === 'live'
+        ? await connectorHealthRepository?.findLatest(estate, status.connectorId)
+        : undefined
+    const connectorHealth =
+      resolvedDataMode === 'live'
+        ? persistedHealth?.health
+        : isDefaultEstate
+          ? resolvedService.getConnectorHealth()
+          : undefined
+    const connectionOk =
+      resolvedDataMode === 'live'
+        ? persistedHealth !== undefined &&
+          persistedHealth !== null &&
+          persistedHealth.health.overall !== 'unavailable'
+        : isDefaultEstate
+          ? (await resolvedService.testConnectorConnection()).ok
+          : false
+    const runtimeTelemetryHealth = isDefaultEstate
+      ? runtimeTelemetryConnector?.getConnectorHealth?.()
+      : undefined
     return buildConnectorsCollection(status.mode, {
       connectorId: status.connectorId,
-      connectionOk: connection.ok,
+      connectionOk,
       ...(status.writeEnabled !== undefined ? { writeEnabled: status.writeEnabled } : {}),
-      ...(status.projectEndpoint !== undefined ? { projectEndpoint: status.projectEndpoint } : {}),
-      runtimeTelemetryConfigured: runtimeTelemetryConnector !== undefined,
+      ...(isDefaultEstate && status.projectEndpoint !== undefined
+        ? { projectEndpoint: status.projectEndpoint }
+        : {}),
+      runtimeTelemetryConfigured: isDefaultEstate && runtimeTelemetryConnector !== undefined,
       businessOutcomeConfigured:
-        resolvedDataMode === 'live' && businessOutcomeConnector !== undefined,
+        resolvedDataMode === 'live' && isDefaultEstate && businessOutcomeConnector !== undefined,
       ...(runtimeTelemetryHealth !== undefined ? { runtimeTelemetryHealth } : {}),
       ...(connectorHealth ? { connectorHealth } : {}),
     })

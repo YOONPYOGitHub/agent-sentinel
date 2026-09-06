@@ -14,6 +14,7 @@ import {
   createOptionalEntraEnrichmentConnector,
   enrichAggregateSnapshotWithEntraAndDiagnostics,
   enrichSnapshotWithEntra,
+  enrichSnapshotWithEntraAndDiagnostics,
   entraIdentityConnectorConfigSchema,
   mapEntraInventoryToSnapshot,
   parseEntraSourcesConfig,
@@ -421,6 +422,146 @@ describe('normalization and correlation', () => {
     ).toBe('uncorrelated')
   })
 
+  it('treats objectId as an exact directory object identifier', () => {
+    const result = enrichSnapshotWithEntra(
+      baseSnapshot({ objectId: '11111111-1111-4111-8111-111111111111' }),
+      inventorySnapshot(),
+    )
+
+    expect(result.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(1)
+    expect(result.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'matched',
+      entraCorrelationMatchKind: 'object-id',
+      entraIdentityNodeId: 'entra-service-principal-11111111-1111-4111-8111-111111111111',
+    })
+  })
+
+  it('does not correlate when objectId conflicts with servicePrincipalId', () => {
+    const identities = mapEntraInventoryToSnapshot(
+      {
+        servicePrincipals: [
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            displayName: 'First identity',
+          },
+          {
+            id: '22222222-2222-4222-8222-222222222222',
+            appId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            displayName: 'Second identity',
+          },
+        ],
+        owners: new Map(),
+        appRoleAssignments: new Map(),
+        agentIdentitiesPreview: [],
+      },
+      config,
+      '2026-08-27T08:00:00.000Z',
+    )
+    const result = enrichSnapshotWithEntra(
+      baseSnapshot({
+        servicePrincipalId: '11111111-1111-4111-8111-111111111111',
+        objectId: '22222222-2222-4222-8222-222222222222',
+      }),
+      identities,
+    )
+
+    expect(result.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
+    expect(result.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'ambiguous',
+      entraCorrelationReason: 'conflicting-exact-source-matches',
+    })
+  })
+
+  it('does not correlate when one exact identifier matches and another is unresolved', () => {
+    const result = enrichSnapshotWithEntra(
+      baseSnapshot({
+        servicePrincipalId: '11111111-1111-4111-8111-111111111111',
+        clientId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      }),
+      inventorySnapshot(),
+    )
+
+    expect(result.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
+    expect(result.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'ambiguous',
+      entraCorrelationReason: 'incomplete-exact-source-match',
+    })
+  })
+
+  it('does not correlate when one exact identifier matches and another is malformed', () => {
+    const result = enrichSnapshotWithEntra(
+      baseSnapshot({
+        servicePrincipalId: '11111111-1111-4111-8111-111111111111',
+        clientId: 'not-a-guid',
+      }),
+      inventorySnapshot(),
+    )
+
+    expect(result.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
+    expect(result.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'unmatched',
+      entraCorrelationReason: 'malformed-authoritative-identifier',
+    })
+  })
+
+  it('does not correlate when exact identifiers resolve to different identities', () => {
+    const identities = mapEntraInventoryToSnapshot(
+      {
+        servicePrincipals: [
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            displayName: 'First identity',
+          },
+          {
+            id: '22222222-2222-4222-8222-222222222222',
+            appId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            displayName: 'Second identity',
+          },
+        ],
+        owners: new Map(),
+        appRoleAssignments: new Map(),
+        agentIdentitiesPreview: [],
+      },
+      config,
+      '2026-08-27T08:00:00.000Z',
+    )
+
+    const result = enrichSnapshotWithEntra(
+      baseSnapshot({
+        servicePrincipalId: '11111111-1111-4111-8111-111111111111',
+        clientId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      }),
+      identities,
+    )
+
+    expect(result.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
+    expect(result.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'ambiguous',
+      entraCorrelationReason: 'conflicting-exact-source-matches',
+    })
+  })
+
+  it('emits one edge when every exact identifier resolves to the same identity', () => {
+    const result = enrichSnapshotWithEntra(
+      baseSnapshot({
+        entraServicePrincipalId: '11111111-1111-4111-8111-111111111111',
+        servicePrincipalId: '11111111-1111-4111-8111-111111111111',
+        entraAppId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        clientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }),
+      inventorySnapshot(),
+    )
+
+    expect(result.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(1)
+    expect(result.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'matched',
+      entraCorrelationMatchKind: 'object-id',
+      entraIdentityNodeId: 'entra-service-principal-11111111-1111-4111-8111-111111111111',
+    })
+  })
+
   it('rejects cross-tenant composition', () => {
     expect(() =>
       enrichSnapshotWithEntra(
@@ -519,7 +660,7 @@ describe('normalization and correlation', () => {
     })
   })
 
-  it('reports malformed identifiers as missing authoritative identifiers', () => {
+  it('reports malformed identifiers without treating them as missing', () => {
     const result = enrichSnapshotWithEntra(
       baseSnapshot({
         servicePrincipalId: 'not-a-guid',
@@ -532,8 +673,52 @@ describe('normalization and correlation', () => {
     expect(result.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
     expect(result.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
       entraCorrelationStatus: 'unmatched',
-      entraCorrelationReason: 'missing-authoritative-identifier',
+      entraCorrelationReason: 'malformed-authoritative-identifier',
     })
+  })
+
+  it('keeps diagnostics disjoint when supplied identifiers are mixed', () => {
+    const result = enrichSnapshotWithEntraAndDiagnostics(
+      baseSnapshotWithAgents([
+        {
+          id: 'agent-object',
+          metadata: { objectId: '11111111-1111-4111-8111-111111111111' },
+        },
+        {
+          id: 'agent-unresolved',
+          metadata: {
+            servicePrincipalId: '11111111-1111-4111-8111-111111111111',
+            clientId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          },
+        },
+        {
+          id: 'agent-malformed',
+          metadata: {
+            servicePrincipalId: '11111111-1111-4111-8111-111111111111',
+            clientId: 'not-a-guid',
+          },
+        },
+      ]),
+      inventorySnapshot(),
+    )
+
+    expect(result.snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(1)
+    expect(result.diagnostics).toMatchObject({
+      authoritativeAgentsConsidered: 3,
+      exactObjectIdMatches: 1,
+      exactApplicationIdMatches: 0,
+      exactAgentIdentityMatches: 0,
+      unmatched: 1,
+      ambiguous: 1,
+      runsAsEdgesEmitted: 1,
+    })
+    expect(
+      result.diagnostics.exactObjectIdMatches +
+        result.diagnostics.exactApplicationIdMatches +
+        result.diagnostics.exactAgentIdentityMatches +
+        result.diagnostics.unmatched +
+        result.diagnostics.ambiguous,
+    ).toBe(result.diagnostics.authoritativeAgentsConsidered)
   })
 })
 
@@ -710,7 +895,7 @@ describe('composite enrichment connector', () => {
     })
     expect(snapshot.nodes.find((node) => node.id === 'agent-ambiguous')?.metadata).toMatchObject({
       entraCorrelationStatus: 'ambiguous',
-      entraCorrelationReason: 'multiple-exact-source-matches',
+      entraCorrelationReason: 'conflicting-exact-source-matches',
     })
   })
 

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type {
   AgentConnector,
   ConnectorHealthReport,
+  ConnectorHealthRepository,
   ManifestIngestionRecord,
   ManifestIngestionRepository,
 } from '@agent-sentinel/connector-sdk'
@@ -23,6 +24,7 @@ export interface IngestionServiceOptions {
   clock?: () => Date
   correlationIdFactory?: () => string
   manifestIngestions?: ManifestIngestionRepository
+  connectorHealthRepository?: ConnectorHealthRepository
 }
 
 export interface Logger {
@@ -84,6 +86,17 @@ export class IngestionService {
       )
     }
     const connectorHealth = this.connector.getConnectorHealth?.()
+    if (connectorHealth !== undefined && this.options.connectorHealthRepository !== undefined) {
+      const measuredAt = (this.options.clock?.() ?? new Date()).toISOString()
+      await this.options.connectorHealthRepository.save(this.options.estate, {
+        estateId: this.options.estate.id,
+        tenantId: this.options.estate.tenantId,
+        environment: this.options.estate.environment,
+        connectorId: this.connector.descriptor.id,
+        measuredAt,
+        health: connectorHealth,
+      })
+    }
     const connectorDegraded = connectorHealth?.overall === 'degraded'
     const connectorPartial = connectorHealth?.partial === true
     let snapshot: EstateSnapshot = discovered

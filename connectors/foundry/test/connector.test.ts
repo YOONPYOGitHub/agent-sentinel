@@ -119,7 +119,7 @@ describe('Foundry connector', () => {
     expect(snapshot.nodes.find((n) => n.id === 'foundry-agent-a2')?.trust).toBe('conditional')
     expect(snapshot.evidence[0]?.summary).toContain('Declared configuration')
   })
-  it('preserves only valid explicit Entra identity identifiers for correlation', () => {
+  it('preserves every supplied Entra identity identifier for fail-closed correlation', () => {
     const snapshot = mapAgentToSnapshot(
       [
         {
@@ -127,6 +127,7 @@ describe('Foundry connector', () => {
           metadata: {
             servicePrincipalId: '11111111-1111-4111-8111-111111111111',
             clientId: 'not-an-authoritative-identifier',
+            objectId: '22222222-2222-4222-8222-222222222222',
           },
         },
       ],
@@ -136,7 +137,8 @@ describe('Foundry connector', () => {
     expect(snapshot.nodes[0]?.metadata['servicePrincipalId']).toBe(
       '11111111-1111-4111-8111-111111111111',
     )
-    expect(snapshot.nodes[0]?.metadata['clientId']).toBeUndefined()
+    expect(snapshot.nodes[0]?.metadata['clientId']).toBe('not-an-authoritative-identifier')
+    expect(snapshot.nodes[0]?.metadata['objectId']).toBe('22222222-2222-4222-8222-222222222222')
   })
   it('handles data pagination', async () => {
     const fetcher = vi

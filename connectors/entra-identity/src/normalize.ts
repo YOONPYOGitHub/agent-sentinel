@@ -225,7 +225,7 @@ export function mapEntraInventoryToSnapshot(
   })
 }
 
-const DIRECTORY_ID_KEYS = ['entraServicePrincipalId', 'servicePrincipalId'] as const
+const DIRECTORY_ID_KEYS = ['entraServicePrincipalId', 'servicePrincipalId', 'objectId'] as const
 const APPLICATION_ID_KEYS = ['entraAppId', 'appId', 'entraClientId', 'clientId'] as const
 const AGENT_IDENTITY_ID_KEYS = ['entraAgentIdentityId', 'agentIdentityId'] as const
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -295,43 +295,68 @@ function composeSnapshotWithEntra(
       string,
       { identity: GraphNode; kinds: Set<'object-id' | 'application-id' | 'agent-identity-id'> }
     >()
-    let hasValidIdentifier = false
-    const addCandidates = (
+    let suppliedIdentifiers = 0
+    let malformedIdentifiers = 0
+    let unresolvedIdentifiers = 0
+    let multiplyResolvedIdentifiers = 0
+    const resolveIdentifiers = (
       keys: readonly string[],
       index: ReadonlyMap<string, GraphNode[]>,
       kind: 'object-id' | 'application-id' | 'agent-identity-id',
     ): void => {
       for (const key of keys) {
         const value = agent.metadata[key]
-        if (!value || !UUID_PATTERN.test(value)) continue
-        hasValidIdentifier = true
-        for (const identity of index.get(value.toLowerCase()) ?? []) {
+        if (!value) continue
+        suppliedIdentifiers += 1
+        if (!UUID_PATTERN.test(value)) {
+          malformedIdentifiers += 1
+          continue
+        }
+        const identitiesForIdentifier = index.get(value.toLowerCase()) ?? []
+        if (identitiesForIdentifier.length === 0) {
+          unresolvedIdentifiers += 1
+          continue
+        }
+        if (identitiesForIdentifier.length > 1) multiplyResolvedIdentifiers += 1
+        for (const identity of identitiesForIdentifier) {
           const candidate = candidates.get(identity.id) ?? { identity, kinds: new Set() }
           candidate.kinds.add(kind)
           candidates.set(identity.id, candidate)
         }
       }
     }
-    addCandidates(DIRECTORY_ID_KEYS, byDirectoryId, 'object-id')
-    addCandidates(APPLICATION_ID_KEYS, byApplicationId, 'application-id')
-    addCandidates(AGENT_IDENTITY_ID_KEYS, byAgentIdentityId, 'agent-identity-id')
+    resolveIdentifiers(DIRECTORY_ID_KEYS, byDirectoryId, 'object-id')
+    resolveIdentifiers(APPLICATION_ID_KEYS, byApplicationId, 'application-id')
+    resolveIdentifiers(AGENT_IDENTITY_ID_KEYS, byAgentIdentityId, 'agent-identity-id')
     for (const { identity } of candidates.values()) {
       for (const evidenceId of identity.evidenceIds) diagnosticEvidenceIds.add(evidenceId)
     }
-    if (candidates.size === 0) {
+    if (
+      suppliedIdentifiers === 0 ||
+      malformedIdentifiers > 0 ||
+      (unresolvedIdentifiers > 0 && candidates.size === 0)
+    ) {
       unmatched += 1
       agent.metadata['entraCorrelationStatus'] = 'unmatched'
-      agent.metadata['entraCorrelationReason'] = hasValidIdentifier
-        ? 'no-exact-source-match'
-        : 'missing-authoritative-identifier'
+      agent.metadata['entraCorrelationReason'] =
+        suppliedIdentifiers === 0
+          ? 'missing-authoritative-identifier'
+          : malformedIdentifiers > 0
+            ? 'malformed-authoritative-identifier'
+            : 'no-exact-source-match'
       delete agent.metadata['entraCorrelationMatchKind']
       delete agent.metadata['entraIdentityNodeId']
       continue
     }
-    if (candidates.size > 1) {
+    if (unresolvedIdentifiers > 0 || multiplyResolvedIdentifiers > 0 || candidates.size > 1) {
       ambiguous += 1
       agent.metadata['entraCorrelationStatus'] = 'ambiguous'
-      agent.metadata['entraCorrelationReason'] = 'multiple-exact-source-matches'
+      agent.metadata['entraCorrelationReason'] =
+        multiplyResolvedIdentifiers > 0
+          ? 'multiple-exact-source-matches'
+          : candidates.size > 1
+            ? 'conflicting-exact-source-matches'
+            : 'incomplete-exact-source-match'
       delete agent.metadata['entraCorrelationMatchKind']
       delete agent.metadata['entraIdentityNodeId']
       continue

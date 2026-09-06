@@ -270,6 +270,7 @@ function trust(agent: FoundryAgentDefinition): 'trusted' | 'conditional' | 'untr
 const identityMetadataKeys = [
   'entraServicePrincipalId',
   'servicePrincipalId',
+  'objectId',
   'entraAgentIdentityId',
   'agentIdentityId',
   'entraAppId',
@@ -277,13 +278,12 @@ const identityMetadataKeys = [
   'entraClientId',
   'clientId',
 ] as const
-const entraIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function explicitIdentityMetadata(metadata: Record<string, string>): Record<string, string> {
   return Object.fromEntries(
     identityMetadataKeys.flatMap((key) => {
       const value = metadata[key]
-      return value !== undefined && entraIdPattern.test(value) ? [[key, value]] : []
+      return value !== undefined ? [[key, value]] : []
     }),
   )
 }

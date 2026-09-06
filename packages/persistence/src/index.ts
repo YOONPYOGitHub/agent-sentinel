@@ -1,4 +1,5 @@
 export { CosmosSnapshotRepository } from './cosmos-snapshot-repository.js'
+export { CosmosConnectorHealthRepository } from './cosmos-connector-health-repository.js'
 export { CosmosFindingRepository } from './cosmos-finding-repository.js'
 export { CosmosExposureFindingRepository } from './cosmos-exposure-finding-repository.js'
 export {
@@ -18,6 +19,7 @@ export {
   InMemoryValidationRunRepository,
 } from './in-memory-repositories.js'
 export { InMemoryExposureFindingRepository } from './in-memory-exposure-finding-repository.js'
+export { InMemoryConnectorHealthRepository } from './in-memory-connector-health-repository.js'
 export { InMemoryGovernanceCaseRepository } from './in-memory-governance-case-repository.js'
 export { InMemoryConnectorSourceRepository } from './in-memory-connector-source-repository.js'
 export { InMemoryManifestIngestionRepository } from './in-memory-manifest-ingestion-repository.js'

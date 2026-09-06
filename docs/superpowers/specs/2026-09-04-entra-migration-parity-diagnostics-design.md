@@ -89,17 +89,22 @@ descriptions, tags, or fuzzy text.
 Supported exact identifiers are:
 
 - service-principal object ID:
-  `entraServicePrincipalId` or `servicePrincipalId`;
+  `entraServicePrincipalId`, `servicePrincipalId`, or `objectId`;
 - application/client ID:
   `entraAppId`, `appId`, `entraClientId`, or `clientId`;
 - Agent Identity object ID:
   `entraAgentIdentityId` or `agentIdentityId`, only when preview classification
   is enabled and the identity is confirmed by preview evidence.
 
-Invalid or missing identifiers are unmatched. If exact identifiers resolve to
-more than one identity, the agent is ambiguous and no edge is emitted. If all
-valid identifiers resolve to one identity, exactly one `RUNS_AS` edge is
-emitted with the union of source-agent and identity evidence.
+Missing identifiers, malformed identifiers, or valid identifiers with no
+source-local match are unmatched when no other identifier resolves. A malformed
+identifier mixed with a resolved identifier is also unmatched and emits no
+edge. If resolved identifiers conflict, a valid supplied identifier remains
+unresolved while another resolves, or one identifier resolves to multiple
+identities, the agent is ambiguous and no edge is emitted. Only when every
+supplied identifier is valid and resolves uniquely to the same identity is
+exactly one `RUNS_AS` edge emitted with the union of source-agent and identity
+evidence.
 
 Aggregate composition keeps Entra identity IDs and evidence source-scoped.
 Agents outside the configured source boundary are not considered, even when an

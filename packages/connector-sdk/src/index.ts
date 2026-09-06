@@ -1,6 +1,7 @@
-import { observationWindowSchema } from '@agent-sentinel/domain'
+import { estateContextSchema, observationWindowSchema } from '@agent-sentinel/domain'
 import type {
   BusinessOutcomeEvidenceBundle,
+  EstateContext,
   EstateSnapshot,
   Evidence,
   OutcomeCorrelation,
@@ -68,6 +69,79 @@ export interface ConnectorHealthReport {
   readonly overall: 'ready' | 'degraded' | 'unavailable'
   readonly partial: boolean
   readonly sources: readonly ConnectorSourceHealth[]
+}
+
+const connectorCapabilityCoverageSchema = z.strictObject({
+  status: z.enum(['available', 'disabled', 'degraded', 'authorization-required', 'unavailable']),
+  considered: z.number().int().min(0).optional(),
+  covered: z.number().int().min(0).optional(),
+  evidenceReferences: z.array(z.string().min(1).max(500)),
+  reason: z.string().min(1).max(200).optional(),
+})
+
+const exactIdentityCorrelationDiagnosticsSchema = z.strictObject({
+  kind: z.literal('exact-identity-correlation'),
+  provider: z.literal('microsoft-entra'),
+  sourceId: z.string().min(1).max(200),
+  sourceTenantId: z.string().min(1).max(128),
+  sourceEnvironment: z.string().min(1).max(128),
+  authoritativeAgentsConsidered: z.number().int().min(0),
+  exactObjectIdMatches: z.number().int().min(0),
+  exactApplicationIdMatches: z.number().int().min(0),
+  exactAgentIdentityMatches: z.number().int().min(0),
+  unmatched: z.number().int().min(0),
+  ambiguous: z.number().int().min(0),
+  runsAsEdgesEmitted: z.number().int().min(0),
+  ownerCoverage: connectorCapabilityCoverageSchema,
+  appRoleCoverage: connectorCapabilityCoverageSchema,
+  previewCoverage: connectorCapabilityCoverageSchema,
+  evidenceReferences: z.array(z.string().min(1).max(500)),
+})
+
+export const connectorHealthReportSchema = z.strictObject({
+  overall: z.enum(['ready', 'degraded', 'unavailable']),
+  partial: z.boolean(),
+  sources: z.array(
+    z.strictObject({
+      id: z.string().min(1).max(200),
+      name: z.string().min(1).max(200),
+      role: z.enum(['discovery', 'enrichment']),
+      enabled: z.boolean(),
+      configured: z.boolean(),
+      readiness: z.enum(['ready', 'degraded', 'unavailable', 'disabled', 'authorization-required']),
+      checkedAt: z.iso.datetime().optional(),
+      reason: z.string().min(1).max(200).optional(),
+      diagnostics: exactIdentityCorrelationDiagnosticsSchema.optional(),
+    }),
+  ),
+})
+
+export interface ConnectorHealthMeasurement {
+  readonly estateId: string
+  readonly tenantId: string
+  readonly environment: string
+  readonly connectorId: string
+  readonly measuredAt: string
+  readonly health: ConnectorHealthReport
+}
+
+export const connectorHealthMeasurementSchema = estateContextSchema
+  .extend({
+    estateId: estateContextSchema.shape.id,
+    connectorId: z
+      .string()
+      .min(1)
+      .max(200)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+    measuredAt: z.iso.datetime(),
+    health: connectorHealthReportSchema,
+  })
+  .omit({ id: true })
+  .strict()
+
+export interface ConnectorHealthRepository {
+  save(estate: EstateContext, measurement: ConnectorHealthMeasurement): Promise<void>
+  findLatest(estate: EstateContext, connectorId: string): Promise<ConnectorHealthMeasurement | null>
 }
 
 export interface ConnectorDescriptor {

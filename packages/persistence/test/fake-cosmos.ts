@@ -63,6 +63,7 @@ export class FakeCosmosStore {
     }),
     items: {
       create: (resource: StoredDocument) => this.create(resource),
+      upsert: (resource: StoredDocument) => this.upsert(resource),
       batch: (operations: OperationInput[], partitionKey: string) =>
         this.runBatch(operations, partitionKey),
       query: <T>(query: SqlQuerySpec, options: { partitionKey: string }) => ({
@@ -127,6 +128,13 @@ export class FakeCosmosStore {
       }
     }
     return this.batch(operations, partitionKey)
+  }
+
+  private upsert(resource: StoredDocument) {
+    const key = this.key(resource.tenantId, resource.id)
+    const stored = { ...clone(resource), _etag: this.nextEtag() }
+    this.documents.set(key, stored)
+    return Promise.resolve({ resource: clone(stored), statusCode: 200 })
   }
 
   private batch(operations: OperationInput[], partitionKey: string) {
@@ -237,6 +245,18 @@ export class FakeCosmosStore {
           String((left.envelope as { producedAt?: string }).producedAt),
         ),
       )
+      return clone(documents.slice(0, 1))
+    }
+
+    if (documentType === 'connector-health-measurement') {
+      documents = documents
+        .filter(
+          (document) =>
+            document.estateId === parameters.get('@estateId') &&
+            document.environment === parameters.get('@environment') &&
+            document.connectorId === parameters.get('@connectorId'),
+        )
+        .sort((left, right) => String(right.measuredAt).localeCompare(String(left.measuredAt)))
       return clone(documents.slice(0, 1))
     }
 
