@@ -388,7 +388,7 @@ export const agentSentinelStateSchema = z.object({
             reason: z.string().min(1).optional(),
           }),
         )
-        .default([]),
+        .optional(),
       failures: z.array(
         z.object({
           agentId: z.string().min(1),
