@@ -17,6 +17,7 @@ import type {
 
 import type {
   EstateContext,
+  ConnectorSourceRepository,
   ExposureFindingRepository,
   GovernanceCaseRepository,
   SnapshotRepository,
@@ -24,10 +25,12 @@ import type {
 import {
   CosmosConnectorHealthRepository,
   CosmosExposureFindingRepository,
+  CosmosConnectorSourceRepository,
   CosmosGovernanceCaseRepository,
   CosmosManifestIngestionRepository,
   CosmosSnapshotRepository,
   InMemoryManifestIngestionRepository,
+  InMemoryConnectorSourceRepository,
 } from '@agent-sentinel/persistence'
 import { MockBusinessOutcomeConnector } from '@agent-sentinel/mock-connector'
 
@@ -63,6 +66,11 @@ import { registerBusinessValueRoutes } from './business-value-routes.js'
 import { authorizedEstates, createEstateMiddleware } from './estate-auth.js'
 import { requireEstateContext } from './estate-auth.js'
 import { buildEstateRegistry, type EstateRegistry } from './estate-config.js'
+import { registerConnectorSourceRoutes } from './connector-source-routes.js'
+import {
+  buildDeploymentConnectorSources,
+  DeploymentConnectorSourceRepository,
+} from './deployment-connector-sources.js'
 
 const localApprovalSchema = z.object({
   approvedBy: z.string().trim().min(2).max(100),
@@ -164,6 +172,7 @@ function defaultWriteEnabled(mode: 'mock' | 'live', authConfig: AuthConfig): boo
 }
 
 export function buildLiveRepositories(clientOverride?: CosmosClient): {
+  connectorSourceRepository: ConnectorSourceRepository
   exposureRepository: ExposureFindingRepository
   snapshotRepository: SnapshotRepository
   governanceCaseRepository: GovernanceCaseRepository
@@ -184,6 +193,10 @@ export function buildLiveRepositories(clientOverride?: CosmosClient): {
     clientOverride ??
     new CosmosClient({ endpoint: endpoint!, aadCredentials: new DefaultAzureCredential() })
   return {
+    connectorSourceRepository: new CosmosConnectorSourceRepository(client, {
+      databaseId,
+      containerId: process.env['COSMOS_CONNECTOR_SOURCES_CONTAINER']?.trim() || 'connector-sources',
+    }),
     exposureRepository: new CosmosExposureFindingRepository(client, databaseId),
     snapshotRepository: new CosmosSnapshotRepository(client, databaseId),
     connectorHealthRepository: new CosmosConnectorHealthRepository(client, databaseId),
@@ -202,6 +215,7 @@ export function buildLiveRepositories(clientOverride?: CosmosClient): {
 }
 
 export interface CreateAppOptions {
+  connectorSourceRepository?: ConnectorSourceRepository
   exposureRepository?: ExposureFindingRepository
   snapshotRepository?: SnapshotRepository
   governanceCaseRepository?: GovernanceCaseRepository
@@ -214,6 +228,7 @@ export interface CreateAppOptions {
   /** `null` explicitly keeps business outcomes unconfigured. */
   businessOutcomeConnector?: BusinessOutcomeConnector | null
   estateRegistry?: EstateRegistry
+  connectorSourceClock?: () => Date
 }
 
 export async function createApp(
@@ -289,6 +304,18 @@ export async function createApp(
     (resolvedDataMode === 'mock'
       ? new InMemoryManifestIngestionRepository(defaultTenantId())
       : undefined)
+  const persistedConnectorSourceRepository =
+    options.connectorSourceRepository ??
+    liveRepositories?.connectorSourceRepository ??
+    (resolvedDataMode === 'mock' ? new InMemoryConnectorSourceRepository() : undefined)
+  const deploymentConnectorSources = buildDeploymentConnectorSources(process.env, estateRegistry)
+  const connectorSourceRepository =
+    persistedConnectorSourceRepository === undefined || deploymentConnectorSources.length === 0
+      ? persistedConnectorSourceRepository
+      : new DeploymentConnectorSourceRepository(
+          persistedConnectorSourceRepository,
+          deploymentConnectorSources,
+        )
   const defaultService =
     service === undefined
       ? configuredService(
@@ -573,6 +600,13 @@ export async function createApp(
     ...(manifestIngestionRepository ? { repository: manifestIngestionRepository } : {}),
     tenantId: defaultTenantId(),
     ...(manifestEnvironmentId ? { environmentId: manifestEnvironmentId } : {}),
+  })
+  registerConnectorSourceRoutes(app, {
+    authConfig,
+    ...(connectorSourceRepository ? { repository: connectorSourceRepository } : {}),
+    writeEnabled:
+      writeEnabled && process.env['AGENT_SENTINEL_WRITE_ENABLED']?.trim().toLowerCase() === 'true',
+    ...(options.connectorSourceClock ? { clock: options.connectorSourceClock } : {}),
   })
 
   app.setErrorHandler((error, _request, reply) => {

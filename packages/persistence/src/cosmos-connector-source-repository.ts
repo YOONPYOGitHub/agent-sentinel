@@ -9,6 +9,7 @@ import {
   connectorSourceUpdateInputSchema,
   estateContextSchema,
   type ConnectorSourceAuditRecord,
+  type ConnectorSourceAuditCursor,
   type ConnectorSourceCreateInput,
   type ConnectorSourceDefinition,
   type ConnectorSourceMutationContext,
@@ -128,7 +129,10 @@ function boundedLimit(limit: number | undefined): number {
   if (!Number.isSafeInteger(limit) || limit < 1) {
     throw new Error('Connector source list limit must be a positive integer.')
   }
-  return Math.min(limit, 200)
+  if (limit > 1_000) {
+    throw new Error('Connector source list limit cannot exceed 1000.')
+  }
+  return limit
 }
 
 export class CosmosConnectorSourceRepository implements ConnectorSourceRepository {
@@ -153,7 +157,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
       throw new Error('Deployment sources must be created by a deployment actor.')
     }
     const boundaryExists = await this.readEstateBoundary(estate)
-    const fingerprint = digest(['create', input, mutation])
+    const fingerprint = digest(['create', input])
     const replay = await this.replay(estate, input.sourceId, mutation, fingerprint)
     if (replay) return replay
     const source = connectorSourceDefinitionSchema.parse({
@@ -234,16 +238,21 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     return document === null || document.deleted === true ? null : clone(document.source)
   }
 
-  async list(estateValue: EstateContext, limit?: number): Promise<ConnectorSourceDefinition[]> {
+  async list(
+    estateValue: EstateContext,
+    limit?: number,
+    afterSourceId?: string,
+  ): Promise<ConnectorSourceDefinition[]> {
     const estate = estateContextSchema.parse(estateValue)
     await this.readEstateBoundary(estate)
     const { resources } = await this.container.items
       .query<SourceDocument>(
         {
           query:
-            'SELECT * FROM c WHERE c.documentType = @documentType AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false) ORDER BY c.source.sourceId ASC OFFSET 0 LIMIT @limit',
+            'SELECT * FROM c WHERE c.documentType = @documentType AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false) AND (@afterSourceId = null OR c.source.sourceId > @afterSourceId) ORDER BY c.source.sourceId ASC OFFSET 0 LIMIT @limit',
           parameters: [
             { name: '@documentType', value: SOURCE_TYPE },
+            { name: '@afterSourceId', value: afterSourceId ?? null },
             { name: '@limit', value: boundedLimit(limit) },
           ],
         },
@@ -267,7 +276,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     const patch = connectorSourceUpdateInputSchema.parse(patchValue)
     const mutation = connectorSourceMutationContextSchema.parse(mutationValue)
     await this.readEstateBoundary(estate)
-    const fingerprint = digest(['update', logicalSourceId, expectedEtag, patch, mutation])
+    const fingerprint = digest(['update', logicalSourceId, expectedEtag, patch])
     const replay = await this.replay(estate, logicalSourceId, mutation, fingerprint)
     if (replay) return replay
     const document = await this.readSource(estate, logicalSourceId)
@@ -319,7 +328,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     const estate = estateContextSchema.parse(estateValue)
     const mutation = connectorSourceMutationContextSchema.parse(mutationValue)
     await this.readEstateBoundary(estate)
-    const fingerprint = digest(['delete', logicalSourceId, expectedEtag, mutation])
+    const fingerprint = digest(['delete', logicalSourceId, expectedEtag])
     const replay = await this.replay(estate, logicalSourceId, mutation, fingerprint)
     if (replay) return replay
     const document = await this.readSource(estate, logicalSourceId)
@@ -355,6 +364,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     estateValue: EstateContext,
     logicalSourceId: string,
     limit?: number,
+    after?: ConnectorSourceAuditCursor,
   ): Promise<ConnectorSourceAuditRecord[]> {
     const estate = estateContextSchema.parse(estateValue)
     await this.readEstateBoundary(estate)
@@ -362,10 +372,12 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
       .query<AuditDocument>(
         {
           query:
-            'SELECT * FROM c WHERE c.documentType = @documentType AND c.sourceId = @sourceId ORDER BY c.occurredAt ASC, c.audit.id ASC OFFSET 0 LIMIT @limit',
+            'SELECT * FROM c WHERE c.documentType = @documentType AND c.sourceId = @sourceId AND (@afterOccurredAt = null OR c.occurredAt > @afterOccurredAt OR (c.occurredAt = @afterOccurredAt AND c.audit.id > @afterId)) ORDER BY c.occurredAt ASC, c.audit.id ASC OFFSET 0 LIMIT @limit',
           parameters: [
             { name: '@documentType', value: AUDIT_TYPE },
             { name: '@sourceId', value: logicalSourceId },
+            { name: '@afterOccurredAt', value: after?.occurredAt ?? null },
+            { name: '@afterId', value: after?.id ?? null },
             { name: '@limit', value: boundedLimit(limit) },
           ],
         },

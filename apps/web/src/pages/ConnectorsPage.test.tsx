@@ -5,7 +5,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
-import { connectorsApi, type ConnectorsCollection } from '../api/connectors-api'
+import {
+  connectorSourcesApi,
+  connectorsApi,
+  type ConnectorsCollection,
+} from '../api/connectors-api'
 import { ConnectorsPage } from './ConnectorsPage'
 
 vi.mock('../api/connectors-api')
@@ -135,6 +139,15 @@ describe('ConnectorsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue(mockCollection)
+    vi.mocked(connectorSourcesApi.list).mockResolvedValue({
+      items: [],
+      page: { limit: 50, nextCursor: null },
+      mutationPolicy: {
+        enabled: false,
+        requiresAuthentication: true,
+        requiredCapability: 'configure',
+      },
+    })
   })
 
   it('shows loading state before data arrives', () => {
@@ -146,6 +159,13 @@ describe('ConnectorsPage', () => {
   it('renders the page heading', async () => {
     renderPage()
     expect(await screen.findByRole('heading', { name: 'Data connectors' })).toBeVisible()
+  })
+
+  it('renders estate-scoped connector source configuration', async () => {
+    renderPage()
+    expect(
+      await screen.findByRole('heading', { name: 'Connector source configuration' }),
+    ).toBeVisible()
   })
 
   it('renders the active connector panel with mock details', async () => {

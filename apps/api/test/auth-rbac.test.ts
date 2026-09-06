@@ -63,6 +63,7 @@ describe('sanitizePrincipal', () => {
     expect(p.subject).toBe('user-sub')
     expect(p.objectId).toBe('obj-id')
     expect(p.tenantId).toBe('tenant-id')
+    expect(p.actorType).toBe('user')
     expect(p.displayName).toBe('Alice Analyst')
     expect(p.preferredUsername).toBe('alice@contoso.com')
   })
@@ -93,6 +94,59 @@ describe('sanitizePrincipal', () => {
     for (const cap of CAPABILITIES) {
       expect(p.capabilities.has(cap)).toBe(true)
     }
+  })
+
+  it('identifies only verified app-only claims as service-principal callers', () => {
+    const application = sanitizePrincipal(
+      {
+        sub: 'application-subject',
+        oid: 'service-principal-object-id',
+        tid: 'tenant-id',
+        idtyp: 'app',
+        roles: ['AgentSentinel.Administrator'],
+      },
+      defaultScopes,
+    )
+    expect(application.actorType).toBe('service-principal')
+
+    const delegated = sanitizePrincipal(
+      {
+        sub: 'user-subject',
+        oid: 'user-object-id',
+        tid: 'tenant-id',
+        idtyp: 'user',
+        scp: 'AgentSentinel.Write',
+      },
+      defaultScopes,
+    )
+    expect(delegated.actorType).toBe('user')
+  })
+
+  it('rejects contradictory or incomplete app-only identity claims', () => {
+    expect(() =>
+      sanitizePrincipal(
+        {
+          sub: 'application-subject',
+          tid: 'tenant-id',
+          idtyp: 'app',
+          roles: ['AgentSentinel.Administrator'],
+        },
+        defaultScopes,
+      ),
+    ).toThrow(/service-principal object ID/)
+    expect(() =>
+      sanitizePrincipal(
+        {
+          sub: 'application-subject',
+          oid: 'service-principal-object-id',
+          tid: 'tenant-id',
+          idtyp: 'app',
+          scp: 'AgentSentinel.Write',
+          roles: ['AgentSentinel.Administrator'],
+        },
+        defaultScopes,
+      ),
+    ).toThrow(/no scopes/)
   })
 
   it('rejects plain role names without the registered prefix', () => {

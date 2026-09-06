@@ -8,6 +8,7 @@ import {
   connectorSourceUpdateInputSchema,
   estateContextSchema,
   type ConnectorSourceAuditRecord,
+  type ConnectorSourceAuditCursor,
   type ConnectorSourceCreateInput,
   type ConnectorSourceDefinition,
   type ConnectorSourceMutationContext,
@@ -55,7 +56,10 @@ function boundedLimit(limit: number | undefined): number {
   if (!Number.isSafeInteger(limit) || limit < 1) {
     throw new Error('Connector source list limit must be a positive integer.')
   }
-  return Math.min(limit, 200)
+  if (limit > 1_000) {
+    throw new Error('Connector source list limit cannot exceed 1000.')
+  }
+  return limit
 }
 
 export class InMemoryConnectorSourceRepository implements ConnectorSourceRepository {
@@ -78,7 +82,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
       throw new Error('Deployment sources must be created by a deployment actor.')
     }
     const boundaryExists = this.assertEstateBoundary(estate)
-    const fingerprint = digest(['create', input, mutation])
+    const fingerprint = digest(['create', input])
     const replay = this.replay(estate, input.sourceId, mutation, fingerprint)
     if (replay) return Promise.resolve(replay)
     const key = this.sourceKey(estate.id, input.sourceId)
@@ -122,7 +126,11 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     return Promise.resolve(record.deleted ? null : clone(record.source))
   }
 
-  list(estateValue: EstateContext, limit?: number): Promise<ConnectorSourceDefinition[]> {
+  list(
+    estateValue: EstateContext,
+    limit?: number,
+    afterSourceId?: string,
+  ): Promise<ConnectorSourceDefinition[]> {
     const estate = estateContextSchema.parse(estateValue)
     this.assertEstateBoundary(estate)
     const prefix = `${estate.id}\u0000`
@@ -136,6 +144,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
         .filter((record) => !record.deleted)
         .map((record) => record.source)
         .sort((left, right) => left.sourceId.localeCompare(right.sourceId))
+        .filter((source) => afterSourceId === undefined || source.sourceId > afterSourceId)
         .slice(0, boundedLimit(limit))
         .map(clone),
     )
@@ -152,7 +161,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     const patch = connectorSourceUpdateInputSchema.parse(patchValue)
     const mutation = connectorSourceMutationContextSchema.parse(mutationValue)
     this.assertEstateBoundary(estate)
-    const fingerprint = digest(['update', sourceId, expectedEtag, patch, mutation])
+    const fingerprint = digest(['update', sourceId, expectedEtag, patch])
     const replay = this.replay(estate, sourceId, mutation, fingerprint)
     if (replay) return Promise.resolve(replay)
     const key = this.sourceKey(estate.id, sourceId)
@@ -197,7 +206,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     const estate = estateContextSchema.parse(estateValue)
     const mutation = connectorSourceMutationContextSchema.parse(mutationValue)
     this.assertEstateBoundary(estate)
-    const fingerprint = digest(['delete', sourceId, expectedEtag, mutation])
+    const fingerprint = digest(['delete', sourceId, expectedEtag])
     const replay = this.replay(estate, sourceId, mutation, fingerprint)
     if (replay) return Promise.resolve(replay)
     const key = this.sourceKey(estate.id, sourceId)
@@ -226,6 +235,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     estateValue: EstateContext,
     sourceId: string,
     limit?: number,
+    after?: ConnectorSourceAuditCursor,
   ): Promise<ConnectorSourceAuditRecord[]> {
     const estate = estateContextSchema.parse(estateValue)
     this.assertEstateBoundary(estate)
@@ -239,6 +249,12 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
         .sort(
           (left, right) =>
             left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id),
+        )
+        .filter(
+          (audit) =>
+            after === undefined ||
+            audit.occurredAt > after.occurredAt ||
+            (audit.occurredAt === after.occurredAt && audit.id > after.id),
         )
         .slice(0, boundedLimit(limit))
         .map(clone),

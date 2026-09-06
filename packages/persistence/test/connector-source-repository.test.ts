@@ -608,7 +608,7 @@ describe('Cosmos connector source documents', () => {
     )
   })
 
-  it('returns the exact idempotent result for concurrent identical updates', async () => {
+  it('returns the exact idempotent result for concurrent identical updates after natural 412', async () => {
     const store = new FakeCosmosStore()
     const repository = new CosmosConnectorSourceRepository(store.client)
     const created = requireSource(
@@ -674,7 +674,43 @@ describe('Cosmos connector source documents', () => {
     expect(store.snapshot()).toEqual(documents)
   })
 
-  it('returns the exact idempotent result for concurrent identical deletes', async () => {
+  it('returns the exact idempotent result for concurrent identical updates after forced 412', async () => {
+    const store = new FakeCosmosStore()
+    const repository = new CosmosConnectorSourceRepository(store.client)
+    const created = requireSource(
+      await repository.create(ESTATE_A, source(ESTATE_A), mutation('forced-update-create')),
+    )
+    const operation = mutation('forced-update', '2026-09-04T00:01:00.000Z')
+    const patch = { displayName: 'Forced-conflict update' }
+
+    store.barrierNextBatches(2, 412)
+    const results = await Promise.all([
+      repository.update(ESTATE_A, created.sourceId, created.etag, patch, operation),
+      repository.update(ESTATE_A, created.sourceId, created.etag, patch, operation),
+    ])
+
+    expect(results.map((result) => result.status).sort()).toEqual(['applied', 'idempotent'])
+    const applied = results.find((result) => result.status === 'applied')
+    const idempotent = results.find((result) => result.status === 'idempotent')
+    if (applied?.status !== 'applied' || idempotent?.status !== 'idempotent') {
+      throw new Error('Expected one applied and one idempotent forced-412 update result.')
+    }
+    expect(idempotent.source).toEqual(applied.source)
+    expect(idempotent.audit).toEqual(applied.audit)
+    const documents = store.snapshot()
+    expect(
+      documents.filter((document) => document.documentType === 'connector-source'),
+    ).toHaveLength(1)
+    expect(
+      documents.filter((document) => document.documentType === 'connector-source-audit'),
+    ).toHaveLength(2)
+    expect(
+      documents.filter((document) => document.documentType === 'connector-source-idempotency'),
+    ).toHaveLength(2)
+    expect(documents).toHaveLength(6)
+  })
+
+  it('returns the exact idempotent result for concurrent identical deletes after forced 404', async () => {
     const store = new FakeCosmosStore()
     const repository = new CosmosConnectorSourceRepository(store.client)
     const created = requireSource(
@@ -736,6 +772,67 @@ describe('Cosmos connector source documents', () => {
         repository.delete(ESTATE_A_WRONG_ENVIRONMENT, created.sourceId, created.etag, operation),
       ),
     ).rejects.toThrow(/estate boundary/i)
+    expect(store.snapshot()).toEqual(documents)
+  })
+
+  it('rejects a forced-409 concurrent loser with the same key and a different fingerprint without partial documents', async () => {
+    const store = new FakeCosmosStore()
+    const repository = new CosmosConnectorSourceRepository(store.client)
+    const created = requireSource(
+      await repository.create(ESTATE_A, source(ESTATE_A), mutation('race-reuse-create')),
+    )
+    const operation = mutation('race-reuse', '2026-09-04T00:01:00.000Z')
+    const winnerPatch = { displayName: 'Winning update' }
+    const loserPatch = { displayName: 'Losing update' }
+    const documentsBeforeRace = store.snapshot()
+
+    store.barrierNextBatches(2, 409)
+    const [winner, loser] = await Promise.all([
+      repository.update(ESTATE_A, created.sourceId, created.etag, winnerPatch, operation),
+      repository.update(ESTATE_A, created.sourceId, created.etag, loserPatch, operation),
+    ])
+
+    expect(winner).toMatchObject({
+      status: 'applied',
+      source: { displayName: winnerPatch.displayName, version: 2 },
+    })
+    expect(loser).toEqual({ status: 'conflict', reason: 'idempotency_key_reuse' })
+
+    const documents = store.snapshot()
+    const sourceDocuments = documents.filter(
+      (document) => document.documentType === 'connector-source',
+    )
+    expect(sourceDocuments).toHaveLength(
+      documentsBeforeRace.filter((document) => document.documentType === 'connector-source').length,
+    )
+    expect(sourceDocuments[0]).toMatchObject({
+      source: { displayName: winnerPatch.displayName, version: 2 },
+    })
+    expect(sourceDocuments[0]?.deleted).not.toBe(true)
+    expect(
+      documents.filter((document) => document.documentType === 'connector-source-audit'),
+    ).toHaveLength(
+      documentsBeforeRace.filter((document) => document.documentType === 'connector-source-audit')
+        .length + 1,
+    )
+    expect(
+      documents.filter((document) => document.documentType === 'connector-source-idempotency'),
+    ).toHaveLength(
+      documentsBeforeRace.filter(
+        (document) => document.documentType === 'connector-source-idempotency',
+      ).length + 1,
+    )
+    expect(sourceDocuments.filter((document) => document.deleted === true)).toHaveLength(
+      documentsBeforeRace.filter(
+        (document) => document.documentType === 'connector-source' && document.deleted === true,
+      ).length,
+    )
+    expect(documents).toHaveLength(6)
+    await expect(repository.findById(ESTATE_A, created.sourceId)).resolves.toMatchObject({
+      displayName: winnerPatch.displayName,
+      version: 2,
+    })
+    await expect(repository.listAudit(ESTATE_A, created.sourceId)).resolves.toHaveLength(2)
     expect(store.snapshot()).toEqual(documents)
   })
 })

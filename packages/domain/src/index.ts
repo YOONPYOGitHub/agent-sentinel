@@ -8,6 +8,7 @@ export type { EstateContext } from './estate.js'
 export {
   connectorTypeSchema,
   connectorSourceConfigurationSchema,
+  connectorSourceIdSchema,
   connectorCredentialMetadataSchema,
   connectorSourceActorSchema,
   connectorSourceTestStatusSchema,
@@ -576,6 +577,7 @@ export type {
   GovernanceCaseListFilters,
   GovernanceCaseRepository,
   ConnectorSourceRepository,
+  ConnectorSourceAuditCursor,
   ConnectorSourceWriteResult,
 } from './repositories.js'
 

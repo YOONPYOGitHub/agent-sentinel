@@ -199,6 +199,13 @@ export class FakeCosmosStore {
 
     if (documentType === 'connector-source') {
       documents = documents.filter((document) => document.deleted !== true)
+      const afterSourceId = parameters.get('@afterSourceId')
+      if (typeof afterSourceId === 'string') {
+        documents = documents.filter((document) => {
+          const source = document.source as { sourceId: string }
+          return source.sourceId > afterSourceId
+        })
+      }
       documents.sort((left, right) => {
         const leftSource = left.source as { sourceId: string }
         const rightSource = right.source as { sourceId: string }
@@ -210,6 +217,16 @@ export class FakeCosmosStore {
     if (documentType === 'connector-source-audit') {
       documents = documents
         .filter((document) => document.sourceId === parameters.get('@sourceId'))
+        .filter((document) => {
+          const afterOccurredAt = parameters.get('@afterOccurredAt')
+          const afterId = parameters.get('@afterId')
+          if (typeof afterOccurredAt !== 'string' || typeof afterId !== 'string') return true
+          const occurredAt = String(document.occurredAt)
+          const audit = document.audit as { id: string }
+          return (
+            occurredAt > afterOccurredAt || (occurredAt === afterOccurredAt && audit.id > afterId)
+          )
+        })
         .sort((left, right) => {
           const time = String(left.occurredAt).localeCompare(String(right.occurredAt))
           if (time !== 0) return time

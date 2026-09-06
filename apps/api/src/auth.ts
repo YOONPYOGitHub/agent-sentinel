@@ -61,6 +61,8 @@ export interface AuthPrincipal {
   objectId?: string
   /** Tenant ID (tid) */
   tenantId: string
+  /** Caller kind derived only from verified token-type claims. */
+  actorType: 'user' | 'service-principal'
   /** Display name (name claim) if present */
   displayName?: string
   /** Preferred username / UPN (preferred_username) if present */
@@ -376,6 +378,15 @@ export function sanitizePrincipal(
   const displayName = typeof payload['name'] === 'string' ? payload['name'] : undefined
   const preferredUsername =
     typeof payload['preferred_username'] === 'string' ? payload['preferred_username'] : undefined
+  const idtyp = payload['idtyp']
+  if (idtyp !== undefined && idtyp !== 'app' && idtyp !== 'user') {
+    throw new Error('The token contains an unsupported token type.')
+  }
+  const hasDelegatedScopes = typeof payload['scp'] === 'string' && payload['scp'].trim().length > 0
+  if (idtyp === 'app' && (objectId === undefined || hasDelegatedScopes)) {
+    throw new Error('An app-only token requires a service-principal object ID and no scopes.')
+  }
+  const actorType = idtyp === 'app' ? 'service-principal' : 'user'
 
   const roles = resolveRoles(payload, allowedScopes)
   const capabilities = capabilitiesForRoles(roles)
@@ -384,6 +395,7 @@ export function sanitizePrincipal(
     subject,
     ...(objectId !== undefined ? { objectId } : {}),
     tenantId,
+    actorType,
     ...(displayName !== undefined ? { displayName } : {}),
     ...(preferredUsername !== undefined ? { preferredUsername } : {}),
     roles,

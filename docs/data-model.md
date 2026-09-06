@@ -86,6 +86,26 @@ and delete audit timestamps must be strictly later than the prior source
 audit IDs. Existing deployment JSON remains the active runtime source until a
 later activation task.
 
+Source lists use repository-backed seek pagination ordered by `sourceId`; audit
+lists seek by the stable `(occurredAt, id)` tuple. API pages request `limit + 1`
+records to determine whether a continuation exists. Idempotency markers remain
+point reads, so retry resolution is independent of audit list size.
+
+The connector-source API lists and reads records only through the authorized
+request estate. User-origin create, update, and delete operations require an
+authenticated Administrator, explicit `AGENT_SENTINEL_WRITE_ENABLED=true`,
+idempotency keys, and strong ETag preconditions. API callers cannot set estate
+boundaries, origin, actors, audit timestamps, or connection-test results.
+Verified JWT `idtyp=app` callers are recorded as service principals by object
+ID, while delegated callers are recorded as users.
+Deployment-origin records remain immutable and non-deletable. The connection
+test endpoint is status-only: it returns stored, labeled evidence and reports
+untested sources as `unknown` with unavailable evidence; it does not invoke a
+provider or synthesize success. Deployment JSON remains the connector runtime
+source and is not activated from these dormant records. Existing
+`*_SOURCES_JSON` definitions are projected into API reads as immutable
+deployment-origin records without being copied into mutable persistence.
+
 ### PostgreSQL (pg-as-260814)
 
 | Table           | Purpose                               |

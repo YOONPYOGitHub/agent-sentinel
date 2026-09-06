@@ -7,7 +7,7 @@ import type { EstateDefinition, EstateRegistry } from './estate-config.js'
 
 const ESTATE_HEADER = 'x-agent-sentinel-estate-id'
 const selectionFreePaths = new Set(['/health', '/api/auth/config', '/api/estates'])
-const estateAwarePrefixes = ['/api/exposures']
+const estateAwarePrefixes = ['/api/exposures', '/api/connector-sources']
 const estateAwarePaths = new Set(['/api/connectors', '/api/governance/posture'])
 
 declare module 'fastify' {

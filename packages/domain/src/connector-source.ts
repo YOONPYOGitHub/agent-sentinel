@@ -5,7 +5,7 @@ import { estateIdSchema } from './estate.js'
 const azureGuidSchema = z
   .string()
   .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
-const sourceIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)
+export const connectorSourceIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)
 const boundedIdentifierSchema = z.string().trim().min(1).max(256)
 const boundedEnvironmentSchema = z.string().trim().min(1).max(128)
 const boundedSummarySchema = z.string().trim().min(1).max(500)
@@ -290,7 +290,7 @@ const connectorSourceCoreSchema = z
     estateId: estateIdSchema,
     tenantId: z.string().trim().min(1).max(128),
     environment: boundedEnvironmentSchema,
-    sourceId: sourceIdSchema,
+    sourceId: connectorSourceIdSchema,
     connectorType: connectorTypeSchema,
     displayName: z.string().trim().min(1).max(100),
     enabled: z.boolean(),
@@ -366,7 +366,7 @@ export const connectorSourceAuditRecordSchema = z
     estateId: estateIdSchema,
     tenantId: z.string().trim().min(1).max(128),
     environment: boundedEnvironmentSchema,
-    sourceId: sourceIdSchema,
+    sourceId: connectorSourceIdSchema,
     operation: z.enum(['create', 'update', 'delete']),
     actor: connectorSourceActorSchema,
     occurredAt: normalizedTimestampSchema,

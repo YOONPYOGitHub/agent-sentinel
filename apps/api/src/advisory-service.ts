@@ -49,7 +49,7 @@ interface AdvisoryCacheOptions {
   requiresAuthenticatedPost?: boolean
 }
 
-function redact(value: string): string {
+export function redactSensitiveText(value: string): string {
   return value
     .replaceAll(
       /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
@@ -114,25 +114,25 @@ function prepareAdvisoryInput(context: AdvisoryContext): PreparedAdvisoryInput {
 
   const evidence = includedEvidence.map((item) => ({
     id: evidenceIdToAlias.get(item.id),
-    source: redact(item.source),
+    source: redactSensitiveText(item.source),
     observedAt: item.observedAt,
     freshness: item.freshness,
     confidence: item.confidence,
-    summary: redact(item.summary),
+    summary: redactSensitiveText(item.summary),
   }))
   return {
     evidenceAliasToId,
     input: {
       finding: {
-        policyId: redact(context.finding.policyId),
-        policyName: redact(context.finding.policyName),
+        policyId: redactSensitiveText(context.finding.policyId),
+        policyName: redactSensitiveText(context.finding.policyName),
         severity: context.finding.severity,
         riskScore: context.finding.riskScore,
-        title: redact(context.finding.title),
-        summary: redact(context.finding.summary),
-        recommendation: redact(context.finding.recommendation),
+        title: redactSensitiveText(context.finding.title),
+        summary: redactSensitiveText(context.finding.summary),
+        recommendation: redactSensitiveText(context.finding.recommendation),
         validationStatus: context.finding.validationStatus,
-        affectedAgentName: redact(context.finding.affectedAgentName),
+        affectedAgentName: redactSensitiveText(context.finding.affectedAgentName),
       },
       graph: {
         affectedNodeAliases: [...nodeIdToAlias.values()],
@@ -142,8 +142,8 @@ function prepareAdvisoryInput(context: AdvisoryContext): PreparedAdvisoryInput {
         nodes: includedNodes.map((node) => ({
           id: nodeIdToAlias.get(node.id),
           kind: node.kind,
-          name: redact(node.name),
-          environment: redact(node.environment),
+          name: redactSensitiveText(node.name),
+          environment: redactSensitiveText(node.environment),
           trust: node.trust ?? 'unknown',
           sensitivity: node.sensitivity ?? 'unknown',
         })),

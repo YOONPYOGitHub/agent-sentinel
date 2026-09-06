@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { connectorsApi, type CatalogEntry, type ConnectorsCollection } from '../api/connectors-api'
+import { ConnectorSourceManager } from '../components/ConnectorSourceManager'
 import { PageHeading } from '../components/PageHeading'
 
 // ??? Capability label map ????????????????????????????????????????????????????
@@ -377,6 +378,8 @@ export function ConnectorsPage() {
             </h2>
             <ActiveConnectorPanel active={collection.active} health={collection.health} />
           </section>
+
+          <ConnectorSourceManager />
 
           <section aria-label="Connector catalog" className="connectors-section">
             <div className="connectors-catalog-header">

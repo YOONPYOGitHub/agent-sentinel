@@ -64,6 +64,7 @@ function principal(role: 'Viewer' | 'Administrator'): AuthPrincipal {
   return {
     subject: `subject-${role.toLowerCase()}`,
     tenantId: AUTH_TENANT,
+    actorType: 'user',
     roles: [role],
     capabilities: new Set<Capability>(role === 'Administrator' ? CAPABILITIES : ['read']),
   }

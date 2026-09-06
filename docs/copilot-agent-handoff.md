@@ -112,8 +112,12 @@ Do not remove that block before every underlying service and cache is scoped.
   correlation are demonstrated.
 - Entra owner and app-role enrichment are separately gated. Agent Identity beta
   enrichment requires separately approved least privilege.
-- Connector source arrays are deployment-time JSON/Bicep configuration. There
-  is no user-facing connector source CRUD/test/credential configuration plane.
+- The estate-scoped connector source configuration plane exposes deployment
+  sources as read-only and supports gated user-source CRUD with strict
+  non-secret schemas, ETags, idempotency, and immutable audit records. Its test
+  surface reads stored evidence status only; it does not call providers or
+  manufacture readiness. Deployment-time JSON/Bicep source arrays remain the
+  active runtime configuration until a separately approved activation task.
 - Agent 365 connector code exists but entitlement activation is pending.
 - Power Platform unattended inventory remains blocked by unsupported app-only
   authorization.

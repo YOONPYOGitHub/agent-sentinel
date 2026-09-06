@@ -128,6 +128,11 @@ export type ConnectorSourceWriteResult =
       status: 'not_found' | 'immutable'
     }
 
+export interface ConnectorSourceAuditCursor {
+  occurredAt: string
+  id: string
+}
+
 export interface ConnectorSourceRepository {
   create(
     estate: EstateContext,
@@ -135,7 +140,11 @@ export interface ConnectorSourceRepository {
     mutation: ConnectorSourceMutationContext,
   ): Promise<ConnectorSourceWriteResult>
   findById(estate: EstateContext, sourceId: string): Promise<ConnectorSourceDefinition | null>
-  list(estate: EstateContext, limit?: number): Promise<ConnectorSourceDefinition[]>
+  list(
+    estate: EstateContext,
+    limit?: number,
+    afterSourceId?: string,
+  ): Promise<ConnectorSourceDefinition[]>
   update(
     estate: EstateContext,
     sourceId: string,
@@ -153,5 +162,6 @@ export interface ConnectorSourceRepository {
     estate: EstateContext,
     sourceId: string,
     limit?: number,
+    after?: ConnectorSourceAuditCursor,
   ): Promise<ConnectorSourceAuditRecord[]>
 }
