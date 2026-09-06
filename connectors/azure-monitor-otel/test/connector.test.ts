@@ -9,6 +9,7 @@ import {
   azureMonitorOtelConfigSchema,
   buildAzureMonitorOtelQuery,
   createAzureMonitorOtelConnector,
+  isAzureMonitorOtelRuntimeActive,
   mapAzureMonitorRows,
   parseAzureMonitorOtelSources,
 } from '../src/index.js'
@@ -277,6 +278,58 @@ describe('Azure Monitor OTel connector', () => {
         new Credential(),
       ),
     ).toBeInstanceOf(MultiAzureMonitorOtelConnector)
+    expect(
+      createAzureMonitorOtelConnector(
+        {
+          AZURE_MONITOR_SOURCES_JSON: JSON.stringify([
+            {
+              id: 'project-a',
+              name: 'Project A',
+              workspaceId: config.workspaceId,
+              tenantId: config.tenantId,
+              environment: config.environment,
+            },
+          ]),
+        },
+        new Credential(),
+        'live',
+      ),
+    ).toBeInstanceOf(MultiAzureMonitorOtelConnector)
+  })
+
+  it('uses live mode and parsed sources as the runtime activation predicate', () => {
+    const sourceEnvironment = {
+      AZURE_MONITOR_SOURCES_JSON: JSON.stringify([
+        {
+          id: 'project-a',
+          name: 'Project A',
+          workspaceId: config.workspaceId,
+          tenantId: config.tenantId,
+          environment: config.environment,
+        },
+      ]),
+    }
+    const sources = parseAzureMonitorOtelSources(sourceEnvironment)
+    expect(isAzureMonitorOtelRuntimeActive('live', sources)).toBe(true)
+    expect(isAzureMonitorOtelRuntimeActive('mock', sources)).toBe(false)
+    expect(isAzureMonitorOtelRuntimeActive('live', [])).toBe(false)
+    expect(
+      createAzureMonitorOtelConnector(sourceEnvironment, new Credential(), 'mock'),
+    ).toBeUndefined()
+    expect(
+      createAzureMonitorOtelConnector(
+        { AZURE_MONITOR_SOURCES_JSON: '{invalid' },
+        new Credential(),
+        'mock',
+      ),
+    ).toBeUndefined()
+    expect(() =>
+      createAzureMonitorOtelConnector(
+        { AZURE_MONITOR_SOURCES_JSON: '{invalid' },
+        new Credential(),
+        'live',
+      ),
+    ).toThrow('AZURE_MONITOR_SOURCES_JSON must be valid JSON')
   })
 
   it('routes aggregate agents to their exact source workspace and rebinds results', async () => {

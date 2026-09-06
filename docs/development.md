@@ -98,11 +98,18 @@ table, then strictly maps the projected rows into baseline and observed
 `ObservationWindow` objects. It does not create resources, ingest telemetry, or
 fall back to local data.
 
-Live activation requires all of:
+Live activation requires `AGENT_SENTINEL_DATA_MODE=live` and at least one
+validated source. Configure sources with `AZURE_MONITOR_SOURCES_JSON`, or use
+the legacy single-source variables:
 
 - `AZURE_MONITOR_WORKSPACE_ID`
 - `AZURE_MONITOR_TENANT_ID` (must match the API tenant binding)
 - `AZURE_MONITOR_ENVIRONMENT`
+
+The runtime does not read a separate Azure Monitor connector-enabled
+environment variable. The `azureMonitorConnectorEnabled` Bicep parameter gates
+whether deployment configuration is injected; runtime activation is derived
+from data mode and the validated source configuration.
 
 Optional bounds are `AZURE_MONITOR_BASELINE_WINDOW_HOURS` (default 168),
 `AZURE_MONITOR_OBSERVED_WINDOW_HOURS` (default 24), and

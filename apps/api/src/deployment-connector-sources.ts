@@ -2,7 +2,11 @@ import { createHash } from 'node:crypto'
 
 import { parseAgent365Config } from '@agent-sentinel/agent365-connector'
 import { parseAzureResourceGraphConfig } from '@agent-sentinel/azure-resource-graph-connector'
-import { parseAzureMonitorOtelSources } from '@agent-sentinel/azure-monitor-otel-connector'
+import {
+  isAzureMonitorOtelRuntimeActive,
+  parseAzureMonitorOtelSources,
+  type AzureMonitorOtelRuntimeMode,
+} from '@agent-sentinel/azure-monitor-otel-connector'
 import { parseDefenderCloudAppsConfig } from '@agent-sentinel/defender-cloud-apps-connector'
 import {
   connectorSourceDefinitionSchema,
@@ -149,6 +153,7 @@ function projectSource(
 export function buildDeploymentConnectorSources(
   environment: NodeJS.ProcessEnv,
   registry: EstateRegistry,
+  dataMode: AzureMonitorOtelRuntimeMode,
 ): ConnectorSourceDefinition[] {
   const definitions: ConnectorSourceDefinition[] = []
   const add = <T extends ProjectableSource>(
@@ -263,7 +268,7 @@ export function buildDeploymentConnectorSources(
     const sources = parseAzureMonitorOtelSources(environment)
     add(
       'azure-monitor-otel',
-      enabled(environment, 'AZURE_MONITOR_CONNECTOR_ENABLED'),
+      isAzureMonitorOtelRuntimeActive(dataMode, sources),
       sources,
       (source) => ({
         type: 'azure-monitor-otel',

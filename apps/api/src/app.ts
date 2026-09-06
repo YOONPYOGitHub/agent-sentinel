@@ -271,11 +271,10 @@ export async function createApp(
 
   const resolvedDataMode = options.dataMode ?? dataMode()
   const runtimeTelemetryConnector =
-    resolvedDataMode === 'live'
-      ? options.runtimeTelemetryConnector === null
-        ? undefined
-        : (options.runtimeTelemetryConnector ?? createAzureMonitorOtelConnector())
-      : undefined
+    resolvedDataMode !== 'live' || options.runtimeTelemetryConnector === null
+      ? undefined
+      : (options.runtimeTelemetryConnector ??
+        createAzureMonitorOtelConnector(process.env, undefined, resolvedDataMode))
   const businessOutcomeConnector =
     options.businessOutcomeConnector === null
       ? undefined
@@ -308,7 +307,11 @@ export async function createApp(
     options.connectorSourceRepository ??
     liveRepositories?.connectorSourceRepository ??
     (resolvedDataMode === 'mock' ? new InMemoryConnectorSourceRepository() : undefined)
-  const deploymentConnectorSources = buildDeploymentConnectorSources(process.env, estateRegistry)
+  const deploymentConnectorSources = buildDeploymentConnectorSources(
+    process.env,
+    estateRegistry,
+    resolvedDataMode,
+  )
   const connectorSourceRepository =
     persistedConnectorSourceRepository === undefined || deploymentConnectorSources.length === 0
       ? persistedConnectorSourceRepository
