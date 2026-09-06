@@ -60,6 +60,11 @@ All requests use `DefaultAzureCredential`, the
 `graph.microsoft.com`, strict projected response schemas, same-resource
 next-link validation, bounded pagination, request timeouts, and retries only
 for 429/500/502/503/504 responses carrying a bounded `Retry-After`.
+Multi-source enrichment accepts at most 50 configured sources, runs at most
+four source reads concurrently, and applies one 60-second aggregate deadline.
+Caller cancellation is propagated through token acquisition, retry waits, and
+Graph requests. Results are composed in configured source order even when
+provider calls complete out of order.
 
 ## Configuration
 
@@ -78,6 +83,12 @@ entry uses the same `id`, tenant, and source environment as its matching
 source, and correlation considers only Foundry agents with that exact source
 ID, tenant, and environment. Missing source authorization remains
 `authorization-required`; it is never substituted with another tenant.
+Per-source health also retains a typed data state: `complete` for a non-empty
+bounded inventory, `partial` when optional evidence is degraded, `empty` for a
+successful zero-record inventory, `unsupported` for a disabled or unmatched
+configuration, `failed` for provider/composition failure, and `cancelled` for
+caller or aggregate deadline cancellation. Empty, partial, unsupported,
+failed, or cancelled sources never become complete live identity coverage.
 
 Same-tenant sources use the default managed identity credential. Cross-tenant
 sources use `credential.mode=federated-app`, the target-tenant app client ID,

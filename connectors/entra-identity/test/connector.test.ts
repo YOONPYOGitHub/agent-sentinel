@@ -325,6 +325,36 @@ describe('Microsoft Graph client contracts', () => {
     await expect(client.listServicePrincipals()).rejects.toThrow('timed out')
   })
 
+  it('propagates caller cancellation to credential and Graph requests', async () => {
+    const controller = new AbortController()
+    const credentialSignals: Array<{ readonly aborted: boolean }> = []
+    const client = new EntraGraphClient(
+      config,
+      {
+        getToken: (_scopes, options) => {
+          if (options?.abortSignal !== undefined) credentialSignals.push(options.abortSignal)
+          return Promise.resolve({ token: 'token', expiresOnTimestamp: Date.now() + 60_000 })
+        },
+      },
+      {
+        fetcher: vi.fn<typeof fetch>().mockImplementation(
+          (_input, init) =>
+            new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+            }),
+        ),
+      },
+    )
+    const pending = client.listServicePrincipals({ signal: controller.signal })
+
+    await Promise.resolve()
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject({ code: 'cancelled' })
+    expect(credentialSignals).toHaveLength(1)
+    expect(credentialSignals[0]?.aborted).toBe(true)
+  })
+
   it('sanitizes Graph and credential errors without leaking tokens', async () => {
     const secret = 'super-secret-token'
     const connector = new EntraIdentityConnector(config, new Credential(secret), {
@@ -1208,8 +1238,105 @@ describe('composite enrichment connector', () => {
         partial: false,
         sources: [
           { id: 'base', readiness: 'ready' },
-          { id: 'entra:project-a', readiness: 'ready' },
-          { id: 'entra:project-b', readiness: 'ready' },
+          { id: 'entra:project-a', readiness: 'ready', dataState: 'complete' },
+          { id: 'entra:project-b', readiness: 'ready', dataState: 'complete' },
+        ],
+      })
+    })
+
+    it('bounds source concurrency while composing results in configured order', async () => {
+      let active = 0
+      let maximumActive = 0
+      const completed: string[] = []
+      const connector = new MultiEntraEnrichmentConnector(
+        connectorForSnapshot(aggregateBase()),
+        expectedSources.map(sourceConfig),
+        {
+          enabled: true,
+          expectedSources,
+          aggregation: {
+            maxConcurrency: 1,
+            maxDurationMs: 1_000,
+          },
+          credentialFactory: () => new Credential(),
+          clientFactory: (source) => ({
+            fetcher: vi.fn<typeof fetch>(async () => {
+              active += 1
+              maximumActive = Math.max(maximumActive, active)
+              await new Promise((resolve) => setTimeout(resolve, source.id === 'project-a' ? 5 : 1))
+              active -= 1
+              completed.push(source.id)
+              return Response.json({
+                value: [
+                  {
+                    id: '11111111-1111-4111-8111-111111111111',
+                    appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                    displayName: 'Shared identity',
+                    servicePrincipalType: 'Application',
+                    accountEnabled: true,
+                    appOwnerOrganizationId: source.tenantId,
+                    tags: [],
+                  },
+                ],
+              })
+            }),
+          }),
+        },
+      )
+
+      const snapshot = await connector.discover()
+
+      expect(maximumActive).toBe(1)
+      expect(completed).toEqual(['project-a', 'project-b'])
+      expect(snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(2)
+    })
+
+    it('retains an empty source without promoting it to complete Entra coverage', async () => {
+      const connector = new MultiEntraEnrichmentConnector(
+        connectorForSnapshot(aggregateBase()),
+        expectedSources.map(sourceConfig),
+        {
+          enabled: true,
+          expectedSources,
+          credentialFactory: () => new Credential(),
+          clientFactory: (source) => ({
+            fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+              Response.json({
+                value:
+                  source.id === 'project-a'
+                    ? [
+                        {
+                          id: '11111111-1111-4111-8111-111111111111',
+                          appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                          displayName: 'Tenant A identity',
+                          servicePrincipalType: 'Application',
+                          accountEnabled: true,
+                          appOwnerOrganizationId: tenantA,
+                          tags: [],
+                        },
+                      ]
+                    : [],
+              }),
+            ),
+          }),
+        },
+      )
+
+      const snapshot = await connector.discover()
+
+      expect(snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(1)
+      expect(connector.getConnectorHealth()).toMatchObject({
+        overall: 'degraded',
+        partial: true,
+        sources: [
+          { id: 'base', readiness: 'ready' },
+          { id: 'entra:project-a', dataState: 'complete' },
+          {
+            id: 'entra:project-b',
+            readiness: 'degraded',
+            dataState: 'empty',
+            reason: 'empty',
+          },
         ],
       })
     })
@@ -1253,6 +1380,7 @@ describe('composite enrichment connector', () => {
             id: 'entra:project-b',
             configured: false,
             readiness: 'authorization-required',
+            dataState: 'unsupported',
           },
         ],
       })
@@ -1285,6 +1413,7 @@ describe('composite enrichment connector', () => {
           {
             id: 'entra:project-a',
             readiness: 'unavailable',
+            dataState: 'failed',
             reason: 'authorization (403)',
           },
         ],

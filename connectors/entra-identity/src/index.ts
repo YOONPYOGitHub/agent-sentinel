@@ -1,13 +1,17 @@
-import type {
-  AgentConnector,
-  ApprovalContext,
-  ConnectionTestResult,
-  ConnectorCapabilityCoverage,
-  ConnectorCapability,
-  ConnectorDescriptor,
-  ConnectorHealthReport,
-  ConnectorReadiness,
-  ExactIdentityCorrelationDiagnostics,
+import {
+  aggregateLiveSources,
+  type AgentConnector,
+  type ApprovalContext,
+  type ConnectionTestResult,
+  type ConnectorCapabilityCoverage,
+  type ConnectorCapability,
+  type ConnectorDescriptor,
+  type ConnectorHealthReport,
+  type ConnectorOperationRequest,
+  type ConnectorReadiness,
+  type ExactIdentityCorrelationDiagnostics,
+  type LiveAggregationLimits,
+  type LiveSourceDataState,
 } from '@agent-sentinel/connector-sdk'
 import type { EstateSnapshot, Evidence, Remediation } from '@agent-sentinel/domain'
 import type { TokenCredential } from '@azure/core-auth'
@@ -233,10 +237,10 @@ export class EntraIdentityConnector implements AgentConnector {
     }
   }
 
-  async testConnection(): Promise<ConnectionTestResult> {
+  async testConnection(request: ConnectorOperationRequest = {}): Promise<ConnectionTestResult> {
     const checkedAt = new Date().toISOString()
     try {
-      await this.client.probeStableInventory()
+      await this.client.probeStableInventory(request)
       this.health.stableInventory = { status: 'available' }
       return {
         ok: true,
@@ -253,10 +257,10 @@ export class EntraIdentityConnector implements AgentConnector {
     }
   }
 
-  async discover(): Promise<EstateSnapshot> {
+  async discover(request: ConnectorOperationRequest = {}): Promise<EstateSnapshot> {
     let servicePrincipals: EntraServicePrincipal[]
     try {
-      servicePrincipals = await this.client.listServicePrincipals()
+      servicePrincipals = await this.client.listServicePrincipals(request)
       this.health.stableInventory = { status: 'available' }
     } catch (error) {
       this.health.stableInventory = { status: 'unavailable', reason: safeFailureReason(error) }
@@ -266,7 +270,7 @@ export class EntraIdentityConnector implements AgentConnector {
     const owners = new Map<string, EntraDirectoryOwner[]>()
     if (this.config.capabilities.owners) {
       try {
-        for (const [id, values] of await this.client.listOwners(servicePrincipals))
+        for (const [id, values] of await this.client.listOwners(servicePrincipals, request))
           owners.set(id, values)
         this.health.owners = { status: 'available' }
         this.capabilityCoverage.owners = {
@@ -286,7 +290,10 @@ export class EntraIdentityConnector implements AgentConnector {
     const appRoleAssignments = new Map<string, EntraAppRoleAssignment[]>()
     if (this.config.capabilities.appRoleAssignments) {
       try {
-        for (const [id, values] of await this.client.listAppRoleAssignments(servicePrincipals))
+        for (const [id, values] of await this.client.listAppRoleAssignments(
+          servicePrincipals,
+          request,
+        ))
           appRoleAssignments.set(id, values)
         this.health.appRoleAssignments = { status: 'available' }
         this.capabilityCoverage.appRoleAssignments = {
@@ -312,7 +319,7 @@ export class EntraIdentityConnector implements AgentConnector {
     let agentIdentitiesPreview: AgentIdentityPreview[] = []
     if (this.config.capabilities.agentIdentityPreview) {
       try {
-        agentIdentitiesPreview = await this.client.listAgentIdentitiesPreview()
+        agentIdentitiesPreview = await this.client.listAgentIdentitiesPreview(request)
         this.health.agentIdentityPreview = { status: 'available' }
         const stableIds = new Set(servicePrincipals.map((principal) => principal.id.toLowerCase()))
         this.capabilityCoverage.agentIdentityPreview = {
@@ -417,10 +424,10 @@ export class EntraEnrichmentConnector implements AgentConnector {
     }
   }
 
-  async testConnection(): Promise<ConnectionTestResult> {
+  async testConnection(request: ConnectorOperationRequest = {}): Promise<ConnectionTestResult> {
     const [base, entra] = await Promise.all([
-      this.base.testConnection(),
-      this.enabled && this.entra ? this.entra.testConnection() : Promise.resolve(undefined),
+      this.base.testConnection(request),
+      this.enabled && this.entra ? this.entra.testConnection(request) : Promise.resolve(undefined),
     ])
     this.baseHealth = base
     if (entra?.ok === true) this.composition = { status: 'available' }
@@ -434,8 +441,8 @@ export class EntraEnrichmentConnector implements AgentConnector {
     }
   }
 
-  async discover(): Promise<EstateSnapshot> {
-    const base = await this.base.discover()
+  async discover(request: ConnectorOperationRequest = {}): Promise<EstateSnapshot> {
+    const base = await this.base.discover(request)
     this.baseHealth = {
       ok: true,
       checkedAt: new Date().toISOString(),
@@ -448,7 +455,7 @@ export class EntraEnrichmentConnector implements AgentConnector {
 
     let snapshot: EstateSnapshot
     try {
-      const identities = await this.entra.discover()
+      const identities = await this.entra.discover(request)
       const composed = enrichSnapshotWithEntraAndDiagnostics(base, identities)
       const capabilityCoverage = this.entra.getCapabilityCoverage()
       snapshot = composed.snapshot
@@ -586,14 +593,17 @@ export interface MultiEntraEnrichmentOptions {
   expectedSources: readonly ExpectedEntraSource[]
   credentialFactory?: EntraCredentialFactory
   clientFactory?: (source: EntraSourceConfig) => EntraGraphClientOptions
+  aggregation?: Partial<LiveAggregationLimits>
 }
 
 interface MultiEntraSourceState {
+  id: string
   expected: ExpectedEntraSource
   config: EntraSourceConfig | undefined
   connector: EntraIdentityConnector | undefined
   configured: boolean
   readiness: ConnectorReadiness
+  dataState: LiveSourceDataState | undefined
   checkedAt: string | undefined
   reason: string | undefined
   authoritativeComplete: boolean
@@ -632,6 +642,7 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
   readonly descriptor: ConnectorDescriptor
   private readonly sources: MultiEntraSourceState[]
   private readonly enabled: boolean
+  private readonly aggregationLimits: LiveAggregationLimits
   private evidenceById = new Map<string, Evidence>()
   private baseHealth: ConnectionTestResult = {
     ok: false,
@@ -646,6 +657,22 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
   ) {
     this.enabled = options.enabled
     const credentialFactory = options.credentialFactory ?? createEntraSourceCredential
+    const maxPagesPerSource = Math.max(
+      20,
+      ...configuredSources.map((source) => source.limits.maxPages),
+    )
+    const maxRecordsPerSource = Math.max(
+      1_000,
+      ...configuredSources.map((source) => source.limits.maxItems),
+    )
+    this.aggregationLimits = {
+      maxSources: 50,
+      maxConcurrency: 4,
+      maxDurationMs: 60_000,
+      maxPagesPerSource,
+      maxRecordsPerSource,
+      ...options.aggregation,
+    }
     const expectedIds = new Set(options.expectedSources.map((source) => source.id))
     const unexpected = configuredSources.find((source) => !expectedIds.has(source.id))
     if (unexpected !== undefined) {
@@ -677,6 +704,7 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
         }
       }
       return {
+        id: expected.id,
         expected,
         config,
         connector,
@@ -690,6 +718,10 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
             : boundaryMatches
               ? 'degraded'
               : 'authorization-required',
+        dataState:
+          !this.enabled || connector === undefined
+            ? ('unsupported' as const)
+            : undefined,
         checkedAt: undefined,
         authoritativeComplete: false,
         diagnostics: undefined,
@@ -725,23 +757,56 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
     }
   }
 
-  async testConnection(): Promise<ConnectionTestResult> {
-    const [base, ...results] = await Promise.all([
-      this.base.testConnection(),
-      ...this.sources.map(async (source) =>
-        this.enabled && source.connector !== undefined
-          ? source.connector.testConnection()
-          : undefined,
-      ),
-    ])
+  async testConnection(request: ConnectorOperationRequest = {}): Promise<ConnectionTestResult> {
+    const base = await this.base.testConnection(request)
     this.baseHealth = base
-    for (const [index, result] of results.entries()) {
-      const source = this.sources[index]!
-      if (result === undefined || source.connector === undefined) continue
-      source.checkedAt = result.checkedAt
-      const measured = entraReadiness(source.connector)
-      source.readiness = result.ok ? measured.readiness : 'unavailable'
-      source.reason = result.ok ? measured.reason : 'authentication-or-access'
+    const aggregation = await aggregateLiveSources<MultiEntraSourceState, ConnectionTestResult>({
+      sources: this.sources,
+      limits: this.aggregationLimits,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+      execute: async (source, context) => {
+        if (!this.enabled || source.connector === undefined) {
+          return {
+            state: 'unsupported',
+            value: {
+              ok: false,
+              checkedAt: new Date().toISOString(),
+              message: 'Microsoft Entra source is not configured.',
+            },
+            pages: 0,
+            records: 0,
+            evidenceIds: [],
+            reason: source.reason ?? 'not-configured',
+          }
+        }
+        const result = await source.connector.testConnection({ signal: context.signal })
+        if (!result.ok) throw new Error(source.connector.getHealth().stableInventory.reason)
+        return {
+          state: 'complete',
+          value: result,
+          pages: 1,
+          records: 1,
+          evidenceIds: [],
+        }
+      },
+      failureReason: safeFailureReason,
+    })
+    for (const outcome of aggregation.outcomes) {
+      const source = outcome.source
+      source.checkedAt = outcome.value?.checkedAt ?? new Date().toISOString()
+      source.dataState = outcome.state
+      if (outcome.state === 'complete' && source.connector !== undefined) {
+        const measured = entraReadiness(source.connector)
+        source.readiness = measured.readiness
+        source.reason = measured.reason
+      } else if (outcome.state === 'unsupported') {
+        source.reason ??= outcome.reason
+      } else {
+        source.readiness = outcome.reason?.startsWith('authorization')
+          ? 'authorization-required'
+          : 'unavailable'
+        source.reason = outcome.reason ?? 'unexpected-failure'
+      }
     }
     return {
       ok: base.ok,
@@ -752,8 +817,8 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
     }
   }
 
-  async discover(): Promise<EstateSnapshot> {
-    let snapshot = await this.base.discover()
+  async discover(request: ConnectorOperationRequest = {}): Promise<EstateSnapshot> {
+    let snapshot = await this.base.discover(request)
     this.baseHealth = {
       ok: true,
       checkedAt: new Date().toISOString(),
@@ -764,31 +829,60 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
       return snapshot
     }
 
-    const results = await Promise.allSettled(
-      this.sources.map(async (source) =>
-        source.connector === undefined
-          ? undefined
-          : {
-              source,
-              identities: await source.connector.discover(),
-            },
-      ),
-    )
-    for (const [index, result] of results.entries()) {
-      const source = this.sources[index]!
+    const aggregation = await aggregateLiveSources<
+      MultiEntraSourceState,
+      EstateSnapshot | undefined
+    >({
+      sources: this.sources,
+      limits: this.aggregationLimits,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+      execute: async (source, context) => {
+        if (source.connector === undefined) {
+          return {
+            state: 'unsupported',
+            value: undefined,
+            pages: 0,
+            records: 0,
+            evidenceIds: [],
+            reason: source.reason ?? 'not-configured',
+          }
+        }
+        const identities = await source.connector.discover({ signal: context.signal })
+        const records = identities.nodes.filter((node) => node.kind === 'identity').length
+        const measured = entraReadiness(source.connector)
+        return {
+          state:
+            records === 0 ? ('empty' as const) : measured.readiness === 'ready' ? 'complete' : 'partial',
+          value: identities,
+          pages: 1,
+          records,
+          evidenceIds: identities.evidence.map((item) => item.id),
+          ...(measured.reason === undefined ? {} : { reason: measured.reason }),
+        }
+      },
+      failureReason: safeFailureReason,
+    })
+    for (const outcome of aggregation.outcomes) {
+      const source = outcome.source
       source.checkedAt = new Date().toISOString()
-      if (result.status === 'rejected') {
+      source.dataState = outcome.state
+      if (outcome.state === 'failed' || outcome.state === 'cancelled') {
         source.readiness = 'unavailable'
-        source.reason = safeFailureReason(result.reason)
+        source.reason = outcome.reason ?? 'unexpected-failure'
         source.authoritativeComplete = false
         source.diagnostics = undefined
         continue
       }
-      if (result.value === undefined || source.connector === undefined) continue
+      if (outcome.state === 'unsupported' || outcome.value === undefined || source.connector === undefined) {
+        source.authoritativeComplete = false
+        source.diagnostics = undefined
+        source.reason ??= outcome.reason
+        continue
+      }
       try {
         const composed = enrichAggregateSnapshotWithEntraAndDiagnostics(
           snapshot,
-          result.value.identities,
+          outcome.value,
           source.expected,
         )
         const capabilityCoverage = source.connector.getCapabilityCoverage()
@@ -805,12 +899,19 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
             capabilityCoverage.agentIdentityPreview,
           ),
         }
-        source.authoritativeComplete = true
+        source.authoritativeComplete = outcome.state === 'complete'
         const measured = entraReadiness(source.connector)
-        source.readiness = measured.readiness
-        source.reason = measured.reason
+        source.readiness =
+          outcome.state === 'complete' ? measured.readiness : 'degraded'
+        source.reason =
+          outcome.state === 'empty'
+            ? 'empty'
+            : outcome.state === 'partial'
+              ? (outcome.reason ?? measured.reason ?? 'partial')
+              : measured.reason
       } catch {
         source.readiness = 'degraded'
+        source.dataState = 'failed'
         source.reason = 'composition-failed'
         source.authoritativeComplete = false
         source.diagnostics = undefined
@@ -825,7 +926,11 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
     const baseReady =
       baseHealth !== undefined ? baseHealth.overall !== 'unavailable' : this.baseHealth.ok
     const basePartial = baseHealth?.partial === true
-    const entraReady = !this.enabled || this.sources.every((source) => source.readiness === 'ready')
+    const entraReady =
+      !this.enabled ||
+      this.sources.every(
+        (source) => source.readiness === 'ready' && source.dataState === 'complete',
+      )
     const entraAuthoritativeComplete =
       !this.enabled || this.sources.every((source) => source.authoritativeComplete)
     return {
@@ -850,6 +955,7 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
           enabled: this.enabled,
           configured: source.configured,
           readiness: source.readiness,
+          ...(source.dataState !== undefined ? { dataState: source.dataState } : {}),
           ...(source.checkedAt !== undefined ? { checkedAt: source.checkedAt } : {}),
           ...(source.reason !== undefined ? { reason: source.reason } : {}),
           ...(source.diagnostics !== undefined

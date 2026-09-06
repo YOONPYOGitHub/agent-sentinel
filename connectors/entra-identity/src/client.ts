@@ -19,6 +19,7 @@ export type EntraGraphErrorCode =
   | 'authentication'
   | 'authorization'
   | 'bounds'
+  | 'cancelled'
   | 'malformed-response'
   | 'network'
   | 'request-failed'
@@ -41,6 +42,10 @@ export interface EntraGraphClientOptions {
   fetcher?: typeof fetch
   sleep?: (milliseconds: number) => Promise<void>
   now?: () => number
+}
+
+export interface EntraGraphOperationOptions {
+  signal?: AbortSignal
 }
 
 interface CollectionBudget {
@@ -88,6 +93,10 @@ function statusError(status: number): EntraGraphError {
   )
 }
 
+function signalAborted(signal?: AbortSignal): boolean {
+  return signal?.aborted === true
+}
+
 export class EntraGraphClient {
   private readonly fetcher: typeof fetch
   private readonly sleep: (milliseconds: number) => Promise<void>
@@ -105,21 +114,26 @@ export class EntraGraphClient {
     this.now = options.now ?? Date.now
   }
 
-  async probeStableInventory(): Promise<void> {
+  async probeStableInventory(options: EntraGraphOperationOptions = {}): Promise<void> {
     const url = this.stableServicePrincipalsUrl()
     url.searchParams.set('$top', '1')
-    this.parsePage(servicePrincipalPageSchema, await this.requestJson(url))
+    this.parsePage(servicePrincipalPageSchema, await this.requestJson(url, options.signal))
   }
 
-  listServicePrincipals(): Promise<EntraServicePrincipal[]> {
+  listServicePrincipals(
+    options: EntraGraphOperationOptions = {},
+  ): Promise<EntraServicePrincipal[]> {
     return this.collect<EntraServicePrincipal>(
       this.stableServicePrincipalsUrl(),
       servicePrincipalPageSchema,
+      this.newBudget(),
+      options.signal,
     )
   }
 
   async listOwners(
     servicePrincipals: readonly EntraServicePrincipal[],
+    options: EntraGraphOperationOptions = {},
   ): Promise<Map<string, EntraDirectoryOwner[]>> {
     const budget = this.newBudget()
     const owners = new Map<string, EntraDirectoryOwner[]>()
@@ -131,7 +145,12 @@ export class EntraGraphClient {
       url.searchParams.set('$select', 'id,displayName,userPrincipalName')
       owners.set(
         principal.id,
-        await this.collect<EntraDirectoryOwner>(url, directoryOwnerPageSchema, budget),
+        await this.collect<EntraDirectoryOwner>(
+          url,
+          directoryOwnerPageSchema,
+          budget,
+          options.signal,
+        ),
       )
     }
     return owners
@@ -139,6 +158,7 @@ export class EntraGraphClient {
 
   async listAppRoleAssignments(
     servicePrincipals: readonly EntraServicePrincipal[],
+    options: EntraGraphOperationOptions = {},
   ): Promise<Map<string, EntraAppRoleAssignment[]>> {
     const budget = this.newBudget()
     const assignments = new Map<string, EntraAppRoleAssignment[]>()
@@ -155,6 +175,7 @@ export class EntraGraphClient {
         url,
         appRoleAssignmentPageSchema,
         budget,
+        options.signal,
       )
       if (values.some((assignment) => assignment.principalId !== principal.id)) {
         throw new EntraGraphError(
@@ -167,7 +188,9 @@ export class EntraGraphClient {
     return assignments
   }
 
-  listAgentIdentitiesPreview(): Promise<AgentIdentityPreview[]> {
+  listAgentIdentitiesPreview(
+    options: EntraGraphOperationOptions = {},
+  ): Promise<AgentIdentityPreview[]> {
     const url = new URL(
       '/beta/servicePrincipals/microsoft.graph.agentIdentity',
       this.config.graphBaseUrl,
@@ -176,7 +199,12 @@ export class EntraGraphClient {
       '$select',
       'id,appId,displayName,accountEnabled,agentIdentityBlueprintId,createdByAppId,createdDateTime,managerApplications,servicePrincipalType,tags',
     )
-    return this.collect<AgentIdentityPreview>(url, agentIdentityPreviewPageSchema)
+    return this.collect<AgentIdentityPreview>(
+      url,
+      agentIdentityPreviewPageSchema,
+      this.newBudget(),
+      options.signal,
+    )
   }
 
   private stableServicePrincipalsUrl(): URL {
@@ -196,6 +224,7 @@ export class EntraGraphClient {
     initial: URL,
     schema: PageParser<T>,
     budget: CollectionBudget = this.newBudget(),
+    signal?: AbortSignal,
   ): Promise<T[]> {
     const values: T[] = []
     let next: URL | undefined = new URL(initial)
@@ -203,7 +232,7 @@ export class EntraGraphClient {
       if (budget.pages >= this.config.limits.maxPages) {
         throw new EntraGraphError('bounds', 'Microsoft Graph pagination exceeded the page limit.')
       }
-      const page: Page<T> = this.parsePage<T>(schema, await this.requestJson(next))
+      const page: Page<T> = this.parsePage<T>(schema, await this.requestJson(next, signal))
       budget.pages += 1
       budget.items += page.value.length
       if (budget.items > this.config.limits.maxItems) {
@@ -257,10 +286,16 @@ export class EntraGraphClient {
     return candidate
   }
 
-  private async requestJson(url: URL): Promise<unknown> {
+  private async requestJson(url: URL, externalSignal?: AbortSignal): Promise<unknown> {
+    if (signalAborted(externalSignal)) {
+      throw new EntraGraphError('cancelled', 'Microsoft Graph request was cancelled.')
+    }
     let token: string
     try {
-      const accessToken = await this.credential.getToken(GRAPH_SCOPE)
+      const accessToken = await this.credential.getToken(
+        GRAPH_SCOPE,
+        externalSignal === undefined ? undefined : { abortSignal: externalSignal },
+      )
       if (accessToken === null) {
         throw new EntraGraphError(
           'authentication',
@@ -270,21 +305,35 @@ export class EntraGraphClient {
       token = accessToken.token
     } catch (error) {
       if (error instanceof EntraGraphError) throw error
+      if (signalAborted(externalSignal)) {
+        throw new EntraGraphError('cancelled', 'Microsoft Graph request was cancelled.')
+      }
       throw new EntraGraphError('authentication', 'Microsoft Graph credential acquisition failed.')
     }
 
     for (let attempt = 0; ; attempt += 1) {
       const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), this.config.limits.requestTimeoutMs)
+      let timedOut = false
+      const timer = setTimeout(() => {
+        timedOut = true
+        controller.abort()
+      }, this.config.limits.requestTimeoutMs)
+      const signal =
+        externalSignal === undefined
+          ? controller.signal
+          : AbortSignal.any([externalSignal, controller.signal])
       let response: Response
       try {
         response = await this.fetcher(url, {
           method: 'GET',
           headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-          signal: controller.signal,
+          signal,
         })
       } catch {
-        if (controller.signal.aborted) {
+        if (signalAborted(externalSignal)) {
+          throw new EntraGraphError('cancelled', 'Microsoft Graph request was cancelled.')
+        }
+        if (timedOut) {
           throw new EntraGraphError('timeout', 'Microsoft Graph request timed out.')
         }
         throw new EntraGraphError('network', 'Microsoft Graph request failed before a response.')
@@ -300,7 +349,7 @@ export class EntraGraphClient {
           delay <= this.config.limits.maxRetryAfterMs &&
           attempt < this.config.limits.maxRetries
         ) {
-          await this.sleep(delay)
+          await this.sleepWithSignal(delay, externalSignal)
           continue
         }
         throw statusError(response.status)
@@ -310,6 +359,9 @@ export class EntraGraphClient {
       try {
         return await response.json()
       } catch {
+        if (signalAborted(externalSignal)) {
+          throw new EntraGraphError('cancelled', 'Microsoft Graph request was cancelled.')
+        }
         if (controller.signal.aborted) {
           throw new EntraGraphError('timeout', 'Microsoft Graph response body timed out.')
         }
@@ -321,5 +373,26 @@ export class EntraGraphClient {
         clearTimeout(bodyTimer)
       }
     }
+  }
+
+  private async sleepWithSignal(milliseconds: number, signal?: AbortSignal): Promise<void> {
+    if (signal === undefined) {
+      await this.sleep(milliseconds)
+      return
+    }
+    if (signal.aborted) {
+      throw new EntraGraphError('cancelled', 'Microsoft Graph request was cancelled.')
+    }
+    await Promise.race([
+      this.sleep(milliseconds),
+      new Promise<never>((_, reject) =>
+        signal.addEventListener(
+          'abort',
+          () =>
+            reject(new EntraGraphError('cancelled', 'Microsoft Graph request was cancelled.')),
+          { once: true },
+        ),
+      ),
+    ])
   }
 }
