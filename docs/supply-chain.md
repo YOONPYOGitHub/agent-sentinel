@@ -16,7 +16,7 @@ do not retag an image.
 
 Each release record must include a validated versioned
 [sanitized release evidence manifest](release-evidence.md). The expected image
-tag is derived from the manifest commit SHA. Deployed tags and optional digests
+tag is the full manifest commit SHA. Live deployed tags and canonical digests
 must come from an explicitly supplied sanitized deployment observation; the
 offline generator never queries ACR or Container Apps. Code and deployed image
 versions are separate facts and must not be collapsed into one status.
@@ -44,10 +44,10 @@ The workflow `.github/workflows/ci-build-deploy.yml` runs on
 1. Checks out the repo using the built-in `GITHUB_TOKEN` (no PAT required).
 2. Logs into Azure with `az login --identity --client-id` using the runner UAMI (`id-ci-runner-260814`).
 3. Logs into ACR with `az acr login --name acr260814` (identity, no password).
-4. Builds all three images with `docker build` using immutable `<7-char-SHA>` tags.
+4. Builds all three images with `docker build` using the resolved full 40-hex commit SHA.
 5. Pushes to `acr260814.azurecr.io` via private endpoint.
-6. Verifies tags exist via `az acr repository show-tags`.
-7. Optionally runs `az deployment group what-if` and deploys `platform.bicep` with `imageTag=<SHA>`.
+6. Resolves each pushed tag with `az acr repository show` and requires a canonical SHA-256 digest.
+7. Optionally runs `az deployment group what-if` and deploys `platform.bicep` with the same full SHA as `imageTag`.
 
 ### No long-lived secrets
 

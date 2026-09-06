@@ -40,6 +40,53 @@ describe('public edge routing safety', () => {
     expect(workflow).not.toContain('Smoke test - App Gateway')
   })
 
+  it('pins manual releases to one validated full commit SHA without shell interpolation', () => {
+    const workflow = rootFile('.github/workflows/ci-build-deploy.yml')
+
+    expect(workflow).toContain('commitSha:')
+    expect(workflow).not.toContain("description: 'Git SHA to tag images")
+    expect(workflow).toContain('^[0-9a-fA-F]{40}$')
+    expect(workflow).toContain('NORMALIZED_SHA="${REQUESTED_SHA,,}"')
+    expect(workflow).toContain(
+      "REQUESTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.commitSha || github.sha }}",
+    )
+    expect(workflow.match(/\$\{\{[^}]*inputs\.commitSha[^}]*\}\}/g)).toHaveLength(1)
+    expect(workflow.match(/ref: \$\{\{ needs\.resolve\.outputs\.commitSha \}\}/g)).toHaveLength(4)
+    expect(
+      workflow.match(/IMAGE_TAG: \$\{\{ needs\.build-push\.outputs\.imageTag \}\}/g),
+    ).toHaveLength(2)
+    expect(workflow).toContain('HEAD_SHA="$(git rev-parse HEAD)"')
+    expect(workflow).toContain('echo "imageTag=${EXPECTED_SHA}" >> "${GITHUB_OUTPUT}"')
+    expect(workflow).not.toContain('SHORT_TAG')
+    expect(workflow).not.toContain('${TAG:0:7}')
+    expect(workflow).toContain('--image "${repository}:${IMAGE_TAG}"')
+    expect(workflow).toContain('^sha256:[0-9a-f]{64}$')
+    expect(workflow).toContain('-p imageTag="${IMAGE_TAG}"')
+  })
+
+  it('keeps live connector reads distinct from the synthetic validation portfolio', () => {
+    const readme = rootFile('README.md')
+
+    expect(readme).toContain('live bounded provider reads')
+    expect(readme).toContain('six purpose-built synthetic validation agents')
+    expect(readme).toContain('Live provider execution over synthetic probes')
+    expect(readme).not.toContain(
+      'Agent 365 · Defender · Purview · Teams catalog<br/>(implemented; activation pending)',
+    )
+  })
+
+  it('documents full-SHA private image builds and digest verification', () => {
+    const deployment = rootFile('docs/deployment.md')
+    const supplyChain = rootFile('docs/supply-chain.md')
+
+    expect(deployment).not.toContain('git rev-parse --short')
+    expect(deployment).not.toContain('--public-network-enabled true')
+    expect(supplyChain).toContain('full 40-hex commit SHA')
+    expect(supplyChain).toContain('canonical SHA-256 digest')
+    expect(supplyChain).not.toContain('<7-char-SHA>')
+    expect(supplyChain).not.toContain('show-tags')
+  })
+
   it('serializes Foundry model deployments on the shared account', () => {
     const foundry = rootFile('infra/modules/foundry.bicep')
 

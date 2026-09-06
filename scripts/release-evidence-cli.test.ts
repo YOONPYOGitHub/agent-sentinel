@@ -108,6 +108,8 @@ describe('release evidence CLI', () => {
     const raw = JSON.parse(await readFile(output, 'utf8')) as unknown
     const manifest = releaseEvidenceManifestSchema.parse(raw)
     expect(manifest.release.commitSha).toBe('b'.repeat(40))
+    expect(manifest.release.freshnessWindowHours).toBe(24)
+    expect(manifest.images.expected.web.tag).toBe('b'.repeat(40))
     expect(manifest.checks.lint.outcome).toBe('not-run')
     expect(manifest.images.deployed.web.tag).toBeNull()
     expect(await readFile(output, 'utf8')).toMatch(/\n$/)
@@ -174,13 +176,14 @@ describe('release evidence CLI', () => {
         commitSha: 'e'.repeat(40),
         dirty: false,
         generatedAt: '2026-09-04T00:00:00.000Z',
+        freshnessWindowHours: 24,
       },
       images: {
         expected: {
           classification: 'tested',
-          web: { tag: 'eeeeeee', digest: null },
-          api: { tag: 'eeeeeee', digest: null },
-          jobs: { tag: 'eeeeeee', digest: null },
+          web: { tag: 'e'.repeat(40), digest: null },
+          api: { tag: 'e'.repeat(40), digest: null },
+          jobs: { tag: 'e'.repeat(40), digest: null },
         },
         deployed: {
           classification: 'planned',

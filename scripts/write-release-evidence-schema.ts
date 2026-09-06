@@ -2,16 +2,30 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { generateReleaseEvidenceJsonSchema } from './release-evidence-schema.js'
+import { canonicalJson, generateReleaseEvidenceJsonSchema } from './release-evidence-schema.js'
 
 const defaultPath = 'release-evidence/v1/schema.json'
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-function renderedSchema(): string {
+export function renderedReleaseEvidenceSchema(): string {
   return `${JSON.stringify(generateReleaseEvidenceJsonSchema(), null, 2)}\n`
 }
 
-async function main(input: readonly string[]): Promise<number> {
+export function releaseEvidenceSchemaMatches(current: string): boolean {
+  try {
+    return (
+      canonicalJson(JSON.parse(current) as unknown) ===
+      canonicalJson(generateReleaseEvidenceJsonSchema())
+    )
+  } catch {
+    return false
+  }
+}
+
+export async function runWriteReleaseEvidenceSchemaCommand(
+  input: readonly string[],
+  baseDirectory = repositoryRoot,
+): Promise<number> {
   const check = input[0] === '--check'
   const remaining = check ? input.slice(1) : input
   if (remaining.length > 1 || remaining[0]?.startsWith('--') === true) {
@@ -19,8 +33,8 @@ async function main(input: readonly string[]): Promise<number> {
     return 2
   }
 
-  const path = resolve(repositoryRoot, remaining[0] ?? defaultPath)
-  const expected = renderedSchema()
+  const path = resolve(baseDirectory, remaining[0] ?? defaultPath)
+  const expected = renderedReleaseEvidenceSchema()
   if (check) {
     let current: string
     try {
@@ -29,7 +43,7 @@ async function main(input: readonly string[]): Promise<number> {
       process.stderr.write('Release evidence JSON Schema is missing.\n')
       return 1
     }
-    if (current !== expected) {
+    if (!releaseEvidenceSchemaMatches(current)) {
       process.stderr.write('Release evidence JSON Schema is out of date.\n')
       return 1
     }
@@ -41,4 +55,6 @@ async function main(input: readonly string[]): Promise<number> {
   return 0
 }
 
-process.exitCode = await main(process.argv.slice(2))
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exitCode = await runWriteReleaseEvidenceSchemaCommand(process.argv.slice(2))
+}

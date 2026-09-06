@@ -8,7 +8,7 @@
 #
 # Triggers:
 #   - push to feature/** (build + validate only)
-#   - workflow_dispatch (full build + deploy, with imageTag override)
+#   - workflow_dispatch (full build, with optional protected deployment)
 
 name: CI Build & Deploy (Private Runner)
 
@@ -18,10 +18,10 @@ on:
       - 'feature/**'
   workflow_dispatch:
     inputs:
-      imageTag:
-        description: 'Git SHA to tag images with (defaults to HEAD SHA)'
-        required: false
-        default: ''
+      commitSha:
+        description: 'Exact 40-hex commit SHA to validate, build, and deploy'
+        required: true
+        type: string
       deployPlatform:
         description: 'Deploy platform Bicep after building images?'
         required: false
@@ -36,17 +36,53 @@ env:
   ACR_LOGIN_SERVER: acr260814.azurecr.io
   RG: rg-agent-sentinel
   RUNNER_UAMI_CLIENT_ID: feb1bf96-738d-4b5c-8b75-4b617bbe9f93
-  IMAGE_TAG: ${{ github.event.inputs.imageTag || github.sha }}
 
 jobs:
-  # ?? Job 1: Validate ?????????????????????????????????????????????????????????
+  resolve:
+    name: Resolve immutable commit
+    runs-on: [self-hosted, linux, x64, agent-sentinel-private]
+    outputs:
+      commitSha: ${{ steps.resolve.outputs.commitSha }}
+    steps:
+      - name: Validate requested commit SHA
+        id: validate-sha
+        env:
+          REQUESTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.commitSha || github.sha }}
+        run: |
+          if [[ ! "${REQUESTED_SHA}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "ERROR: commitSha must be exactly 40 hexadecimal characters"
+            exit 1
+          fi
+          NORMALIZED_SHA="${REQUESTED_SHA,,}"
+          echo "commitSha=${NORMALIZED_SHA}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout requested commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.validate-sha.outputs.commitSha }}
+
+      - name: Resolve checked-out commit
+        id: resolve
+        env:
+          REQUESTED_SHA: ${{ steps.validate-sha.outputs.commitSha }}
+        run: |
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "${HEAD_SHA}" != "${REQUESTED_SHA}" ]; then
+            echo "ERROR: checked-out HEAD does not match the requested commit"
+            exit 1
+          fi
+          echo "commitSha=${HEAD_SHA}" >> "${GITHUB_OUTPUT}"
+
+  # Job 1: Validate
   validate:
     name: Validate (lint / typecheck / test / bicep-build)
+    needs: resolve
     runs-on: [self-hosted, linux, x64, agent-sentinel-private]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        # GITHUB_TOKEN automatically authenticates for private repos on self-hosted runners
+        with:
+          ref: ${{ needs.resolve.outputs.commitSha }}
 
       - name: Setup Node 22
         uses: actions/setup-node@v5
@@ -83,28 +119,35 @@ jobs:
           az bicep build -f infra/platform.bicep
           az bicep build -f infra/ci-foundation.bicep
 
-  # ?? Job 2: Build & Push Images ??????????????????????????????????????????????
+  # Job 2: Build & Push Images
   build-push:
     name: Build & Push Container Images
-    needs: validate
+    needs: [resolve, validate]
     runs-on: [self-hosted, linux, x64, agent-sentinel-private]
     outputs:
       imageTag: ${{ steps.set-tag.outputs.imageTag }}
+      webDigest: ${{ steps.verify-images.outputs.webDigest }}
+      apiDigest: ${{ steps.verify-images.outputs.apiDigest }}
+      jobsDigest: ${{ steps.verify-images.outputs.jobsDigest }}
+    env:
+      EXPECTED_SHA: ${{ needs.resolve.outputs.commitSha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          # Checkout the explicit SHA when imageTag is provided via workflow_dispatch
-          ref: ${{ github.event.inputs.imageTag || github.sha }}
+          ref: ${{ needs.resolve.outputs.commitSha }}
 
       - name: Determine image tag
         id: set-tag
         run: |
-          TAG="${{ env.IMAGE_TAG }}"
-          # Use short SHA (7 chars) matching git log --oneline convention
-          SHORT_TAG="${TAG:0:7}"
-          echo "imageTag=${SHORT_TAG}" >> "$GITHUB_OUTPUT"
-          echo "Building images with tag: ${SHORT_TAG}"
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "${HEAD_SHA}" != "${EXPECTED_SHA}" ]; then
+            echo "ERROR: build checkout does not match the resolved commit"
+            exit 1
+          fi
+          echo "imageTag=${EXPECTED_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "IMAGE_TAG=${EXPECTED_SHA}" >> "${GITHUB_ENV}"
+          echo "Building images with immutable tag: ${EXPECTED_SHA}"
 
       - name: Login to Azure (managed identity)
         run: |
@@ -118,58 +161,73 @@ jobs:
         run: |
           docker build \
             -f apps/web/Containerfile \
-            -t "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-web:${{ steps.set-tag.outputs.imageTag }}" \
+            -t "${ACR_LOGIN_SERVER}/agent-sentinel-web:${IMAGE_TAG}" \
             .
-          docker push "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-web:${{ steps.set-tag.outputs.imageTag }}"
+          docker push "${ACR_LOGIN_SERVER}/agent-sentinel-web:${IMAGE_TAG}"
 
       - name: Build and push api image
         run: |
           docker build \
             -f apps/api/Containerfile \
-            -t "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-api:${{ steps.set-tag.outputs.imageTag }}" \
+            -t "${ACR_LOGIN_SERVER}/agent-sentinel-api:${IMAGE_TAG}" \
             .
           docker run --rm \
             --workdir /app/apps/api \
-            "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-api:${{ steps.set-tag.outputs.imageTag }}" \
+            "${ACR_LOGIN_SERVER}/agent-sentinel-api:${IMAGE_TAG}" \
             node -e "Promise.all([import('@agent-sentinel/azure-monitor-otel-connector'), import('@agent-sentinel/azure-resource-graph-connector'), import('@agent-sentinel/behavior-engine'), import('@agent-sentinel/entra-identity-connector'), import('@agent-sentinel/power-platform-connector'), import('@agent-sentinel/agent365-connector'), import('@agent-sentinel/defender-cloud-apps-connector'), import('@agent-sentinel/purview-connector'), import('@agent-sentinel/teams-distribution-connector'), import('@agent-sentinel/manifest-connector')])"
-          docker push "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-api:${{ steps.set-tag.outputs.imageTag }}"
+          docker push "${ACR_LOGIN_SERVER}/agent-sentinel-api:${IMAGE_TAG}"
 
       - name: Build and push jobs image
         run: |
           docker build \
             -f apps/jobs/Containerfile \
-            -t "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-jobs:${{ steps.set-tag.outputs.imageTag }}" \
+            -t "${ACR_LOGIN_SERVER}/agent-sentinel-jobs:${IMAGE_TAG}" \
             .
           docker run --rm \
             --workdir /app/apps/jobs \
-            "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-jobs:${{ steps.set-tag.outputs.imageTag }}" \
+            "${ACR_LOGIN_SERVER}/agent-sentinel-jobs:${IMAGE_TAG}" \
             node -e "Promise.all([import('@agent-sentinel/azure-resource-graph-connector'), import('@agent-sentinel/entra-identity-connector'), import('@agent-sentinel/power-platform-connector'), import('@agent-sentinel/agent365-connector'), import('@agent-sentinel/defender-cloud-apps-connector'), import('@agent-sentinel/purview-connector'), import('@agent-sentinel/teams-distribution-connector'), import('@agent-sentinel/manifest-connector')])"
-          docker push "${{ env.ACR_LOGIN_SERVER }}/agent-sentinel-jobs:${{ steps.set-tag.outputs.imageTag }}"
+          docker push "${ACR_LOGIN_SERVER}/agent-sentinel-jobs:${IMAGE_TAG}"
 
       - name: Verify images in ACR
+        id: verify-images
         run: |
-          TAG="${{ steps.set-tag.outputs.imageTag }}"
-          for img in agent-sentinel-web agent-sentinel-api agent-sentinel-jobs; do
-            DIGEST=$(az acr repository show-tags \
-              --name "${{ env.ACR_NAME }}" \
-              --repository "${img}" \
-              --query "[?@=='${TAG}']" -o tsv)
-            if [ -z "$DIGEST" ]; then
-              echo "ERROR: ${img}:${TAG} not found in ACR"
+          read_digest() {
+            local repository="$1"
+            local digest
+            digest="$(az acr repository show \
+              --name "${ACR_NAME}" \
+              --image "${repository}:${IMAGE_TAG}" \
+              --query digest \
+              -o tsv)"
+            if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "ERROR: ${repository}:${IMAGE_TAG} did not resolve to a canonical digest"
               exit 1
             fi
-            echo "OK: ${img}:${TAG}"
-          done
+            printf '%s' "${digest}"
+          }
 
-  # ?? Job 3: Bicep What-If ????????????????????????????????????????????????????
+          WEB_DIGEST="$(read_digest agent-sentinel-web)"
+          API_DIGEST="$(read_digest agent-sentinel-api)"
+          JOBS_DIGEST="$(read_digest agent-sentinel-jobs)"
+          echo "webDigest=${WEB_DIGEST}" >> "${GITHUB_OUTPUT}"
+          echo "apiDigest=${API_DIGEST}" >> "${GITHUB_OUTPUT}"
+          echo "jobsDigest=${JOBS_DIGEST}" >> "${GITHUB_OUTPUT}"
+          echo "Verified immutable tags and digests for ${IMAGE_TAG}"
+
+  # Job 3: Bicep What-If
   what-if:
     name: Bicep What-If
-    needs: build-push
-    if: github.event.inputs.deployPlatform == 'true' || github.event_name == 'workflow_dispatch'
+    needs: [resolve, build-push]
+    if: inputs.deployPlatform == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, linux, x64, agent-sentinel-private]
+    env:
+      IMAGE_TAG: ${{ needs.build-push.outputs.imageTag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.commitSha }}
 
       - name: Login to Azure
         run: az login --identity --client-id "${{ env.RUNNER_UAMI_CLIENT_ID }}" --allow-no-subscriptions
@@ -180,21 +238,23 @@ jobs:
             -g "${{ env.RG }}" \
             -f infra/platform.bicep \
             -p infra/environments/dev.parameters.bicepparam \
-            -p imageTag="${{ needs.build-push.outputs.imageTag }}" \
+            -p imageTag="${IMAGE_TAG}" \
             --result-format FullResourcePayloads
 
-  # ?? Job 4: Deploy ????????????????????????????????????????????????????????????
+  # Job 4: Deploy
   deploy:
     name: Deploy Platform
-    needs: [build-push, what-if]
-    if: github.event.inputs.deployPlatform == 'true'
+    needs: [resolve, build-push, what-if]
+    if: inputs.deployPlatform == 'true'
     runs-on: [self-hosted, linux, x64, agent-sentinel-private]
     environment: production # Requires manual approval via GitHub environment protection
+    env:
+      IMAGE_TAG: ${{ needs.build-push.outputs.imageTag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          ref: ${{ needs.build-push.outputs.imageTag }}
+          ref: ${{ needs.resolve.outputs.commitSha }}
 
       - name: Login to Azure
         run: az login --identity --client-id "${{ env.RUNNER_UAMI_CLIENT_ID }}" --allow-no-subscriptions
@@ -205,7 +265,7 @@ jobs:
             -g "${{ env.RG }}" \
             -f infra/platform.bicep \
             -p infra/environments/dev.parameters.bicepparam \
-            -p imageTag="${{ needs.build-push.outputs.imageTag }}" \
+            -p imageTag="${IMAGE_TAG}" \
             --mode Incremental \
             --rollback-on-error \
             --query 'properties.outputs.frontDoorEndpointHostName.value' \

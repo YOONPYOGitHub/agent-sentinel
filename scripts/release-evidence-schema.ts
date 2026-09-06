@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 export const RELEASE_EVIDENCE_SCHEMA_VERSION = '1.0.0' as const
+export const RELEASE_EVIDENCE_FRESHNESS_WINDOW_HOURS = 24 as const
 
 export const evidenceClassificationSchema = z.enum([
   'live',
@@ -26,11 +27,7 @@ export const connectorReadinessSchema = z.enum([
 
 const isoTimestampSchema = z.iso.datetime({ offset: true })
 const shaSchema = z.string().regex(/^[a-f0-9]{40}$/)
-const imageTagSchema = z
-  .string()
-  .min(1)
-  .max(128)
-  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/)
+const imageTagSchema = shaSchema
 const imageDigestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/)
 const boundedIdSchema = z
   .string()
@@ -45,6 +42,22 @@ const sanitizedScopeSchema = z.strictObject({
   environmentRef: boundedIdSchema,
   sourceRef: boundedIdSchema,
 })
+const evidenceReferencesSchema = z
+  .array(boundedIdSchema)
+  .max(20)
+  .superRefine((value, context) => {
+    const seen = new Set<string>()
+    value.forEach((reference, index) => {
+      if (seen.has(reference)) {
+        context.addIssue({
+          code: 'custom',
+          path: [index],
+          message: 'evidence references must be unique',
+        })
+      }
+      seen.add(reference)
+    })
+  })
 
 const imageComponentSchema = z.strictObject({
   tag: imageTagSchema.nullable(),
@@ -64,7 +77,7 @@ const deployedImageEvidenceSchema = z
     observedAt: isoTimestampSchema.nullable().default(null),
     source: boundedSourceSchema.nullable().default(null),
     scope: sanitizedScopeSchema.nullable().default(null),
-    evidenceRefs: z.array(boundedIdSchema).max(20).default([]),
+    evidenceRefs: evidenceReferencesSchema.default([]),
     web: imageComponentSchema,
     api: imageComponentSchema,
     jobs: imageComponentSchema,
@@ -81,30 +94,6 @@ const deployedImageEvidenceSchema = z
         code: 'custom',
         message: 'live evidence requires sanitized scope and evidence references',
       })
-    }
-    const tags = [value.web.tag, value.api.tag, value.jobs.tag].filter(
-      (tag): tag is string => tag !== null,
-    )
-    if (new Set(tags).size > 1) {
-      context.addIssue({
-        code: 'custom',
-        message: 'deployed component tags must identify one release',
-      })
-    }
-    if (value.classification === 'live' && tags.length !== 3) {
-      context.addIssue({
-        code: 'custom',
-        message: 'live deployment evidence requires all deployed tags',
-      })
-    }
-    for (const component of ['web', 'api', 'jobs'] as const) {
-      if (value[component].digest !== null && value[component].tag === null) {
-        context.addIssue({
-          code: 'custom',
-          path: [component],
-          message: 'an image digest requires a corresponding tag',
-        })
-      }
     }
   })
 
@@ -228,7 +217,7 @@ const liveValidationEvidenceSchema = z
     observedAt: isoTimestampSchema.nullable().default(null),
     source: boundedSourceSchema.nullable().default(null),
     scope: sanitizedScopeSchema.nullable().default(null),
-    evidenceRefs: z.array(boundedIdSchema).max(20).default([]),
+    evidenceRefs: evidenceReferencesSchema.default([]),
     summary: boundedTextSchema,
   })
   .superRefine((value, context) => {
@@ -267,7 +256,7 @@ const connectorEvidenceSchema = z
     observedAt: isoTimestampSchema.nullable().default(null),
     source: boundedSourceSchema.nullable().default(null),
     scope: sanitizedScopeSchema.nullable().default(null),
-    evidenceRefs: z.array(boundedIdSchema).max(20).default([]),
+    evidenceRefs: evidenceReferencesSchema.default([]),
     summary: boundedTextSchema,
   })
   .superRefine((value, context) => {
@@ -316,7 +305,7 @@ const oneRaiEvidenceSchema = z
     observedAt: isoTimestampSchema.nullable().default(null),
     source: boundedSourceSchema.nullable().default(null),
     scope: sanitizedScopeSchema.nullable().default(null),
-    evidenceRefs: z.array(boundedIdSchema).max(20).default([]),
+    evidenceRefs: evidenceReferencesSchema.default([]),
     syntheticOnly: z.boolean().nullable(),
     automated: z.boolean().nullable(),
     cases: z.number().int().min(0).nullable(),
@@ -329,6 +318,16 @@ const oneRaiEvidenceSchema = z
       context.addIssue({
         code: 'custom',
         message: 'live evidence requires source and observedAt',
+      })
+    }
+    if (
+      value.classification === 'synthetic' &&
+      (value.outcome === 'pass' || value.outcome === 'fail') &&
+      (value.observedAt === null || value.source === null)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'synthetic OneRAI pass or fail requires source and observedAt',
       })
     }
     if (
@@ -373,6 +372,7 @@ const releaseMetadataSchema = z.strictObject({
   commitSha: shaSchema,
   dirty: z.boolean(),
   generatedAt: isoTimestampSchema,
+  freshnessWindowHours: z.literal(RELEASE_EVIDENCE_FRESHNESS_WINDOW_HOURS),
 })
 
 const imageEvidenceSchema = z.strictObject({
@@ -380,26 +380,227 @@ const imageEvidenceSchema = z.strictObject({
   deployed: deployedImageEvidenceSchema,
 })
 
+const liveValidationEvidenceSetSchema = z
+  .array(liveValidationEvidenceSchema)
+  .max(50)
+  .superRefine((values, context) => {
+    addDuplicateIdentityIssues(
+      values.map((validation) => validation.id),
+      'id',
+      'live validation',
+      context,
+    )
+  })
+
+const connectorEvidenceSetSchema = z
+  .array(connectorEvidenceSchema)
+  .max(100)
+  .superRefine((values, context) => {
+    addDuplicateIdentityIssues(
+      values.map((connector) => connector.connectorId),
+      'connectorId',
+      'connector',
+      context,
+    )
+  })
+
 export const releaseEvidenceInputSchema = z.strictObject({
   expectedImages: imageSetInputSchema.optional(),
   deployedImages: deployedImageInputSchema.optional(),
   safeConfiguration: safeConfigurationSchema.optional(),
   checks: checkInputSetSchema.optional(),
-  liveValidations: z.array(liveValidationEvidenceSchema).max(50).optional(),
-  connectors: z.array(connectorEvidenceSchema).max(100).optional(),
+  liveValidations: liveValidationEvidenceSetSchema.optional(),
+  connectors: connectorEvidenceSetSchema.optional(),
   oneRai: oneRaiEvidenceSchema.optional(),
 })
 
-export const releaseEvidenceManifestSchema = z.strictObject({
+const releaseEvidenceManifestObjectSchema = z.strictObject({
   schemaVersion: z.literal(RELEASE_EVIDENCE_SCHEMA_VERSION),
   release: releaseMetadataSchema,
   images: imageEvidenceSchema,
   configuration: configurationEvidenceSchema,
   checks: checkEvidenceSetSchema,
-  liveValidations: z.array(liveValidationEvidenceSchema).max(50),
-  connectors: z.array(connectorEvidenceSchema).max(100),
+  liveValidations: liveValidationEvidenceSetSchema,
+  connectors: connectorEvidenceSetSchema,
   oneRai: oneRaiEvidenceSchema,
 })
+
+const imageComponents = ['web', 'api', 'jobs'] as const
+
+function addDuplicateIdentityIssues(
+  values: readonly string[],
+  identityField: 'id' | 'connectorId',
+  label: 'live validation' | 'connector',
+  context: z.RefinementCtx,
+): void {
+  const seen = new Set<string>()
+  values.forEach((value, index) => {
+    if (seen.has(value)) {
+      context.addIssue({
+        code: 'custom',
+        path: [index, identityField],
+        message: `${label} identities must be unique`,
+      })
+    }
+    seen.add(value)
+  })
+}
+
+function addTimestampIssue(
+  timestamp: string | null,
+  generatedAt: number,
+  path: readonly (string | number)[],
+  context: z.RefinementCtx,
+): number | null {
+  if (timestamp === null) return null
+  const observedAt = Date.parse(timestamp)
+  if (observedAt > generatedAt) {
+    context.addIssue({
+      code: 'custom',
+      path: [...path],
+      message: 'evidence timestamps cannot be later than release.generatedAt',
+    })
+    return null
+  }
+  return observedAt
+}
+
+function addFreshnessIssues(
+  value: {
+    readonly freshness: z.infer<typeof evidenceFreshnessSchema>
+    readonly observedAt: string | null
+  },
+  generatedAt: number,
+  freshnessWindowHours: number,
+  path: readonly (string | number)[],
+  context: z.RefinementCtx,
+): void {
+  const observedAt = addTimestampIssue(
+    value.observedAt,
+    generatedAt,
+    [...path, 'observedAt'],
+    context,
+  )
+  if (observedAt === null) {
+    if (value.observedAt === null && value.freshness !== 'unknown') {
+      context.addIssue({
+        code: 'custom',
+        path: [...path, 'freshness'],
+        message: 'evidence without observedAt must use unknown freshness',
+      })
+    }
+    return
+  }
+  const ageHours = (generatedAt - observedAt) / (60 * 60 * 1000)
+  const expectedFreshness = ageHours <= freshnessWindowHours ? 'fresh' : 'stale'
+  if (value.freshness !== expectedFreshness) {
+    context.addIssue({
+      code: 'custom',
+      path: [...path, 'freshness'],
+      message: `freshness must be ${expectedFreshness} relative to release.generatedAt and freshnessWindowHours`,
+    })
+  }
+}
+
+export const releaseEvidenceManifestSchema = releaseEvidenceManifestObjectSchema.superRefine(
+  (value, context) => {
+    const commitSha = value.release.commitSha
+    const expectedImages = value.images.expected
+    for (const component of imageComponents) {
+      if (expectedImages[component].tag !== commitSha) {
+        context.addIssue({
+          code: 'custom',
+          path: ['images', 'expected', component, 'tag'],
+          message: 'expected image tags must match release.commitSha',
+        })
+      }
+    }
+
+    const deployedImages = value.images.deployed
+    const deployedTags = imageComponents
+      .map((component) => deployedImages[component].tag)
+      .filter((tag): tag is string => tag !== null)
+    if (new Set(deployedTags).size > 1) {
+      context.addIssue({
+        code: 'custom',
+        path: ['images', 'deployed'],
+        message: 'deployed component tags must identify one release',
+      })
+    }
+    for (const component of imageComponents) {
+      const deployed = deployedImages[component]
+      if (deployed.digest !== null && deployed.tag === null) {
+        context.addIssue({
+          code: 'custom',
+          path: ['images', 'deployed', component],
+          message: 'an image digest requires a corresponding tag',
+        })
+      }
+      if (deployed.tag !== null && deployed.tag !== commitSha) {
+        context.addIssue({
+          code: 'custom',
+          path: ['images', 'deployed', component, 'tag'],
+          message: 'deployed image tags must match release.commitSha',
+        })
+      }
+      const expectedDigest = expectedImages[component].digest
+      if (
+        expectedDigest !== null &&
+        deployed.digest !== null &&
+        expectedDigest !== deployed.digest
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['images', 'deployed', component, 'digest'],
+          message: 'deployed image digests must match expected image digests',
+        })
+      }
+    }
+    if (
+      deployedImages.classification === 'live' &&
+      imageComponents.some(
+        (component) =>
+          deployedImages[component].tag === null || deployedImages[component].digest === null,
+      )
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['images', 'deployed'],
+        message: 'live deployment evidence requires full commit tags and image digests',
+      })
+    }
+
+    const generatedAt = Date.parse(value.release.generatedAt)
+    addTimestampIssue(
+      deployedImages.observedAt,
+      generatedAt,
+      ['images', 'deployed', 'observedAt'],
+      context,
+    )
+    for (const [name, check] of Object.entries(value.checks)) {
+      addTimestampIssue(check.completedAt, generatedAt, ['checks', name, 'completedAt'], context)
+    }
+    value.liveValidations.forEach((validation, index) => {
+      addFreshnessIssues(
+        validation,
+        generatedAt,
+        value.release.freshnessWindowHours,
+        ['liveValidations', index],
+        context,
+      )
+    })
+    value.connectors.forEach((connector, index) => {
+      addFreshnessIssues(
+        connector,
+        generatedAt,
+        value.release.freshnessWindowHours,
+        ['connectors', index],
+        context,
+      )
+    })
+    addTimestampIssue(value.oneRai.observedAt, generatedAt, ['oneRai', 'observedAt'], context)
+  },
+)
 
 export type EvidenceClassification = z.infer<typeof evidenceClassificationSchema>
 export type EvidenceOutcome = z.infer<typeof evidenceOutcomeSchema>
@@ -466,6 +667,9 @@ const forbiddenKeyFragments = [
 const secretValuePatterns = [
   /\bBearer\s+\S+/i,
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/,
+  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
+  /\b(?:api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|client[-_ ]?secret|password|passwd|secret|token)\s*[:=]\s*["']?[^\s"',;]{8,}/i,
   /(?:AccountKey|SharedAccessKey|ClientSecret|InstrumentationKey|Password)=/i,
   /-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----/,
   /https?:\/\/[^/\s:@]+:[^/\s@]+@/i,
@@ -509,7 +713,7 @@ function canonicalValue(value: unknown): unknown {
   if (value !== null && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
         .map(([key, child]) => [key, canonicalValue(child)]),
     )
   }
@@ -568,6 +772,7 @@ export function buildReleaseEvidence(
   input: ReleaseEvidenceInput,
   generatedAt: string,
 ): ReleaseEvidenceManifest {
+  assertReleaseEvidenceContainsNoSensitiveContent(input)
   const parsedRepository = z
     .strictObject({ commitSha: shaSchema, dirty: z.boolean() })
     .parse(repository)
@@ -575,15 +780,8 @@ export function buildReleaseEvidence(
   const checks = Object.fromEntries(
     checkNames.map((name) => [name, parsedInput.checks?.[name] ?? missingCheck()]),
   )
-  const expectedTag = parsedRepository.commitSha.slice(0, 7)
+  const expectedTag = parsedRepository.commitSha
   const expected = parsedInput.expectedImages ?? defaultImages(expectedTag)
-  if (
-    expected.web.tag !== expectedTag ||
-    expected.api.tag !== expectedTag ||
-    expected.jobs.tag !== expectedTag
-  ) {
-    throw new Error('The expected image tags must match the release commit.')
-  }
   const configuration =
     parsedInput.safeConfiguration === undefined
       ? {
@@ -602,6 +800,7 @@ export function buildReleaseEvidence(
     release: {
       ...parsedRepository,
       generatedAt,
+      freshnessWindowHours: RELEASE_EVIDENCE_FRESHNESS_WINDOW_HOURS,
     },
     images: {
       expected: {

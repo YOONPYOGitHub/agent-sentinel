@@ -28,17 +28,19 @@ Agent Sentinel gives an organization one explainable view of every AI agent it r
 
 - **Cross-plane typed evidence graph** — assets and relationships from different control planes are normalized into one graph; a missing source lowers confidence and never implies safety.
 - **Deterministic attack paths and blast radius** — computed by [`@agent-sentinel/graph-engine`](packages/graph-engine), reproducible in unit tests without model access.
-- **Safe validation** — bounded, non-destructive probes with synthetic canaries only.
+- **Safe validation** — bounded, non-destructive probes use synthetic canary inputs only; a real provider response proves the probe execution, not production workload safety.
 - **Remediation what-if** — impact preview before any authorized, idempotent, rollback-aware action.
 - **Separate explainable per-agent assurance dimensions** — security, governance, lifecycle, quality, reliability, and cost are scored and explained independently, and report `unknown` rather than guessing.
 - **Cross-domain governance workflow** — one evidence set shared by security, platform, and business stakeholders.
 
-The replacement environment has live read-only Foundry, Entra, Defender for
-Cloud Apps, Purview, Azure Resource Graph, Teams organization catalog, and Azure
-Monitor OTel sources. Power Platform lacks supported unattended inventory
-authorization, Agent 365 is deferred, and authenticated manifest ingestion
-remains write-gated. Empty Defender or Teams results do not prove broader
-coverage. See [docs/roadmap.md](docs/roadmap.md).
+The replacement environment has live bounded provider reads from Foundry,
+Entra, Defender for Cloud Apps, Purview, Azure Resource Graph, the Teams
+organization catalog, and Azure Monitor OTel. The discovered portfolio is still
+only six purpose-built synthetic validation agents, not production customer
+agents. Power Platform lacks supported unattended inventory authorization,
+Agent 365 is deferred, and authenticated manifest ingestion remains
+write-gated. Empty Defender or Teams results do not prove broader coverage. See
+[docs/roadmap.md](docs/roadmap.md).
 
 ---
 
@@ -84,8 +86,9 @@ ingested or exposed through an unauthenticated endpoint.
 ```mermaid
 flowchart LR
     subgraph Sources["Evidence sources"]
-        FDRY["Microsoft Foundry<br/>(live, declared configuration)"]
-        PLAN["Agent 365 · Defender · Purview · Teams catalog<br/>(implemented; activation pending)<br/>Entra · Azure Monitor/OTel (live primary)"]
+        FDRY["Microsoft Foundry<br/>(live read; synthetic validation agents)"]
+        LIVE["Entra · Defender · Purview · Teams catalog<br/>Azure Resource Graph · Azure Monitor/OTel<br/>(live bounded reads; explicit gaps)"]
+        BLOCKED["Agent 365 · Power Platform<br/>(implemented; external activation blocked)"]
     end
 
     subgraph Ingest["Ingestion"]
@@ -112,7 +115,8 @@ flowchart LR
     end
 
     FDRY --> JOBS
-    PLAN -.planned / configurable.-> JOBS
+    LIVE --> JOBS
+    BLOCKED -.not active.-> JOBS
     JOBS --> POLICY --> COSMOS
     JOBS --> COSMOS
     DOMAIN --- POLICY
@@ -179,23 +183,23 @@ Verified baseline on 2026-08-23:
 
 ## Live vs mock truth table
 
-| Capability                                 | State                                  | Notes                                                                                                |
-| ------------------------------------------ | -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Microsoft Foundry agent discovery          | **Live, one source configured**        | Multi-tenant/project aggregation is implemented; the current deployment still has one primary source |
-| Exposure findings storage                  | **Live**                               | Cosmos DB `findings`, upsert preserves `firstSeen`                                                   |
-| Governance posture                         | **Live**                               | Derived from the same Cosmos-backed findings                                                         |
-| Jobs ingestion loop                        | **Live**                               | `apps/jobs` discovery + policy evaluation on an interval, plus Service Bus trigger                   |
-| Agent portfolio                            | **Synthetic only**                     | Six Microsoft Foundry validation agents on GPT-5.6 Terra; no production customer agents              |
-| Terra live validation                      | **Live, operator-invoked**             | `pnpm foundry:validate`; never run by CI                                                             |
-| Advisory narratives (public Azure edge)    | **Mock**                               | Deterministic mock provider until corporate Entra and WAF activation                                 |
-| Advisory narratives (grounded model path)  | **Live when configured**               | GPT-5.6 Terra, advisory explanation only; deterministic core stays authoritative                     |
-| Agent 365 connector                        | **Implemented, licensing-blocked**     | Read-only Graph package catalog; product licensing and authorization remain pending                  |
-| Azure Monitor OTel                         | **Connected, insufficient data**       | Query path is live; baseline and observed populations remain below the analysis threshold            |
-| Entra identity enrichment                  | **Connected inventory; no exact join** | Service-principal inventory is live, but agents expose no exact identity ID, so `RUNS_AS` is absent  |
-| Defender, Purview, and Teams catalog       | **Connected, bounded reads**           | Defender and Teams are valid-empty; Purview definitions do not prove usage or agent attribution      |
-| Governance work queue                      | **Live persistence, writes blocked**   | Cosmos-backed cases and audit history; public mutation remains disabled                              |
-| Authentication in the deployed environment | **Disabled**                           | JWT/RBAC/MSAL are implemented in code; the replacement deployment remains `AUTH_MODE=disabled`       |
-| Write and remediation execution            | **Blocked at the edge**                | `writeEnabled=false`; WAF blocks pre-auth mutations under `/api/`                                    |
+| Capability                                 | State                                             | Notes                                                                                                |
+| ------------------------------------------ | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Microsoft Foundry agent discovery          | **Live, one source configured**                   | Multi-tenant/project aggregation is implemented; the current deployment still has one primary source |
+| Exposure findings storage                  | **Live**                                          | Cosmos DB `findings`, upsert preserves `firstSeen`                                                   |
+| Governance posture                         | **Live**                                          | Derived from the same Cosmos-backed findings                                                         |
+| Jobs ingestion loop                        | **Live**                                          | `apps/jobs` discovery + policy evaluation on an interval, plus Service Bus trigger                   |
+| Agent portfolio                            | **Synthetic only**                                | Six Microsoft Foundry validation agents on GPT-5.6 Terra; no production customer agents              |
+| Terra live validation                      | **Live provider execution over synthetic probes** | `pnpm foundry:validate`; never run by CI and never establishes production-agent evidence             |
+| Advisory narratives (public Azure edge)    | **Mock**                                          | Deterministic mock provider until corporate Entra and WAF activation                                 |
+| Advisory narratives (grounded model path)  | **Live when configured**                          | GPT-5.6 Terra, advisory explanation only; deterministic core stays authoritative                     |
+| Agent 365 connector                        | **Implemented, licensing-blocked**                | Read-only Graph package catalog; product licensing and authorization remain pending                  |
+| Azure Monitor OTel                         | **Connected, insufficient data**                  | Query path is live; baseline and observed populations remain below the analysis threshold            |
+| Entra identity enrichment                  | **Connected inventory; no exact join**            | Service-principal inventory is live, but agents expose no exact identity ID, so `RUNS_AS` is absent  |
+| Defender, Purview, and Teams catalog       | **Connected, bounded reads**                      | Defender and Teams are valid-empty; Purview definitions do not prove usage or agent attribution      |
+| Governance work queue                      | **Live persistence, writes blocked**              | Cosmos-backed cases and audit history; public mutation remains disabled                              |
+| Authentication in the deployed environment | **Disabled**                                      | JWT/RBAC/MSAL are implemented in code; the replacement deployment remains `AUTH_MODE=disabled`       |
+| Write and remediation execution            | **Blocked at the edge**                           | `writeEnabled=false`; WAF blocks pre-auth mutations under `/api/`                                    |
 
 ---
 

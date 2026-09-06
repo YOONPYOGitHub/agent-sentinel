@@ -18,7 +18,7 @@ validation, connector, configuration, and OneRAI field remains explicitly
 
 ```bash
 pnpm release-evidence:generate -- \
-  --output release-evidence/generated/<short-sha>.json
+  --output release-evidence/generated/<full-sha>.json
 ```
 
 Add explicitly supplied sanitized observations:
@@ -26,7 +26,7 @@ Add explicitly supplied sanitized observations:
 ```bash
 pnpm release-evidence:generate -- \
   --input <sanitized-input.json> \
-  --output release-evidence/generated/<short-sha>.json
+  --output release-evidence/generated/<full-sha>.json
 ```
 
 Validate a manifest and ensure the committed JSON Schema is synchronized:
@@ -59,15 +59,20 @@ become pass.
 
 Connector readiness is separately typed as `ready`, `degraded`,
 `authorization-required`, `insufficient-data`, `unknown`, `blocked`, or
-`planned`. `ready` is valid only for fresh live evidence.
+`planned`. `ready` is valid only for fresh live evidence. Version 1 fixes the
+freshness window at 24 hours and records that window explicitly in
+`release.freshnessWindowHours`. `fresh` and `stale` are computed relative to
+`release.generatedAt`; a missing observation must remain `unknown`.
 
 ## Manifest contents
 
 Version 1 covers:
 
-- full Git commit SHA, dirty worktree state, and generation timestamp;
-- expected web/API/jobs image tags and optional SHA-256 digests;
-- deployed web/API/jobs image tags and optional SHA-256 digests;
+- full Git commit SHA, dirty worktree state, generation timestamp, and explicit
+  freshness window;
+- expected web/API/jobs full-SHA image tags and optional SHA-256 digests;
+- deployed web/API/jobs full-SHA image tags and mandatory digests for live
+  deployment evidence;
 - SHA-256 over canonical, allow-listed configuration, retaining only key names;
 - lint, typecheck, unit test, build, E2E, and Bicep outcomes;
 - bounded live-validation summaries;
@@ -82,7 +87,8 @@ identifiers.
 ## Sanitized input
 
 The input object is strict. Unknown properties are rejected. A representative
-shape is:
+shape is below. The repeated `a` value represents the exact full SHA of the
+checked-out release being generated:
 
 ```json
 {
@@ -97,9 +103,18 @@ shape is:
       "sourceRef": "container-apps"
     },
     "evidenceRefs": ["deployment-observation-2026-09-04"],
-    "web": { "tag": "7458b3e", "digest": null },
-    "api": { "tag": "7458b3e", "digest": null },
-    "jobs": { "tag": "7458b3e", "digest": null }
+    "web": {
+      "tag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "api": {
+      "tag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "jobs": {
+      "tag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
   },
   "safeConfiguration": {
     "AUTH_MODE": "disabled",
@@ -135,8 +150,10 @@ shape is:
 ```
 
 `expectedImages` has the same three component objects without deployment
-provenance fields. Each component accepts a bounded tag and optional canonical
-`sha256:<64 lowercase hex characters>` digest.
+provenance fields. Every tag is the exact lowercase 40-hex release commit SHA.
+Each expected component accepts an optional canonical
+`sha256:<64 lowercase hex characters>` digest. Live deployed components require
+both the full release SHA tag and a digest.
 
 ### Safe configuration allow-list
 
@@ -167,21 +184,33 @@ retains the algorithm, hash, and sorted key names, but never the values.
 Input is rejected before schema parsing if it contains secret-, credential-,
 authorization-, unrestricted-environment-, private-payload-, prompt-, or
 output-related fields. Secret-shaped strings such as bearer credentials, JWTs,
-connection strings, credential URLs, signed URLs, and private keys are also
-rejected. Error messages identify only a bounded field path and never echo the
-value.
+GitHub `ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_` and `github_pat_` tokens, free-text
+credential assignments, connection strings, credential URLs, signed URLs, and
+private keys are also rejected. Error messages identify only a bounded field
+path and never echo the value.
 
 The validator also rejects contradictions including:
 
 - a passing check without a command and completion timestamp;
 - live evidence without observation time, source, sanitized scope, and evidence
   references;
+- duplicate live-validation IDs, connector IDs, or evidence references;
+- timestamps later than `release.generatedAt`;
+- freshness values that contradict the explicit 24-hour window;
+- expected or deployed tags that do not equal the full release commit SHA;
+- live deployment evidence without all three canonical image digests;
 - deployed component tags that do not identify one release;
 - a digest without a corresponding image tag;
+- expected and deployed digests that contradict each other;
 - a connector marked ready when it is not fresh and live;
 - blocked or planned evidence paired with pass;
 - live OneRAI classification for a synthetic-only evaluation;
+- synthetic OneRAI pass/fail evidence without source and observation time;
 - defect counts greater than evaluated case counts.
+
+Schema drift checks parse and compare canonical JSON, so property ordering and
+LF/CRLF differences do not create false drift while semantic changes still
+fail.
 
 The committed
 [`repository-only.json`](../release-evidence/v1/examples/repository-only.json)

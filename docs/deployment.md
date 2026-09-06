@@ -229,29 +229,25 @@ See [Architecture: Azure Front Door Status](architecture.md#azure-front-door-sta
 ## Container Image Build and Push
 
 The ACR (`acr260814`) has `publicNetworkAccess: Disabled` with private endpoint.
-Use `az acr build` (ACR Tasks) which requires the `networkRuleBypassOptions: AzureServices` setting.
-For initial bootstrapping, temporarily enable public access:
+Do not enable public registry access for builds. Use the private self-hosted
+runner and `.github/workflows/ci-build-deploy.yml`. A manual dispatch requires
+one exact 40-hex commit SHA; the workflow validates and resolves that commit
+once, checks out the same resolved SHA for validation, image builds, what-if,
+and deployment, and never interpolates the dispatch input directly into a
+shell command.
 
-```bash
-# Temporarily enable public access for push
-az acr update -g rg-agent-sentinel -n acr260814 --public-network-enabled true
+All three images are tagged with the full resolved commit SHA. After each push,
+the workflow resolves the tag through `az acr repository show` and rejects any
+result that is not a canonical `sha256:<64 lowercase hex>` digest. The build job
+exports the tag and all three digests. The optional protected deployment passes
+the same full SHA as the required `imageTag`; it does not rewrite a parameter
+file or use a mutable/abbreviated tag.
 
-# Build and push with immutable git SHA tag
-GIT_SHA=$(git rev-parse --short HEAD)
-az acr build --registry acr260814 \
-  --image agent-sentinel-web:${GIT_SHA} \
-  --file apps/web/Containerfile .
-
-az acr build --registry acr260814 \
-  --image agent-sentinel-api:${GIT_SHA} \
-  --file apps/api/Containerfile .
-
-# Restore private access
-az acr update -g rg-agent-sentinel -n acr260814 --public-network-enabled false
-
-# Update parameter file with new tag
-sed -i "s/param imageTag = .*/param imageTag = '${GIT_SHA}'/" infra/environments/dev.parameters.bicepparam
-```
+Registry digest verification proves what was pushed, not what is running.
+Record a live deployment only after a separate sanitized observation supplies
+the full release SHA, all three running image digests, source, observation
+time, scope, and evidence references to the
+[release-evidence manifest](release-evidence.md).
 
 ## What-if Before Deployment
 

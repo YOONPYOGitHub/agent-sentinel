@@ -3,21 +3,22 @@
   "release": {
     "commitSha": "ae531c2ce98afebc7933425091f3f2912edcd53e",
     "dirty": false,
-    "generatedAt": "2026-09-04T00:00:00.000Z"
+    "generatedAt": "2026-09-04T00:00:00.000Z",
+    "freshnessWindowHours": 24
   },
   "images": {
     "expected": {
       "classification": "tested",
       "web": {
-        "tag": "ae531c2",
+        "tag": "ae531c2ce98afebc7933425091f3f2912edcd53e",
         "digest": null
       },
       "api": {
-        "tag": "ae531c2",
+        "tag": "ae531c2ce98afebc7933425091f3f2912edcd53e",
         "digest": null
       },
       "jobs": {
-        "tag": "ae531c2",
+        "tag": "ae531c2ce98afebc7933425091f3f2912edcd53e",
         "digest": null
       }
     },
