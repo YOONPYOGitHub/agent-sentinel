@@ -426,7 +426,7 @@ export class EntraEnrichmentConnector implements AgentConnector {
 
   async testConnection(request: ConnectorOperationRequest = {}): Promise<ConnectionTestResult> {
     const [base, entra] = await Promise.all([
-      this.base.testConnection(request),
+      this.base.testConnection(),
       this.enabled && this.entra ? this.entra.testConnection(request) : Promise.resolve(undefined),
     ])
     this.baseHealth = base
@@ -442,7 +442,7 @@ export class EntraEnrichmentConnector implements AgentConnector {
   }
 
   async discover(request: ConnectorOperationRequest = {}): Promise<EstateSnapshot> {
-    const base = await this.base.discover(request)
+    const base = await this.base.discover()
     this.baseHealth = {
       ok: true,
       checkedAt: new Date().toISOString(),
@@ -758,7 +758,7 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
   }
 
   async testConnection(request: ConnectorOperationRequest = {}): Promise<ConnectionTestResult> {
-    const base = await this.base.testConnection(request)
+    const base = await this.base.testConnection()
     this.baseHealth = base
     const aggregation = await aggregateLiveSources<MultiEntraSourceState, ConnectionTestResult>({
       sources: this.sources,
@@ -818,7 +818,7 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
   }
 
   async discover(request: ConnectorOperationRequest = {}): Promise<EstateSnapshot> {
-    let snapshot = await this.base.discover(request)
+    let snapshot = await this.base.discover()
     this.baseHealth = {
       ok: true,
       checkedAt: new Date().toISOString(),

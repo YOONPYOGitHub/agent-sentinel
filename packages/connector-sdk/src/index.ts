@@ -243,8 +243,8 @@ export interface ConnectorOperationRequest {
 
 export interface AgentConnector {
   readonly descriptor: ConnectorDescriptor
-  testConnection(request?: ConnectorOperationRequest): Promise<ConnectionTestResult>
-  discover(request?: ConnectorOperationRequest): Promise<EstateSnapshot>
+  testConnection(): Promise<ConnectionTestResult>
+  discover(): Promise<EstateSnapshot>
   getEvidence(evidenceId: string): Promise<Evidence>
   getConnectorHealth?(): ConnectorHealthReport
   execute?(
