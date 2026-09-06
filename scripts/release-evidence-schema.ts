@@ -330,8 +330,10 @@ const oneRaiEvidenceSchema = z
         message: 'synthetic OneRAI pass or fail requires source and observedAt',
       })
     }
+    const evaluatedSynthetic =
+      value.classification === 'synthetic' && (value.outcome === 'pass' || value.outcome === 'fail')
     if (
-      (value.classification === 'live' || value.outcome === 'pass') &&
+      (value.classification === 'live' || value.outcome === 'pass' || evaluatedSynthetic) &&
       (value.scope === null || value.evidenceRefs.length === 0)
     ) {
       context.addIssue({
@@ -343,6 +345,12 @@ const oneRaiEvidenceSchema = z
       context.addIssue({
         code: 'custom',
         message: 'synthetic OneRAI evidence must use the synthetic classification',
+      })
+    }
+    if (value.classification === 'synthetic' && value.syntheticOnly !== true) {
+      context.addIssue({
+        code: 'custom',
+        message: 'synthetic OneRAI classification requires syntheticOnly true',
       })
     }
     if (

@@ -3,7 +3,7 @@ coverage
 dist
 node_modules
 playwright-report
-storybook-static
-test-results
 pnpm-lock.yaml
 release-evidence/v1/schema.json
+storybook-static
+test-results

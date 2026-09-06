@@ -317,6 +317,30 @@ describe('release evidence schema', () => {
     ).toThrow(/synthetic OneRAI evidence must use the synthetic classification/)
   })
 
+  it.each([false, null] as const)(
+    'rejects synthetic OneRAI classification with syntheticOnly %s',
+    (syntheticOnly) => {
+      expect(() =>
+        sanitizeReleaseEvidenceInput({
+          oneRai: {
+            classification: 'synthetic',
+            outcome: 'pass',
+            observedAt: '2026-09-04T00:00:00.000Z',
+            source: 'sanitized-onerai-summary',
+            scope: sanitizedScope,
+            evidenceRefs: ['onerai-synthetic-summary'],
+            syntheticOnly,
+            automated: true,
+            cases: 10,
+            defects: 0,
+            humanReviewRequired: true,
+            summary: 'Synthetic safety probes passed.',
+          },
+        }),
+      ).toThrow(/synthetic OneRAI classification requires syntheticOnly true/)
+    },
+  )
+
   it('requires sanitized scope and evidence references on live evidence', () => {
     expect(() =>
       sanitizeReleaseEvidenceInput({
@@ -616,6 +640,45 @@ describe('release evidence schema', () => {
           },
         }),
       ).toThrow(/synthetic OneRAI pass or fail requires source and observedAt/)
+    },
+  )
+
+  it.each(['pass', 'fail'] as const)(
+    'requires scope and evidence references for a synthetic OneRAI %s',
+    (outcome) => {
+      const evaluatedSynthetic = {
+        classification: 'synthetic' as const,
+        outcome,
+        observedAt: '2026-09-04T00:00:00.000Z',
+        source: 'sanitized-onerai-summary',
+        scope: sanitizedScope,
+        evidenceRefs: ['onerai-synthetic-summary'],
+        syntheticOnly: true,
+        automated: true,
+        cases: 1,
+        defects: outcome === 'pass' ? 0 : 1,
+        humanReviewRequired: true,
+        summary: 'A bounded synthetic safety probe completed.',
+      }
+
+      expect(
+        sanitizeReleaseEvidenceInput({
+          oneRai: evaluatedSynthetic,
+        }).oneRai,
+      ).toMatchObject({
+        scope: sanitizedScope,
+        evidenceRefs: ['onerai-synthetic-summary'],
+      })
+      expect(() =>
+        sanitizeReleaseEvidenceInput({
+          oneRai: { ...evaluatedSynthetic, scope: null },
+        }),
+      ).toThrow(/evaluated OneRAI evidence requires sanitized scope and evidence references/)
+      expect(() =>
+        sanitizeReleaseEvidenceInput({
+          oneRai: { ...evaluatedSynthetic, evidenceRefs: [] },
+        }),
+      ).toThrow(/evaluated OneRAI evidence requires sanitized scope and evidence references/)
     },
   )
 

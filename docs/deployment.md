@@ -8,11 +8,14 @@
 
 ## Current deployment safety
 
-The checked-in full `platform.bicep` desired state is drifted from the live resource group. The latest
-what-if proposed 54 unrelated modifications. **Do not run a full Bicep deployment** until that drift
-is reconciled and separately reviewed. Images `web/api/jobs:acbb483` were verified in ACR by CI run
-`33047446078`; the live ACA revision remains `8179785` because the surgical update was interrupted.
-Use only a reviewed, surgical Container Apps revision/image/config update for the next auth stage.
+The last evidenced deployed web/API/jobs image boundary is the short tag
+`7458b3e`. Its full 40-hex SHA and three running image digests have not been
+supplied in sanitized evidence, so later commits are code state only and this
+guide does not claim them as deployed. The checked-in full `platform.bicep`
+desired state is drifted from the live resource group. The latest what-if
+proposed 54 unrelated modifications. **Do not run a full Bicep deployment**
+until that drift is reconciled and separately reviewed. Use only a reviewed,
+surgical Container Apps revision/image/config update for the next auth stage.
 
 ## Replacement tenant portability
 
@@ -52,8 +55,9 @@ parameter files:
 - `infra/environments/mngenvmcap098047-foundry.parameters.bicepparam` creates the
   tenant-local Foundry account and project first.
 - `infra/environments/mngenvmcap098047.parameters.bicepparam` describes the
-  platform with a new suffix and tenant boundary. Writes, authentication, and
-  every consent-gated connector remain disabled.
+  platform with a new suffix and tenant boundary. Writes and authentication
+  remain disabled; its explicitly enabled read connectors require the separate
+  permissions and validation described below.
 
 Do not run either deployment from an Azure CLI context that still targets the
 historical tenant. Confirm the exact tenant, subscription, and account first.
@@ -96,10 +100,12 @@ identities.
 The latest replacement validation on **2026-09-01 14:23 KST** reports all seven
 configured read sources as `ready`: Foundry, Entra, Defender for Cloud Apps,
 Purview, Azure Resource Graph, Teams organization catalog, and Azure Monitor
-OTel. Agent 365 is intentionally excluded. Power Platform, manifest ingestion,
-and business outcomes are not activation omissions: they remain blocked by,
-respectively, unsupported unattended authorization, the write/auth safety gate,
-and absence of an authoritative source.
+OTel. The Defender and Teams reads are valid-empty: zero returned records do not
+prove agent attribution, installation, distribution, trust, or broader
+coverage. Agent 365 is intentionally excluded. Power Platform, manifest
+ingestion, and business outcomes are not activation omissions: they remain
+blocked by, respectively, unsupported unattended authorization, the write/auth
+safety gate, and absence of an authoritative source.
 
 ## Infrastructure Deployment (reference only while drift is unresolved)
 
@@ -181,17 +187,19 @@ label, or M365 resource. Enable only after tenant-admin
 separately approved for every source. See
 [Purview connector](purview-connector.md).
 
-Microsoft Teams tenant app catalog evidence is independently disabled by
+Microsoft Teams tenant app catalog evidence is disabled by default through
 `teamsDistributionConnectorEnabled=false`. Configure
 `teamsDistributionSourcesJson`, or the legacy `teamsDistributionTenantId` and
 `teamsDistributionEnvironment` pair. The Graph base is fixed to
 `https://graph.microsoft.com`, and source identifiers are injected as empty
 while disabled. IaC creates no Graph app-role assignment, permission, secret,
-Teams app, or Microsoft 365 resource. Enable only after tenant-admin
-`AppCatalog.Read.All` application consent and secretless credentials are
-separately approved for every source. This reads organization catalog metadata
-only; it does not prove agent, deployment, installation, sideloading, or
-distribution coverage. See
+Teams app, or Microsoft 365 resource. The replacement primary source is enabled
+on API/jobs after approval of tenant-admin `AppCatalog.Read.All` and its
+secretless credential. Its **2026-09-01 14:23 KST** result is `ready` and
+valid-empty with zero organization catalog entries. Enable any additional
+source only after the same approvals. This reads organization catalog metadata
+only; it does not prove agent, deployment, installation, sideloading,
+distribution, trust, or coverage. See
 [Teams distribution connector](teams-distribution-connector.md).
 
 Set `azureMonitorSourcesJson` with entries matching Foundry source ids. Each
@@ -204,10 +212,9 @@ the target agents emit validated `agent.sentinel.tenant_id`,
 The identity module also declares separate read-only connector and Teams
 managed identities. Container Apps attach them only to API/jobs. When Purview
 is enabled without explicit source JSON, the deployment generates the primary
-tenant source with the connector identity; Teams uses its separate identity
-when separately enabled after tenant backend licensing is ready. Microsoft 365
-application and directory roles remain tenant-admin operations documented in
-the connector runbooks rather than ARM/Bicep assignments.
+tenant source with the connector identity; Teams uses its separate identity.
+Microsoft 365 application and directory roles remain tenant-admin operations
+documented in the connector runbooks rather than ARM/Bicep assignments.
 
 ### Phase C ? Foundry Embedding
 

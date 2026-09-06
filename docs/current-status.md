@@ -335,5 +335,6 @@ Tracks 1–3 are identity- or edge-dependent; OneRAI onboarding is independent. 
 - Confidence `1` means direct tenant catalog observation only and makes no
   agent, deployment, installation, sideloading, distribution coverage, runtime,
   trust, tool, entitlement, or access claim.
-- The primary API source has approved `AppCatalog.Read.All`, but Graph reports
-  the tenant Teams backend disabled. Jobs remains off until licensing is ready.
+- The primary API/jobs source has approved `AppCatalog.Read.All` and reports
+  `ready`. Its bounded organization-catalog result is valid-empty with zero
+  entries.
