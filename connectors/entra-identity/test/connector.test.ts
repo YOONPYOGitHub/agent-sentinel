@@ -660,6 +660,52 @@ describe('normalization and correlation', () => {
     })
   })
 
+  it('preserves duplicate authoritative object IDs until correlation fails closed', () => {
+    const duplicateObjectId = '11111111-1111-4111-8111-111111111111'
+    const identities = mapEntraInventoryToSnapshot(
+      {
+        servicePrincipals: [
+          {
+            id: duplicateObjectId,
+            appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            displayName: 'First duplicate record',
+          },
+          {
+            id: duplicateObjectId,
+            appId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            displayName: 'Second duplicate record',
+          },
+        ],
+        owners: new Map(),
+        appRoleAssignments: new Map(),
+        agentIdentitiesPreview: [],
+      },
+      config,
+      '2026-08-27T08:00:00.000Z',
+    )
+
+    expect(identities.nodes).toHaveLength(2)
+    const result = enrichSnapshotWithEntraAndDiagnostics(
+      baseSnapshot({ clientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }),
+      identities,
+    )
+
+    expect(result.snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
+    expect(result.snapshot.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'ambiguous',
+      entraCorrelationReason: 'duplicate-authoritative-object-id',
+    })
+    expect(result.diagnostics).toMatchObject({
+      authoritativeAgentsConsidered: 1,
+      exactObjectIdMatches: 0,
+      exactApplicationIdMatches: 0,
+      exactAgentIdentityMatches: 0,
+      unmatched: 0,
+      ambiguous: 1,
+      runsAsEdgesEmitted: 0,
+    })
+  })
+
   it('reports malformed identifiers without treating them as missing', () => {
     const result = enrichSnapshotWithEntra(
       baseSnapshot({

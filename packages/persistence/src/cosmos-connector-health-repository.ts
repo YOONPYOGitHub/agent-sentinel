@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import type { Container, CosmosClient, SqlQuerySpec } from '@azure/cosmos'
 
 import {
@@ -48,14 +50,15 @@ function assertDocumentBoundary(
 }
 
 function physicalId(measurement: ConnectorHealthMeasurement): string {
-  return [
-    'connector-health',
+  const canonicalTuple = JSON.stringify([
     measurement.estateId,
     measurement.tenantId,
     measurement.environment,
     measurement.connectorId,
     measurement.measuredAt,
-  ].join(':')
+  ])
+  const digest = createHash('sha256').update(canonicalTuple, 'utf8').digest('hex')
+  return `connector-health:${digest}`
 }
 
 function latestQuery(estate: EstateContext, connectorId: string): SqlQuerySpec {

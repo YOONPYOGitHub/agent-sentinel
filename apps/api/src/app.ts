@@ -430,9 +430,6 @@ export async function createApp(
         : isDefaultEstate
           ? (await resolvedService.testConnectorConnection()).ok
           : false
-    const runtimeTelemetryHealth = isDefaultEstate
-      ? runtimeTelemetryConnector?.getConnectorHealth?.()
-      : undefined
     return buildConnectorsCollection(status.mode, {
       connectorId: status.connectorId,
       connectionOk,
@@ -443,7 +440,6 @@ export async function createApp(
       runtimeTelemetryConfigured: isDefaultEstate && runtimeTelemetryConnector !== undefined,
       businessOutcomeConfigured:
         resolvedDataMode === 'live' && isDefaultEstate && businessOutcomeConnector !== undefined,
-      ...(runtimeTelemetryHealth !== undefined ? { runtimeTelemetryHealth } : {}),
       ...(connectorHealth ? { connectorHealth } : {}),
     })
   })

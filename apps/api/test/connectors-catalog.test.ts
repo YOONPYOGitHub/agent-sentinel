@@ -13,7 +13,10 @@ import { DemoService } from '../src/demo-service.js'
 import { buildEstateRegistry } from '../src/estate-config.js'
 import { MockAgentConnector } from '@agent-sentinel/mock-connector'
 import type { AuthConfig } from '../src/auth.js'
-import type { ConnectorHealthReport } from '@agent-sentinel/connector-sdk'
+import type {
+  ConnectorHealthReport,
+  RuntimeTelemetryConnector,
+} from '@agent-sentinel/connector-sdk'
 import {
   InMemoryConnectorHealthRepository,
   InMemoryExposureFindingRepository,
@@ -183,6 +186,25 @@ describe('GET /api/connectors', () => {
     const testConnection = vi
       .spyOn(connector, 'testConnection')
       .mockRejectedValue(new Error('live route must not probe the provider'))
+    const getRuntimeHealth = vi.fn((): ConnectorHealthReport => ({
+      overall: 'ready',
+      partial: false,
+      sources: [
+        {
+          id: 'otel:process-local',
+          name: 'Process-local runtime state',
+          role: 'enrichment',
+          enabled: true,
+          configured: true,
+          readiness: 'ready',
+        },
+      ],
+    }))
+    const runtimeTelemetryConnector: RuntimeTelemetryConnector = {
+      id: 'azure-monitor-otel',
+      readObservationWindows: () => Promise.reject(new Error('not used')),
+      getConnectorHealth: getRuntimeHealth,
+    }
     const connectorHealth = new InMemoryConnectorHealthRepository()
     const connectorId = connector.descriptor.id
     const defaultEstate = {
@@ -240,7 +262,7 @@ describe('GET /api/connectors', () => {
         connectorHealthRepository: connectorHealth,
         exposureRepository: new InMemoryExposureFindingRepository(),
         snapshotRepository: new InMemorySnapshotRepository(),
-        runtimeTelemetryConnector: null,
+        runtimeTelemetryConnector,
         businessOutcomeConnector: null,
       },
     )
@@ -294,7 +316,14 @@ describe('GET /api/connectors', () => {
     expect(labResponse.body).not.toContain('default-estate.services.ai.azure.com')
     expect(defaultResponse.body).not.toContain('evidence-stale-default')
     expect(defaultResponse.body).not.toContain('evidence-wrong-connector')
+    expect(defaultResponse.body).not.toContain('otel:process-local')
+    expect(
+      defaultResponse
+        .json<{ catalog: Array<{ id: string; lifecycleState: string }> }>()
+        .catalog.find((entry) => entry.id === 'azure-monitor-otel')?.lifecycleState,
+    ).toBe('unavailable')
     expect(testConnection).not.toHaveBeenCalled()
+    expect(getRuntimeHealth).not.toHaveBeenCalled()
   })
 
   it('reports unavailable when live connector health has not been measured', async () => {
@@ -353,7 +382,7 @@ describe('buildConnectorsCollection', () => {
     expect(result.active.lifecycleState).toBe('connected')
   })
 
-  it('marks Azure Monitor OTel connected only when runtime configuration is injected', () => {
+  it('keeps configured Azure Monitor OTel unavailable until measured health is supplied', () => {
     const unavailable = buildConnectorsCollection('foundry', {
       connectorId: 'foundry-connector',
     })
@@ -367,7 +396,7 @@ describe('buildConnectorsCollection', () => {
     ).toBe('available-to-configure')
     expect(
       configured.catalog.find((entry) => entry.id === 'azure-monitor-otel')?.lifecycleState,
-    ).toBe('connected')
+    ).toBe('unavailable')
   })
 
   it('exposes measured multi-source OTel readiness', () => {

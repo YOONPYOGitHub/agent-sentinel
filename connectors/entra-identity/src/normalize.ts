@@ -255,25 +255,33 @@ function composeSnapshotWithEntra(
     return sorted.filter((item, index) => index === 0 || sorted[index - 1]?.id !== item.id)
   }
   const distinctStrings = (items: readonly string[]): string[] => [...new Set(items)].sort()
-  const identityNodes = distinctById(identities.nodes).map((node) => ({
+  const identityRecords = identities.nodes.map((node) => ({
     ...node,
     evidenceIds: distinctStrings(node.evidenceIds),
     metadata: { ...node.metadata },
   }))
+  const identityNodes = distinctById(identityRecords)
+  const identityNodeById = new Map(identityNodes.map((node) => [node.id, node]))
   const byDirectoryId = new Map<string, GraphNode[]>()
   const byApplicationId = new Map<string, GraphNode[]>()
   const byAgentIdentityId = new Map<string, GraphNode[]>()
-  for (const node of identityNodes) {
-    const directoryId = node.metadata['directoryObjectId']?.toLowerCase()
-    const applicationId = node.metadata['applicationId']?.toLowerCase()
+  for (const record of identityRecords) {
+    const node = identityNodeById.get(record.id)!
+    const directoryId = record.metadata['directoryObjectId']?.toLowerCase()
+    const applicationId = record.metadata['applicationId']?.toLowerCase()
     if (directoryId)
       byDirectoryId.set(directoryId, [...(byDirectoryId.get(directoryId) ?? []), node])
     if (applicationId)
       byApplicationId.set(applicationId, [...(byApplicationId.get(applicationId) ?? []), node])
-    if (directoryId && node.metadata['agentIdentityPreview'] === 'true') {
+    if (directoryId && record.metadata['agentIdentityPreview'] === 'true') {
       byAgentIdentityId.set(directoryId, [...(byAgentIdentityId.get(directoryId) ?? []), node])
     }
   }
+  const duplicateDirectoryIds = new Set(
+    [...byDirectoryId.entries()]
+      .filter(([, nodes]) => nodes.length > 1)
+      .map(([directoryId]) => directoryId),
+  )
 
   const baseNodes = distinctById(base.nodes).map((node) => ({
     ...node,
@@ -299,6 +307,7 @@ function composeSnapshotWithEntra(
     let malformedIdentifiers = 0
     let unresolvedIdentifiers = 0
     let multiplyResolvedIdentifiers = 0
+    let duplicateObjectIdResolved = false
     const resolveIdentifiers = (
       keys: readonly string[],
       index: ReadonlyMap<string, GraphNode[]>,
@@ -319,6 +328,10 @@ function composeSnapshotWithEntra(
         }
         if (identitiesForIdentifier.length > 1) multiplyResolvedIdentifiers += 1
         for (const identity of identitiesForIdentifier) {
+          const directoryId = identity.metadata['directoryObjectId']?.toLowerCase()
+          if (directoryId !== undefined && duplicateDirectoryIds.has(directoryId)) {
+            duplicateObjectIdResolved = true
+          }
           const candidate = candidates.get(identity.id) ?? { identity, kinds: new Set() }
           candidate.kinds.add(kind)
           candidates.set(identity.id, candidate)
@@ -330,6 +343,14 @@ function composeSnapshotWithEntra(
     resolveIdentifiers(AGENT_IDENTITY_ID_KEYS, byAgentIdentityId, 'agent-identity-id')
     for (const { identity } of candidates.values()) {
       for (const evidenceId of identity.evidenceIds) diagnosticEvidenceIds.add(evidenceId)
+    }
+    if (duplicateObjectIdResolved) {
+      ambiguous += 1
+      agent.metadata['entraCorrelationStatus'] = 'ambiguous'
+      agent.metadata['entraCorrelationReason'] = 'duplicate-authoritative-object-id'
+      delete agent.metadata['entraCorrelationMatchKind']
+      delete agent.metadata['entraIdentityNodeId']
+      continue
     }
     if (
       suppliedIdentifiers === 0 ||

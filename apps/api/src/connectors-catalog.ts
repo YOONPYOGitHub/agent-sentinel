@@ -389,11 +389,13 @@ export function buildConnectorsCollection(
       return {
         ...entry,
         lifecycleState:
-          sources.length === 0 || ready === sources.length
-            ? 'connected'
-            : ready > 0 || sources.some((source) => source.readiness === 'degraded')
-              ? 'degraded'
-              : 'unavailable',
+          sources.length === 0
+            ? 'unavailable'
+            : ready === sources.length
+              ? 'connected'
+              : ready > 0 || sources.some((source) => source.readiness === 'degraded')
+                ? 'degraded'
+                : 'unavailable',
       }
     }
     return { ...entry }

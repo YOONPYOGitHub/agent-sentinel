@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type {
   ConnectorHealthMeasurement,
   ConnectorHealthRepository,
+  ExactIdentityCorrelationDiagnostics,
 } from '@agent-sentinel/connector-sdk'
 
 import { CosmosConnectorHealthRepository, InMemoryConnectorHealthRepository } from '../src/index.js'
@@ -59,6 +60,50 @@ function measurement(
   }
 }
 
+function diagnosticMeasurement(
+  overrides: Partial<ExactIdentityCorrelationDiagnostics> = {},
+): ConnectorHealthMeasurement {
+  const measuredAt = '2026-09-04T13:00:00.000Z'
+  const diagnostics: ExactIdentityCorrelationDiagnostics = {
+    kind: 'exact-identity-correlation',
+    provider: 'microsoft-entra',
+    sourceId: 'primary',
+    sourceTenantId: estateA.tenantId,
+    sourceEnvironment: estateA.environment,
+    authoritativeAgentsConsidered: 2,
+    exactObjectIdMatches: 1,
+    exactApplicationIdMatches: 0,
+    exactAgentIdentityMatches: 0,
+    unmatched: 1,
+    ambiguous: 0,
+    runsAsEdgesEmitted: 1,
+    ownerCoverage: { status: 'disabled', evidenceReferences: [] },
+    appRoleCoverage: { status: 'disabled', evidenceReferences: [] },
+    previewCoverage: { status: 'disabled', evidenceReferences: [] },
+    evidenceReferences: ['evidence-agent-1', 'evidence-identity-1'],
+    ...overrides,
+  }
+  return {
+    ...measurement('foundry', measuredAt),
+    health: {
+      overall: 'ready',
+      partial: false,
+      sources: [
+        {
+          id: 'entra:primary',
+          name: 'Primary Entra source',
+          role: 'enrichment',
+          enabled: true,
+          configured: true,
+          readiness: 'ready',
+          checkedAt: measuredAt,
+          diagnostics,
+        },
+      ],
+    },
+  }
+}
+
 function repositories(): Array<{
   name: string
   create: () => { repository: ConnectorHealthRepository; store?: FakeCosmosStore }
@@ -87,8 +132,7 @@ describe.each(repositories())('$name connector health repository', ({ create }) 
     const latest = measurement('foundry', '2026-09-04T13:05:00.000Z', 'degraded')
     const stale = measurement('foundry', '2026-09-04T13:00:00.000Z')
 
-    await repository.save(estateA, latest)
-    await repository.save(estateA, stale)
+    await Promise.all([repository.save(estateA, latest), repository.save(estateA, stale)])
 
     await expect(repository.findLatest(estateA, 'foundry')).resolves.toEqual(latest)
   })
@@ -149,6 +193,21 @@ describe.each(repositories())('$name connector health repository', ({ create }) 
     await expect(repository.findLatest(estateA, 'foundry')).resolves.toEqual(tenantA)
     await expect(repository.findLatest(estateATenantB, 'foundry')).resolves.toEqual(tenantB)
   })
+
+  it.each([
+    {
+      name: 'overlapping or missing correlation categories',
+      measurement: diagnosticMeasurement({ unmatched: 0 }),
+    },
+    {
+      name: 'a RUNS_AS count that differs from exact matches',
+      measurement: diagnosticMeasurement({ runsAsEdgesEmitted: 0 }),
+    },
+  ])('rejects diagnostics with $name', async ({ measurement: invalid }) => {
+    const { repository } = create()
+
+    await expect(repository.save(estateA, invalid)).rejects.toThrow()
+  })
 })
 
 describe('Cosmos connector health query', () => {
@@ -193,5 +252,44 @@ describe('Cosmos connector health query', () => {
       })
 
     await expect(repository.findLatest(estateA, 'foundry')).rejects.toThrow('boundary')
+  })
+
+  it('does not collide when delimiter-containing tuple fields are saved concurrently', async () => {
+    const store = new FakeCosmosStore()
+    const repository = new CosmosConnectorHealthRepository(store.client)
+    const measuredAt = '2026-09-04T13:00:00.000Z'
+    const expandedEnvironment = {
+      ...estateA,
+      environment: 'validation:west',
+    }
+    const first = measurement('otel', measuredAt, 'ready', expandedEnvironment)
+    const second = measurement('west:otel', measuredAt, 'degraded', estateA)
+
+    await Promise.all([
+      repository.save(expandedEnvironment, first),
+      repository.save(estateA, second),
+    ])
+
+    await expect(repository.findLatest(expandedEnvironment, 'otel')).resolves.toEqual(first)
+    await expect(repository.findLatest(estateA, 'west:otel')).resolves.toEqual(second)
+  })
+
+  it('rejects persisted diagnostics with inconsistent correlation accounting', async () => {
+    const store = new FakeCosmosStore()
+    const repository = new CosmosConnectorHealthRepository(store.client)
+    const storedAt = '2026-09-04T13:00:00.000Z'
+    const corrupted = diagnosticMeasurement({ ambiguous: 1 })
+    await store.client.database('agent-sentinel-db').container('snapshots').items.upsert({
+      id: 'corrupt-diagnostics',
+      documentType: 'connector-health-measurement',
+      estateId: estateA.id,
+      tenantId: estateA.tenantId,
+      environment: estateA.environment,
+      connectorId: 'foundry',
+      measuredAt: storedAt,
+      measurement: corrupted,
+    })
+
+    await expect(repository.findLatest(estateA, 'foundry')).rejects.toThrow()
   })
 })

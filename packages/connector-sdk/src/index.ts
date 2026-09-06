@@ -79,24 +79,47 @@ const connectorCapabilityCoverageSchema = z.strictObject({
   reason: z.string().min(1).max(200).optional(),
 })
 
-const exactIdentityCorrelationDiagnosticsSchema = z.strictObject({
-  kind: z.literal('exact-identity-correlation'),
-  provider: z.literal('microsoft-entra'),
-  sourceId: z.string().min(1).max(200),
-  sourceTenantId: z.string().min(1).max(128),
-  sourceEnvironment: z.string().min(1).max(128),
-  authoritativeAgentsConsidered: z.number().int().min(0),
-  exactObjectIdMatches: z.number().int().min(0),
-  exactApplicationIdMatches: z.number().int().min(0),
-  exactAgentIdentityMatches: z.number().int().min(0),
-  unmatched: z.number().int().min(0),
-  ambiguous: z.number().int().min(0),
-  runsAsEdgesEmitted: z.number().int().min(0),
-  ownerCoverage: connectorCapabilityCoverageSchema,
-  appRoleCoverage: connectorCapabilityCoverageSchema,
-  previewCoverage: connectorCapabilityCoverageSchema,
-  evidenceReferences: z.array(z.string().min(1).max(500)),
-})
+const exactIdentityCorrelationDiagnosticsSchema = z
+  .strictObject({
+    kind: z.literal('exact-identity-correlation'),
+    provider: z.literal('microsoft-entra'),
+    sourceId: z.string().min(1).max(200),
+    sourceTenantId: z.string().min(1).max(128),
+    sourceEnvironment: z.string().min(1).max(128),
+    authoritativeAgentsConsidered: z.number().int().min(0),
+    exactObjectIdMatches: z.number().int().min(0),
+    exactApplicationIdMatches: z.number().int().min(0),
+    exactAgentIdentityMatches: z.number().int().min(0),
+    unmatched: z.number().int().min(0),
+    ambiguous: z.number().int().min(0),
+    runsAsEdgesEmitted: z.number().int().min(0),
+    ownerCoverage: connectorCapabilityCoverageSchema,
+    appRoleCoverage: connectorCapabilityCoverageSchema,
+    previewCoverage: connectorCapabilityCoverageSchema,
+    evidenceReferences: z.array(z.string().min(1).max(500)),
+  })
+  .superRefine((diagnostics, context) => {
+    const exactMatches =
+      diagnostics.exactObjectIdMatches +
+      diagnostics.exactApplicationIdMatches +
+      diagnostics.exactAgentIdentityMatches
+    const categorizedAgents = exactMatches + diagnostics.unmatched + diagnostics.ambiguous
+    if (categorizedAgents !== diagnostics.authoritativeAgentsConsidered) {
+      context.addIssue({
+        code: 'custom',
+        path: ['authoritativeAgentsConsidered'],
+        message:
+          'Exact, unmatched, and ambiguous categories must account for every authoritative agent exactly once.',
+      })
+    }
+    if (diagnostics.runsAsEdgesEmitted !== exactMatches) {
+      context.addIssue({
+        code: 'custom',
+        path: ['runsAsEdgesEmitted'],
+        message: 'Emitted RUNS_AS edges must equal the total exact identity matches.',
+      })
+    }
+  })
 
 export const connectorHealthReportSchema = z.strictObject({
   overall: z.enum(['ready', 'degraded', 'unavailable']),

@@ -121,15 +121,18 @@ Jobs persist the connector health report produced by each completed discovery,
 including partial runs whose snapshot is intentionally not promoted. Each
 measurement is keyed and queried by estate ID, data tenant, environment, and
 connector ID. Cosmos stores immutable timestamped measurements in the snapshots
-container under the existing tenant partition; the in-memory adapter follows
-the same boundary contract for local execution and tests.
+container under the existing tenant partition and derives document IDs from a
+SHA-256 hash of the canonical scope-and-time tuple; the in-memory adapter
+follows the same boundary contract for local execution and tests.
 
 In live mode, `GET /api/connectors` reads the latest persisted measurement for
 the authorized request estate and active connector. It does not probe providers
 on the request path and does not fall back to process-local or synthetic health.
-An absent measurement remains unavailable. Non-default estates also omit
-default-estate project endpoints and unscoped runtime or business-outcome
-health.
+An absent measurement remains unavailable. Runtime telemetry health is omitted
+until it has an independently persisted, exact estate-, tenant-, environment-,
+and source-scoped measurement; process-local runtime connector state never
+enters the live response. Non-default estates also omit default-estate project
+endpoints and unscoped business-outcome health.
 
 ## Security
 
