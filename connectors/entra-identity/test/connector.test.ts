@@ -1,6 +1,10 @@
 import { readFileSync } from 'node:fs'
 
-import type { AgentConnector } from '@agent-sentinel/connector-sdk'
+import type {
+  AgentConnector,
+  ConnectionTestResult,
+  ConnectorOperationRequest,
+} from '@agent-sentinel/connector-sdk'
 import type { AccessToken, TokenCredential } from '@azure/core-auth'
 import type { EstateSnapshot } from '@agent-sentinel/domain'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -1116,6 +1120,37 @@ describe('composite enrichment connector', () => {
     expect(composite.getHealth().entra.stableInventory.status).toBe('available')
   })
 
+  it('forwards caller cancellation to primary operations', async () => {
+    const testConnection = vi.fn<
+      (request?: ConnectorOperationRequest) => Promise<ConnectionTestResult>
+    >(() =>
+      Promise.resolve({
+        ok: true,
+        checkedAt: '2026-08-27T08:00:00.000Z',
+        message: 'ok',
+      }),
+    )
+    const discover = vi.fn<(request?: ConnectorOperationRequest) => Promise<EstateSnapshot>>(() =>
+      Promise.resolve(baseSnapshot({ servicePrincipalId: '22222222-2222-4222-8222-222222222222' })),
+    )
+    const controller = new AbortController()
+    const composite = new EntraEnrichmentConnector(
+      {
+        ...baseConnector(),
+        testConnection,
+        discover,
+      },
+      undefined,
+      { enabled: false },
+    )
+
+    await composite.testConnection({ signal: controller.signal })
+    await composite.discover({ signal: controller.signal })
+
+    expect(testConnection).toHaveBeenCalledWith({ signal: controller.signal })
+    expect(discover).toHaveBeenCalledWith({ signal: controller.signal })
+  })
+
   describe('multi-source Entra enrichment', () => {
     const tenantA = '99999999-9999-4999-8999-999999999999'
     const tenantB = '88888888-8888-4888-8888-888888888888'
@@ -1289,6 +1324,41 @@ describe('composite enrichment connector', () => {
       expect(maximumActive).toBe(1)
       expect(completed).toEqual(['project-a', 'project-b'])
       expect(snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(2)
+    })
+
+    it('forwards caller cancellation to multi-source primary operations', async () => {
+      const testConnection = vi.fn<
+        (request?: ConnectorOperationRequest) => Promise<ConnectionTestResult>
+      >(() =>
+        Promise.resolve({
+          ok: true,
+          checkedAt: '2026-08-27T08:00:00.000Z',
+          message: 'ok',
+        }),
+      )
+      const discover = vi.fn<(request?: ConnectorOperationRequest) => Promise<EstateSnapshot>>(() =>
+        Promise.resolve(structuredClone(aggregateBase())),
+      )
+      const controller = new AbortController()
+      const connector = new MultiEntraEnrichmentConnector(
+        {
+          ...baseConnector(),
+          testConnection,
+          discover,
+        },
+        [],
+        {
+          enabled: false,
+          expectedSources,
+          credentialFactory: () => new Credential(),
+        },
+      )
+
+      await connector.testConnection({ signal: controller.signal })
+      await connector.discover({ signal: controller.signal })
+
+      expect(testConnection).toHaveBeenCalledWith({ signal: controller.signal })
+      expect(discover).toHaveBeenCalledWith({ signal: controller.signal })
     })
 
     it('retains an empty source without promoting it to complete Entra coverage', async () => {

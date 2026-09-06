@@ -253,6 +253,11 @@ export interface AgentConnector {
   ): Promise<{ remediation: Remediation; snapshot: EstateSnapshot }>
 }
 
+export type OperationAwareAgentConnector = Omit<AgentConnector, 'testConnection' | 'discover'> & {
+  testConnection(request?: ConnectorOperationRequest): Promise<ConnectionTestResult>
+  discover(request?: ConnectorOperationRequest): Promise<EstateSnapshot>
+}
+
 export interface RuntimeTelemetryRequest {
   tenantId: string
   agentId: string

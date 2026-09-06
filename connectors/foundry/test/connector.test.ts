@@ -894,6 +894,49 @@ describe('multi-Foundry connector', () => {
     },
   )
 
+  it('forwards caller cancellation to portfolio connection tests', async () => {
+    let requestSignal: AbortSignal | undefined
+    let markStarted = (): void => undefined
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    const connector = new MultiFoundryConnector(
+      {
+        estateTenantId: 'estate',
+        estateEnvironment: 'portfolio',
+        sources: [portfolio.sources[0]!],
+      },
+      () => new Credential(),
+      [],
+      {
+        aggregation: { maxDurationMs: 1_000 },
+        fetch: vi.fn<typeof fetch>(
+          (_input, init) =>
+            new Promise<Response>((_resolve, reject) => {
+              requestSignal = init?.signal as AbortSignal | undefined
+              markStarted()
+              requestSignal?.addEventListener(
+                'abort',
+                () => reject(new Error(String(requestSignal?.reason))),
+                {
+                  once: true,
+                },
+              )
+            }),
+        ),
+      },
+    )
+    const controller = new AbortController()
+
+    const pending = connector.testConnection({ signal: controller.signal })
+    await started
+    controller.abort()
+    await pending
+
+    expect(requestSignal?.aborted).toBe(true)
+    expect(requestSignal?.reason).toBe('cancelled')
+  })
+
   it('aggregates colliding provider ids with source provenance and estate isolation', async () => {
     vi.stubGlobal(
       'fetch',
@@ -964,37 +1007,32 @@ describe('multi-Foundry connector', () => {
         },
       ],
     }
-    const connector = new MultiFoundryConnector(
-      threeSourcePortfolio,
-      () => new Credential(),
-      [],
-      {
-        aggregation: {
-          maxConcurrency: 1,
-          maxDurationMs: 1_000,
-        },
-        fetch: vi.fn<typeof fetch>(async (input) => {
-          const url = new URL(input instanceof Request ? input.url : input.toString())
-          active += 1
-          maximumActive = Math.max(maximumActive, active)
-          await new Promise((resolve) => setTimeout(resolve, url.hostname.startsWith('a.') ? 5 : 1))
-          active -= 1
-          completed.push(url.hostname.slice(0, 1))
-          return Response.json({
-            data: [{ ...externalAgent, name: `${url.hostname.slice(0, 1)} agent` }],
-            has_more: false,
-          })
-        }),
+    const connector = new MultiFoundryConnector(threeSourcePortfolio, () => new Credential(), [], {
+      aggregation: {
+        maxConcurrency: 1,
+        maxDurationMs: 1_000,
       },
-    )
+      fetch: vi.fn<typeof fetch>(async (input) => {
+        const url = new URL(input instanceof Request ? input.url : input.toString())
+        active += 1
+        maximumActive = Math.max(maximumActive, active)
+        await new Promise((resolve) => setTimeout(resolve, url.hostname.startsWith('a.') ? 5 : 1))
+        active -= 1
+        completed.push(url.hostname.slice(0, 1))
+        return Response.json({
+          data: [{ ...externalAgent, name: `${url.hostname.slice(0, 1)} agent` }],
+          has_more: false,
+        })
+      }),
+    })
 
     const snapshot = await connector.discover()
 
     expect(maximumActive).toBe(1)
     expect(completed).toEqual(['a', 'b', 'c'])
-    expect(
-      snapshot.nodes.filter((node) => node.kind === 'agent').map((node) => node.name),
-    ).toEqual(['a agent', 'b agent', 'c agent'])
+    expect(snapshot.nodes.filter((node) => node.kind === 'agent').map((node) => node.name)).toEqual(
+      ['a agent', 'b agent', 'c agent'],
+    )
   })
 
   it('treats an empty configured source as explicit incomplete live discovery', async () => {

@@ -12,6 +12,7 @@ import {
   type ExactIdentityCorrelationDiagnostics,
   type LiveAggregationLimits,
   type LiveSourceDataState,
+  type OperationAwareAgentConnector,
 } from '@agent-sentinel/connector-sdk'
 import type { EstateSnapshot, Evidence, Remediation } from '@agent-sentinel/domain'
 import type { TokenCredential } from '@azure/core-auth'
@@ -392,7 +393,7 @@ export class EntraEnrichmentConnector implements AgentConnector {
   private diagnostics: ExactIdentityCorrelationDiagnostics | undefined
 
   constructor(
-    private readonly base: AgentConnector,
+    private readonly base: OperationAwareAgentConnector,
     entra?: EntraIdentityConnector,
     options: EntraEnrichmentConnectorOptions = {},
   ) {
@@ -426,7 +427,7 @@ export class EntraEnrichmentConnector implements AgentConnector {
 
   async testConnection(request: ConnectorOperationRequest = {}): Promise<ConnectionTestResult> {
     const [base, entra] = await Promise.all([
-      this.base.testConnection(),
+      this.base.testConnection(request),
       this.enabled && this.entra ? this.entra.testConnection(request) : Promise.resolve(undefined),
     ])
     this.baseHealth = base
@@ -442,7 +443,7 @@ export class EntraEnrichmentConnector implements AgentConnector {
   }
 
   async discover(request: ConnectorOperationRequest = {}): Promise<EstateSnapshot> {
-    const base = await this.base.discover()
+    const base = await this.base.discover(request)
     this.baseHealth = {
       ok: true,
       checkedAt: new Date().toISOString(),
@@ -651,7 +652,7 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
   }
 
   constructor(
-    private readonly base: AgentConnector,
+    private readonly base: OperationAwareAgentConnector,
     configuredSources: readonly EntraSourceConfig[],
     options: MultiEntraEnrichmentOptions,
   ) {
@@ -718,10 +719,7 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
             : boundaryMatches
               ? 'degraded'
               : 'authorization-required',
-        dataState:
-          !this.enabled || connector === undefined
-            ? ('unsupported' as const)
-            : undefined,
+        dataState: !this.enabled || connector === undefined ? ('unsupported' as const) : undefined,
         checkedAt: undefined,
         authoritativeComplete: false,
         diagnostics: undefined,
@@ -758,7 +756,7 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
   }
 
   async testConnection(request: ConnectorOperationRequest = {}): Promise<ConnectionTestResult> {
-    const base = await this.base.testConnection()
+    const base = await this.base.testConnection(request)
     this.baseHealth = base
     const aggregation = await aggregateLiveSources<MultiEntraSourceState, ConnectionTestResult>({
       sources: this.sources,
@@ -818,7 +816,7 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
   }
 
   async discover(request: ConnectorOperationRequest = {}): Promise<EstateSnapshot> {
-    let snapshot = await this.base.discover()
+    let snapshot = await this.base.discover(request)
     this.baseHealth = {
       ok: true,
       checkedAt: new Date().toISOString(),
@@ -852,7 +850,11 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
         const measured = entraReadiness(source.connector)
         return {
           state:
-            records === 0 ? ('empty' as const) : measured.readiness === 'ready' ? 'complete' : 'partial',
+            records === 0
+              ? ('empty' as const)
+              : measured.readiness === 'ready'
+                ? 'complete'
+                : 'partial',
           value: identities,
           pages: 1,
           records,
@@ -873,7 +875,11 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
         source.diagnostics = undefined
         continue
       }
-      if (outcome.state === 'unsupported' || outcome.value === undefined || source.connector === undefined) {
+      if (
+        outcome.state === 'unsupported' ||
+        outcome.value === undefined ||
+        source.connector === undefined
+      ) {
         source.authoritativeComplete = false
         source.diagnostics = undefined
         source.reason ??= outcome.reason
@@ -901,8 +907,7 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
         }
         source.authoritativeComplete = outcome.state === 'complete'
         const measured = entraReadiness(source.connector)
-        source.readiness =
-          outcome.state === 'complete' ? measured.readiness : 'degraded'
+        source.readiness = outcome.state === 'complete' ? measured.readiness : 'degraded'
         source.reason =
           outcome.state === 'empty'
             ? 'empty'
@@ -1052,7 +1057,7 @@ export interface OptionalEntraEnrichmentOptions {
 }
 
 export function createOptionalEntraEnrichmentConnector(
-  base: AgentConnector,
+  base: OperationAwareAgentConnector,
   environment: NodeJS.ProcessEnv = process.env,
   options: OptionalEntraEnrichmentOptions = {},
 ): AgentConnector {

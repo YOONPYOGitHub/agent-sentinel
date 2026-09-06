@@ -1466,11 +1466,12 @@ export class MultiFoundryConnector implements AgentConnector {
     }))
   }
 
-  async testConnection() {
+  async testConnection(request: FoundryDiscoveryRequest = {}) {
+    const operationSignal = request.signal ?? this.defaultSignal
     const aggregation = await aggregateLiveSources<FoundrySourceState, ConnectionTestResult>({
       sources: this.sources,
       limits: this.aggregationLimits,
-      ...(this.defaultSignal === undefined ? {} : { signal: this.defaultSignal }),
+      ...(operationSignal === undefined ? {} : { signal: operationSignal }),
       execute: async (source, context) => {
         const result = await source.connector.testConnection({ signal: context.signal })
         const measurement = source.connector.getLastDiscoveryMeasurement()
@@ -1510,10 +1511,9 @@ export class MultiFoundryConnector implements AgentConnector {
     return {
       ok: aggregation.complete,
       checkedAt: new Date().toISOString(),
-      message:
-        aggregation.complete
-          ? `All ${ready} configured Foundry sources are reachable.`
-          : `${ready} of ${aggregation.outcomes.length} configured Foundry sources are reachable.`,
+      message: aggregation.complete
+        ? `All ${ready} configured Foundry sources are reachable.`
+        : `${ready} of ${aggregation.outcomes.length} configured Foundry sources are reachable.`,
     }
   }
 
