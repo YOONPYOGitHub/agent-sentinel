@@ -76,6 +76,10 @@ export type AzureMonitorCredentialFactory = (
   source: AzureMonitorOtelSourceConfig,
 ) => TokenCredential
 export type AzureMonitorOtelRuntimeMode = 'mock' | 'live'
+export interface AzureMonitorOtelRuntimeActivation {
+  active: boolean
+  sources: AzureMonitorOtelSourceConfig[]
+}
 
 const azureMonitorOtelSourcesConfigSchema = z
   .array(azureMonitorOtelSourceConfigSchema)
@@ -707,16 +711,27 @@ export function isAzureMonitorOtelRuntimeActive(
   return mode === 'live' && sources.length > 0
 }
 
+export function resolveAzureMonitorOtelRuntimeActivation(
+  environment: NodeJS.ProcessEnv = process.env,
+  mode: AzureMonitorOtelRuntimeMode = 'live',
+): AzureMonitorOtelRuntimeActivation {
+  if (mode !== 'live') return { active: false, sources: [] }
+  const sources = parseAzureMonitorOtelSources(environment)
+  return {
+    active: isAzureMonitorOtelRuntimeActive(mode, sources),
+    sources,
+  }
+}
+
 export function createAzureMonitorOtelConnector(
   environment: NodeJS.ProcessEnv = process.env,
   credential?: TokenCredential,
   mode: AzureMonitorOtelRuntimeMode = 'live',
 ): MultiAzureMonitorOtelConnector | undefined {
-  if (mode !== 'live') return undefined
-  const sources = parseAzureMonitorOtelSources(environment)
-  if (!isAzureMonitorOtelRuntimeActive(mode, sources)) return undefined
+  const activation = resolveAzureMonitorOtelRuntimeActivation(environment, mode)
+  if (!activation.active) return undefined
   return new MultiAzureMonitorOtelConnector(
-    sources,
+    activation.sources,
     (source) => credential ?? createTelemetrySourceCredential(source),
   )
 }

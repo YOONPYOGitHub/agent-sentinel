@@ -53,10 +53,13 @@ describe('deployment Azure Monitor OTel source projection', () => {
     ])
   })
 
-  it('enables configured live sources from the runtime activation predicate only', () => {
+  it('projects configured live JSON sources without release-flag gating', () => {
     const [source] = buildDeploymentConnectorSources(configuredEnvironment, registry, 'live')
 
     expect(source).toMatchObject({
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
       sourceId: 'azure-monitor-otel-primary',
       connectorType: 'azure-monitor-otel',
       enabled: true,
@@ -69,29 +72,90 @@ describe('deployment Azure Monitor OTel source projection', () => {
     })
   })
 
-  it('projects configured sources as disabled in mock mode without synthetic readiness', () => {
-    const [source] = buildDeploymentConnectorSources(configuredEnvironment, registry, 'mock')
+  it('projects the complete legacy tuple when sources JSON is empty', () => {
+    const [source] = buildDeploymentConnectorSources(
+      {
+        AZURE_MONITOR_SOURCES_JSON: '   ',
+        AZURE_MONITOR_WORKSPACE_ID: '11111111-1111-4111-8111-111111111111',
+        AZURE_MONITOR_TENANT_ID: estate.tenantId,
+        AZURE_MONITOR_ENVIRONMENT: estate.environment,
+        AZURE_MONITOR_BASELINE_WINDOW_HOURS: '48',
+        AZURE_MONITOR_OBSERVED_WINDOW_HOURS: '12',
+        AZURE_MONITOR_REQUEST_TIMEOUT_MS: '20000',
+      },
+      registry,
+      'live',
+    )
 
     expect(source).toMatchObject({
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      sourceId: 'azure-monitor-otel-primary',
       connectorType: 'azure-monitor-otel',
-      enabled: false,
+      displayName: 'Primary Foundry project',
+      enabled: true,
+      origin: 'deployment',
       testStatus: { status: 'not-tested' },
+      configuration: {
+        type: 'azure-monitor-otel',
+        workspaceId: '11111111-1111-4111-8111-111111111111',
+        baselineWindowHours: 48,
+        observedWindowHours: 12,
+        requestTimeoutMs: 20_000,
+      },
     })
   })
 
-  it('omits empty source configuration and rejects invalid source configuration', () => {
+  it('omits empty and partial legacy tuples', () => {
+    expect(buildDeploymentConnectorSources({}, registry, 'live')).toEqual([])
     expect(
-      buildDeploymentConnectorSources({ AZURE_MONITOR_SOURCES_JSON: '   ' }, registry, 'live'),
+      buildDeploymentConnectorSources(
+        {
+          AZURE_MONITOR_SOURCES_JSON: '',
+          AZURE_MONITOR_WORKSPACE_ID: '11111111-1111-4111-8111-111111111111',
+          AZURE_MONITOR_TENANT_ID: estate.tenantId,
+        },
+        registry,
+        'live',
+      ),
     ).toEqual([])
+  })
+
+  it('does not parse or project Azure Monitor configuration in mock mode', () => {
+    expect(buildDeploymentConnectorSources(configuredEnvironment, registry, 'mock')).toEqual([])
+    expect(
+      buildDeploymentConnectorSources({ AZURE_MONITOR_SOURCES_JSON: '{invalid' }, registry, 'mock'),
+    ).toEqual([])
+  })
+
+  it('rejects invalid JSON in live mode', () => {
     expect(() =>
       buildDeploymentConnectorSources({ AZURE_MONITOR_SOURCES_JSON: '[]' }, registry, 'live'),
     ).toThrow()
     expect(() =>
-      buildDeploymentConnectorSources(
-        { AZURE_MONITOR_SOURCES_JSON: '{invalid' },
-        registry,
-        'live',
-      ),
+      buildDeploymentConnectorSources({ AZURE_MONITOR_SOURCES_JSON: '{invalid' }, registry, 'live'),
     ).toThrow('AZURE_MONITOR_SOURCES_JSON must be valid JSON')
+  })
+
+  it('gives non-empty JSON precedence over the complete legacy tuple', () => {
+    const sources = buildDeploymentConnectorSources(
+      {
+        ...configuredEnvironment,
+        AZURE_MONITOR_WORKSPACE_ID: '22222222-2222-4222-8222-222222222222',
+        AZURE_MONITOR_TENANT_ID: estate.tenantId,
+        AZURE_MONITOR_ENVIRONMENT: estate.environment,
+      },
+      registry,
+      'live',
+    )
+
+    expect(sources).toHaveLength(1)
+    expect(sources[0]).toMatchObject({
+      sourceId: 'azure-monitor-otel-primary',
+      configuration: {
+        workspaceId: '11111111-1111-4111-8111-111111111111',
+      },
+    })
   })
 })

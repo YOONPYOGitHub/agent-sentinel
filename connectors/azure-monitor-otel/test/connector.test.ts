@@ -12,6 +12,7 @@ import {
   isAzureMonitorOtelRuntimeActive,
   mapAzureMonitorRows,
   parseAzureMonitorOtelSources,
+  resolveAzureMonitorOtelRuntimeActivation,
 } from '../src/index.js'
 
 const columns = [
@@ -260,7 +261,7 @@ describe('Azure Monitor OTel connector', () => {
     expect(reversed.observedEvidenceId).toBe(first.observedEvidenceId)
   })
 
-  it('activates only for complete injected configuration', () => {
+  it('activates a complete legacy source in live mode and ignores empty or partial tuples', () => {
     expect(createAzureMonitorOtelConnector({}, new Credential())).toBeUndefined()
     expect(
       createAzureMonitorOtelConnector(
@@ -278,6 +279,76 @@ describe('Azure Monitor OTel connector', () => {
         new Credential(),
       ),
     ).toBeInstanceOf(MultiAzureMonitorOtelConnector)
+    expect(
+      resolveAzureMonitorOtelRuntimeActivation(
+        {
+          AZURE_MONITOR_SOURCES_JSON: '   ',
+          AZURE_MONITOR_WORKSPACE_ID: config.workspaceId,
+          AZURE_MONITOR_TENANT_ID: config.tenantId,
+          AZURE_MONITOR_ENVIRONMENT: config.environment,
+        },
+        'live',
+      ),
+    ).toMatchObject({
+      active: true,
+      sources: [
+        {
+          id: 'primary',
+          name: 'Primary Foundry project',
+          workspaceId: config.workspaceId,
+          tenantId: config.tenantId,
+          environment: config.environment,
+          baselineWindowHours: 168,
+          observedWindowHours: 24,
+          requestTimeoutMs: 15_000,
+        },
+      ],
+    })
+    expect(
+      resolveAzureMonitorOtelRuntimeActivation(
+        {
+          AZURE_MONITOR_WORKSPACE_ID: config.workspaceId,
+          AZURE_MONITOR_TENANT_ID: '   ',
+        },
+        'live',
+      ),
+    ).toEqual({ active: false, sources: [] })
+    expect(resolveAzureMonitorOtelRuntimeActivation({}, 'live')).toEqual({
+      active: false,
+      sources: [],
+    })
+  })
+
+  it('gives non-empty JSON precedence over the legacy tuple and release flags', () => {
+    const activation = resolveAzureMonitorOtelRuntimeActivation(
+      {
+        AZURE_MONITOR_CONNECTOR_ENABLED: 'false',
+        AZURE_MONITOR_OTEL_CONNECTOR_ENABLED: 'false',
+        AZURE_MONITOR_SOURCES_JSON: JSON.stringify([
+          {
+            id: 'project-a',
+            name: 'Project A',
+            workspaceId: config.workspaceId,
+            tenantId: config.tenantId,
+            environment: config.environment,
+          },
+        ]),
+        AZURE_MONITOR_WORKSPACE_ID: 'not-a-workspace-guid',
+        AZURE_MONITOR_TENANT_ID: 'wrong-tenant',
+        AZURE_MONITOR_ENVIRONMENT: 'wrong-environment',
+      },
+      'live',
+    )
+
+    expect(activation.active).toBe(true)
+    expect(activation.sources).toMatchObject([
+      {
+        id: 'project-a',
+        workspaceId: config.workspaceId,
+        tenantId: config.tenantId,
+        environment: config.environment,
+      },
+    ])
     expect(
       createAzureMonitorOtelConnector(
         {
@@ -313,6 +384,9 @@ describe('Azure Monitor OTel connector', () => {
     expect(isAzureMonitorOtelRuntimeActive('live', sources)).toBe(true)
     expect(isAzureMonitorOtelRuntimeActive('mock', sources)).toBe(false)
     expect(isAzureMonitorOtelRuntimeActive('live', [])).toBe(false)
+    expect(
+      resolveAzureMonitorOtelRuntimeActivation({ AZURE_MONITOR_SOURCES_JSON: '{invalid' }, 'mock'),
+    ).toEqual({ active: false, sources: [] })
     expect(
       createAzureMonitorOtelConnector(sourceEnvironment, new Credential(), 'mock'),
     ).toBeUndefined()

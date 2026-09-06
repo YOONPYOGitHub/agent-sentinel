@@ -111,6 +111,11 @@ environment variable. The `azureMonitorConnectorEnabled` Bicep parameter gates
 whether deployment configuration is injected; runtime activation is derived
 from data mode and the validated source configuration.
 
+Deployment-source projection uses the same activation resolution as the runtime:
+live mode projects validated JSON sources or the complete legacy tuple, while
+mock mode does not parse or project Azure Monitor configuration. Projected
+records remain read-only and `not-tested`; projection is not readiness evidence.
+
 Optional bounds are `AZURE_MONITOR_BASELINE_WINDOW_HOURS` (default 168),
 `AZURE_MONITOR_OBSERVED_WINDOW_HOURS` (default 24), and
 `AZURE_MONITOR_REQUEST_TIMEOUT_MS` (default 15000). Authentication uses

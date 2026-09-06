@@ -3,8 +3,7 @@ import { createHash } from 'node:crypto'
 import { parseAgent365Config } from '@agent-sentinel/agent365-connector'
 import { parseAzureResourceGraphConfig } from '@agent-sentinel/azure-resource-graph-connector'
 import {
-  isAzureMonitorOtelRuntimeActive,
-  parseAzureMonitorOtelSources,
+  resolveAzureMonitorOtelRuntimeActivation,
   type AzureMonitorOtelRuntimeMode,
 } from '@agent-sentinel/azure-monitor-otel-connector'
 import { parseDefenderCloudAppsConfig } from '@agent-sentinel/defender-cloud-apps-connector'
@@ -271,22 +270,20 @@ export function buildDeploymentConnectorSources(
       }),
     )
   }
-  if (configured(environment, 'AZURE_MONITOR_SOURCES_JSON')) {
-    const sources = parseAzureMonitorOtelSources(environment)
-    add(
-      'azure-monitor-otel',
-      isAzureMonitorOtelRuntimeActive(dataMode, sources),
-      sources,
-      (source) => ({
-        type: 'azure-monitor-otel',
-        workspaceId: source.workspaceId,
-        logsBaseUrl: 'https://api.loganalytics.io',
-        baselineWindowHours: source.baselineWindowHours,
-        observedWindowHours: source.observedWindowHours,
-        requestTimeoutMs: source.requestTimeoutMs,
-      }),
-    )
-  }
+  const azureMonitorActivation = resolveAzureMonitorOtelRuntimeActivation(environment, dataMode)
+  add(
+    'azure-monitor-otel',
+    azureMonitorActivation.active,
+    azureMonitorActivation.sources,
+    (source) => ({
+      type: 'azure-monitor-otel',
+      workspaceId: source.workspaceId,
+      logsBaseUrl: 'https://api.loganalytics.io',
+      baselineWindowHours: source.baselineWindowHours,
+      observedWindowHours: source.observedWindowHours,
+      requestTimeoutMs: source.requestTimeoutMs,
+    }),
+  )
 
   const keys = new Set<string>()
   for (const definition of definitions) {
