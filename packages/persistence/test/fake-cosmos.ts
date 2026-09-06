@@ -80,7 +80,9 @@ export class FakeCosmosStore {
   }
 
   private partitionValue(document: StoredDocument): string | undefined {
-    return document.estateId ?? document.tenantId
+    return document.documentType.startsWith('connector-source')
+      ? document.estateId
+      : (document.tenantId ?? document.estateId)
   }
 
   private nextEtag(): string {
@@ -131,7 +133,9 @@ export class FakeCosmosStore {
   }
 
   private upsert(resource: StoredDocument) {
-    const key = this.key(resource.tenantId, resource.id)
+    const partitionKey = this.partitionValue(resource)
+    if (!partitionKey) return Promise.reject(new Error('Partition key is required.'))
+    const key = this.key(partitionKey, resource.id)
     const stored = { ...clone(resource), _etag: this.nextEtag() }
     this.documents.set(key, stored)
     return Promise.resolve({ resource: clone(stored), statusCode: 200 })
