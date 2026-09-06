@@ -5,13 +5,17 @@ import { agentSentinelStateSchema } from '@agent-sentinel/domain'
 import {
   ManifestIngestionSourceLimitError,
   MAX_MANIFEST_SOURCES,
+  runtimeObservationWindowsSchema,
 } from '@agent-sentinel/connector-sdk'
 import type { ManifestIngestionRepository } from '@agent-sentinel/connector-sdk'
 import { MockAgentConnector } from '@agent-sentinel/mock-connector'
 
 import { createApp } from '../src/app.js'
 import { DemoService } from '../src/demo-service.js'
-import { createRuntimeTelemetryFixture } from './runtime-telemetry-fixture.js'
+import {
+  createRuntimeTelemetryFixture,
+  createSyntheticCanaryTelemetryFixture,
+} from './runtime-telemetry-fixture.js'
 
 const apps: Awaited<ReturnType<typeof createApp>>[] = []
 
@@ -195,6 +199,22 @@ describe('live product read model', () => {
       enrichedAgentCount: 1,
       evidenceCount: 2,
       failures: [],
+      sources: [
+        {
+          estateId: 'default',
+          estateTenantId: snapshot.tenantId,
+          estateEnvironment: snapshot.environment,
+          sourceConnectorId: 'primary',
+          sourceTenantId: snapshot.tenantId,
+          sourceEnvironment: snapshot.environment,
+          sourceAgentId: 'provider-agent-id',
+          agentId: agent.id,
+          state: 'complete',
+          windowIds: ['baseline-window', 'observed-window'],
+          evidenceIds: ['otel-baseline-evidence', 'otel-observed-evidence'],
+          providerResourceIds: ['/subscriptions/example/resource'],
+        },
+      ],
     })
     expect(state.snapshot.evidence).toEqual(
       expect.arrayContaining([
@@ -248,8 +268,201 @@ describe('live product read model', () => {
       enrichedAgentCount: 0,
       evidenceCount: 0,
       failures: [{ agentId: agent.id, reason: 'query-failed' }],
+      sources: [
+        {
+          estateId: 'default',
+          estateTenantId: snapshot.tenantId,
+          estateEnvironment: snapshot.environment,
+          sourceConnectorId: 'primary',
+          sourceTenantId: snapshot.tenantId,
+          sourceEnvironment: snapshot.environment,
+          sourceAgentId: 'provider-agent-id',
+          agentId: agent.id,
+          state: 'failed',
+          evidenceIds: [],
+          windowIds: [],
+          observationIds: [],
+          reason: 'query-failed',
+        },
+      ],
     })
     expect(response.body).not.toContain('private provider detail')
+  })
+
+  it('retains empty telemetry as empty without creating live evidence', async () => {
+    const snapshot = await new MockAgentConnector().discover()
+    configureFoundryFor(snapshot)
+    const agent = snapshot.nodes.find((node) => node.kind === 'agent')
+    if (agent === undefined) throw new Error('Expected an agent fixture.')
+    Object.assign(agent.metadata, {
+      sourceConnectorId: 'primary',
+      sourceTenantId: snapshot.tenantId,
+      sourceObjectId: 'provider-agent-id',
+      sourceEnvironment: snapshot.environment,
+    })
+    const { repository } = snapshotRepository(snapshot)
+    const fixture = createRuntimeTelemetryFixture(snapshot.environment)
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled' },
+      {
+        dataMode: 'live',
+        snapshotRepository: repository,
+        runtimeTelemetryConnector: {
+          id: fixture.id,
+          async readObservationWindows(request, options) {
+            const windows = await fixture.readObservationWindows(request, options)
+            return runtimeObservationWindowsSchema.parse({
+              ...windows,
+              baseline: { ...windows.baseline, observations: [] },
+              observed: { ...windows.observed, observations: [] },
+            })
+          },
+        },
+      },
+    )
+    apps.push(app)
+
+    const response = await app.inject({ method: 'GET', url: '/api/demo/state' })
+    const state = agentSentinelStateSchema.parse(response.json())
+
+    expect(response.statusCode).toBe(200)
+    expect(state.runtimeEvidence).toMatchObject({
+      status: 'unavailable',
+      queriedAgentCount: 1,
+      enrichedAgentCount: 0,
+      evidenceCount: 0,
+      failures: [],
+      sources: [
+        {
+          sourceConnectorId: 'primary',
+          agentId: agent.id,
+          state: 'empty',
+          windowIds: ['baseline-window', 'observed-window'],
+          evidenceIds: [],
+          observationIds: [],
+          reason: 'empty',
+        },
+      ],
+    })
+    expect(state.snapshot.evidence).toEqual(snapshot.evidence)
+  })
+
+  it('retains stale telemetry as stale without reporting complete live coverage', async () => {
+    const snapshot = await new MockAgentConnector().discover()
+    configureFoundryFor(snapshot)
+    const agent = snapshot.nodes.find((node) => node.kind === 'agent')
+    if (agent === undefined) throw new Error('Expected an agent fixture.')
+    Object.assign(agent.metadata, {
+      sourceConnectorId: 'primary',
+      sourceTenantId: snapshot.tenantId,
+      sourceObjectId: 'provider-agent-id',
+      sourceEnvironment: snapshot.environment,
+    })
+    const { repository } = snapshotRepository(snapshot)
+    const fixture = createRuntimeTelemetryFixture(snapshot.environment)
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled' },
+      {
+        dataMode: 'live',
+        snapshotRepository: repository,
+        runtimeTelemetryConnector: {
+          id: fixture.id,
+          async readObservationWindows(request, options) {
+            const windows = await fixture.readObservationWindows(request, options)
+            const staleQuality = {
+              status: 'degraded' as const,
+              classification: 'live' as const,
+              caveats: ['stale' as const],
+              recordsReceived: 60,
+              recordsAccepted: 60,
+              duplicatesRemoved: 0,
+              pagesProcessed: 1,
+            }
+            return runtimeObservationWindowsSchema.parse({
+              ...windows,
+              baseline: { ...windows.baseline, otelQuality: staleQuality },
+              observed: { ...windows.observed, otelQuality: staleQuality },
+            })
+          },
+        },
+      },
+    )
+    apps.push(app)
+
+    const response = await app.inject({ method: 'GET', url: '/api/demo/state' })
+    const state = agentSentinelStateSchema.parse(response.json())
+
+    expect(response.statusCode).toBe(200)
+    expect(state.runtimeEvidence).toMatchObject({
+      status: 'partial',
+      queriedAgentCount: 1,
+      sources: [
+        {
+          sourceConnectorId: 'primary',
+          agentId: agent.id,
+          state: 'stale',
+          reason: 'stale',
+        },
+      ],
+    })
+    expect(
+      state.snapshot.evidence.filter((evidence) => evidence.id.startsWith('otel-')),
+    ).toEqual([
+      expect.objectContaining({ freshness: 'stale', evidenceTypes: ['unknown'] }),
+      expect.objectContaining({ freshness: 'stale', evidenceTypes: ['unknown'] }),
+    ])
+  })
+
+  it('keeps synthetic telemetry explicit and never counts it as live-ready', async () => {
+    const snapshot = await new MockAgentConnector().discover()
+    configureFoundryFor(snapshot)
+    const agent = snapshot.nodes.find((node) => node.kind === 'agent')
+    if (agent === undefined) throw new Error('Expected an agent fixture.')
+    Object.assign(agent.metadata, {
+      sourceConnectorId: 'primary',
+      sourceTenantId: snapshot.tenantId,
+      sourceObjectId: 'provider-agent-id',
+      sourceEnvironment: snapshot.environment,
+    })
+    const { repository } = snapshotRepository(snapshot)
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled' },
+      {
+        dataMode: 'live',
+        snapshotRepository: repository,
+        runtimeTelemetryConnector: createSyntheticCanaryTelemetryFixture(snapshot.environment),
+      },
+    )
+    apps.push(app)
+
+    const response = await app.inject({ method: 'GET', url: '/api/demo/state' })
+    const state = agentSentinelStateSchema.parse(response.json())
+
+    expect(response.statusCode).toBe(200)
+    expect(state.runtimeEvidence).toMatchObject({
+      status: 'unavailable',
+      queriedAgentCount: 1,
+      sources: [
+        {
+          sourceConnectorId: 'primary',
+          agentId: agent.id,
+          state: 'unsupported',
+          reason: 'synthetic-only',
+        },
+      ],
+    })
+    const projectedEvidence = state.snapshot.evidence.filter((evidence) =>
+      evidence.id.startsWith('otel-'),
+    )
+    expect(projectedEvidence).toHaveLength(2)
+    expect(
+      projectedEvidence.every((evidence) =>
+        evidence.evidenceTypes.includes('synthetic_validation'),
+      ),
+    ).toBe(true)
   })
 
   it('returns explicit unavailability instead of rediscovering or falling back to mock', async () => {

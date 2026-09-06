@@ -217,6 +217,26 @@ describe('runtime evidence projection', () => {
     })
   })
 
+  it('adds exact estate identity only when the caller supplies it', () => {
+    const estate = snapshot()
+    expect(
+      runtimeTelemetryRequestForAgent(estate, estate.nodes[0]!, {
+        id: 'estate-a',
+        tenantId: estate.tenantId,
+        environment: estate.environment,
+      }),
+    ).toEqual({
+      estateId: 'estate-a',
+      estateEnvironment: 'portfolio',
+      tenantId: 'tenant-a',
+      agentId: 'agent-a',
+      sourceConnectorId: 'primary',
+      sourceTenantId: 'source-tenant',
+      sourceAgentId: 'provider-agent-a',
+      sourceEnvironment: 'production',
+    })
+  })
+
   it('attaches measured evidence only to existing exact agent, tool, and edge matches', () => {
     const original = snapshot()
     const result = projectRuntimeEvidence(original, normalizedWindows())

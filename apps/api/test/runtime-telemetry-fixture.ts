@@ -35,9 +35,9 @@ function observations(
       ...(kind === 'observed' && index <= 1 ? { errorCode: 'timeout' } : {}),
       toolCallNames: kind === 'baseline' ? ['knowledge_search'] : ['knowledge_search', 'answer'],
       otelProvenance: {
-        estateId: `estate-${request.tenantId}`,
+        estateId: request.estateId ?? `estate-${request.tenantId}`,
         estateTenantId: request.tenantId,
-        estateEnvironment: environment,
+        estateEnvironment: request.estateEnvironment ?? environment,
         sourceConnectorId: request.sourceConnectorId ?? 'primary',
         sourceTenantId: request.sourceTenantId ?? request.tenantId,
         sourceEnvironment: request.sourceEnvironment ?? environment,
@@ -118,8 +118,10 @@ export function createFailingRuntimeTelemetryFixture(): RuntimeTelemetryConnecto
   }
 }
 
-export function createSyntheticCanaryTelemetryFixture(): RuntimeTelemetryConnector {
-  const connector = createRuntimeTelemetryFixture()
+export function createSyntheticCanaryTelemetryFixture(
+  environment = 'production',
+): RuntimeTelemetryConnector {
+  const connector = createRuntimeTelemetryFixture(environment)
   return {
     id: 'azure-monitor-otel',
     async readObservationWindows(request): Promise<RuntimeObservationWindows> {
@@ -131,6 +133,10 @@ export function createSyntheticCanaryTelemetryFixture(): RuntimeTelemetryConnect
           observations: windows.baseline.observations.map((observation) => ({
             ...observation,
             synthetic: true,
+            otelProvenance:
+              observation.otelProvenance === undefined
+                ? undefined
+                : { ...observation.otelProvenance, classification: 'synthetic' as const },
           })),
         },
         observed: {
@@ -138,6 +144,10 @@ export function createSyntheticCanaryTelemetryFixture(): RuntimeTelemetryConnect
           observations: windows.observed.observations.map((observation) => ({
             ...observation,
             synthetic: true,
+            otelProvenance:
+              observation.otelProvenance === undefined
+                ? undefined
+                : { ...observation.otelProvenance, classification: 'synthetic' as const },
           })),
         },
       })

@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto'
 
 import { runtimeObservationWindowsSchema } from '@agent-sentinel/connector-sdk'
 import type {
+  ConnectorOperationRequest,
   ConnectorHealthReport,
+  LiveSourceDataState,
   RuntimeTelemetryRequest,
   RuntimeObservationWindows,
   RuntimeTelemetryConnector,
@@ -179,6 +181,13 @@ export type AzureMonitorLogsQueryResponse = z.infer<typeof azureMonitorLogsQuery
 
 export class AzureMonitorOtelConnectorError extends Error {
   override readonly name: string = 'AzureMonitorOtelConnectorError'
+
+  constructor(
+    message: string,
+    readonly reason: 'cancelled' | 'timeout' | 'query-failed' = 'query-failed',
+  ) {
+    super(message)
+  }
 }
 
 export class AzureMonitorOtelConfigurationError extends AzureMonitorOtelConnectorError {
@@ -434,10 +443,13 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
     this.config = azureMonitorOtelConfigSchema.parse(config)
   }
 
-  async readObservationWindows(request: {
-    tenantId: string
-    agentId: string
-  }): Promise<RuntimeObservationWindows> {
+  async readObservationWindows(
+    request: {
+      tenantId: string
+      agentId: string
+    },
+    options: ConnectorOperationRequest = {},
+  ): Promise<RuntimeObservationWindows> {
     const binding = runtimeTelemetryRequestSchema.parse(request)
     if (binding.tenantId !== this.config.tenantId) {
       throw new AzureMonitorOtelConnectorError(
@@ -457,7 +469,31 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
     const baselineStart = new Date(
       new Date(baselineEnd).getTime() - this.config.baselineWindowHours * 60 * 60 * 1000,
     ).toISOString()
-    const token = await this.credential.getToken(LOGS_SCOPE)
+    const timeoutSignal = AbortSignal.timeout(this.config.requestTimeoutMs)
+    const signal =
+      options.signal === undefined
+        ? timeoutSignal
+        : AbortSignal.any([options.signal, timeoutSignal])
+    let token
+    try {
+      token = await this.credential.getToken(LOGS_SCOPE, { abortSignal: signal })
+    } catch {
+      if (options.signal?.aborted === true) {
+        throw new AzureMonitorOtelConnectorError(
+          'Azure Monitor Logs query was cancelled.',
+          'cancelled',
+        )
+      }
+      if (timeoutSignal.aborted) {
+        throw new AzureMonitorOtelConnectorError(
+          'Azure Monitor Logs credential acquisition timed out.',
+          'timeout',
+        )
+      }
+      throw new AzureMonitorOtelConnectorError(
+        'Azure credential failed to return an Azure Monitor Logs access token.',
+      )
+    }
     if (token === null) {
       throw new AzureMonitorOtelConnectorError(
         'Azure credential did not return an Azure Monitor Logs access token.',
@@ -465,28 +501,56 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
     }
 
     const url = new URL(`/v1/workspaces/${this.config.workspaceId}/query`, LOGS_ORIGIN)
-    const response = await this.fetcher(url, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        Authorization: 'Bearer ' + token.token,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        query: buildAzureMonitorOtelQuery({
-          tenantId: binding.tenantId,
-          agentId: binding.agentId,
-          environment: this.config.environment,
+    let response: Response
+    try {
+      response = await this.fetcher(url, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Authorization: 'Bearer ' + token.token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: buildAzureMonitorOtelQuery({
+            tenantId: binding.tenantId,
+            agentId: binding.agentId,
+            environment: this.config.environment,
+          }),
+          timespan: `${baselineStart}/${observedEnd}`,
         }),
-        timespan: `${baselineStart}/${observedEnd}`,
-      }),
-      signal: AbortSignal.timeout(this.config.requestTimeoutMs),
-    })
+        signal,
+      })
+    } catch {
+      if (options.signal?.aborted === true) {
+        throw new AzureMonitorOtelConnectorError(
+          'Azure Monitor Logs query was cancelled.',
+          'cancelled',
+        )
+      }
+      if (timeoutSignal.aborted) {
+        throw new AzureMonitorOtelConnectorError('Azure Monitor Logs query timed out.', 'timeout')
+      }
+      throw new AzureMonitorOtelConnectorError(
+        'Azure Monitor Logs query failed before a response was received.',
+      )
+    }
 
     let body: unknown
     try {
       body = await response.json()
     } catch {
+      if (options.signal?.aborted === true) {
+        throw new AzureMonitorOtelConnectorError(
+          'Azure Monitor Logs query was cancelled.',
+          'cancelled',
+        )
+      }
+      if (timeoutSignal.aborted) {
+        throw new AzureMonitorOtelConnectorError(
+          'Azure Monitor Logs response timed out.',
+          'timeout',
+        )
+      }
       throw new AzureMonitorOtelConnectorError('Azure Monitor Logs returned a non-JSON response.')
     }
     if (!response.ok) throw errorFromBody(body, response.status)
@@ -540,8 +604,24 @@ interface TelemetrySourceState {
   config: AzureMonitorOtelSourceConfig
   connector: AzureMonitorOtelConnector
   readiness: 'ready' | 'degraded' | 'unavailable'
+  dataState: LiveSourceDataState | undefined
   checkedAt: string | undefined
   reason: string | undefined
+}
+
+function runtimeDataState(windows: RuntimeObservationWindows): LiveSourceDataState {
+  const observations = [...windows.baseline.observations, ...windows.observed.observations]
+  if (observations.length === 0) return 'empty'
+  const quality = [windows.baseline.otelQuality, windows.observed.otelQuality].filter(
+    (item) => item !== undefined,
+  )
+  if (quality.some((item) => item.caveats.includes('stale'))) return 'stale'
+  if (quality.some((item) => item.status !== 'available')) return 'partial'
+  const classifications = new Set(
+    observations.map((observation) => (observation.synthetic ? 'synthetic' : 'live')),
+  )
+  if (!classifications.has('live')) return 'unsupported'
+  return classifications.size === 1 ? 'complete' : 'partial'
 }
 
 function rebindWindows(
@@ -569,6 +649,21 @@ function rebindWindows(
     baselineEvidenceId: boundedId('evidence', windows.baselineEvidenceId),
     observedEvidenceId: boundedId('evidence', windows.observedEvidenceId),
     queriedAt: windows.queriedAt,
+    ...(request.estateId === undefined || request.estateEnvironment === undefined
+      ? {}
+      : {
+          provenance: {
+            estateId: request.estateId,
+            estateTenantId: request.tenantId,
+            estateEnvironment: request.estateEnvironment,
+            sourceConnectorId: source.id,
+            sourceTenantId: source.tenantId,
+            sourceEnvironment: source.environment,
+            provider: 'azure-monitor-otel',
+            providerResourceId: source.workspaceId,
+            providerAgentId: request.sourceAgentId ?? request.agentId,
+          },
+        }),
   })
 }
 
@@ -599,6 +694,7 @@ export class MultiAzureMonitorOtelConnector implements RuntimeTelemetryConnector
         clock,
       ),
       readiness: 'degraded',
+      dataState: undefined,
       checkedAt: undefined,
       reason: 'not-queried',
     }))
@@ -606,6 +702,7 @@ export class MultiAzureMonitorOtelConnector implements RuntimeTelemetryConnector
 
   async readObservationWindows(
     request: RuntimeTelemetryRequest,
+    options: ConnectorOperationRequest = {},
   ): Promise<RuntimeObservationWindows> {
     const source =
       request.sourceConnectorId === undefined && this.sources.length === 1
@@ -631,21 +728,28 @@ export class MultiAzureMonitorOtelConnector implements RuntimeTelemetryConnector
       const windows = await source.connector.readObservationWindows({
         tenantId: source.config.tenantId,
         agentId: sourceAgentId,
-      })
-      source.readiness = 'ready'
+      }, options)
+      source.dataState = runtimeDataState(windows)
+      source.readiness = source.dataState === 'complete' ? 'ready' : 'degraded'
       source.checkedAt = windows.queriedAt
-      source.reason = undefined
+      source.reason = source.dataState === 'complete' ? undefined : source.dataState
       return rebindWindows(windows, request, source.config)
     } catch (error) {
+      source.dataState =
+        error instanceof AzureMonitorOtelConnectorError && error.reason === 'cancelled'
+          ? 'cancelled'
+          : 'failed'
       source.readiness = 'unavailable'
       source.checkedAt = new Date().toISOString()
-      source.reason = 'query-failed'
+      source.reason = source.dataState === 'cancelled' ? 'cancelled' : 'query-failed'
       throw error
     }
   }
 
   getConnectorHealth(): ConnectorHealthReport {
-    const ready = this.sources.filter((source) => source.readiness === 'ready').length
+    const ready = this.sources.filter(
+      (source) => source.readiness === 'ready' && source.dataState === 'complete',
+    ).length
     const allUnavailable = this.sources.every((source) => source.readiness === 'unavailable')
     return {
       overall: allUnavailable
@@ -661,6 +765,7 @@ export class MultiAzureMonitorOtelConnector implements RuntimeTelemetryConnector
         enabled: true,
         configured: true,
         readiness: source.readiness,
+        ...(source.dataState !== undefined ? { dataState: source.dataState } : {}),
         ...(source.checkedAt !== undefined ? { checkedAt: source.checkedAt } : {}),
         ...(source.reason !== undefined ? { reason: source.reason } : {}),
       })),

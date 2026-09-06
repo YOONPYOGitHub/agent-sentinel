@@ -502,6 +502,8 @@ describe('Azure Monitor OTel connector', () => {
       sourceTenantId: 'tenant-b',
       sourceAgentId: 'provider-project-b',
       sourceEnvironment: 'validation',
+      estateId: 'estate-a',
+      estateEnvironment: 'portfolio',
     })
 
     expect(fetchers.get('project-a')).not.toHaveBeenCalled()
@@ -516,14 +518,101 @@ describe('Azure Monitor OTel connector', () => {
       agentId: aggregateAgentId,
     })
     expect(windows.observed.observations[0]?.id.length).toBeLessThanOrEqual(200)
+    expect(windows.provenance).toEqual({
+      estateId: 'estate-a',
+      estateTenantId: 'estate',
+      estateEnvironment: 'portfolio',
+      sourceConnectorId: 'project-b',
+      sourceTenantId: 'tenant-b',
+      sourceEnvironment: 'validation',
+      provider: 'azure-monitor-otel',
+      providerResourceId: '22222222-2222-4222-8222-222222222222',
+      providerAgentId: 'provider-project-b',
+    })
     expect(connector.getConnectorHealth()).toMatchObject({
       overall: 'degraded',
       partial: true,
       sources: [
         { id: 'otel:project-a', readiness: 'degraded' },
-        { id: 'otel:project-b', readiness: 'ready' },
+        { id: 'otel:project-b', readiness: 'ready', dataState: 'complete' },
       ],
     })
+  })
+
+  it('retains successful empty queries as empty rather than live-ready', async () => {
+    const connector = new MultiAzureMonitorOtelConnector(
+      [
+        {
+          id: 'project-a',
+          name: 'Project A',
+          workspaceId: config.workspaceId,
+          tenantId: config.tenantId,
+          environment: config.environment,
+          baselineWindowHours: 24,
+          observedWindowHours: 24,
+          requestTimeoutMs: 15_000,
+        },
+      ],
+      () => new Credential(),
+      () =>
+        vi.fn<typeof fetch>().mockResolvedValue(
+          Response.json({
+            tables: [{ name: 'PrimaryResult', columns, rows: [] }],
+          }),
+        ),
+      () => new Date('2026-08-24T12:00:00.000Z'),
+    )
+
+    const windows = await connector.readObservationWindows({
+      tenantId: 'estate',
+      agentId: 'aggregate-agent',
+    })
+
+    expect(windows.baseline.observations).toEqual([])
+    expect(windows.observed.observations).toEqual([])
+    expect(connector.getConnectorHealth()).toMatchObject({
+      overall: 'degraded',
+      partial: false,
+      sources: [
+        {
+          id: 'otel:project-a',
+          readiness: 'degraded',
+          dataState: 'empty',
+          reason: 'empty',
+        },
+      ],
+    })
+  })
+
+  it('propagates caller cancellation to Azure Monitor credentials and requests', async () => {
+    const controller = new AbortController()
+    const credentialSignals: Array<{ readonly aborted: boolean }> = []
+    const connector = new AzureMonitorOtelConnector(
+      config,
+      {
+        getToken: (_scopes, options) => {
+          if (options?.abortSignal !== undefined) credentialSignals.push(options.abortSignal)
+          return Promise.resolve({ token: 'token', expiresOnTimestamp: Date.now() + 60_000 })
+        },
+      },
+      vi.fn<typeof fetch>().mockImplementation(
+        (_input, init) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+          }),
+      ),
+    )
+    const pending = connector.readObservationWindows(
+      { tenantId: 'tenant-a', agentId: 'agent-a' },
+      { signal: controller.signal },
+    )
+
+    await Promise.resolve()
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject({ reason: 'cancelled' })
+    expect(credentialSignals).toHaveLength(1)
+    expect(credentialSignals[0]?.aborted).toBe(true)
   })
 
   it('parses multi-source configuration and rejects a mismatched source request', async () => {
@@ -584,7 +673,7 @@ describe('Azure Monitor OTel connector', () => {
     expect(connector.getConnectorHealth()).toMatchObject({
       overall: 'unavailable',
       partial: false,
-      sources: [{ id: 'otel:project-a', readiness: 'unavailable' }],
+      sources: [{ id: 'otel:project-a', readiness: 'unavailable', dataState: 'failed' }],
     })
   })
 

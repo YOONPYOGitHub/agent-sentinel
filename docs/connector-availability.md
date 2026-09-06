@@ -31,6 +31,22 @@ remediation execution. The 2026-09-01 Entra result is inventory only; no
 | Implemented, activation-gated | Code is complete, but the deployed safety posture intentionally prevents live ingestion.                     |
 | Not implemented               | No production connector exists; mock or manifest evidence must remain explicitly non-live.                   |
 
+Configured Foundry and Entra sources now use deterministic bounded aggregation:
+at most four source operations run concurrently, one aggregate duration limit
+applies, caller cancellation stops queued work, and each provider's existing
+page, record, retry, byte, and request timeout bounds remain enforced. Runtime
+Azure Monitor reads use the same bounded scheduler across exact agent/source
+bindings.
+
+Per-source data states are distinct from connectivity readiness. `complete`
+means a bounded non-empty authoritative read; `partial` preserves incomplete
+measured evidence; `stale` preserves evidence outside its freshness threshold;
+`unsupported` means the configured source cannot supply the requested evidence;
+`empty` means the provider successfully returned no records; `failed` means the
+read or composition failed; and `cancelled` means a caller or aggregate deadline
+stopped the work. Only `complete` establishes complete live coverage. Mock,
+synthetic, missing, unsupported, and empty evidence never does.
+
 ## Current connector matrix
 
 | Connector                                   | Implementation         | Live state in the current tenant                          | Why it is limited                                                                                                                                                                                                                                                       | Becomes available when                                                                                                                 | Development allowed now                                                                                                                                        |

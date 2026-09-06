@@ -360,6 +360,35 @@ export const agentSentinelStateSchema = z.object({
       queriedAgentCount: z.number().int().min(0),
       enrichedAgentCount: z.number().int().min(0),
       evidenceCount: z.number().int().min(0),
+      sources: z
+        .array(
+          z.strictObject({
+            estateId: z.string().min(1).optional(),
+            estateTenantId: z.string().min(1),
+            estateEnvironment: z.string().min(1),
+            snapshotGeneratedAt: z.iso.datetime(),
+            sourceConnectorId: z.string().min(1),
+            sourceTenantId: z.string().min(1),
+            sourceEnvironment: z.string().min(1),
+            sourceAgentId: z.string().min(1),
+            agentId: z.string().min(1),
+            state: z.enum([
+              'complete',
+              'partial',
+              'stale',
+              'unsupported',
+              'empty',
+              'failed',
+              'cancelled',
+            ]),
+            windowIds: z.array(z.string().min(1)),
+            observationIds: z.array(z.string().min(1)),
+            evidenceIds: z.array(z.string().min(1)),
+            providerResourceIds: z.array(z.string().min(1)),
+            reason: z.string().min(1).optional(),
+          }),
+        )
+        .default([]),
       failures: z.array(
         z.object({
           agentId: z.string().min(1),

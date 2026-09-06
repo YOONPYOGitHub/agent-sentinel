@@ -256,6 +256,8 @@ export interface AgentConnector {
 export interface RuntimeTelemetryRequest {
   tenantId: string
   agentId: string
+  estateId?: string
+  estateEnvironment?: string
   sourceConnectorId?: string
   sourceTenantId?: string
   sourceAgentId?: string
@@ -266,6 +268,18 @@ const liveObservationWindowSchema = observationWindowSchema.extend({
   source: z.literal('azure-monitor-otel'),
 })
 
+const runtimeTelemetrySourceProvenanceSchema = z.strictObject({
+  estateId: z.string().min(1).max(200),
+  estateTenantId: z.string().min(1).max(200),
+  estateEnvironment: z.string().min(1).max(200),
+  sourceConnectorId: z.string().min(1).max(200),
+  sourceTenantId: z.string().min(1).max(200),
+  sourceEnvironment: z.string().min(1).max(200),
+  provider: z.literal('azure-monitor-otel'),
+  providerResourceId: z.string().min(1).max(500),
+  providerAgentId: z.string().min(1).max(200),
+})
+
 export const runtimeObservationWindowsSchema = z
   .strictObject({
     baseline: liveObservationWindowSchema,
@@ -273,6 +287,7 @@ export const runtimeObservationWindowsSchema = z
     baselineEvidenceId: z.string().min(1).max(200),
     observedEvidenceId: z.string().min(1).max(200),
     queriedAt: z.iso.datetime(),
+    provenance: runtimeTelemetrySourceProvenanceSchema.optional(),
   })
   .superRefine((windows, context) => {
     for (const [kind, window] of [

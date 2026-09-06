@@ -4,6 +4,7 @@ import {
   evidenceSchema,
   runtimeOtelProvenanceSchema,
   type EstateSnapshot,
+  type EstateContext,
   type Evidence,
   type GraphEdge,
   type GraphNode,
@@ -28,6 +29,7 @@ export interface RuntimeEvidenceProjection {
 export function runtimeTelemetryRequestForAgent(
   snapshot: EstateSnapshot,
   agent: GraphNode,
+  estate?: EstateContext,
 ): RuntimeTelemetryRequest | undefined {
   if (agent.kind !== 'agent') return undefined
   const sourceConnectorId = agent.metadata['sourceConnectorId']
@@ -43,6 +45,12 @@ export function runtimeTelemetryRequestForAgent(
     return undefined
   }
   return {
+    ...(estate === undefined
+      ? {}
+      : {
+          estateId: estate.id,
+          estateEnvironment: estate.environment,
+        }),
     tenantId: snapshot.tenantId,
     agentId: agent.id,
     sourceConnectorId,
