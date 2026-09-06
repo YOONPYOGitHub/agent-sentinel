@@ -104,6 +104,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (account === null) return null
       try {
         await msal.clearCache({ account })
+        const accountStillCached = msal
+          .getAllAccounts()
+          .some((candidate) => candidate.homeAccountId === account.homeAccountId)
+        if (accountStillCached) {
+          return 'The cached Microsoft session could not be cleared. Use account switching to recover.'
+        }
         return null
       } catch (error: unknown) {
         return `The cached Microsoft session could not be cleared: ${errorMessage(error)}`
@@ -134,7 +140,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthError(null)
     let stage: 'popup' | 'token' | 'principal' = 'popup'
     try {
-      const result = await msal.loginPopup({ scopes: configuredScopes.current })
+      const result = await msal.loginPopup({
+        scopes: configuredScopes.current,
+        prompt: 'select_account',
+      })
       if (result.account === null) throw new Error('Sign-in did not return an account.')
       accountRef.current = result.account
       stage = 'token'

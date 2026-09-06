@@ -140,7 +140,10 @@ describe('AuthProvider', () => {
       await screen.findByText('failure:cancelled', { selector: '[data-testid="sign-in-result"]' }),
     ).toBeVisible()
     expect(msal.loginPopup).toHaveBeenCalledOnce()
-    expect(msal.loginPopup).toHaveBeenCalledWith({ scopes: enabledConfig.scopes })
+    expect(msal.loginPopup).toHaveBeenCalledWith({
+      scopes: enabledConfig.scopes,
+      prompt: 'select_account',
+    })
     expect(fetchMock).not.toHaveBeenCalled()
     expect(screen.getByTestId('signed-in')).toHaveTextContent('false')
     expect(screen.getByTestId('principal')).toHaveTextContent('none')
@@ -379,7 +382,7 @@ describe('AuthProvider', () => {
   it('clears a cached account when the previous session cannot be restored', async () => {
     vi.mocked(authApi.getConfig).mockResolvedValue(enabledConfig)
     const account = { homeAccountId: 'stale-home' }
-    msal.getAllAccounts.mockReturnValue([account])
+    msal.getAllAccounts.mockReturnValueOnce([account]).mockReturnValue([])
     msal.acquireTokenSilent.mockRejectedValue(new Error('Cached token is expired.'))
     const fetchMock = vi.fn<typeof fetch>()
     vi.stubGlobal('fetch', fetchMock)
@@ -403,6 +406,28 @@ describe('AuthProvider', () => {
       await screen.findByText('none', { selector: '[data-testid="access-token"]' }),
     ).toBeVisible()
     expect(msal.acquireTokenSilent).toHaveBeenCalledOnce()
+  })
+
+  it('reports when MSAL resolves cache clearing but leaves the stale account', async () => {
+    vi.mocked(authApi.getConfig).mockResolvedValue(enabledConfig)
+    const account = { homeAccountId: 'stale-home' }
+    msal.getAllAccounts.mockReturnValue([account])
+    msal.acquireTokenSilent.mockRejectedValue(new Error('Cached token is expired.'))
+
+    render(
+      <AuthProvider>
+        <AuthState />
+      </AuthProvider>,
+    )
+
+    expect(
+      await screen.findByText(
+        /The cached Microsoft session could not be cleared\. Use account switching to recover\./,
+      ),
+    ).toBeVisible()
+    expect(msal.clearCache).toHaveBeenCalledWith({ account })
+    expect(screen.getByTestId('signed-in')).toHaveTextContent('false')
+    expect(screen.getByTestId('principal')).toHaveTextContent('none')
   })
 
   it('uses full-page logout so the application is not initialized inside a popup', async () => {
