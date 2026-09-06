@@ -92,6 +92,7 @@ describe('representative OpenTelemetry evidence normalization', () => {
       classification: 'live',
       sampling: { state: 'complete', rate: 1 },
       aggregation: { kind: 'raw' },
+      partial: false,
     })
     expect(result.window.observations[0]?.otelProvenance?.evidenceIds).toHaveLength(6)
   })
@@ -186,6 +187,58 @@ describe('representative OpenTelemetry evidence normalization', () => {
       expect(result.window.observations).toEqual([])
       expect(result.window.otelQuality?.status).toBe('degraded')
     }
+  })
+
+  it('rejects claim-wide provenance differences deterministically regardless of claim order', async () => {
+    const mutations: Array<(record: Record<string, unknown>) => void> = [
+      (record) => {
+        record.observedAt = '2026-09-06T05:00:00.001Z'
+      },
+      (record) => {
+        record.classification = 'synthetic'
+      },
+      (record) => {
+        record.sampling = { state: 'complete' }
+      },
+      (record) => {
+        record.sampling = { state: 'sampled', rate: 0.5 }
+      },
+      (record) => {
+        record.aggregation = { kind: 'delta' }
+      },
+      (record) => {
+        record.partial = true
+      },
+    ]
+
+    for (const mutate of mutations) {
+      const pages = await fixture()
+      mutate(pages[1]!.records[0]!)
+      const result = normalizeRepresentativeOtelEvidence(pages, binding)
+      const reordered = normalizeRepresentativeOtelEvidence(
+        [...pages].reverse().map((page) => ({
+          ...page,
+          records: [...page.records].reverse(),
+        })),
+        binding,
+      )
+
+      expect(result.status).toBe('degraded')
+      expect(result.caveats).toContain('invalid-record')
+      expect(result.window.observations).toEqual([])
+      expect(reordered).toEqual(result)
+    }
+  })
+
+  it('requires every input claim to state partiality explicitly', async () => {
+    const pages = await fixture()
+    delete pages[1]!.records[0]!.partial
+
+    const result = normalizeRepresentativeOtelEvidence(pages, binding)
+
+    expect(result.status).toBe('degraded')
+    expect(result.caveats).toEqual(expect.arrayContaining(['invalid-record', 'partial']))
+    expect(result.window.observations).toEqual([])
   })
 
   it('keeps missing IDs, sampling, aggregation, partiality, and unsupported data degraded', async () => {

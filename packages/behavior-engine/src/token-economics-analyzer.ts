@@ -9,7 +9,7 @@ import type {
   TokenEconomicsCoverage,
   TokenEconomicsReport,
 } from '@agent-sentinel/domain'
-import { tokenEconomicsReportSchema } from '@agent-sentinel/domain'
+import { assessRuntimeOtelQuality, tokenEconomicsReportSchema } from '@agent-sentinel/domain'
 
 import { computeDistributionStats, deduplicateObservations } from './stats.js'
 import {
@@ -222,7 +222,8 @@ export function analyzeTokenEconomics(
     })
   }
 
-  if (observed.otelQuality !== undefined && observed.otelQuality.status !== 'available') {
+  const observedOtelQuality = assessRuntimeOtelQuality(observed).quality
+  if (observedOtelQuality !== undefined && observedOtelQuality.status !== 'available') {
     return tokenEconomicsReportSchema.parse({
       reportId: rid,
       tenantId: observed.tenantId,
@@ -232,9 +233,8 @@ export function analyzeTokenEconomics(
       windowStart: observed.windowStart,
       windowEnd: observed.windowEnd,
       computedAt,
-      status:
-        observed.otelQuality.status === 'unknown' ? 'insufficient-data' : 'unavailable',
-      unavailableReason: `OpenTelemetry evidence is ${observed.otelQuality.status}: ${observed.otelQuality.caveats.join(', ')}.`,
+      status: observedOtelQuality.status === 'unknown' ? 'insufficient-data' : 'unavailable',
+      unavailableReason: `OpenTelemetry evidence is ${observedOtelQuality.status}: ${observedOtelQuality.caveats.join(', ')}.`,
     })
   }
 

@@ -78,8 +78,7 @@ export const otelAggregationSchema = z
       (aggregation.periodStart === undefined) !== (aggregation.periodEnd === undefined) ||
       (aggregation.periodStart !== undefined &&
         aggregation.periodEnd !== undefined &&
-        new Date(aggregation.periodEnd).getTime() <=
-          new Date(aggregation.periodStart).getTime())
+        new Date(aggregation.periodEnd).getTime() <= new Date(aggregation.periodStart).getTime())
     ) {
       context.addIssue({
         code: 'custom',
@@ -154,9 +153,7 @@ export type RepresentativeOtelEvidence = z.infer<typeof representativeOtelEviden
 export const otelWindowQualitySchema = z
   .strictObject({
     status: otelEvidenceStatusSchema,
-    classification: z
-      .enum(['live', 'synthetic', 'mixed', 'unknown'])
-      .default('unknown'),
+    classification: z.enum(['live', 'synthetic', 'mixed', 'unknown']).default('unknown'),
     caveats: z
       .array(otelEvidenceCaveatSchema)
       .max(otelEvidenceCaveatSchema.options.length)
@@ -216,6 +213,7 @@ export const runtimeOtelProvenanceSchema = otelEvidenceProvenanceSchema
     spanId: true,
   })
   .extend({
+    partial: z.boolean(),
     evidenceIds: z.array(boundedIdentifierSchema).min(1).max(6),
   })
 export type RuntimeOtelProvenance = z.infer<typeof runtimeOtelProvenanceSchema>

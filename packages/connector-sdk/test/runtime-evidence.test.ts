@@ -127,6 +127,43 @@ function windows() {
 
 function normalizedWindows() {
   const normalized = windows()
+  normalized.baseline.observations = [
+    {
+      ...normalized.baseline.observations[0]!,
+      latencyMs: 700,
+      inputTokens: 280,
+      outputTokens: 90,
+      costUsd: 0.01,
+      otelProvenance: {
+        estateId: 'estate-a',
+        estateTenantId: 'tenant-a',
+        estateEnvironment: 'portfolio',
+        sourceConnectorId: 'primary',
+        sourceTenantId: 'source-tenant',
+        sourceEnvironment: 'production',
+        provider: 'azure-monitor-otel',
+        providerResourceId: '/subscriptions/example/resource',
+        providerAgentId: 'provider-agent-a',
+        traceId: '22222222222222222222222222222222',
+        spanId: 'bbbbbbbbbbbbbbbb',
+        observedAt: '2026-08-28T12:00:00.000Z',
+        classification: 'live',
+        sampling: { state: 'complete', rate: 1 },
+        aggregation: { kind: 'raw' },
+        partial: false,
+        evidenceIds: ['invocation', 'latency', 'error', 'input-tokens', 'output-tokens', 'cost'],
+      },
+    },
+  ]
+  normalized.baseline.otelQuality = {
+    status: 'available',
+    classification: 'live',
+    caveats: [],
+    recordsReceived: 6,
+    recordsAccepted: 6,
+    duplicatesRemoved: 0,
+    pagesProcessed: 1,
+  }
   normalized.observed.observations = [
     {
       ...normalized.observed.observations[0]!,
@@ -150,6 +187,7 @@ function normalizedWindows() {
         classification: 'live',
         sampling: { state: 'complete', rate: 1 },
         aggregation: { kind: 'raw' },
+        partial: false,
         evidenceIds: ['invocation', 'latency', 'error', 'input-tokens', 'output-tokens', 'cost'],
       },
     },
@@ -181,12 +219,12 @@ describe('runtime evidence projection', () => {
 
   it('attaches measured evidence only to existing exact agent, tool, and edge matches', () => {
     const original = snapshot()
-    const result = projectRuntimeEvidence(original, windows())
+    const result = projectRuntimeEvidence(original, normalizedWindows())
 
     expect(original.evidence).toHaveLength(1)
     expect(result.snapshot.nodes).toHaveLength(original.nodes.length)
     expect(result.snapshot.edges).toHaveLength(original.edges.length)
-    expect(result.addedEvidenceCount).toBe(3)
+    expect(result.addedEvidenceCount).toBe(2)
     expect(result.unmatchedToolCallNames).toEqual(['undeclared_tool'])
     expect(result.snapshot.evidence).toEqual(
       expect.arrayContaining([
@@ -194,25 +232,13 @@ describe('runtime evidence projection', () => {
           id: 'observed-evidence',
           evidenceTypes: ['observed_runtime'],
         }),
-        expect.objectContaining({
-          id: 'observed-evidence-synthetic',
-          evidenceTypes: ['synthetic_validation'],
-        }),
       ]),
     )
     expect(result.snapshot.nodes.find((node) => node.id === 'tool-search')?.evidenceIds).toEqual(
-      expect.arrayContaining([
-        'baseline-evidence',
-        'observed-evidence',
-        'observed-evidence-synthetic',
-      ]),
+      expect.arrayContaining(['baseline-evidence', 'observed-evidence']),
     )
     expect(result.snapshot.edges[0]?.evidenceIds).toEqual(
-      expect.arrayContaining([
-        'baseline-evidence',
-        'observed-evidence',
-        'observed-evidence-synthetic',
-      ]),
+      expect.arrayContaining(['baseline-evidence', 'observed-evidence']),
     )
   })
 
@@ -373,5 +399,120 @@ describe('runtime evidence projection', () => {
       expect(evidence?.otel?.quality.caveats).toContain('invalid-record')
       expect(evidence?.otel?.invocations).toEqual([])
     }
+  })
+
+  it('recomputes quality from nested timestamp, sampling, aggregation, and partiality', () => {
+    const cases: Array<{
+      mutate: (normalized: ReturnType<typeof normalizedWindows>) => void
+      caveat: string
+    }> = [
+      {
+        mutate: (normalized) => {
+          normalized.observed.observations[0]!.otelProvenance!.observedAt =
+            '2026-08-29T12:00:01.000Z'
+        },
+        caveat: 'invalid-record',
+      },
+      {
+        mutate: (normalized) => {
+          normalized.observed.observations[0]!.observedAt = '2026-08-30T00:00:01.000Z'
+          normalized.observed.observations[0]!.otelProvenance!.observedAt =
+            '2026-08-30T00:00:01.000Z'
+        },
+        caveat: 'invalid-record',
+      },
+      {
+        mutate: (normalized) => {
+          normalized.observed.observations[0]!.otelProvenance!.sampling = {
+            state: 'sampled',
+            rate: 0.5,
+          }
+        },
+        caveat: 'sampled',
+      },
+      {
+        mutate: (normalized) => {
+          normalized.observed.observations[0]!.otelProvenance!.sampling = {
+            state: 'complete',
+          }
+        },
+        caveat: 'sampling-unknown',
+      },
+      {
+        mutate: (normalized) => {
+          normalized.observed.observations[0]!.otelProvenance!.aggregation = {
+            kind: 'delta',
+          }
+        },
+        caveat: 'aggregated-metric',
+      },
+      {
+        mutate: (normalized) => {
+          normalized.observed.observations[0]!.otelProvenance!.partial = true
+        },
+        caveat: 'partial',
+      },
+    ]
+
+    for (const { mutate, caveat } of cases) {
+      const normalized = normalizedWindows()
+      mutate(normalized)
+      const result = projectRuntimeEvidence(snapshot(), normalized)
+      const evidence = result.snapshot.evidence.find((item) => item.id === 'observed-evidence')
+
+      expect(evidence).toMatchObject({
+        confidence: 0,
+        evidenceTypes: ['unknown'],
+        metadata: { evidenceStatus: 'degraded' },
+      })
+      expect(evidence?.otel?.quality.caveats).toContain(caveat)
+      expect(evidence?.otel?.invocations).toEqual([])
+    }
+  })
+
+  it('does not trust caller-supplied available quality when nested evidence contradicts it', () => {
+    const cases: Array<(normalized: ReturnType<typeof normalizedWindows>) => void> = [
+      (normalized) => {
+        delete normalized.observed.otelQuality
+      },
+      (normalized) => {
+        normalized.observed.otelQuality!.classification = 'synthetic'
+      },
+      (normalized) => {
+        normalized.observed.otelQuality!.recordsAccepted = 5
+      },
+      (normalized) => {
+        normalized.observed.otelQuality!.pagesProcessed = 0
+      },
+    ]
+
+    for (const mutate of cases) {
+      const normalized = normalizedWindows()
+      mutate(normalized)
+      const result = projectRuntimeEvidence(snapshot(), normalized)
+      const evidence = result.snapshot.evidence.find((item) => item.id === 'observed-evidence')
+
+      expect(evidence).toMatchObject({
+        confidence: 0,
+        evidenceTypes: ['unknown'],
+        metadata: { evidenceStatus: 'degraded' },
+      })
+    }
+  })
+
+  it('does not default missing nested partiality to successful runtime evidence', () => {
+    const normalized = normalizedWindows()
+    const provenance = normalized.observed.observations[0]!.otelProvenance!
+    delete (provenance as Partial<typeof provenance>).partial
+
+    const result = projectRuntimeEvidence(snapshot(), normalized)
+    const evidence = result.snapshot.evidence.find((item) => item.id === 'observed-evidence')
+
+    expect(evidence).toMatchObject({
+      confidence: 0,
+      evidenceTypes: ['unknown'],
+      metadata: { evidenceStatus: 'degraded' },
+    })
+    expect(evidence?.otel?.invocations).toEqual([])
   })
 })

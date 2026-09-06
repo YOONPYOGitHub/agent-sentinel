@@ -433,7 +433,7 @@ describe('behavior drift API — foundry/live mode', () => {
 
     expect(result.status).toBe('insufficient-data')
     expect(result.anyDrift).toBe(false)
-    expect(result.unavailableReason).toContain('Window has 0 unique samples')
+    expect(result.unavailableReason).toBe('OpenTelemetry evidence is unknown: empty.')
     await app.close()
   })
 

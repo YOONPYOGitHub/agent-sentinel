@@ -331,7 +331,7 @@ describe('token economics API - foundry mode', () => {
 
     expect(result.status).toBe('insufficient-data')
     expect(result.coverage).toBeUndefined()
-    expect(result.unavailableReason).toContain('Window has 0 unique samples')
+    expect(result.unavailableReason).toBe('OpenTelemetry evidence is unknown: empty.')
     await app.close()
   })
 })

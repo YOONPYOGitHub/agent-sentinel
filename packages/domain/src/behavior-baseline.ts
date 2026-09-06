@@ -1,7 +1,12 @@
 import { z } from 'zod'
 
 import { agentCorrelationSchema } from './correlation.js'
-import { otelWindowQualitySchema, runtimeOtelProvenanceSchema } from './otel-evidence.js'
+import {
+  otelWindowQualitySchema,
+  runtimeOtelProvenanceSchema,
+  type OtelEvidenceCaveat,
+  type OtelWindowQuality,
+} from './otel-evidence.js'
 
 // ---------------------------------------------------------------------------
 // Identity & Source
@@ -73,6 +78,134 @@ export const observationWindowSchema = z.object({
   otelQuality: otelWindowQualitySchema.optional(),
 })
 export type ObservationWindow = z.infer<typeof observationWindowSchema>
+
+export interface RuntimeOtelQualityAssessment {
+  quality: OtelWindowQuality | undefined
+  validObservationIds: string[]
+}
+
+const compareCodeUnits = (left: string, right: string): number =>
+  left < right ? -1 : left > right ? 1 : 0
+
+export function assessRuntimeOtelQuality(window: ObservationWindow): RuntimeOtelQualityAssessment {
+  if (window.source !== 'azure-monitor-otel') {
+    return { quality: window.otelQuality, validObservationIds: [] }
+  }
+
+  const supplied = window.otelQuality
+  const caveats = new Set<OtelEvidenceCaveat>(supplied?.caveats ?? [])
+  const validObservationIds: string[] = []
+  const classifications = new Set<'live' | 'synthetic'>()
+  const windowStartMs = Date.parse(window.windowStart)
+  const windowEndMs = Date.parse(window.windowEnd)
+
+  for (const observation of window.observations) {
+    const parsed = runtimeOtelProvenanceSchema.safeParse(observation.otelProvenance)
+    if (!parsed.success) {
+      caveats.add('invalid-record')
+      continue
+    }
+
+    const provenance = parsed.data
+    let valid = true
+    const invalidate = (caveat: OtelEvidenceCaveat): void => {
+      caveats.add(caveat)
+      valid = false
+    }
+    if (provenance.sampling.state === 'sampled') invalidate('sampled')
+    else if (provenance.sampling.state !== 'complete' || provenance.sampling.rate !== 1) {
+      invalidate('sampling-unknown')
+    }
+    if (provenance.aggregation.kind !== 'raw') invalidate('aggregated-metric')
+    if (provenance.partial) invalidate('partial')
+
+    const observedAtMs = Date.parse(observation.observedAt)
+    if (
+      provenance.observedAt !== observation.observedAt ||
+      !Number.isFinite(observedAtMs) ||
+      observedAtMs < windowStartMs ||
+      observedAtMs > windowEndMs
+    ) {
+      invalidate('invalid-record')
+    }
+    const expectedClassification = observation.synthetic ? 'synthetic' : 'live'
+    if (provenance.classification !== expectedClassification) {
+      invalidate('mixed-classification')
+    }
+    if (
+      provenance.evidenceIds.length !== 6 ||
+      new Set(provenance.evidenceIds).size !== provenance.evidenceIds.length
+    ) {
+      invalidate('partial')
+    }
+    if (valid) {
+      validObservationIds.push(observation.id)
+      classifications.add(provenance.classification)
+    }
+  }
+
+  let classification: OtelWindowQuality['classification'] = 'unknown'
+  if (classifications.size > 1) {
+    classification = 'mixed'
+    caveats.add('mixed-classification')
+  } else if (classifications.has('synthetic')) {
+    classification = 'synthetic'
+  } else if (classifications.has('live')) {
+    classification = 'live'
+  }
+
+  if (window.observations.length === 0) caveats.add('empty')
+  if (supplied === undefined && window.observations.length > 0) caveats.add('invalid-record')
+  if (
+    supplied !== undefined &&
+    classification !== 'unknown' &&
+    supplied.classification !== classification
+  ) {
+    caveats.add('mixed-classification')
+  }
+  if (supplied?.status === 'available') {
+    const expectedRecordCount = window.observations.length * 6
+    if (
+      window.observations.length === 0 ||
+      supplied.recordsReceived !== expectedRecordCount ||
+      supplied.recordsAccepted !== expectedRecordCount ||
+      supplied.duplicatesRemoved !== 0 ||
+      supplied.pagesProcessed < 1
+    ) {
+      caveats.add('invalid-record')
+    }
+  }
+
+  const sortedCaveats = [...caveats].sort(compareCodeUnits)
+  const status: OtelWindowQuality['status'] =
+    supplied?.status === 'available' &&
+    sortedCaveats.length === 0 &&
+    validObservationIds.length === window.observations.length &&
+    window.observations.length > 0
+      ? 'available'
+      : window.observations.length === 0 &&
+          (supplied === undefined || supplied.status === 'unknown') &&
+          sortedCaveats.length === 1 &&
+          sortedCaveats[0] === 'empty'
+        ? 'unknown'
+        : 'degraded'
+
+  return {
+    quality: otelWindowQualitySchema.parse({
+      status,
+      classification,
+      caveats: sortedCaveats,
+      recordsReceived:
+        supplied?.recordsReceived ?? Math.min(window.observations.length * 6, 10_000),
+      recordsAccepted:
+        supplied?.recordsAccepted ??
+        Math.min(status === 'unknown' ? 0 : validObservationIds.length * 6, 10_000),
+      duplicatesRemoved: supplied?.duplicatesRemoved ?? 0,
+      pagesProcessed: supplied?.pagesProcessed ?? 0,
+    }),
+    validObservationIds,
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Analysis Status

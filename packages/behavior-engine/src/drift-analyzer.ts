@@ -12,6 +12,7 @@ import type {
   ObservationWindow,
   ToolSequenceChange,
 } from '@agent-sentinel/domain'
+import { assessRuntimeOtelQuality } from '@agent-sentinel/domain'
 import {
   computeDistributionStats,
   computeToolSequenceSummary,
@@ -295,10 +296,11 @@ export function analyzeDrift(
     }
   }
 
-  if (observed.otelQuality !== undefined && observed.otelQuality.status !== 'available') {
+  const observedOtelQuality = assessRuntimeOtelQuality(observed).quality
+  if (observedOtelQuality !== undefined && observedOtelQuality.status !== 'available') {
     return unavailable(
-      observed.otelQuality.status === 'unknown' ? 'insufficient-data' : 'invalid',
-      `OpenTelemetry evidence is ${observed.otelQuality.status}: ${observed.otelQuality.caveats.join(', ')}.`,
+      observedOtelQuality.status === 'unknown' ? 'insufficient-data' : 'invalid',
+      `OpenTelemetry evidence is ${observedOtelQuality.status}: ${observedOtelQuality.caveats.join(', ')}.`,
     )
   }
 
@@ -550,10 +552,11 @@ export function computeBaseline(
 ): { baseline: BaselineWindow } | { error: AnalysisStatus; reason: string } {
   const minSamples = opts.minSamples ?? MIN_SAMPLES
 
-  if (window.otelQuality !== undefined && window.otelQuality.status !== 'available') {
+  const otelQuality = assessRuntimeOtelQuality(window).quality
+  if (otelQuality !== undefined && otelQuality.status !== 'available') {
     return {
-      error: window.otelQuality.status === 'unknown' ? 'insufficient-data' : 'invalid',
-      reason: `OpenTelemetry evidence is ${window.otelQuality.status}: ${window.otelQuality.caveats.join(', ')}.`,
+      error: otelQuality.status === 'unknown' ? 'insufficient-data' : 'invalid',
+      reason: `OpenTelemetry evidence is ${otelQuality.status}: ${otelQuality.caveats.join(', ')}.`,
     }
   }
 

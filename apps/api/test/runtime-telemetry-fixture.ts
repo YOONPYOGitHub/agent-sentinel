@@ -13,25 +13,55 @@ function observations(
   environment: string,
   kind: 'baseline' | 'observed',
 ): RuntimeObservation[] {
-  return Array.from({ length: 10 }, (_, index) => ({
-    id: `${kind}-${index}`,
-    tenantId: request.tenantId,
-    agentId: request.agentId,
-    environment,
-    source: 'azure-monitor-otel',
-    synthetic: false,
-    observedAt:
+  return Array.from({ length: 10 }, (_, index) => {
+    const observedAt =
       kind === 'baseline'
         ? `2026-08-22T${String(index).padStart(2, '0')}:00:00.000Z`
-        : `2026-08-24T${String(index).padStart(2, '0')}:00:00.000Z`,
-    latencyMs: kind === 'baseline' ? 800 + index : 1_200 + index,
-    inputTokens: kind === 'baseline' ? 300 + index : 600 + index,
-    outputTokens: kind === 'baseline' ? 100 + index : 180 + index,
-    costUsd: kind === 'baseline' ? 0.01 + index / 10_000 : 0.03 + index / 10_000,
-    success: kind === 'baseline' || index > 1,
-    ...(kind === 'observed' && index <= 1 ? { errorCode: 'timeout' } : {}),
-    toolCallNames: kind === 'baseline' ? ['knowledge_search'] : ['knowledge_search', 'answer'],
-  }))
+        : `2026-08-24T${String(index).padStart(2, '0')}:00:00.000Z`
+    const evidencePrefix = `${kind}-${index}`
+    return {
+      id: evidencePrefix,
+      tenantId: request.tenantId,
+      agentId: request.agentId,
+      environment,
+      source: 'azure-monitor-otel',
+      synthetic: false,
+      observedAt,
+      latencyMs: kind === 'baseline' ? 800 + index : 1_200 + index,
+      inputTokens: kind === 'baseline' ? 300 + index : 600 + index,
+      outputTokens: kind === 'baseline' ? 100 + index : 180 + index,
+      costUsd: kind === 'baseline' ? 0.01 + index / 10_000 : 0.03 + index / 10_000,
+      success: kind === 'baseline' || index > 1,
+      ...(kind === 'observed' && index <= 1 ? { errorCode: 'timeout' } : {}),
+      toolCallNames: kind === 'baseline' ? ['knowledge_search'] : ['knowledge_search', 'answer'],
+      otelProvenance: {
+        estateId: `estate-${request.tenantId}`,
+        estateTenantId: request.tenantId,
+        estateEnvironment: environment,
+        sourceConnectorId: request.sourceConnectorId ?? 'primary',
+        sourceTenantId: request.sourceTenantId ?? request.tenantId,
+        sourceEnvironment: request.sourceEnvironment ?? environment,
+        provider: 'azure-monitor-otel',
+        providerResourceId: '/subscriptions/example/resource',
+        providerAgentId: request.sourceAgentId ?? request.agentId,
+        traceId: `${kind === 'baseline' ? '1' : '2'}${index.toString(16).padStart(31, '0')}`,
+        spanId: index.toString(16).padStart(16, '0'),
+        observedAt,
+        classification: 'live',
+        sampling: { state: 'complete', rate: 1 },
+        aggregation: { kind: 'raw' },
+        partial: false,
+        evidenceIds: [
+          `${evidencePrefix}-invocation`,
+          `${evidencePrefix}-latency`,
+          `${evidencePrefix}-error`,
+          `${evidencePrefix}-input`,
+          `${evidencePrefix}-output`,
+          `${evidencePrefix}-cost`,
+        ],
+      },
+    }
+  })
 }
 
 function window(
@@ -48,6 +78,15 @@ function window(
     windowStart: kind === 'baseline' ? '2026-08-21T12:00:00.000Z' : '2026-08-23T12:00:00.000Z',
     windowEnd: kind === 'baseline' ? '2026-08-23T12:00:00.000Z' : '2026-08-24T12:00:00.000Z',
     observations: observations(request, environment, kind),
+    otelQuality: {
+      status: 'available',
+      classification: 'live',
+      caveats: [],
+      recordsReceived: 60,
+      recordsAccepted: 60,
+      duplicatesRemoved: 0,
+      pagesProcessed: 1,
+    },
   }
 }
 

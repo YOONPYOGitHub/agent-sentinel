@@ -78,7 +78,7 @@ export const representativeOtelInputRecordSchema = z.strictObject({
   classification: otelEvidenceClassificationSchema,
   sampling: otelSamplingSchema,
   aggregation: otelAggregationSchema,
-  partial: z.boolean().default(false),
+  partial: z.boolean(),
   claim: otelEvidenceClaimSchema,
 })
 export type RepresentativeOtelInputRecord = z.infer<typeof representativeOtelInputRecordSchema>
@@ -210,6 +210,18 @@ function aggregateObservations(
     const classifications = new Set(group.map((item) => item.provenance.classification))
     if (classifications.size !== 1) {
       addCaveat(caveats, 'mixed-classification')
+    }
+    const supportedClaims = group.filter((item) => item.claim.kind !== 'unsupported')
+    const exactProvenance = new Set(
+      supportedClaims.map((item) =>
+        JSON.stringify({
+          provenance: item.provenance,
+          partial: item.partial,
+        }),
+      ),
+    )
+    if (exactProvenance.size !== 1) {
+      addCaveat(caveats, 'invalid-record')
       continue
     }
 
@@ -240,6 +252,14 @@ function aggregateObservations(
     const { providerResourceId, traceId, spanId } = provenance
     if (providerResourceId === undefined || traceId === undefined || spanId === undefined) {
       addCaveat(caveats, 'partial')
+      continue
+    }
+    if (
+      provenance.sampling.state !== 'complete' ||
+      provenance.sampling.rate !== 1 ||
+      provenance.aggregation.kind !== 'raw' ||
+      invocation.partial
+    ) {
       continue
     }
     const evidenceIds = [
@@ -273,6 +293,7 @@ function aggregateObservations(
         providerResourceId,
         traceId,
         spanId,
+        partial: false,
         evidenceIds,
       },
     })
@@ -401,7 +422,12 @@ export function normalizeRepresentativeOtelEvidence(
     if (expected === undefined) addCaveat(caveats, 'unsupported-claim')
     else if (expected !== signal) addCaveat(caveats, 'unsupported-signal')
     if (record.sampling.state === 'sampled') addCaveat(caveats, 'sampled')
-    if (record.sampling.state === 'unknown') addCaveat(caveats, 'sampling-unknown')
+    if (
+      record.sampling.state === 'unknown' ||
+      (record.sampling.state === 'complete' && record.sampling.rate !== 1)
+    ) {
+      addCaveat(caveats, 'sampling-unknown')
+    }
     if (record.partial) addCaveat(caveats, 'partial')
     if (record.aggregation.kind !== 'raw') addCaveat(caveats, 'aggregated-metric')
 
