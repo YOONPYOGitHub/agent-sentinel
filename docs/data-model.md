@@ -65,9 +65,12 @@ binding, so concurrent attempts cannot redefine an estate or leave partial
 records. Every document envelope repeats `estateId`, `tenantId`, and
 `environment`; point reads, lists, audit reads, and idempotent replays require all
 three values to match the requested estate before returning data. Deletes retain
-a hidden tombstone so a source identity cannot be recreated, while exact delete
-retries still replay their immutable audit result. Existing deployment JSON
-remains the active runtime source until a later activation task.
+a hidden tombstone so a source identity cannot be recreated. Exact committed
+update and delete retries replay their immutable audit result; all new update
+and delete audit timestamps must be strictly later than the prior source
+`updatedAt`, so audit order is causal and cannot be influenced by caller-selected
+audit IDs. Existing deployment JSON remains the active runtime source until a
+later activation task.
 
 ### PostgreSQL (pg-as-260814)
 

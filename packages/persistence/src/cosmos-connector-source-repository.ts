@@ -281,6 +281,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     if (patch.configuration && patch.configuration.type !== existing.connectorType) {
       throw new Error('Connector configuration must match the existing connector type.')
     }
+    this.assertMutationAfterCurrentSource('update', existing, mutation)
     const source = connectorSourceDefinitionSchema.parse({
       ...existing,
       ...patch,
@@ -329,6 +330,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     if (!document._etag) {
       throw new Error(`Cosmos did not return an ETag for source: ${logicalSourceId}`)
     }
+    this.assertMutationAfterCurrentSource('delete', existing, mutation)
     const audit = this.createAudit('delete', existing, existing, null, mutation)
     const code = await this.batch(estate.id, [
       {
@@ -521,6 +523,18 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
       input.environment !== estate.environment
     ) {
       throw new Error('Connector source boundary does not match the target estate.')
+    }
+  }
+
+  private assertMutationAfterCurrentSource(
+    operation: 'update' | 'delete',
+    source: ConnectorSourceDefinition,
+    mutation: ConnectorSourceMutationContext,
+  ): void {
+    if (mutation.occurredAt <= source.updatedAt) {
+      throw new Error(
+        `Connector source ${operation} occurredAt must be strictly greater than the current source updatedAt.`,
+      )
     }
   }
 

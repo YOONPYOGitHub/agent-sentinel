@@ -446,7 +446,7 @@ export const connectorSourceAuditRecordSchema = z
       audit.operation === 'update' &&
       audit.before !== null &&
       audit.after !== null &&
-      (audit.occurredAt < audit.before.updatedAt ||
+      (audit.occurredAt <= audit.before.updatedAt ||
         audit.after.updatedAt !== audit.occurredAt ||
         !actorMatches(audit.actor, audit.after.updatedBy))
     ) {
@@ -454,18 +454,18 @@ export const connectorSourceAuditRecordSchema = z
         code: 'custom',
         path: ['after'],
         message:
-          'An update audit cannot precede the current source version and must bind its actor and timestamp to the resulting source.',
+          'An update audit must occur after the current source version and bind its actor and timestamp to the resulting source.',
       })
     }
     if (
       audit.operation === 'delete' &&
       audit.before !== null &&
-      audit.occurredAt < audit.before.updatedAt
+      audit.occurredAt <= audit.before.updatedAt
     ) {
       context.addIssue({
         code: 'custom',
         path: ['occurredAt'],
-        message: 'A delete audit cannot precede the source version it removes.',
+        message: 'A delete audit must occur after the source version it removes.',
       })
     }
   })

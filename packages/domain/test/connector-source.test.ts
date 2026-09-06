@@ -194,7 +194,79 @@ describe('connector source domain', () => {
     ).toThrow('immutable fields')
   })
 
-  it('rejects an update audit that regresses from the prior updatedAt', () => {
+  it('rejects reverse-sorting equal-time successor audits', () => {
+    const created = connectorSourceAuditRecordSchema.parse({
+      id: 'audit-z-create',
+      estateId: DEFINITION.estateId,
+      tenantId: DEFINITION.tenantId,
+      environment: DEFINITION.environment,
+      sourceId: DEFINITION.sourceId,
+      operation: 'create',
+      actor: ACTOR,
+      occurredAt: DEFINITION.createdAt,
+      idempotencyKey: 'reverse-create',
+      before: null,
+      after: DEFINITION,
+    }).after!
+
+    expect(() =>
+      connectorSourceAuditRecordSchema.parse({
+        id: 'audit-y-update',
+        estateId: DEFINITION.estateId,
+        tenantId: DEFINITION.tenantId,
+        environment: DEFINITION.environment,
+        sourceId: DEFINITION.sourceId,
+        operation: 'update',
+        actor: ACTOR,
+        occurredAt: created.updatedAt,
+        idempotencyKey: 'reverse-update',
+        before: created,
+        after: {
+          ...created,
+          version: 2,
+          etag: 'source-etag-2',
+        },
+      }),
+    ).toThrow('must occur after the current source version')
+
+    const updated = connectorSourceAuditRecordSchema.parse({
+      id: 'audit-y-update',
+      estateId: DEFINITION.estateId,
+      tenantId: DEFINITION.tenantId,
+      environment: DEFINITION.environment,
+      sourceId: DEFINITION.sourceId,
+      operation: 'update',
+      actor: ACTOR,
+      occurredAt: '2026-09-04T00:01:00.000Z',
+      idempotencyKey: 'reverse-update',
+      before: created,
+      after: {
+        ...created,
+        version: 2,
+        etag: 'source-etag-2',
+        updatedAt: '2026-09-04T00:01:00.000Z',
+      },
+    }).after!
+
+    expect(() =>
+      connectorSourceAuditRecordSchema.parse({
+        id: 'audit-x-delete',
+        estateId: DEFINITION.estateId,
+        tenantId: DEFINITION.tenantId,
+        environment: DEFINITION.environment,
+        sourceId: DEFINITION.sourceId,
+        operation: 'delete',
+        actor: ACTOR,
+        occurredAt: updated.updatedAt,
+        idempotencyKey: 'reverse-delete',
+        before: updated,
+        after: null,
+      }),
+    ).toThrow('must occur after the source version')
+  })
+
+  it('rejects an update audit that precedes the prior updatedAt', () => {
+    const occurredAt = '2026-09-04T00:01:00.000Z'
     const before = {
       ...DEFINITION,
       version: 2,
@@ -210,7 +282,7 @@ describe('connector source domain', () => {
         sourceId: DEFINITION.sourceId,
         operation: 'update',
         actor: { type: 'user', id: 'admin@example.test' },
-        occurredAt: '2026-09-04T00:01:00.000Z',
+        occurredAt,
         idempotencyKey: 'regressed-update',
         before,
         after: {
@@ -219,9 +291,34 @@ describe('connector source domain', () => {
           version: 3,
           etag: 'source-etag-3',
           updatedBy: { type: 'user', id: 'admin@example.test' },
-          updatedAt: '2026-09-04T00:01:00.000Z',
+          updatedAt: occurredAt,
         },
       }),
-    ).toThrow('cannot precede the current source version')
+    ).toThrow('must occur after the current source version')
+  })
+
+  it('rejects a delete audit that precedes the prior updatedAt', () => {
+    const occurredAt = '2026-09-04T00:01:00.000Z'
+    const before = {
+      ...DEFINITION,
+      version: 2,
+      etag: 'source-etag-2',
+      updatedAt: '2026-09-04T00:02:00.000Z',
+    }
+    expect(() =>
+      connectorSourceAuditRecordSchema.parse({
+        id: 'audit-regressed-delete',
+        estateId: DEFINITION.estateId,
+        tenantId: DEFINITION.tenantId,
+        environment: DEFINITION.environment,
+        sourceId: DEFINITION.sourceId,
+        operation: 'delete',
+        actor: { type: 'user', id: 'admin@example.test' },
+        occurredAt,
+        idempotencyKey: 'regressed-delete',
+        before,
+        after: null,
+      }),
+    ).toThrow('must occur after the source version')
   })
 })

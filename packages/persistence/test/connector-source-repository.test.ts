@@ -452,33 +452,117 @@ describe.each(factories)('%s connector source repository', (_name, createReposit
     )
   })
 
-  it('rejects updates that occur before the current source version', async () => {
+  it('preserves causal audit order and rejects equal-timestamp writes atomically', async () => {
     const repository = createRepository()
+    const createMutation = {
+      ...mutation('chronology-create', '2026-09-04T00:00:00.000Z'),
+      auditId: 'audit-z-create',
+    }
     const created = requireSource(
-      await repository.create(ESTATE_A, source(ESTATE_A), mutation('create')),
+      await repository.create(ESTATE_A, source(ESTATE_A), createMutation),
     )
+    await expect(
+      repository.create(ESTATE_A, source(ESTATE_A), createMutation),
+    ).resolves.toMatchObject({
+      status: 'idempotent',
+      source: created,
+      audit: { id: 'audit-z-create' },
+    })
+
+    const updateMutation = {
+      ...mutation('chronology-update', created.updatedAt),
+      auditId: 'audit-y-update',
+    }
+    await expect(
+      Promise.resolve().then(() =>
+        repository.update(
+          ESTATE_A,
+          created.sourceId,
+          created.etag,
+          { displayName: 'Updated source' },
+          updateMutation,
+        ),
+      ),
+    ).rejects.toThrow('occurredAt must be strictly greater than the current source updatedAt')
+    await expect(repository.findById(ESTATE_A, created.sourceId)).resolves.toEqual(created)
+    await expect(repository.listAudit(ESTATE_A, created.sourceId)).resolves.toEqual([
+      expect.objectContaining({ id: 'audit-z-create', operation: 'create' }),
+    ])
+
+    const correctedUpdateMutation = {
+      ...updateMutation,
+      occurredAt: '2026-09-04T00:01:00.000Z',
+    }
     const updated = requireSource(
       await repository.update(
         ESTATE_A,
         created.sourceId,
         created.etag,
-        { displayName: 'Current source' },
-        mutation('current-update', '2026-09-04T00:02:00.000Z'),
+        { displayName: 'Updated source' },
+        correctedUpdateMutation,
       ),
     )
     await expect(
-      Promise.resolve().then(() =>
-        repository.update(
-          ESTATE_A,
-          updated.sourceId,
-          updated.etag,
-          { displayName: 'Regressed source' },
-          mutation('regressed-update', '2026-09-04T00:01:00.000Z'),
-        ),
+      repository.update(
+        ESTATE_A,
+        created.sourceId,
+        created.etag,
+        { displayName: 'Updated source' },
+        correctedUpdateMutation,
       ),
-    ).rejects.toThrow('cannot precede the current source version')
+    ).resolves.toMatchObject({
+      status: 'idempotent',
+      source: updated,
+      audit: { id: 'audit-y-update' },
+    })
+
+    const deleteMutation = {
+      ...mutation('chronology-delete', updated.updatedAt),
+      auditId: 'audit-x-delete',
+    }
+    await expect(
+      Promise.resolve().then(() =>
+        repository.delete(ESTATE_A, updated.sourceId, updated.etag, deleteMutation),
+      ),
+    ).rejects.toThrow('occurredAt must be strictly greater than the current source updatedAt')
     await expect(repository.findById(ESTATE_A, updated.sourceId)).resolves.toEqual(updated)
-    await expect(repository.listAudit(ESTATE_A, updated.sourceId)).resolves.toHaveLength(2)
+    await expect(repository.listAudit(ESTATE_A, updated.sourceId)).resolves.toEqual([
+      expect.objectContaining({ id: 'audit-z-create', operation: 'create' }),
+      expect.objectContaining({ id: 'audit-y-update', operation: 'update' }),
+    ])
+
+    const correctedDeleteMutation = {
+      ...deleteMutation,
+      occurredAt: '2026-09-04T00:02:00.000Z',
+    }
+    await expect(
+      repository.delete(ESTATE_A, updated.sourceId, updated.etag, correctedDeleteMutation),
+    ).resolves.toMatchObject({
+      status: 'applied',
+      source: null,
+      audit: { id: 'audit-x-delete' },
+    })
+    await expect(
+      repository.delete(ESTATE_A, updated.sourceId, updated.etag, correctedDeleteMutation),
+    ).resolves.toMatchObject({
+      status: 'idempotent',
+      source: null,
+      audit: { id: 'audit-x-delete' },
+    })
+    await expect(repository.findById(ESTATE_A, updated.sourceId)).resolves.toBeNull()
+
+    const audit = await repository.listAudit(ESTATE_A, updated.sourceId)
+    expect(audit.map((item) => item.id)).toEqual([
+      'audit-z-create',
+      'audit-y-update',
+      'audit-x-delete',
+    ])
+    expect(audit.map((item) => item.operation)).toEqual(['create', 'update', 'delete'])
+    expect(audit.map((item) => item.occurredAt)).toEqual([
+      '2026-09-04T00:00:00.000Z',
+      '2026-09-04T00:01:00.000Z',
+      '2026-09-04T00:02:00.000Z',
+    ])
   })
 
   it('rejects secret-shaped input and bounds reads', async () => {

@@ -168,6 +168,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     if (patch.configuration && patch.configuration.type !== existing.connectorType) {
       throw new Error('Connector configuration must match the existing connector type.')
     }
+    this.assertMutationAfterCurrentSource('update', existing, mutation)
     if (this.hasAuditId(estate, mutation.auditId)) {
       return Promise.resolve({ status: 'conflict', reason: 'audit_id_reuse' })
     }
@@ -209,6 +210,7 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
     if (existing.etag !== expectedEtag) {
       return Promise.resolve({ status: 'conflict', reason: 'etag_mismatch' })
     }
+    this.assertMutationAfterCurrentSource('delete', existing, mutation)
     if (this.hasAuditId(estate, mutation.auditId)) {
       return Promise.resolve({ status: 'conflict', reason: 'audit_id_reuse' })
     }
@@ -250,6 +252,18 @@ export class InMemoryConnectorSourceRepository implements ConnectorSourceReposit
       input.environment !== estate.environment
     ) {
       throw new Error('Connector source boundary does not match the target estate.')
+    }
+  }
+
+  private assertMutationAfterCurrentSource(
+    operation: 'update' | 'delete',
+    source: ConnectorSourceDefinition,
+    mutation: ConnectorSourceMutationContext,
+  ): void {
+    if (mutation.occurredAt <= source.updatedAt) {
+      throw new Error(
+        `Connector source ${operation} occurredAt must be strictly greater than the current source updatedAt.`,
+      )
     }
   }
 
