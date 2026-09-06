@@ -75,6 +75,12 @@ function enabled(environment: NodeJS.ProcessEnv, name: string): boolean {
   return value === 'true'
 }
 
+function sourceId(type: ConnectorType, configuredId: string): string {
+  const candidate = `${type}-${configuredId}`
+  if (candidate.length <= 63) return candidate
+  return `${type.slice(0, 45)}-${digest([type, configuredId]).slice(0, 16)}`
+}
+
 function credentialMetadata(
   credential: ProjectableSource['credential'],
   environment: NodeJS.ProcessEnv,
@@ -126,11 +132,12 @@ function projectSource(
       candidate.tenantId === source.tenantId && candidate.environment === source.environment,
   )
   if (estate === undefined) return undefined
+  const id = sourceId(type, source.id)
   const core = {
     estateId: estate.id,
     tenantId: estate.tenantId,
     environment: estate.environment,
-    sourceId: source.id,
+    sourceId: id,
     connectorType: type,
     displayName: source.name,
     enabled: isEnabled,

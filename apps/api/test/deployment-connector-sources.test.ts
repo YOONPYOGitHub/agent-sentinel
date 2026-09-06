@@ -27,6 +27,32 @@ const configuredEnvironment = {
 }
 
 describe('deployment Azure Monitor OTel source projection', () => {
+  it('namespaces identical configured IDs by connector type', () => {
+    const sources = buildDeploymentConnectorSources(
+      {
+        ...configuredEnvironment,
+        AGENT_SENTINEL_TENANT_ID: estate.tenantId,
+        FOUNDRY_ENVIRONMENT: estate.environment,
+        FOUNDRY_SOURCES_JSON: JSON.stringify([
+          {
+            id: 'primary',
+            name: 'Production Foundry',
+            tenantId: estate.tenantId,
+            environment: estate.environment,
+            projectEndpoint: 'https://safe.services.ai.azure.com/api/projects/primary',
+          },
+        ]),
+      },
+      registry,
+      'live',
+    )
+
+    expect(sources.map((source) => source.sourceId)).toEqual([
+      'azure-monitor-otel-primary',
+      'foundry-primary',
+    ])
+  })
+
   it('enables configured live sources from the runtime activation predicate only', () => {
     const [source] = buildDeploymentConnectorSources(configuredEnvironment, registry, 'live')
 

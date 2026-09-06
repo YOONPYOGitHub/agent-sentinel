@@ -761,7 +761,7 @@ describe('connector source API contracts', () => {
     expect(listed.json()).toMatchObject({
       items: [
         {
-          sourceId: 'primary',
+          sourceId: 'foundry-primary',
           origin: 'deployment',
           enabled: false,
           testStatus: { status: 'not-tested' },
@@ -778,7 +778,7 @@ describe('connector source API contracts', () => {
     expect(lab.json()).toMatchObject({
       items: [
         {
-          sourceId: 'lab',
+          sourceId: 'foundry-lab',
           estateId: 'lab',
           tenantId: 'tenant-lab',
           environment: 'validation',
