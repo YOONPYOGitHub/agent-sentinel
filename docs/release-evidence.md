@@ -57,7 +57,9 @@ Check and validation outcomes are `pass`, `fail`, `unknown`, `blocked`, or
 sanitized source, observation timestamp, scope, and at least one evidence
 reference regardless of classification. OneRAI evidence requires the same
 attribution when it is classified `tested` or has a `pass` or `fail` outcome.
-Missing or unknown provenance never becomes pass.
+A `live` OneRAI record must explicitly set `syntheticOnly` to `false`; null or
+omitted synthetic provenance cannot support a live classification. Missing or
+unknown provenance never becomes pass.
 
 Connector readiness is separately typed as `ready`, `degraded`,
 `authorization-required`, `insufficient-data`, `unknown`, `blocked`, or
@@ -194,6 +196,12 @@ credential assignments, connection strings, credential URLs, signed URLs, and
 private keys are also rejected. Error messages identify only a bounded field
 path and never echo the value.
 
+Both sanitized generator inputs and complete manifests are parsed with
+duplicate-key rejection before sensitive-content scanning or schema
+validation. This applies independently to every nested object and to escaped
+spellings of the same decoded key, so a later property cannot overwrite and
+hide an earlier secret-shaped value.
+
 The validator also rejects contradictions including:
 
 - a passing check without a command and completion timestamp;
@@ -211,7 +219,7 @@ The validator also rejects contradictions including:
 - expected and deployed digests that contradict each other;
 - a connector marked ready when it is not fresh and live;
 - blocked or planned evidence paired with pass;
-- live OneRAI classification for a synthetic-only evaluation;
+- live OneRAI classification unless `syntheticOnly` is explicitly `false`;
 - synthetic OneRAI pass/fail evidence without source and observation time;
 - defect counts greater than evaluated case counts.
 

@@ -111,12 +111,19 @@ safety gate, and absence of an authoritative source.
 
 ### Phase A ? Foundation (Network, Identity, Observability, KV, ACR)
 
+Set `WEB_IMAGE_DIGEST`, `API_IMAGE_DIGEST`, and `JOBS_IMAGE_DIGEST` to the
+canonical digests verified in the private ACR before compiling a checked-in
+`.bicepparam` file or running this reference command.
+
 ```bash
 az deployment group create \
   --mode Incremental \
   --resource-group rg-agent-sentinel \
   --template-file infra/platform.bicep \
   --parameters infra/environments/dev.parameters.bicepparam \
+  --parameters webImageDigest="${WEB_IMAGE_DIGEST}" \
+  --parameters apiImageDigest="${API_IMAGE_DIGEST}" \
+  --parameters jobsImageDigest="${JOBS_IMAGE_DIGEST}" \
   --name "platform-$(date +%Y%m%d%H%M%S)"
 ```
 
@@ -243,17 +250,23 @@ once, checks out the same resolved SHA for validation, image builds, what-if,
 and deployment, and never interpolates the dispatch input directly into a
 shell command.
 
-All three images are tagged with the full resolved commit SHA. After each push,
-the workflow resolves the tag through `az acr repository show` and rejects any
-result that is not a canonical `sha256:<64 lowercase hex>` digest. The build job
-exports the tag and all three digests. The optional protected deployment passes
-the same full SHA as the required `imageTag`; it does not rewrite a parameter
-file or use a mutable/abbreviated tag.
+All three images are tagged with the full resolved commit SHA for traceability.
+After each push, the workflow resolves the tag through
+`az acr repository show` and rejects any result that is not a canonical
+`sha256:<64 lowercase hex>` digest. The protected what-if and deployment pass
+the three verified component digests as `webImageDigest`, `apiImageDigest`, and
+`jobsImageDigest`. Bicep combines only those digests with the private ACR login
+server and component repository names, so each Container App revision uses an
+immutable `acr260814.azurecr.io/<repository>@sha256:<digest>` reference rather
+than a tag.
 
-Registry digest verification proves what was pushed, not what is running.
-Record a live deployment only after a separate sanitized observation supplies
-the full release SHA, all three running image digests, source, observation
-time, scope, and evidence references to the
+After deployment, the workflow requires exactly one active revision per
+Container App and compares that revision's web, API, or jobs image reference to
+the corresponding verified ACR digest. A registry digest alone proves only
+what was pushed; this active-revision check binds and verifies what was
+deployed. Record live deployment evidence only after the sanitized observation
+also supplies the full release SHA, all three running image digests, source,
+observation time, scope, and evidence references to the
 [release-evidence manifest](release-evidence.md).
 
 ## What-if Before Deployment

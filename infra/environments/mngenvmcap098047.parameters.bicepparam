@@ -2,7 +2,9 @@ using '../platform.bicep'
 
 param location = 'koreacentral'
 param suffix = 'm098047'
-param imageTag = '7458b3e'
+param webImageDigest = readEnvironmentVariable('WEB_IMAGE_DIGEST')
+param apiImageDigest = readEnvironmentVariable('API_IMAGE_DIGEST')
+param jobsImageDigest = readEnvironmentVariable('JOBS_IMAGE_DIGEST')
 param tags = {
   application: 'agent-sentinel'
   environment: 'replacement-validation'

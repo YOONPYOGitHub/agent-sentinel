@@ -125,7 +125,6 @@ jobs:
     needs: [resolve, validate]
     runs-on: [self-hosted, linux, x64, agent-sentinel-private]
     outputs:
-      imageTag: ${{ steps.set-tag.outputs.imageTag }}
       webDigest: ${{ steps.verify-images.outputs.webDigest }}
       apiDigest: ${{ steps.verify-images.outputs.apiDigest }}
       jobsDigest: ${{ steps.verify-images.outputs.jobsDigest }}
@@ -138,14 +137,12 @@ jobs:
           ref: ${{ needs.resolve.outputs.commitSha }}
 
       - name: Determine image tag
-        id: set-tag
         run: |
           HEAD_SHA="$(git rev-parse HEAD)"
           if [ "${HEAD_SHA}" != "${EXPECTED_SHA}" ]; then
             echo "ERROR: build checkout does not match the resolved commit"
             exit 1
           fi
-          echo "imageTag=${EXPECTED_SHA}" >> "${GITHUB_OUTPUT}"
           echo "IMAGE_TAG=${EXPECTED_SHA}" >> "${GITHUB_ENV}"
           echo "Building images with immutable tag: ${EXPECTED_SHA}"
 
@@ -222,7 +219,9 @@ jobs:
     if: inputs.deployPlatform == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, linux, x64, agent-sentinel-private]
     env:
-      IMAGE_TAG: ${{ needs.build-push.outputs.imageTag }}
+      WEB_IMAGE_DIGEST: ${{ needs.build-push.outputs.webDigest }}
+      API_IMAGE_DIGEST: ${{ needs.build-push.outputs.apiDigest }}
+      JOBS_IMAGE_DIGEST: ${{ needs.build-push.outputs.jobsDigest }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -238,7 +237,9 @@ jobs:
             -g "${{ env.RG }}" \
             -f infra/platform.bicep \
             -p infra/environments/dev.parameters.bicepparam \
-            -p imageTag="${IMAGE_TAG}" \
+            -p webImageDigest="${WEB_IMAGE_DIGEST}" \
+            -p apiImageDigest="${API_IMAGE_DIGEST}" \
+            -p jobsImageDigest="${JOBS_IMAGE_DIGEST}" \
             --result-format FullResourcePayloads
 
   # Job 4: Deploy
@@ -249,7 +250,9 @@ jobs:
     runs-on: [self-hosted, linux, x64, agent-sentinel-private]
     environment: production # Requires manual approval via GitHub environment protection
     env:
-      IMAGE_TAG: ${{ needs.build-push.outputs.imageTag }}
+      WEB_IMAGE_DIGEST: ${{ needs.build-push.outputs.webDigest }}
+      API_IMAGE_DIGEST: ${{ needs.build-push.outputs.apiDigest }}
+      JOBS_IMAGE_DIGEST: ${{ needs.build-push.outputs.jobsDigest }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -261,20 +264,74 @@ jobs:
 
       - name: Deploy platform.bicep
         run: |
-          FRONT_DOOR_HOST=$(az deployment group create \
+          DEPLOYMENT_OUTPUTS="$(az deployment group create \
             -g "${{ env.RG }}" \
             -f infra/platform.bicep \
             -p infra/environments/dev.parameters.bicepparam \
-            -p imageTag="${IMAGE_TAG}" \
+            -p webImageDigest="${WEB_IMAGE_DIGEST}" \
+            -p apiImageDigest="${API_IMAGE_DIGEST}" \
+            -p jobsImageDigest="${JOBS_IMAGE_DIGEST}" \
             --mode Incremental \
             --rollback-on-error \
-            --query 'properties.outputs.frontDoorEndpointHostName.value' \
-            -o tsv)
-          if [ -z "${FRONT_DOOR_HOST}" ]; then
-            echo "ERROR: deployment did not return the Front Door endpoint hostname"
+            --query 'properties.outputs.{frontDoorHost:frontDoorEndpointHostName.value,webAppName:webContainerAppName.value,apiAppName:apiContainerAppName.value,jobsAppName:jobsContainerAppName.value}' \
+            -o json)"
+          FRONT_DOOR_HOST="$(jq -er '.frontDoorHost' <<< "${DEPLOYMENT_OUTPUTS}")"
+          WEB_APP_NAME="$(jq -er '.webAppName' <<< "${DEPLOYMENT_OUTPUTS}")"
+          API_APP_NAME="$(jq -er '.apiAppName' <<< "${DEPLOYMENT_OUTPUTS}")"
+          JOBS_APP_NAME="$(jq -er '.jobsAppName' <<< "${DEPLOYMENT_OUTPUTS}")"
+          if [ -z "${FRONT_DOOR_HOST}" ] || [ -z "${WEB_APP_NAME}" ] || [ -z "${API_APP_NAME}" ] || [ -z "${JOBS_APP_NAME}" ]; then
+            echo "ERROR: deployment did not return the required endpoint and Container App names"
             exit 1
           fi
           echo "FRONT_DOOR_HOST=${FRONT_DOOR_HOST}" >> "$GITHUB_ENV"
+          echo "WEB_APP_NAME=${WEB_APP_NAME}" >> "$GITHUB_ENV"
+          echo "API_APP_NAME=${API_APP_NAME}" >> "$GITHUB_ENV"
+          echo "JOBS_APP_NAME=${JOBS_APP_NAME}" >> "$GITHUB_ENV"
+
+      - name: Verify active revision image digests
+        run: |
+          verify_active_revision_image() {
+            local app_name="$1"
+            local container_name="$2"
+            local expected_image="$3"
+            local active_revisions
+            local running_image
+
+            mapfile -t active_revisions < <(
+              az containerapp revision list \
+                -g "${{ env.RG }}" \
+                -n "${app_name}" \
+                --query '[?properties.active].name' \
+                -o tsv
+            )
+            if [ "${#active_revisions[@]}" -ne 1 ]; then
+              echo "ERROR: ${app_name} must have exactly one active revision"
+              exit 1
+            fi
+            running_image="$(az containerapp revision show \
+              -g "${{ env.RG }}" \
+              -n "${app_name}" \
+              --revision "${active_revisions[0]}" \
+              --query "properties.template.containers[?name == '${container_name}'].image | [0]" \
+              -o tsv)"
+            if [ "${running_image}" != "${expected_image}" ]; then
+              echo "ERROR: ${app_name} active revision does not use the verified image digest"
+              exit 1
+            fi
+          }
+
+          verify_active_revision_image \
+            "${WEB_APP_NAME}" \
+            "agent-sentinel-web" \
+            "${ACR_LOGIN_SERVER}/agent-sentinel-web@${WEB_IMAGE_DIGEST}"
+          verify_active_revision_image \
+            "${API_APP_NAME}" \
+            "agent-sentinel-api" \
+            "${ACR_LOGIN_SERVER}/agent-sentinel-api@${API_IMAGE_DIGEST}"
+          verify_active_revision_image \
+            "${JOBS_APP_NAME}" \
+            "agent-sentinel-jobs" \
+            "${ACR_LOGIN_SERVER}/agent-sentinel-jobs@${JOBS_IMAGE_DIGEST}"
 
       - name: Smoke test - Front Door SPA and API
         run: |

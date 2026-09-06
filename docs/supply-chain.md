@@ -4,15 +4,19 @@
 
 Use Azure Container Registry Premium for deployed environments.
 
-## Immutable image tags
+## Immutable image references
 
-The `imageTag` Bicep parameter is required and has no `latest` default. Every container image must
-be tagged with the Git commit SHA that produced it, and that same SHA must be supplied as
-`imageTag` during deployment. Mutable tags, including `latest`, are prohibited.
+Every container image is tagged with the full Git commit SHA that produced it
+for traceability, but tags are not the deployment identity. The required
+`webImageDigest`, `apiImageDigest`, and `jobsImageDigest` Bicep parameters have
+no defaults. Bicep constructs component-specific private ACR references in the
+form `<private-acr>/<repository>@sha256:<digest>`. Mutable or tag-qualified
+deployment references, including `latest`, are prohibited.
 
-Build and publish every application image for the SHA before deploying the platform. Retain build
-provenance with the release record. Rollbacks must select a previously published SHA-tagged image;
-do not retag an image.
+Build and publish every application image for the SHA before deploying the
+platform. Retain build provenance with the release record. Rollbacks must
+select a previously verified digest and its associated full-SHA tag; do not
+retag an image.
 
 Each release record must include a validated versioned
 [sanitized release evidence manifest](release-evidence.md). The expected image
@@ -23,11 +27,12 @@ versions are separate facts and must not be collapsed into one status.
 
 ## Retention guidance
 
-Configure an Azure Container Registry retention policy for untagged manifests while retaining
-immutable SHA-tagged images for the organization's rollback and audit window. Purge filters must not
-remove images used by active Container App revisions or approved rollback releases. Periodically
-verify that running revisions still reference retained manifests and that the retention window
-meets operational and compliance requirements.
+Configure an Azure Container Registry retention policy for untagged manifests
+while retaining digest-referenced manifests and their full-SHA provenance tags
+for the organization's rollback and audit window. Purge filters must not remove
+images used by active Container App revisions or approved rollback releases.
+Periodically verify that running revisions still reference retained manifests
+and that the retention window meets operational and compliance requirements.
 
 ## Private Build Path
 
@@ -47,7 +52,8 @@ The workflow `.github/workflows/ci-build-deploy.yml` runs on
 4. Builds all three images with `docker build` using the resolved full 40-hex commit SHA.
 5. Pushes to `acr260814.azurecr.io` via private endpoint.
 6. Resolves each pushed tag with `az acr repository show` and requires a canonical SHA-256 digest.
-7. Optionally runs `az deployment group what-if` and deploys `platform.bicep` with the same full SHA as `imageTag`.
+7. Passes the three verified component digests to the optional what-if and protected deployment.
+8. Requires one active revision per Container App and verifies its digest-qualified image reference matches the corresponding ACR digest.
 
 ### No long-lived secrets
 

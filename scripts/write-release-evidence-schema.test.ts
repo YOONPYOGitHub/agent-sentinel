@@ -38,6 +38,8 @@ describe('release evidence JSON Schema writer', () => {
 
   it('still rejects semantic schema drift and invalid JSON', () => {
     const generated = generateReleaseEvidenceJsonSchema()
+    const rendered = JSON.stringify(generated)
+    const duplicateTitle = `{"title":${JSON.stringify(generated.title)},${rendered.slice(1)}`
 
     expect(
       releaseEvidenceSchemaMatches(
@@ -47,6 +49,7 @@ describe('release evidence JSON Schema writer', () => {
         }),
       ),
     ).toBe(false)
+    expect(releaseEvidenceSchemaMatches(duplicateTitle)).toBe(false)
     expect(releaseEvidenceSchemaMatches('{not-json')).toBe(false)
   })
 })

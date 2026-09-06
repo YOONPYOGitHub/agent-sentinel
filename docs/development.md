@@ -181,7 +181,7 @@ typed unknown. It never reads the mock fixtures in live mode.
 - Add tests for behavior changes.
 - Preserve explicit live, synthetic, mock, planned, and unknown boundaries.
 - Never substitute mock success when a live connector fails.
-- Use immutable image tags derived from commits.
+- Use full-commit build tags and verified digest-qualified deployment references.
 
 The private CI runner can be deallocated. Start it before expecting queued jobs
 to run. Its managed identity is intentionally limited to image push; platform

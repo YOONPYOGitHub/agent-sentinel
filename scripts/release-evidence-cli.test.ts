@@ -237,4 +237,41 @@ describe('release evidence CLI', () => {
       /secret-shaped value at oneRai.summary/,
     )
   })
+
+  it.each(['input', 'release evidence'] as const)(
+    'rejects nested duplicate keys in a %s file before sensitive-content scanning',
+    async (fileKind) => {
+      const directory = await temporaryDirectory()
+      const input = join(directory, 'duplicated.json')
+      const output = join(directory, 'manifest.json')
+      const secretShapedValue = ['Bear', 'er ', 'A'.repeat(32)].join('')
+      await writeFile(input, `{"outer":{"summary":"${secretShapedValue}","\\u0073ummary":"safe"}}`)
+
+      const operation =
+        fileKind === 'input'
+          ? generateReleaseEvidence(
+              {
+                inputPath: input,
+                outputPath: output,
+                generatedAt: '2026-09-04T00:00:00.000Z',
+              },
+              {
+                readRepositoryState: () =>
+                  Promise.resolve({ commitSha: 'f'.repeat(40), dirty: false }),
+              },
+            )
+          : validateReleaseEvidenceFile(input)
+
+      let error: Error | undefined
+      try {
+        await operation
+      } catch (caught: unknown) {
+        if (caught instanceof Error) error = caught
+      }
+      expect(error?.message).toBe(
+        `${fileKind} file ${basename(input)} contains duplicate JSON object keys.`,
+      )
+      expect(error?.message).not.toContain('secret-shaped value')
+    },
+  )
 })

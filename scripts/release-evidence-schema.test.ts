@@ -353,23 +353,49 @@ describe('release evidence schema', () => {
     ).toThrow(/blocked or planned evidence cannot pass/)
   })
 
-  it('rejects OneRAI evidence classified live when the evaluation is synthetic', () => {
-    expect(() =>
+  it.each([true, null] as const)(
+    'rejects live OneRAI evidence with syntheticOnly %s',
+    (syntheticOnly) => {
+      expect(() =>
+        sanitizeReleaseEvidenceInput({
+          oneRai: {
+            classification: 'live',
+            outcome: 'pass',
+            observedAt: '2026-09-04T00:00:00.000Z',
+            source: 'sanitized-onerai-summary',
+            scope: sanitizedScope,
+            evidenceRefs: ['onerai-live-summary'],
+            syntheticOnly,
+            automated: true,
+            cases: 10,
+            defects: 0,
+            humanReviewRequired: true,
+            summary: 'Live provider evaluation passed.',
+          },
+        }),
+      ).toThrow(/live OneRAI classification requires syntheticOnly false/)
+    },
+  )
+
+  it('accepts attributed live OneRAI evidence only when syntheticOnly is false', () => {
+    expect(
       sanitizeReleaseEvidenceInput({
         oneRai: {
           classification: 'live',
           outcome: 'pass',
-          observedAt: '2026-09-04T00:00:00.000Z',
+          observedAt: generatedAt,
           source: 'sanitized-onerai-summary',
-          syntheticOnly: true,
+          scope: sanitizedScope,
+          evidenceRefs: ['onerai-live-summary'],
+          syntheticOnly: false,
           automated: true,
           cases: 10,
           defects: 0,
           humanReviewRequired: true,
-          summary: 'Synthetic safety probes passed.',
+          summary: 'Live provider evaluation passed.',
         },
-      }),
-    ).toThrow(/synthetic OneRAI evidence must use the synthetic classification/)
+      }).oneRai,
+    ).toMatchObject({ classification: 'live', syntheticOnly: false })
   })
 
   it.each([false, null] as const)(

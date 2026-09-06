@@ -12,6 +12,7 @@ import {
   sanitizeReleaseEvidenceInput,
   type RepositoryState,
 } from './release-evidence-schema.js'
+import { isDuplicateJsonKeyError, parseJsonRejectingDuplicateKeys } from './strict-json.js'
 
 export interface GenerateArgs {
   readonly inputPath?: string
@@ -104,8 +105,11 @@ async function readJsonFile(path: string, label: string): Promise<unknown> {
     throw new Error(`Could not read ${label} file ${basename(path)}.`)
   }
   try {
-    return JSON.parse(text) as unknown
-  } catch {
+    return parseJsonRejectingDuplicateKeys(text)
+  } catch (error: unknown) {
+    if (isDuplicateJsonKeyError(error)) {
+      throw new Error(`${label} file ${basename(path)} contains duplicate JSON object keys.`)
+    }
     throw new Error(`${label} file ${basename(path)} is not valid JSON.`)
   }
 }

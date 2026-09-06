@@ -18,8 +18,18 @@ param tags object = {
   'data-classification': 'synthetic'
 }
 
-@description('Required immutable image tag for Container App images (git SHA). Mutable tags are not permitted.')
-param imageTag string
+@description('Required canonical SHA-256 digest for the web image.')
+@minLength(71)
+@maxLength(71)
+param webImageDigest string
+@description('Required canonical SHA-256 digest for the API image.')
+@minLength(71)
+@maxLength(71)
+param apiImageDigest string
+@description('Required canonical SHA-256 digest for the jobs image.')
+@minLength(71)
+@maxLength(71)
+param jobsImageDigest string
 
 @description('Data mode for the API tier (mock or live).')
 @allowed(['mock','live'])
@@ -354,7 +364,9 @@ module containerApps './modules/container-apps.bicep' = {
     searchEndpoint: search.outputs.endpoint
     sbFqdn: serviceBus.outputs.fqdn
     appInsightsConnectionString: observability.outputs.appInsightsConnectionString
-    imageTag: imageTag
+    webImageDigest: webImageDigest
+    apiImageDigest: apiImageDigest
+    jobsImageDigest: jobsImageDigest
     agentSentinelDataMode: agentSentinelDataMode
     agentSentinelWriteEnabled: agentSentinelWriteEnabled
     foundryProjectEndpoint: foundryProjectEndpoint
@@ -549,6 +561,9 @@ output foundryProjectId string = foundry.outputs.projectId
 // Container App FQDNs
 output apiFqdn string = containerApps.outputs.apiFqdn
 output webFqdn string = containerApps.outputs.webFqdn
+output apiContainerAppName string = containerApps.outputs.apiContainerAppName
+output webContainerAppName string = containerApps.outputs.webContainerAppName
+output jobsContainerAppName string = containerApps.outputs.jobsContainerAppName
 
 // Regional diagnostic edge (may be stopped when not in use)
 output appGatewayPublicIp string = appGateway.outputs.publicIpAddress

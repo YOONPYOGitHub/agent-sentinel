@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { canonicalJson, generateReleaseEvidenceJsonSchema } from './release-evidence-schema.js'
+import { parseJsonRejectingDuplicateKeys } from './strict-json.js'
 
 const defaultPath = 'release-evidence/v1/schema.json'
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -14,7 +15,7 @@ export function renderedReleaseEvidenceSchema(): string {
 export function releaseEvidenceSchemaMatches(current: string): boolean {
   try {
     return (
-      canonicalJson(JSON.parse(current) as unknown) ===
+      canonicalJson(parseJsonRejectingDuplicateKeys(current)) ===
       canonicalJson(generateReleaseEvidenceJsonSchema())
     )
   } catch {

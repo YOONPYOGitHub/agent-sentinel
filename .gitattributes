@@ -1,0 +1,2 @@
+/.prettierignore text eol=lf
+/infra/environments/*.bicepparam text eol=lf

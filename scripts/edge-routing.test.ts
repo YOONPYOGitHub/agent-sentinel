@@ -13,8 +13,8 @@ describe('public edge routing safety', () => {
     const nginx = rootFile('apps/web/nginx.conf.template')
     const webContainerfile = rootFile('apps/web/Containerfile')
 
-    expect(containerApps).toContain(
-      "{ slug: 'api',  containerName: 'agent-sentinel-api',  ingressEnabled: true,  externalIngress: false",
+    expect(containerApps).toMatch(
+      /\{\s*slug:\s*'api',\s*containerName:\s*'agent-sentinel-api',\s*imageDigest:\s*apiImageDigest,\s*ingressEnabled:\s*true,\s*externalIngress:\s*false/,
     )
     expect(frontDoor).not.toContain('apiOriginHostName')
     expect(frontDoor).not.toContain("name: 'og-api'")
@@ -33,7 +33,7 @@ describe('public edge routing safety', () => {
   it('smoke-tests the active Front Door endpoint returned by deployment', () => {
     const workflow = rootFile('.github/workflows/ci-build-deploy.yml')
 
-    expect(workflow).toContain('properties.outputs.frontDoorEndpointHostName.value')
+    expect(workflow).toContain('frontDoorHost:frontDoorEndpointHostName.value')
     expect(workflow).toContain('/api/connector/status')
     expect(workflow).toContain('"https://${FRONT_DOOR_HOST}${path}"')
     expect(workflow).not.toContain('4.230.67.93')
@@ -52,16 +52,37 @@ describe('public edge routing safety', () => {
     )
     expect(workflow.match(/\$\{\{[^}]*inputs\.commitSha[^}]*\}\}/g)).toHaveLength(1)
     expect(workflow.match(/ref: \$\{\{ needs\.resolve\.outputs\.commitSha \}\}/g)).toHaveLength(4)
-    expect(
-      workflow.match(/IMAGE_TAG: \$\{\{ needs\.build-push\.outputs\.imageTag \}\}/g),
-    ).toHaveLength(2)
     expect(workflow).toContain('HEAD_SHA="$(git rev-parse HEAD)"')
-    expect(workflow).toContain('echo "imageTag=${EXPECTED_SHA}" >> "${GITHUB_OUTPUT}"')
+    expect(workflow).toContain('echo "IMAGE_TAG=${EXPECTED_SHA}" >> "${GITHUB_ENV}"')
     expect(workflow).not.toContain('SHORT_TAG')
     expect(workflow).not.toContain('${TAG:0:7}')
     expect(workflow).toContain('--image "${repository}:${IMAGE_TAG}"')
     expect(workflow).toContain('^sha256:[0-9a-f]{64}$')
-    expect(workflow).toContain('-p imageTag="${IMAGE_TAG}"')
+    expect(workflow).not.toContain('-p imageTag=')
+    expect(workflow.match(/-p webImageDigest="\$\{WEB_IMAGE_DIGEST\}"/g)).toHaveLength(2)
+    expect(workflow.match(/-p apiImageDigest="\$\{API_IMAGE_DIGEST\}"/g)).toHaveLength(2)
+    expect(workflow.match(/-p jobsImageDigest="\$\{JOBS_IMAGE_DIGEST\}"/g)).toHaveLength(2)
+  })
+
+  it('deploys private ACR images by component digest and verifies active revisions', () => {
+    const workflow = rootFile('.github/workflows/ci-build-deploy.yml')
+    const platform = rootFile('infra/platform.bicep')
+    const containerApps = rootFile('infra/modules/container-apps.bicep')
+
+    expect(containerApps).toContain(
+      "image: format('{0}/{1}@{2}', acrLoginServer, app.containerName, app.imageDigest)",
+    )
+    expect(containerApps).not.toContain("image: format('{0}/{1}:{2}'")
+    expect(platform).toContain('webImageDigest: webImageDigest')
+    expect(platform).toContain('apiImageDigest: apiImageDigest')
+    expect(platform).toContain('jobsImageDigest: jobsImageDigest')
+    expect(workflow).toContain('Verify active revision image digests')
+    expect(workflow).toContain('az containerapp revision list')
+    expect(workflow).toContain('az containerapp revision show')
+    expect(workflow).toContain('${ACR_LOGIN_SERVER}/agent-sentinel-web@${WEB_IMAGE_DIGEST}')
+    expect(workflow).toContain('${ACR_LOGIN_SERVER}/agent-sentinel-api@${API_IMAGE_DIGEST}')
+    expect(workflow).toContain('${ACR_LOGIN_SERVER}/agent-sentinel-jobs@${JOBS_IMAGE_DIGEST}')
+    expect(workflow).not.toMatch(/(?:docker\.io|mcr\.microsoft\.com)\/agent-sentinel-/)
   })
 
   it('keeps live connector reads distinct from the synthetic validation portfolio', () => {
@@ -85,6 +106,16 @@ describe('public edge routing safety', () => {
     expect(supplyChain).toContain('canonical SHA-256 digest')
     expect(supplyChain).not.toContain('<7-char-SHA>')
     expect(supplyChain).not.toContain('show-tags')
+  })
+
+  it('keeps the Prettier ignore file normalized', () => {
+    const prettierIgnore = rootFile('.prettierignore')
+    const attributes = rootFile('.gitattributes')
+
+    expect(prettierIgnore).not.toContain('\r')
+    expect(prettierIgnore).toMatch(/\n$/)
+    expect(prettierIgnore.split('\n').every((line) => !/[ \t]$/.test(line))).toBe(true)
+    expect(attributes).toContain('/.prettierignore text eol=lf')
   })
 
   it('serializes Foundry model deployments on the shared account', () => {
@@ -115,6 +146,18 @@ describe('public edge routing safety', () => {
       "effectiveFoundryAccountName = empty(foundryAccountName) ? 'ais-agent-sentinel-${suffix}'",
     )
     expect(parameters).toContain("connectorIdentityName = 'id-agent-sentinel-connectors-260829'")
+    for (const parameterFile of [parameters, replacementParameters]) {
+      expect(parameterFile).toContain(
+        "param webImageDigest = readEnvironmentVariable('WEB_IMAGE_DIGEST')",
+      )
+      expect(parameterFile).toContain(
+        "param apiImageDigest = readEnvironmentVariable('API_IMAGE_DIGEST')",
+      )
+      expect(parameterFile).toContain(
+        "param jobsImageDigest = readEnvironmentVariable('JOBS_IMAGE_DIGEST')",
+      )
+      expect(parameterFile).not.toContain('param imageTag')
+    }
     expect(replacementParameters).toContain("suffix = 'm098047'")
     expect(replacementParameters).toContain(
       "foundryTenantId = 'ef7d55d6-c61d-4085-9064-4e83adf15ee3'",

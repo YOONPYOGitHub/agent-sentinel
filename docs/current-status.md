@@ -272,7 +272,7 @@ results are historical and do not establish checks for a later commit.
 
 In dependency order. Each condition gates everything below it in its own track.
 
-1. **Replacement corporate API/SPA settings and least-privilege role assignments approved** → build the reviewed current commit, record its immutable image tag/digests, and activate `AUTH_MODE=jwt` with writes false and the WAF unchanged.
+1. **Replacement corporate API/SPA settings and least-privilege role assignments approved** → build the reviewed current commit, record its full-SHA image tags and canonical digests, deploy by digest, and activate `AUTH_MODE=jwt` with writes false and the WAF unchanged.
 2. **Real employee login plus read-phase live validation pass** → per-employee entitlement personalization and owner-scoped views become meaningful.
 3. **Private authenticated write smoke test passes** → the `BlockApiMutationPreAuth` WAF rule can be narrowly changed, followed by public-edge write and anonymous-denial validation.
 4. **Instrumented spans, Azure Monitor workspace settings, and least-privilege Logs query access are injected** → the implemented connector starts supplying real `ObservationWindow` objects; quality, reliability, and cost dimensions become evidence-backed instead of `unknown`.

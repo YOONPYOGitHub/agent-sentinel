@@ -353,6 +353,12 @@ const oneRaiEvidenceSchema = z
         message: 'synthetic OneRAI classification requires syntheticOnly true',
       })
     }
+    if (value.classification === 'live' && value.syntheticOnly !== false) {
+      context.addIssue({
+        code: 'custom',
+        message: 'live OneRAI classification requires syntheticOnly false',
+      })
+    }
     if (
       (value.classification === 'blocked' || value.classification === 'planned') &&
       value.outcome === 'pass'

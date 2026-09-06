@@ -185,8 +185,18 @@ param cosmosDatabase string = 'agent-sentinel-db'
 @description('Ingestion worker discovery interval in milliseconds.')
 param discoveryIntervalMs string = '300000'
 
-@description('Required immutable image tag (git SHA). Mutable tags such as latest are not permitted.')
-param imageTag string
+@description('Required canonical SHA-256 digest for the web image.')
+@minLength(71)
+@maxLength(71)
+param webImageDigest string
+@description('Required canonical SHA-256 digest for the API image.')
+@minLength(71)
+@maxLength(71)
+param apiImageDigest string
+@description('Required canonical SHA-256 digest for the jobs image.')
+@minLength(71)
+@maxLength(71)
+param jobsImageDigest string
 
 resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: envName
@@ -222,9 +232,9 @@ var suffix = last(split(envName, '-'))
 //   api  ? external: false ? reachable only within the ACA environment (nginx proxy from web).
 //   jobs ? ingressEnabled: false ? no ingress; Service Bus-triggered only.
 var appDefinitions = [
-  { slug: 'api',  containerName: 'agent-sentinel-api',  ingressEnabled: true,  externalIngress: false, allowInsecure: false, port: 3001, minReplicas: 1 }
-  { slug: 'web',  containerName: 'agent-sentinel-web',  ingressEnabled: true,  externalIngress: true,  allowInsecure: true,  port: 80,   minReplicas: 1 }
-  { slug: 'jobs', containerName: 'agent-sentinel-jobs', ingressEnabled: false, externalIngress: false, allowInsecure: false, port: 0,    minReplicas: 0 }
+  { slug: 'api',  containerName: 'agent-sentinel-api',  imageDigest: apiImageDigest,  ingressEnabled: true,  externalIngress: false, allowInsecure: false, port: 3001, minReplicas: 1 }
+  { slug: 'web',  containerName: 'agent-sentinel-web',  imageDigest: webImageDigest,  ingressEnabled: true,  externalIngress: true,  allowInsecure: true,  port: 80,   minReplicas: 1 }
+  { slug: 'jobs', containerName: 'agent-sentinel-jobs', imageDigest: jobsImageDigest, ingressEnabled: false, externalIngress: false, allowInsecure: false, port: 0,    minReplicas: 0 }
 ]
 
 var effectivePurviewSourcesJson = purviewConnectorEnabled && empty(purviewSourcesJson) && !empty(connectorUamiClientId) ? string([
@@ -433,7 +443,7 @@ resource apps 'Microsoft.App/containerApps@2024-03-01' = [for app in appDefiniti
       containers: [
         {
           name: app.containerName
-          image: format('{0}/{1}:{2}', acrLoginServer, app.containerName, imageTag)
+          image: format('{0}/{1}@{2}', acrLoginServer, app.containerName, app.imageDigest)
           env: env
           resources: {
             cpu: json('0.5')
@@ -455,5 +465,8 @@ output acaEnvId string = environment.id
 // apps[1] = web (external within VNet; App Gateway backend target)
 output apiFqdn string = apps[0].properties.configuration.ingress.fqdn
 output webFqdn string = apps[1].properties.configuration.ingress.fqdn
+output apiContainerAppName string = apps[0].name
+output webContainerAppName string = apps[1].name
+output jobsContainerAppName string = apps[2].name
 output envDefaultDomain string = environment.properties.defaultDomain
 output envStaticIp string = environment.properties.staticIp
