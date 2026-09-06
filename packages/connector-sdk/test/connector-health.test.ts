@@ -46,6 +46,35 @@ function measurement(overrides: Record<string, number> = {}) {
 }
 
 describe('connector health diagnostics schema', () => {
+  it('preserves typed data state and exact source provenance', () => {
+    const input = measurement()
+    Object.assign(input.health.sources[0], {
+      dataState: 'partial',
+      provenance: {
+        estateTenantId: 'tenant-a',
+        estateEnvironment: 'validation',
+        sourceConnectorId: 'primary',
+        sourceTenantId: 'tenant-a',
+        sourceEnvironment: 'validation',
+        provider: 'microsoft-entra',
+        providerObjectId: 'service-principal-inventory',
+      },
+    })
+
+    expect(connectorHealthMeasurementSchema.parse(input).health.sources[0]).toMatchObject({
+      dataState: 'partial',
+      provenance: {
+        estateTenantId: 'tenant-a',
+        estateEnvironment: 'validation',
+        sourceConnectorId: 'primary',
+        sourceTenantId: 'tenant-a',
+        sourceEnvironment: 'validation',
+        provider: 'microsoft-entra',
+        providerObjectId: 'service-principal-inventory',
+      },
+    })
+  })
+
   it('accepts disjoint correlation categories and matching RUNS_AS counts', () => {
     expect(connectorHealthMeasurementSchema.safeParse(measurement()).success).toBe(true)
   })

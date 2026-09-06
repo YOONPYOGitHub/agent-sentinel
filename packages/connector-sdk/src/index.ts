@@ -9,6 +9,18 @@ import type {
 } from '@agent-sentinel/domain'
 import { z } from 'zod'
 
+export {
+  aggregateLiveSources,
+  type AggregateLiveSourcesOptions,
+  type LiveAggregationLimits,
+  type LiveSourceAggregation,
+  type LiveSourceDataState,
+  type LiveSourceExecutionContext,
+  type LiveSourceOutcome,
+  type LiveSourceValue,
+} from './live-aggregation.js'
+import type { LiveSourceDataState } from './live-aggregation.js'
+
 export type ConnectorCapability =
   'discovery' | 'evidence' | 'events' | 'remediation-simulation' | 'remediation-execution'
 
@@ -69,6 +81,7 @@ export interface ConnectorSourceHealth {
   readonly enabled: boolean
   readonly configured: boolean
   readonly readiness: ConnectorReadiness
+  readonly dataState?: LiveSourceDataState
   readonly checkedAt?: string
   /** Stable, sanitized reason code. Never contains provider response data. */
   readonly reason?: string
@@ -88,6 +101,16 @@ const connectorCapabilityCoverageSchema = z.strictObject({
   covered: z.number().int().min(0).optional(),
   evidenceReferences: z.array(z.string().min(1).max(500)),
   reason: z.string().min(1).max(200).optional(),
+})
+
+const connectorSourceProvenanceSchema = z.strictObject({
+  estateTenantId: z.string().min(1).max(128),
+  estateEnvironment: z.string().min(1).max(128),
+  sourceConnectorId: z.string().min(1).max(200),
+  sourceTenantId: z.string().min(1).max(128),
+  sourceEnvironment: z.string().min(1).max(128),
+  provider: z.string().min(1).max(200),
+  providerObjectId: z.string().min(1).max(500),
 })
 
 const exactIdentityCorrelationDiagnosticsSchema = z
@@ -143,9 +166,13 @@ export const connectorHealthReportSchema = z.strictObject({
       enabled: z.boolean(),
       configured: z.boolean(),
       readiness: z.enum(['ready', 'degraded', 'unavailable', 'disabled', 'authorization-required']),
+      dataState: z
+        .enum(['complete', 'partial', 'stale', 'unsupported', 'empty', 'failed', 'cancelled'])
+        .optional(),
       checkedAt: z.iso.datetime().optional(),
       reason: z.string().min(1).max(200).optional(),
       diagnostics: exactIdentityCorrelationDiagnosticsSchema.optional(),
+      provenance: connectorSourceProvenanceSchema.optional(),
     }),
   ),
 })
@@ -210,10 +237,14 @@ export interface ApprovalContext {
   reason: string
 }
 
+export interface ConnectorOperationRequest {
+  readonly signal?: AbortSignal
+}
+
 export interface AgentConnector {
   readonly descriptor: ConnectorDescriptor
   testConnection(): Promise<ConnectionTestResult>
-  discover(): Promise<EstateSnapshot>
+  discover(request?: ConnectorOperationRequest): Promise<EstateSnapshot>
   getEvidence(evidenceId: string): Promise<Evidence>
   getConnectorHealth?(): ConnectorHealthReport
   execute?(
@@ -290,7 +321,10 @@ export type RuntimeObservationWindows = z.infer<typeof runtimeObservationWindows
  */
 export interface RuntimeTelemetryConnector {
   readonly id: string
-  readObservationWindows(request: RuntimeTelemetryRequest): Promise<RuntimeObservationWindows>
+  readObservationWindows(
+    request: RuntimeTelemetryRequest,
+    options?: ConnectorOperationRequest,
+  ): Promise<RuntimeObservationWindows>
   getConnectorHealth?(): ConnectorHealthReport
 }
 
