@@ -75,9 +75,7 @@ describe('representative OpenTelemetry evidence normalization', () => {
         costUsd: 0.012,
         success: true,
         synthetic: false,
-        correlations: [
-          { kind: 'correlation-id', value: '11111111111111111111111111111111' },
-        ],
+        correlations: [{ kind: 'correlation-id', value: '11111111111111111111111111111111' }],
       }),
     ])
     expect(result.window.observations[0]?.otelProvenance).toMatchObject({
@@ -128,24 +126,65 @@ describe('representative OpenTelemetry evidence normalization', () => {
     nestedRecord(duplicate, 'claim').value = 999
     conflicting[1]!.records.push(duplicate)
     const conflictResult = normalizeRepresentativeOtelEvidence(conflicting, binding)
+    const reversedConflictResult = normalizeRepresentativeOtelEvidence(
+      [...conflicting].reverse().map((page) => ({ ...page, records: [...page.records].reverse() })),
+      binding,
+    )
+
     expect(conflictResult.status).toBe('degraded')
     expect(conflictResult.caveats).toContain('conflicting-duplicate')
-    expect(conflictResult.evidenceId).not.toBe(replayResult.evidenceId)
+    expect(conflictResult.caveats).toContain('partial')
+    expect(conflictResult.evidence).toHaveLength(5)
+    expect(conflictResult.window.observations).toEqual([])
+    expect(conflictResult.window.otelQuality).toMatchObject({
+      recordsReceived: 7,
+      recordsAccepted: 5,
+      duplicatesRemoved: 2,
+    })
+    expect(reversedConflictResult).toEqual(conflictResult)
   })
 
-  it('rejects cross-tenant, cross-source, and cross-resource correlation attempts', async () => {
+  it('degrades contradictory exact provenance without projecting runtime evidence', async () => {
     for (const [field, value] of [
+      ['estateId', 'estate-b'],
       ['estateTenantId', 'tenant-b'],
+      ['estateEnvironment', 'other-estate'],
       ['sourceConnectorId', 'source-b'],
       ['sourceTenantId', 'tenant-b'],
+      ['sourceEnvironment', 'staging'],
       ['providerResourceId', '/subscriptions/other/resource'],
       ['sourceAgentId', 'provider-agent-b'],
     ] as const) {
       const pages = await fixture()
       pages[0]!.records[0]![field] = value
-      expect(() => normalizeRepresentativeOtelEvidence(pages, binding)).toThrow(
-        `exact ${field} binding`,
-      )
+      const result = normalizeRepresentativeOtelEvidence(pages, binding)
+
+      expect(result.status).toBe('degraded')
+      expect(result.caveats).toContain('invalid-record')
+      expect(result.window.observations).toEqual([])
+      expect(result.window.otelQuality?.status).toBe('degraded')
+    }
+  })
+
+  it('degrades missing exact provenance fields without projecting runtime evidence', async () => {
+    for (const field of [
+      'estateId',
+      'estateTenantId',
+      'estateEnvironment',
+      'sourceConnectorId',
+      'sourceTenantId',
+      'sourceEnvironment',
+      'providerResourceId',
+      'sourceAgentId',
+    ] as const) {
+      const pages = await fixture()
+      delete pages[0]!.records[0]![field]
+      const result = normalizeRepresentativeOtelEvidence(pages, binding)
+
+      expect(result.status).toBe('degraded')
+      expect(result.caveats).toContain('invalid-record')
+      expect(result.window.observations).toEqual([])
+      expect(result.window.otelQuality?.status).toBe('degraded')
     }
   })
 
@@ -219,10 +258,7 @@ describe('representative OpenTelemetry evidence normalization', () => {
   })
 
   it('marks empty, stale, and incomplete pages unknown or degraded instead of available', async () => {
-    const empty = normalizeRepresentativeOtelEvidence(
-      [{ pageNumber: 1, records: [] }],
-      binding,
-    )
+    const empty = normalizeRepresentativeOtelEvidence([{ pageNumber: 1, records: [] }], binding)
     expect(empty.status).toBe('unknown')
     expect(empty.caveats).toEqual(['empty'])
     expect(empty.window.observations).toEqual([])
@@ -245,6 +281,25 @@ describe('representative OpenTelemetry evidence normalization', () => {
     const incomplete = normalizeRepresentativeOtelEvidence(incompletePages, binding)
     expect(incomplete.status).toBe('degraded')
     expect(incomplete.caveats).toContain('incomplete-pagination')
+  })
+
+  it('detects self-looping and replayed continuation tokens across the full chain', async () => {
+    const selfLoop = await fixture()
+    selfLoop[1]!.nextCursor = 'page-2'
+    selfLoop.push({ pageNumber: 3, cursor: 'page-2', records: [] })
+    const selfLoopResult = normalizeRepresentativeOtelEvidence(selfLoop, binding)
+    expect(selfLoopResult.status).toBe('degraded')
+    expect(selfLoopResult.caveats).toContain('incomplete-pagination')
+
+    const replayed = await fixture()
+    replayed[1]!.nextCursor = 'page-3'
+    replayed.push(
+      { pageNumber: 3, cursor: 'page-3', nextCursor: 'page-2', records: [] },
+      { pageNumber: 4, cursor: 'page-2', records: [] },
+    )
+    const replayedResult = normalizeRepresentativeOtelEvidence(replayed, binding)
+    expect(replayedResult.status).toBe('degraded')
+    expect(replayedResult.caveats).toContain('incomplete-pagination')
   })
 
   it('enforces page and record bounds before normalization', () => {
@@ -296,9 +351,9 @@ describe('representative OpenTelemetry evidence normalization', () => {
     expect(result.status).toBe('available')
     expect(result.window.otelQuality?.classification).toBe('synthetic')
     expect(result.window.observations[0]?.synthetic).toBe(true)
-    expect(
-      result.evidence.every((item) => item.provenance.classification === 'synthetic'),
-    ).toBe(true)
+    expect(result.evidence.every((item) => item.provenance.classification === 'synthetic')).toBe(
+      true,
+    )
   })
 
   it('degrades mixed live and synthetic claims instead of merging classifications', async () => {

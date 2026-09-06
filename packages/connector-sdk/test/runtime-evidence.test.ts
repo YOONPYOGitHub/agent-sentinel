@@ -125,6 +125,47 @@ function windows() {
   })
 }
 
+function normalizedWindows() {
+  const normalized = windows()
+  normalized.observed.observations = [
+    {
+      ...normalized.observed.observations[0]!,
+      latencyMs: 820,
+      inputTokens: 320,
+      outputTokens: 110,
+      costUsd: 0.012,
+      otelProvenance: {
+        estateId: 'estate-a',
+        estateTenantId: 'tenant-a',
+        estateEnvironment: 'portfolio',
+        sourceConnectorId: 'primary',
+        sourceTenantId: 'source-tenant',
+        sourceEnvironment: 'production',
+        provider: 'azure-monitor-otel',
+        providerResourceId: '/subscriptions/example/resource',
+        providerAgentId: 'provider-agent-a',
+        traceId: '11111111111111111111111111111111',
+        spanId: 'aaaaaaaaaaaaaaaa',
+        observedAt: '2026-08-29T12:00:00.000Z',
+        classification: 'live',
+        sampling: { state: 'complete', rate: 1 },
+        aggregation: { kind: 'raw' },
+        evidenceIds: ['invocation', 'latency', 'error', 'input-tokens', 'output-tokens', 'cost'],
+      },
+    },
+  ]
+  normalized.observed.otelQuality = {
+    status: 'available',
+    classification: 'live',
+    caveats: [],
+    recordsReceived: 6,
+    recordsAccepted: 6,
+    duplicatesRemoved: 0,
+    pagesProcessed: 1,
+  }
+  return normalized
+}
+
 describe('runtime evidence projection', () => {
   it('builds an exact source-bound telemetry request', () => {
     const estate = snapshot()
@@ -219,50 +260,7 @@ describe('runtime evidence projection', () => {
   })
 
   it('retains exact normalized invocation provenance in projected evidence', () => {
-    const normalized = windows()
-    normalized.observed.observations = [
-      {
-        ...normalized.observed.observations[0]!,
-        latencyMs: 820,
-        inputTokens: 320,
-        outputTokens: 110,
-        costUsd: 0.012,
-        otelProvenance: {
-          estateId: 'estate-a',
-          estateTenantId: 'tenant-a',
-          estateEnvironment: 'portfolio',
-          sourceConnectorId: 'primary',
-          sourceTenantId: 'source-tenant',
-          sourceEnvironment: 'production',
-          provider: 'azure-monitor-otel',
-          providerResourceId: '/subscriptions/example/resource',
-          providerAgentId: 'provider-agent-a',
-          traceId: '11111111111111111111111111111111',
-          spanId: 'aaaaaaaaaaaaaaaa',
-          observedAt: '2026-08-29T12:00:00.000Z',
-          classification: 'live',
-          sampling: { state: 'complete', rate: 1 },
-          aggregation: { kind: 'raw' },
-          evidenceIds: [
-            'invocation',
-            'latency',
-            'error',
-            'input-tokens',
-            'output-tokens',
-            'cost',
-          ],
-        },
-      },
-    ]
-    normalized.observed.otelQuality = {
-      status: 'available',
-      classification: 'live',
-      caveats: [],
-      recordsReceived: 6,
-      recordsAccepted: 6,
-      duplicatesRemoved: 0,
-      pagesProcessed: 1,
-    }
+    const normalized = normalizedWindows()
 
     const result = projectRuntimeEvidence(snapshot(), normalized)
     expect(result.snapshot.evidence.find((item) => item.id === 'observed-evidence')?.otel).toEqual({
@@ -282,43 +280,98 @@ describe('runtime evidence projection', () => {
     })
   })
 
-  it('rejects normalized telemetry whose exact source provenance targets another agent', () => {
-    const normalized = windows()
-    normalized.observed.observations = normalized.observed.observations
-      .filter((item) => !item.synthetic)
-      .map((item) => ({
-        ...item,
-        otelProvenance: {
-          estateId: 'estate-a',
-          estateTenantId: 'tenant-a',
-          estateEnvironment: 'portfolio',
-          sourceConnectorId: 'primary',
-          sourceTenantId: 'source-tenant',
-          sourceEnvironment: 'production',
-          provider: 'azure-monitor-otel' as const,
-          providerResourceId: '/subscriptions/example/resource',
-          providerAgentId: 'provider-agent-b',
-          traceId: '11111111111111111111111111111111',
-          spanId: 'aaaaaaaaaaaaaaaa',
-          observedAt: item.observedAt,
-          classification: 'live' as const,
-          sampling: { state: 'complete' as const, rate: 1 },
-          aggregation: { kind: 'raw' as const },
-          evidenceIds: ['record-a'],
-        },
-      }))
-    normalized.observed.otelQuality = {
-      status: 'available',
-      classification: 'live',
-      caveats: [],
-      recordsReceived: 6,
-      recordsAccepted: 6,
-      duplicatesRemoved: 0,
-      pagesProcessed: 1,
-    }
+  it('degrades contradictory outer and nested provenance before projection', () => {
+    const mutations: Array<(normalized: ReturnType<typeof normalizedWindows>) => void> = [
+      (normalized) => {
+        normalized.observed.observations[0]!.tenantId = 'tenant-b'
+      },
+      (normalized) => {
+        normalized.observed.observations[0]!.environment = 'staging'
+      },
+      (normalized) => {
+        normalized.observed.observations[0]!.source = 'mock-synthetic'
+      },
+      (normalized) => {
+        normalized.observed.observations[0]!.observedAt = '2026-08-29T12:00:01.000Z'
+      },
+      (normalized) => {
+        normalized.observed.observations[0]!.synthetic = true
+      },
+      (normalized) => {
+        normalized.observed.observations[0]!.otelProvenance!.sourceConnectorId = 'secondary'
+      },
+      (normalized) => {
+        normalized.observed.observations[0]!.otelProvenance!.providerAgentId = 'provider-agent-b'
+      },
+    ]
 
-    expect(() => projectRuntimeEvidence(snapshot(), normalized)).toThrow(
-      'does not match the exact estate and agent source binding',
-    )
+    for (const mutate of mutations) {
+      const normalized = normalizedWindows()
+      mutate(normalized)
+      const result = projectRuntimeEvidence(snapshot(), normalized)
+      const evidence = result.snapshot.evidence.find((item) => item.id === 'observed-evidence')
+
+      expect(evidence).toMatchObject({
+        confidence: 0,
+        evidenceTypes: ['unknown'],
+        metadata: {
+          evidenceStatus: 'degraded',
+        },
+      })
+      expect(evidence?.otel?.quality.caveats).toContain('invalid-record')
+      expect(evidence?.otel?.invocations).toEqual([])
+    }
+  })
+
+  it('degrades missing exact provenance fields before projection', () => {
+    for (const field of [
+      'estateId',
+      'estateTenantId',
+      'estateEnvironment',
+      'sourceConnectorId',
+      'sourceTenantId',
+      'sourceEnvironment',
+      'providerResourceId',
+      'providerAgentId',
+      'observedAt',
+      'classification',
+    ] as const) {
+      const normalized = normalizedWindows()
+      const provenance = normalized.observed.observations[0]!.otelProvenance!
+      delete (provenance as Partial<typeof provenance>)[field]
+      const result = projectRuntimeEvidence(snapshot(), normalized)
+      const evidence = result.snapshot.evidence.find((item) => item.id === 'observed-evidence')
+
+      expect(evidence).toMatchObject({
+        confidence: 0,
+        evidenceTypes: ['unknown'],
+        metadata: {
+          evidenceStatus: 'degraded',
+        },
+      })
+      expect(evidence?.otel?.quality.caveats).toContain('invalid-record')
+      expect(evidence?.otel?.invocations).toEqual([])
+    }
+  })
+
+  it('degrades conflicting estate and provider resource provenance without a winner', () => {
+    for (const field of ['estateId', 'providerResourceId'] as const) {
+      const normalized = normalizedWindows()
+      const first = normalized.observed.observations[0]!
+      normalized.observed.observations.push({
+        ...structuredClone(first),
+        id: 'observed-real-2',
+      })
+      first.otelProvenance![field] = `${first.otelProvenance![field]}-other`
+
+      const result = projectRuntimeEvidence(snapshot(), normalized)
+      const evidence = result.snapshot.evidence.find((item) => item.id === 'observed-evidence')
+      expect(evidence).toMatchObject({
+        confidence: 0,
+        evidenceTypes: ['unknown'],
+      })
+      expect(evidence?.otel?.quality.caveats).toContain('invalid-record')
+      expect(evidence?.otel?.invocations).toEqual([])
+    }
   })
 })

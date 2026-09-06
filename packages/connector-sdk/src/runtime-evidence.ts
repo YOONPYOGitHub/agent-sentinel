@@ -1,6 +1,7 @@
 import {
   estateSnapshotSchema,
   evidenceSchema,
+  runtimeOtelProvenanceSchema,
   type EstateSnapshot,
   type Evidence,
   type GraphEdge,
@@ -179,39 +180,146 @@ function evidenceForWindow(
   })
 }
 
-function assertExactOtelProvenance(
+function classificationForObservations(
+  observations: readonly RuntimeObservation[],
+): 'live' | 'synthetic' | 'mixed' | 'unknown' {
+  if (observations.length === 0) return 'unknown'
+  const classifications = new Set(
+    observations.map((observation) => (observation.synthetic ? 'synthetic' : 'live')),
+  )
+  if (classifications.size > 1) return 'mixed'
+  return classifications.has('synthetic') ? 'synthetic' : 'live'
+}
+
+function degradeOtelWindow(
+  window: ObservationWindow,
+  observations: RuntimeObservation[],
+): ObservationWindow {
+  if (window.otelQuality === undefined) return window
+  return {
+    ...window,
+    observations,
+    otelQuality: {
+      ...window.otelQuality,
+      status: 'degraded',
+      classification: classificationForObservations(observations),
+      caveats: [...new Set([...window.otelQuality.caveats, 'invalid-record' as const])].sort(),
+    },
+  }
+}
+
+function removeMalformedOtelObservations(
+  windowsInput: RuntimeObservationWindows,
+): RuntimeObservationWindows {
+  const windows = structuredClone(windowsInput)
+  for (const window of [windows.baseline, windows.observed]) {
+    if (window.otelQuality === undefined) continue
+    let removed = false
+    window.observations = window.observations.filter((observation) => {
+      const parsed = runtimeOtelProvenanceSchema.safeParse(observation.otelProvenance)
+      if (!parsed.success) {
+        removed = true
+        return false
+      }
+      observation.otelProvenance = parsed.data
+      return true
+    })
+    if (removed) {
+      const degraded = degradeOtelWindow(window, window.observations)
+      window.otelQuality = degraded.otelQuality
+    }
+  }
+  return windows
+}
+
+function hasExactOtelProvenance(
   snapshot: EstateSnapshot,
   agent: GraphNode,
   window: ObservationWindow,
-): void {
+  observation: RuntimeObservation,
+  sharedEstateId: string | undefined,
+  sharedProviderResourceId: string | undefined,
+): boolean {
   const sourceConnectorId = agent.metadata['sourceConnectorId']
   const sourceTenantId = agent.metadata['sourceTenantId']
   const sourceAgentId = agent.metadata['sourceObjectId']
   const sourceEnvironment = agent.metadata['sourceEnvironment'] ?? agent.environment
-  for (const observation of window.observations) {
-    const provenance = observation.otelProvenance
-    if (provenance === undefined) {
-      if (window.otelQuality !== undefined) {
-        throw new Error('Normalized OpenTelemetry observations require exact provenance.')
-      }
-      continue
-    }
-    if (
-      sourceConnectorId === undefined ||
-      sourceTenantId === undefined ||
-      sourceAgentId === undefined ||
-      provenance.estateTenantId !== snapshot.tenantId ||
-      provenance.estateEnvironment !== snapshot.environment ||
-      provenance.sourceConnectorId !== sourceConnectorId ||
-      provenance.sourceTenantId !== sourceTenantId ||
-      provenance.sourceEnvironment !== sourceEnvironment ||
-      provenance.providerAgentId !== sourceAgentId
-    ) {
-      throw new Error(
-        'Normalized OpenTelemetry provenance does not match the exact estate and agent source binding.',
-      )
-    }
+  const provenance = observation.otelProvenance
+  if (
+    provenance === undefined ||
+    sourceConnectorId === undefined ||
+    sourceTenantId === undefined ||
+    sourceAgentId === undefined ||
+    sharedEstateId === undefined ||
+    sharedProviderResourceId === undefined
+  ) {
+    return false
   }
+  const expectedClassification = observation.synthetic ? 'synthetic' : 'live'
+  return (
+    observation.tenantId === window.tenantId &&
+    observation.agentId === window.agentId &&
+    observation.environment === window.environment &&
+    observation.source === window.source &&
+    provenance.estateId === sharedEstateId &&
+    provenance.estateTenantId === observation.tenantId &&
+    provenance.estateTenantId === snapshot.tenantId &&
+    provenance.estateEnvironment === snapshot.environment &&
+    provenance.sourceConnectorId === sourceConnectorId &&
+    provenance.sourceTenantId === sourceTenantId &&
+    provenance.sourceEnvironment === observation.environment &&
+    provenance.sourceEnvironment === sourceEnvironment &&
+    provenance.provider === observation.source &&
+    provenance.providerResourceId === sharedProviderResourceId &&
+    provenance.providerAgentId === sourceAgentId &&
+    provenance.observedAt === observation.observedAt &&
+    provenance.classification === expectedClassification &&
+    (window.otelQuality?.classification === 'mixed' ||
+      window.otelQuality?.classification === expectedClassification)
+  )
+}
+
+function enforceExactOtelProvenance(
+  snapshot: EstateSnapshot,
+  agent: GraphNode,
+  windows: RuntimeObservationWindows,
+): RuntimeObservationWindows {
+  const provenance = [windows.baseline, windows.observed].flatMap((window) =>
+    window.otelQuality === undefined
+      ? []
+      : window.observations.flatMap((observation) =>
+          observation.otelProvenance === undefined ? [] : [observation.otelProvenance],
+        ),
+  )
+  const estateIds = new Set(provenance.map((item) => item.estateId))
+  const providerResourceIds = new Set(provenance.map((item) => item.providerResourceId))
+  const sharedEstateId = estateIds.size === 1 ? [...estateIds][0] : undefined
+  const sharedProviderResourceId =
+    providerResourceIds.size === 1 ? [...providerResourceIds][0] : undefined
+
+  const exactWindow = (window: ObservationWindow): ObservationWindow => {
+    if (window.otelQuality === undefined) return window
+    const observations = window.observations.filter((observation) =>
+      hasExactOtelProvenance(
+        snapshot,
+        agent,
+        window,
+        observation,
+        sharedEstateId,
+        sharedProviderResourceId,
+      ),
+    )
+    return observations.length === window.observations.length &&
+      (observations.length > 0 || window.otelQuality.status !== 'available')
+      ? window
+      : degradeOtelWindow(window, observations)
+  }
+
+  return runtimeObservationWindowsSchema.parse({
+    ...windows,
+    baseline: exactWindow(windows.baseline),
+    observed: exactWindow(windows.observed),
+  })
 }
 
 function exactToolMatches(
@@ -236,7 +344,7 @@ export function projectRuntimeEvidence(
   windowsInput: RuntimeObservationWindows,
 ): RuntimeEvidenceProjection {
   const snapshot = estateSnapshotSchema.parse(structuredClone(snapshotInput))
-  const windows = runtimeObservationWindowsSchema.parse(windowsInput)
+  let windows = runtimeObservationWindowsSchema.parse(removeMalformedOtelObservations(windowsInput))
   const agents = snapshot.nodes.filter(
     (node) => node.kind === 'agent' && node.id === windows.observed.agentId,
   )
@@ -251,8 +359,7 @@ export function projectRuntimeEvidence(
   ) {
     throw new Error('Runtime telemetry does not match the estate tenant and agent environment.')
   }
-  assertExactOtelProvenance(snapshot, agent, windows.baseline)
-  assertExactOtelProvenance(snapshot, agent, windows.observed)
+  windows = enforceExactOtelProvenance(snapshot, agent, windows)
   const unmatched = new Set<string>()
   let addedEvidenceCount = 0
 

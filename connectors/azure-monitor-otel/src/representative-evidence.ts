@@ -41,7 +41,12 @@ export const representativeOtelWindowBindingSchema = z
     windowStart: z.iso.datetime(),
     windowEnd: z.iso.datetime(),
     queriedAt: z.iso.datetime(),
-    maximumFreshnessHours: z.number().int().min(1).max(24 * 31).default(168),
+    maximumFreshnessHours: z
+      .number()
+      .int()
+      .min(1)
+      .max(24 * 31)
+      .default(168),
   })
   .superRefine((binding, context) => {
     if (
@@ -54,9 +59,7 @@ export const representativeOtelWindowBindingSchema = z
       })
     }
   })
-export type RepresentativeOtelWindowBinding = z.infer<
-  typeof representativeOtelWindowBindingSchema
->
+export type RepresentativeOtelWindowBinding = z.infer<typeof representativeOtelWindowBindingSchema>
 
 export const representativeOtelInputRecordSchema = z.strictObject({
   providerRecordId: boundedIdentifierSchema,
@@ -78,9 +81,7 @@ export const representativeOtelInputRecordSchema = z.strictObject({
   partial: z.boolean().default(false),
   claim: otelEvidenceClaimSchema,
 })
-export type RepresentativeOtelInputRecord = z.infer<
-  typeof representativeOtelInputRecordSchema
->
+export type RepresentativeOtelInputRecord = z.infer<typeof representativeOtelInputRecordSchema>
 
 export const representativeOtelPageSchema = z.strictObject({
   pageNumber: z.number().int().min(1).max(MAX_REPRESENTATIVE_OTEL_PAGES),
@@ -109,10 +110,10 @@ function normalizedId(prefix: string, value: string): string {
   return `otel-${prefix}-${createHash('sha256').update(value).digest('hex').slice(0, 32)}`
 }
 
-function assertExactBoundary(
+function hasExactBoundary(
   record: RepresentativeOtelInputRecord,
   binding: RepresentativeOtelWindowBinding,
-): void {
+): boolean {
   for (const [field, expected] of [
     ['estateId', binding.estateId],
     ['estateTenantId', binding.estateTenantId],
@@ -123,23 +124,15 @@ function assertExactBoundary(
     ['providerResourceId', binding.providerResourceId],
     ['sourceAgentId', binding.sourceAgentId],
   ] as const) {
-    const actual = record[field]
-    if (actual !== undefined && actual !== null && actual !== expected) {
-      throw new Error(
-        `OpenTelemetry record ${record.providerRecordId} does not match the exact ${field} binding.`,
-      )
-    }
+    if (record[field] !== expected) return false
   }
+  return true
 }
 
 function expectedSignal(claim: OtelEvidenceClaim): 'trace' | 'span' | 'metric' | undefined {
   if (claim.kind === 'invocation') return 'trace'
   if (claim.kind === 'latency' || claim.kind === 'error') return 'span'
-  if (
-    claim.kind === 'input-tokens' ||
-    claim.kind === 'output-tokens' ||
-    claim.kind === 'cost'
-  ) {
+  if (claim.kind === 'input-tokens' || claim.kind === 'output-tokens' || claim.kind === 'cost') {
     return 'metric'
   }
   return undefined
@@ -294,15 +287,24 @@ function pageCaveats(
   caveats: Set<OtelEvidenceCaveat>,
 ): void {
   const sorted = [...pages].sort((left, right) => left.pageNumber - right.pageNumber)
+  const cursors = new Set<string>()
+  const nextCursors = new Set<string>()
   for (const [index, page] of sorted.entries()) {
     const expectedPageNumber = index + 1
     if (page.pageNumber !== expectedPageNumber) addCaveat(caveats, 'incomplete-pagination')
     if (index === 0 && page.cursor !== undefined) addCaveat(caveats, 'incomplete-pagination')
+    if (page.cursor !== undefined) {
+      if (cursors.has(page.cursor)) addCaveat(caveats, 'incomplete-pagination')
+      cursors.add(page.cursor)
+    }
+    if (page.nextCursor !== undefined) {
+      if (nextCursors.has(page.nextCursor) || page.nextCursor === page.cursor) {
+        addCaveat(caveats, 'incomplete-pagination')
+      }
+      nextCursors.add(page.nextCursor)
+    }
     const next = sorted[index + 1]
-    if (
-      next !== undefined &&
-      (page.nextCursor === undefined || page.nextCursor !== next.cursor)
-    ) {
+    if (next !== undefined && (page.nextCursor === undefined || page.nextCursor !== next.cursor)) {
       addCaveat(caveats, 'incomplete-pagination')
     }
     if (next === undefined && page.nextCursor !== undefined) {
@@ -338,7 +340,10 @@ export function normalizeRepresentativeOtelEvidence(
   const endMs = new Date(binding.windowEnd).getTime()
   const queriedAtMs = new Date(binding.queriedAt).getTime()
   const freshnessMs = binding.maximumFreshnessHours * 60 * 60 * 1000
-  const seenRecords = new Map<string, string>()
+  const recordsByProviderId = new Map<
+    string,
+    Array<{ canonical: string; record: RepresentativeOtelInputRecord }>
+  >()
   let duplicatesRemoved = 0
   const evidence: RepresentativeOtelEvidence[] = []
 
@@ -350,103 +355,92 @@ export function normalizeRepresentativeOtelEvidence(
         continue
       }
       const record = parsed.data
-      assertExactBoundary(record, binding)
-      if (
-        record.estateId === undefined ||
-        record.estateId === null ||
-        record.estateTenantId === undefined ||
-        record.estateTenantId === null ||
-        record.estateEnvironment === undefined ||
-        record.estateEnvironment === null ||
-        record.sourceConnectorId === undefined ||
-        record.sourceConnectorId === null ||
-        record.sourceTenantId === undefined ||
-        record.sourceTenantId === null ||
-        record.sourceEnvironment === undefined ||
-        record.sourceEnvironment === null ||
-        record.sourceAgentId === undefined ||
-        record.sourceAgentId === null
-      ) {
+      if (!hasExactBoundary(record, binding)) {
+        if (record.providerResourceId === undefined || record.providerResourceId === null) {
+          addCaveat(caveats, 'missing-provider-resource-id')
+        }
         addCaveat(caveats, 'invalid-record')
         continue
       }
       const canonicalRecord = JSON.stringify(record)
-      const previous = seenRecords.get(record.providerRecordId)
-      if (previous !== undefined) {
-        duplicatesRemoved += 1
-        addCaveat(
-          caveats,
-          previous === canonicalRecord ? 'duplicate-record' : 'conflicting-duplicate',
-        )
-        continue
-      }
-      seenRecords.set(record.providerRecordId, canonicalRecord)
-
-      if (record.providerResourceId === undefined || record.providerResourceId === null) {
-        addCaveat(caveats, 'missing-provider-resource-id')
-      }
-      const traceId = exactIdentifier(
-        record.traceId,
-        /^[0-9a-f]{32}$/,
-        'missing-trace-id',
-        caveats,
-      )
-      const spanId = exactIdentifier(
-        record.spanId,
-        /^[0-9a-f]{16}$/,
-        'missing-span-id',
-        caveats,
-      )
-      if (!signalSchema.safeParse(record.signal).success) {
-        addCaveat(caveats, 'unsupported-signal')
-        continue
-      }
-      const signal = signalSchema.parse(record.signal)
-      const expected = expectedSignal(record.claim)
-      if (expected === undefined) addCaveat(caveats, 'unsupported-claim')
-      else if (expected !== signal) addCaveat(caveats, 'unsupported-signal')
-      if (record.sampling.state === 'sampled') addCaveat(caveats, 'sampled')
-      if (record.sampling.state === 'unknown') addCaveat(caveats, 'sampling-unknown')
-      if (record.partial) addCaveat(caveats, 'partial')
-      if (record.aggregation.kind !== 'raw') addCaveat(caveats, 'aggregated-metric')
-
-      const observedAtMs = Date.parse(record.observedAt)
-      if (!Number.isFinite(observedAtMs) || observedAtMs < startMs || observedAtMs > endMs) {
-        addCaveat(caveats, observedAtMs > queriedAtMs ? 'future-timestamp' : 'invalid-record')
-      } else if (queriedAtMs - observedAtMs > freshnessMs) {
-        addCaveat(caveats, 'stale')
-      }
-
-      const normalized = representativeOtelEvidenceSchema.safeParse({
-        id: normalizedId('record', canonicalRecord),
-        providerRecordId: record.providerRecordId,
-        signal,
-        provenance: {
-          estateId: binding.estateId,
-          estateTenantId: binding.estateTenantId,
-          estateEnvironment: binding.estateEnvironment,
-          sourceConnectorId: binding.sourceConnectorId,
-          sourceTenantId: binding.sourceTenantId,
-          sourceEnvironment: binding.sourceEnvironment,
-          provider: 'azure-monitor-otel',
-          providerResourceId: record.providerResourceId ?? undefined,
-          providerAgentId: binding.sourceAgentId,
-          traceId,
-          spanId,
-          observedAt: record.observedAt,
-          classification: record.classification,
-          sampling: record.sampling,
-          aggregation: record.aggregation,
-        },
-        claim: record.claim,
-        partial: record.partial,
-      })
-      if (!normalized.success) {
-        addCaveat(caveats, 'invalid-record')
-        continue
-      }
-      evidence.push(normalized.data)
+      const group = recordsByProviderId.get(record.providerRecordId) ?? []
+      group.push({ canonical: canonicalRecord, record })
+      recordsByProviderId.set(record.providerRecordId, group)
     }
+  }
+
+  const records: Array<{ canonical: string; record: RepresentativeOtelInputRecord }> = []
+  for (const [, group] of [...recordsByProviderId.entries()].sort(([left], [right]) =>
+    compareCodeUnits(left, right),
+  )) {
+    const variants = new Set(group.map((item) => item.canonical))
+    if (variants.size > 1) {
+      duplicatesRemoved += group.length
+      addCaveat(caveats, 'conflicting-duplicate')
+      continue
+    }
+    if (group.length > 1) {
+      duplicatesRemoved += group.length - 1
+      addCaveat(caveats, 'duplicate-record')
+    }
+    records.push(group[0]!)
+  }
+
+  for (const { canonical: canonicalRecord, record } of records) {
+    if (record.providerResourceId === undefined || record.providerResourceId === null) {
+      addCaveat(caveats, 'missing-provider-resource-id')
+    }
+    const traceId = exactIdentifier(record.traceId, /^[0-9a-f]{32}$/, 'missing-trace-id', caveats)
+    const spanId = exactIdentifier(record.spanId, /^[0-9a-f]{16}$/, 'missing-span-id', caveats)
+    if (!signalSchema.safeParse(record.signal).success) {
+      addCaveat(caveats, 'unsupported-signal')
+      continue
+    }
+    const signal = signalSchema.parse(record.signal)
+    const expected = expectedSignal(record.claim)
+    if (expected === undefined) addCaveat(caveats, 'unsupported-claim')
+    else if (expected !== signal) addCaveat(caveats, 'unsupported-signal')
+    if (record.sampling.state === 'sampled') addCaveat(caveats, 'sampled')
+    if (record.sampling.state === 'unknown') addCaveat(caveats, 'sampling-unknown')
+    if (record.partial) addCaveat(caveats, 'partial')
+    if (record.aggregation.kind !== 'raw') addCaveat(caveats, 'aggregated-metric')
+
+    const observedAtMs = Date.parse(record.observedAt)
+    if (!Number.isFinite(observedAtMs) || observedAtMs < startMs || observedAtMs > endMs) {
+      addCaveat(caveats, observedAtMs > queriedAtMs ? 'future-timestamp' : 'invalid-record')
+    } else if (queriedAtMs - observedAtMs > freshnessMs) {
+      addCaveat(caveats, 'stale')
+    }
+
+    const normalized = representativeOtelEvidenceSchema.safeParse({
+      id: normalizedId('record', canonicalRecord),
+      providerRecordId: record.providerRecordId,
+      signal,
+      provenance: {
+        estateId: binding.estateId,
+        estateTenantId: binding.estateTenantId,
+        estateEnvironment: binding.estateEnvironment,
+        sourceConnectorId: binding.sourceConnectorId,
+        sourceTenantId: binding.sourceTenantId,
+        sourceEnvironment: binding.sourceEnvironment,
+        provider: 'azure-monitor-otel',
+        providerResourceId: record.providerResourceId ?? undefined,
+        providerAgentId: binding.sourceAgentId,
+        traceId,
+        spanId,
+        observedAt: record.observedAt,
+        classification: record.classification,
+        sampling: record.sampling,
+        aggregation: record.aggregation,
+      },
+      claim: record.claim,
+      partial: record.partial,
+    })
+    if (!normalized.success) {
+      addCaveat(caveats, 'invalid-record')
+      continue
+    }
+    evidence.push(normalized.data)
   }
 
   evidence.sort((left, right) => compareCodeUnits(left.id, right.id))
