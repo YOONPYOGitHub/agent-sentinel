@@ -326,9 +326,9 @@ echo "API FQDN: ${API_FQDN}"
 
 Identity activation is configuration-driven; do not edit Container Apps directly in the portal.
 The Bicep defaults and checked-in development parameters remain fail-closed at
-`authMode = 'disabled'` and `agentSentinelWriteEnabled = false`. The live environment was activated
-through a reviewed surgical revision with JWT values while the drifted full template remains
-blocked. Any reconciled deployment requires the following approved inputs:
+`authMode = 'disabled'` and `agentSentinelWriteEnabled = false`. The historical prior-tenant
+deployment used JWT values, but the replacement deployment still has authentication disabled.
+Future activation requires a reviewed surgical revision and the following approved inputs:
 
 - `authTenantId`, `authAudience`, and optional explicit `authIssuer` / `authJwksUri`
 - `authSpaClientId`, `authSpaScopes`, `authSpaRedirectUri`, and
@@ -341,8 +341,8 @@ still HTTP-only and must not be used for authentication. A custom domain is sepa
 
 Deployment order:
 
-1. Preserve the deployed JWT values, exact redirect/logout registration, write-disabled switch, and WAF block.
-2. Reconcile the live values into a reviewed deployment input without applying unrelated what-if changes.
+1. Preserve the exact redirect/logout registration, write-disabled switch, and WAF block.
+2. Reconcile approved JWT values into a reviewed deployment input without applying unrelated what-if changes.
 3. Run the read phase in [security-authentication.md](security-authentication.md) after every revision.
 4. After separate approval, enable writes only for a private authenticated reversible test.
 5. Narrow the WAF separately, then run the complete public-edge validation and anonymous denial
