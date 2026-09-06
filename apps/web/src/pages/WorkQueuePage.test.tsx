@@ -20,7 +20,7 @@ const disabledAuth: AuthContextValue = {
   isSignedIn: false,
   principal: null,
   authError: null,
-  signIn: () => Promise.resolve(),
+  signIn: () => Promise.resolve({ status: 'success' }),
   signOut: () => Promise.resolve(),
   getAccessToken: () => Promise.resolve(null),
 }

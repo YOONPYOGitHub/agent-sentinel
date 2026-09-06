@@ -84,7 +84,7 @@ describe('SettingsPage', () => {
       isSignedIn: false,
       principal: null,
       authError: null,
-      signIn: vi.fn().mockResolvedValue(undefined),
+      signIn: vi.fn().mockResolvedValue({ status: 'success' }),
       signOut: vi.fn().mockResolvedValue(undefined),
       getAccessToken: vi.fn().mockResolvedValue(null),
     }
@@ -139,7 +139,7 @@ describe('SettingsPage', () => {
         capabilities: ['read', 'validateFinding', 'generateAdvisory', 'proposeRemediation'],
       },
       authError: null,
-      signIn: vi.fn().mockResolvedValue(undefined),
+      signIn: vi.fn().mockResolvedValue({ status: 'success' }),
       signOut: vi.fn().mockResolvedValue(undefined),
       getAccessToken: vi.fn().mockResolvedValue(null),
     }

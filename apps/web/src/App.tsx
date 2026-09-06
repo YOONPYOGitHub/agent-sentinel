@@ -190,7 +190,10 @@ function EstateApplication() {
           label: isConfigured ? 'Sign in again' : 'Try again',
           run: () => {
             void (async () => {
-              if (isConfigured) await signIn()
+              if (isConfigured) {
+                const result = await signIn()
+                if (result.status !== 'success') return
+              }
               await reload()
             })()
           },

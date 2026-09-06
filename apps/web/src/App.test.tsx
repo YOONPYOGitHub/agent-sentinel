@@ -4,6 +4,7 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
+import { useState } from 'react'
 
 import App, { AuthenticatedApplication } from './App'
 import { connectorApi, demoApi } from './api'
@@ -11,7 +12,13 @@ import { connectorsApi } from './api/connectors-api'
 import { governanceApi } from './api/governance-api'
 import { exposureApi } from './api/exposure-api'
 import { EstateApiError, estateApi } from './api/estate-api'
-import { AuthContext, type AuthContextValue } from './hooks/AuthContext'
+import { getActiveEstateId, setActiveEstateId } from './api/auth-fetch'
+import {
+  AuthContext,
+  type AuthContextValue,
+  type SignInResult,
+  type WebAuthPrincipal,
+} from './hooks/AuthContext'
 import { governancePostureFixture, testState } from './test-fixture'
 
 vi.mock('./api')
@@ -23,6 +30,7 @@ vi.mock('./components/ExposureGraph', () => ({ ExposureGraph: () => <div /> }))
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  setActiveEstateId(undefined)
 })
 
 beforeEach(() => {
@@ -94,7 +102,7 @@ function authenticatedContext(overrides: Partial<AuthContextValue> = {}): AuthCo
       capabilities: ['read'],
     },
     authError: null,
-    signIn: vi.fn().mockResolvedValue(undefined),
+    signIn: vi.fn().mockResolvedValue({ status: 'success' }),
     signOut: vi.fn().mockResolvedValue(undefined),
     getAccessToken: vi.fn().mockResolvedValue('access-token'),
     ...overrides,
@@ -108,6 +116,46 @@ function renderAuthenticatedRoute(auth: AuthContextValue, route = '/overview') {
         <AuthenticatedApplication />
       </MemoryRouter>
     </AuthContext.Provider>,
+  )
+}
+
+function StatefulReauthentication({ attempt }: { attempt: () => Promise<SignInResult> }) {
+  const initialPrincipal: WebAuthPrincipal = {
+    subject: 'subject-id',
+    tenantId: '11111111-1111-4111-8111-111111111111',
+    roles: ['Viewer'],
+    capabilities: ['read'],
+  }
+  const [authState, setAuthState] = useState<{
+    isSignedIn: boolean
+    principal: WebAuthPrincipal | null
+    authError: string | null
+  }>({
+    isSignedIn: true,
+    principal: initialPrincipal,
+    authError: null,
+  })
+  const signIn = async (): Promise<SignInResult> => {
+    const result = await attempt()
+    if (result.status === 'failure') {
+      setAuthState({
+        isSignedIn: false,
+        principal: null,
+        authError: result.reason === 'cancelled' ? null : result.message,
+      })
+    }
+    return result
+  }
+  const auth = authenticatedContext({ ...authState, signIn })
+  return (
+    <AuthContext.Provider value={auth}>
+      <span data-testid="reauth-signed-in">{String(authState.isSignedIn)}</span>
+      <span data-testid="reauth-principal">{authState.principal?.subject ?? 'none'}</span>
+      <span data-testid="reauth-error">{authState.authError ?? 'none'}</span>
+      <MemoryRouter initialEntries={['/overview']}>
+        <AuthenticatedApplication />
+      </MemoryRouter>
+    </AuthContext.Provider>
   )
 }
 
@@ -237,8 +285,75 @@ describe('application routing', () => {
     expect(demoApi.getState).not.toHaveBeenCalled()
   })
 
-  it('reauthenticates and retries estate authorization after a 401', async () => {
-    const auth = authenticatedContext()
+  it.each([
+    [
+      'cancellation',
+      {
+        status: 'failure',
+        reason: 'cancelled',
+        message: 'Sign-in was cancelled.',
+      } satisfies SignInResult,
+      'Sign in to Agent Sentinel',
+      'none',
+    ],
+    [
+      'popup failure',
+      {
+        status: 'failure',
+        reason: 'popup',
+        message: 'Popup was blocked.',
+      } satisfies SignInResult,
+      'Authentication is unavailable',
+      'Popup was blocked.',
+    ],
+    [
+      'principal failure',
+      {
+        status: 'failure',
+        reason: 'principal',
+        message: 'Principal lookup failed.',
+      } satisfies SignInResult,
+      'Authentication is unavailable',
+      'Principal lookup failed.',
+    ],
+    [
+      'token failure',
+      {
+        status: 'failure',
+        reason: 'token',
+        message: 'Token acquisition failed.',
+      } satisfies SignInResult,
+      'Authentication is unavailable',
+      'Token acquisition failed.',
+    ],
+  ] as const)(
+    'does not retry estate authorization anonymously after %s',
+    async (_case, result, expectedHeading, expectedError) => {
+      const attempt = vi.fn().mockResolvedValue(result)
+      vi.spyOn(estateApi, 'list').mockRejectedValue(
+        new EstateApiError('unauthorized', 'Session expired.', 401),
+      )
+
+      render(<StatefulReauthentication attempt={attempt} />)
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Sign in again' }))
+
+      expect(await screen.findByRole('heading', { name: expectedHeading })).toBeVisible()
+      expect(attempt).toHaveBeenCalledOnce()
+      expect(estateApi.list).toHaveBeenCalledOnce()
+      expect(screen.getByTestId('reauth-signed-in')).toHaveTextContent('false')
+      expect(screen.getByTestId('reauth-principal')).toHaveTextContent('none')
+      expect(screen.getByTestId('reauth-error')).toHaveTextContent(expectedError)
+      expect(getActiveEstateId()).toBeUndefined()
+      expect(demoApi.getState).not.toHaveBeenCalled()
+
+      await Promise.resolve()
+      expect(estateApi.list).toHaveBeenCalledOnce()
+    },
+  )
+
+  it('reauthenticates and retries estate authorization once after confirmed success', async () => {
+    const attempt = vi.fn().mockResolvedValue({ status: 'success' } satisfies SignInResult)
     vi.spyOn(estateApi, 'list')
       .mockRejectedValueOnce(new EstateApiError('unauthorized', 'Session expired.', 401))
       .mockResolvedValueOnce({
@@ -254,12 +369,19 @@ describe('application routing', () => {
         ],
       })
 
-    renderAuthenticatedRoute(auth)
+    render(<StatefulReauthentication attempt={attempt} />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Sign in again' }))
 
-    await waitFor(() => expect(auth.signIn).toHaveBeenCalledOnce())
     expect(await screen.findByRole('heading', { name: 'Agent operations overview' })).toBeVisible()
+    expect(attempt).toHaveBeenCalledOnce()
+    expect(estateApi.list).toHaveBeenCalledTimes(2)
+    expect(screen.getByTestId('reauth-signed-in')).toHaveTextContent('true')
+    expect(screen.getByTestId('reauth-principal')).toHaveTextContent('subject-id')
+    expect(screen.getByTestId('reauth-error')).toHaveTextContent('none')
+    expect(getActiveEstateId()).toBe('default')
+
+    await Promise.resolve()
     expect(estateApi.list).toHaveBeenCalledTimes(2)
   })
 

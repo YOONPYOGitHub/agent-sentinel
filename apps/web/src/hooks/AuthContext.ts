@@ -24,6 +24,14 @@ export interface WebAuthPrincipal {
   capabilities: SentinelCapability[]
 }
 
+export type SignInResult =
+  | { status: 'success' }
+  | {
+      status: 'failure'
+      reason: 'unavailable' | 'cancelled' | 'popup' | 'token' | 'principal'
+      message: string
+    }
+
 export interface AuthContextValue {
   /** True when /api/auth/config returned enabled=true and MSAL is ready. */
   isConfigured: boolean
@@ -37,8 +45,8 @@ export interface AuthContextValue {
   principal: WebAuthPrincipal | null
   /** Non-null when auth initialization or sign-in/out failed. */
   authError: string | null
-  /** Initiate sign-in (noop when not configured). */
-  signIn: () => Promise<void>
+  /** Initiate sign-in and confirm whether account, token, and principal establishment succeeded. */
+  signIn: () => Promise<SignInResult>
   /** Initiate sign-out (noop when not configured). */
   signOut: () => Promise<void>
   /** Acquire an API access token. Returns null when not signed in or not configured. */
@@ -52,7 +60,12 @@ export const AuthContext = createContext<AuthContextValue>({
   isSignedIn: false,
   principal: null,
   authError: null,
-  signIn: () => Promise.resolve(),
+  signIn: () =>
+    Promise.resolve({
+      status: 'failure',
+      reason: 'unavailable',
+      message: 'Authentication is not configured.',
+    }),
   signOut: () => Promise.resolve(),
   getAccessToken: () => Promise.resolve(null),
 })

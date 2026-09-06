@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { AccountInfo, IPublicClientApplication, SilentRequest } from '@azure/msal-browser'
 import { authApi } from '../api/auth-api'
 import { setTokenProvider } from '../api/auth-fetch'
-import { AuthContext, type WebAuthPrincipal, type SentinelCapability } from './AuthContext'
+import {
+  AuthContext,
+  type SignInResult,
+  type WebAuthPrincipal,
+  type SentinelCapability,
+} from './AuthContext'
 import type { SpaAuthConfig } from '../api/auth-api'
 import { SENTINEL_CAPABILITIES } from './AuthContext'
 
@@ -59,6 +64,26 @@ async function fetchPrincipal(token: string): Promise<WebAuthPrincipal> {
   return meResponseSchema.parse(body)
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Sign-in failed.'
+}
+
+function isUserCancellation(error: unknown): boolean {
+  const message = errorMessage(error).toLowerCase()
+  const errorCode =
+    typeof error === 'object' &&
+    error !== null &&
+    'errorCode' in error &&
+    typeof error.errorCode === 'string'
+      ? error.errorCode.toLowerCase()
+      : ''
+  return (
+    message.includes('user_cancelled') ||
+    message.includes('user cancelled') ||
+    errorCode.includes('user_cancelled')
+  )
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const [isConfigured, setIsConfigured] = useState(false)
@@ -80,29 +105,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return result.accessToken
   }, [])
 
-  const signIn = useCallback(async () => {
+  const signIn = useCallback(async (): Promise<SignInResult> => {
     const msal = msalRef.current
-    if (msal === null) return
+    if (msal === null) {
+      return {
+        status: 'failure',
+        reason: 'unavailable',
+        message: 'Authentication is not ready.',
+      }
+    }
     setAuthError(null)
+    let stage: 'popup' | 'token' | 'principal' = 'popup'
     try {
       const result = await msal.loginPopup({ scopes: configuredScopes.current })
+      if (result.account === null) throw new Error('Sign-in did not return an account.')
       accountRef.current = result.account
-      const p = await fetchPrincipal(result.accessToken)
+      stage = 'token'
+      const token =
+        result.accessToken.length > 0
+          ? result.accessToken
+          : (
+              await msal.acquireTokenSilent({
+                account: result.account,
+                scopes: configuredScopes.current,
+              })
+            ).accessToken
+      if (token.length === 0) throw new Error('Sign-in did not return an access token.')
+      stage = 'principal'
+      const p = await fetchPrincipal(token)
       setPrincipal(p)
       setTokenProvider(getAccessToken)
       setIsSignedIn(true)
+      return { status: 'success' }
     } catch (err: unknown) {
       accountRef.current = null
       setPrincipal(null)
       setIsSignedIn(false)
       setTokenProvider(undefined)
-      const message = err instanceof Error ? err.message : 'Sign-in failed.'
-      // User cancellation is not an authentication failure.
-      if (
-        !message.toLowerCase().includes('user_cancelled') &&
-        !message.toLowerCase().includes('user cancelled')
-      ) {
-        setAuthError(message)
+      const message = errorMessage(err)
+      if (stage === 'popup' && isUserCancellation(err)) {
+        return {
+          status: 'failure',
+          reason: 'cancelled',
+          message: 'Sign-in was cancelled.',
+        }
+      }
+      setAuthError(message)
+      return {
+        status: 'failure',
+        reason: stage,
+        message,
       }
     }
   }, [getAccessToken])
@@ -192,17 +244,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               scopes: spa.scopes,
             })
             if (!cancelled) {
-              setIsSignedIn(true)
-              setTokenProvider(getAccessToken)
               const p = await fetchPrincipal(silentResult.accessToken)
-              if (!cancelled) setPrincipal(p)
+              if (!cancelled) {
+                setPrincipal(p)
+                setTokenProvider(getAccessToken)
+                setIsSignedIn(true)
+              }
             }
           } catch {
-            accountRef.current = null
-            setPrincipal(null)
-            setIsSignedIn(false)
-            setTokenProvider(undefined)
-            setAuthError('The previous session could not be restored. Sign in again.')
+            if (!cancelled) {
+              accountRef.current = null
+              setPrincipal(null)
+              setIsSignedIn(false)
+              setTokenProvider(undefined)
+              setAuthError('The previous session could not be restored. Sign in again.')
+            }
           }
         }
       } catch (err: unknown) {
