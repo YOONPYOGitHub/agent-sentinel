@@ -3,8 +3,10 @@ import { expect, test } from '@playwright/test'
 test('exposure navigation and detail deep link', async ({ page }) => {
   await page.goto('/exposure')
   await expect(page.getByRole('heading', { name: 'Exposure findings' })).toBeVisible()
-  // The mock manifest guarantees at least one critical finding
-  const row = page.locator('.exposure-table tbody tr').first()
+  const row = page
+    .getByRole('row')
+    .filter({ has: page.getByRole('link') })
+    .first()
   await expect(row).toBeVisible()
   const titleLink = row.locator('a').first()
   const findingHref = await titleLink.getAttribute('href')
@@ -19,11 +21,11 @@ test('exposure navigation and detail deep link', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Preview response' }).click()
   await expect(page.getByText('Simulation only')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'After remediation' })).toHaveAttribute(
+  await expect(page.getByRole('button', { name: 'After simulation' })).toHaveAttribute(
     'aria-pressed',
     'true',
   )
-  await expect(page.getByText('Exposure removed')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Residual findings' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Generate AI narrative' }).click()
   await expect(

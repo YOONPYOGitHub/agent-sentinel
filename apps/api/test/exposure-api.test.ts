@@ -387,6 +387,36 @@ describe('exposure API (mock mode)', () => {
     )
   })
 
+  it('never claims risk reduction when a stale finding has no target routes', () => {
+    const preview = buildRemediationPreview(
+      makePreviewSnapshot({ alternateRoute: true }),
+      makeFinding({ affectedEdgeIds: [], riskScore: 99 }),
+    )
+
+    expect(preview.targetEdgeIds).toEqual([])
+    expect(preview.after.riskScore).toBe(preview.before.riskScore)
+    expect(preview.impact.riskReduction).toBe(0)
+    expect(preview.residualFindings).toHaveLength(1)
+    expect(preview.residualRoutes).toEqual([
+      expect.objectContaining({ edgeIds: ['edge-1', 'edge-2'], riskScore: 91 }),
+    ])
+    expect(preview.citedEvidence).toEqual([expect.objectContaining({ id: 'ev-1' })])
+  })
+
+  it('never claims risk reduction when every requested target is inactive', () => {
+    const snapshot = makePreviewSnapshot({ alternateRoute: true })
+    snapshot.edges = snapshot.edges.map((edge) => ({ ...edge, active: false }))
+
+    const preview = buildRemediationPreview(snapshot, makeFinding({ riskScore: 99 }))
+
+    expect(preview.targetEdgeIds).toEqual([])
+    expect(preview.after.riskScore).toBe(preview.before.riskScore)
+    expect(preview.impact.riskReduction).toBe(0)
+    expect(preview.uncertainty).toContainEqual(
+      expect.objectContaining({ code: 'no-active-target-routes' }),
+    )
+  })
+
   it('reports partial target coverage when only some requested routes are active', () => {
     const preview = buildRemediationPreview(
       makePreviewSnapshot({ alternateRoute: true }),

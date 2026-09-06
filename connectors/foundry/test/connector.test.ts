@@ -49,6 +49,14 @@ const defaultTrustSubject = {
   tenantId: config.tenantId,
   environment: config.environment,
 }
+const assessmentTime = '2026-09-04T08:10:00.000Z'
+const trustServerContext = {
+  auth: {
+    issuerId: 'agent-sentinel-trust-composer',
+    authenticationMode: 'managed-identity' as const,
+  },
+  clock: () => new Date(assessmentTime),
+}
 
 function trustCompositionInput(
   overrides: {
@@ -64,12 +72,6 @@ function trustCompositionInput(
   return {
     tier: 'trusted' as const,
     subject,
-    issuer: {
-      id: 'agent-sentinel-trust-composer',
-      authenticationMode: 'managed-identity' as const,
-      authenticated: true as const,
-    },
-    assessedAt: '2026-09-04T08:10:00.000Z',
     evidence: FOUNDRY_TRUST_REQUIRED_PLANES.filter((plane) => plane !== overrides.omitPlane).map(
       (plane) => ({
         id: `${plane}-evidence`,
@@ -88,7 +90,15 @@ function trustCompositionInput(
 }
 
 function completeTrustAssessment(overrides: Parameters<typeof trustCompositionInput>[0] = {}) {
-  return composeFoundryTrustAssessment(trustCompositionInput(overrides))
+  return composeFoundryTrustAssessment(trustCompositionInput(overrides), trustServerContext)
+}
+
+function trustComposition(assessment: ReturnType<typeof completeTrustAssessment>) {
+  return {
+    sourceId: 'primary',
+    trustAssessments: [assessment],
+    clock: trustServerContext.clock,
+  }
 }
 function connector(fetcher: typeof fetch) {
   vi.stubGlobal('fetch', fetcher)
@@ -239,7 +249,7 @@ describe('Foundry connector', () => {
       ],
       'v1',
       config,
-      { sourceId: 'primary', trustAssessments: [assessment] },
+      trustComposition(assessment),
     )
     const agent = snapshot.nodes.find((node) => node.id === 'foundry-agent-assessed-agent')
 
@@ -287,10 +297,12 @@ describe('Foundry connector', () => {
       sourceMode: 'live',
     },
   ])('keeps a trusted claim conditional when it relies on $name', ({ assessment, sourceMode }) => {
-    const snapshot = mapAgentToSnapshot([{ id: 'assessed-agent' }], 'v1', config, {
-      sourceId: 'primary',
-      trustAssessments: [assessment],
-    })
+    const snapshot = mapAgentToSnapshot(
+      [{ id: 'assessed-agent' }],
+      'v1',
+      config,
+      trustComposition(assessment),
+    )
     const agent = snapshot.nodes.find((node) => node.id === 'foundry-agent-assessed-agent')
 
     expect(agent).toMatchObject({
@@ -306,10 +318,12 @@ describe('Foundry connector', () => {
       evidenceTypes: ['observed_runtime'],
       runtimeEvidenceTypes: ['declared_configuration'],
     })
-    const snapshot = mapAgentToSnapshot([{ id: 'assessed-agent' }], 'v1', config, {
-      sourceId: 'primary',
-      trustAssessments: [assessment],
-    })
+    const snapshot = mapAgentToSnapshot(
+      [{ id: 'assessed-agent' }],
+      'v1',
+      config,
+      trustComposition(assessment),
+    )
 
     expect(snapshot.nodes[0]).toMatchObject({
       trust: 'conditional',
@@ -318,10 +332,12 @@ describe('Foundry connector', () => {
   })
   it('keeps a trusted claim conditional when a required plane is missing', () => {
     const assessment = completeTrustAssessment({ omitPlane: 'runtime' })
-    const snapshot = mapAgentToSnapshot([{ id: 'assessed-agent' }], 'v1', config, {
-      sourceId: 'primary',
-      trustAssessments: [assessment],
-    })
+    const snapshot = mapAgentToSnapshot(
+      [{ id: 'assessed-agent' }],
+      'v1',
+      config,
+      trustComposition(assessment),
+    )
 
     const agent = snapshot.nodes.find((node) => node.id === 'foundry-agent-assessed-agent')
     expect(agent).toMatchObject({
@@ -355,10 +371,12 @@ describe('Foundry connector', () => {
     'does not apply an authenticated assessment with a mismatched $name binding',
     ({ subject, expectedStatus }) => {
       const assessment = completeTrustAssessment({ subject })
-      const snapshot = mapAgentToSnapshot([{ id: 'assessed-agent' }], 'v1', config, {
-        sourceId: 'primary',
-        trustAssessments: [assessment],
-      })
+      const snapshot = mapAgentToSnapshot(
+        [{ id: 'assessed-agent' }],
+        'v1',
+        config,
+        trustComposition(assessment),
+      )
 
       expect(snapshot.nodes[0]).toMatchObject({
         trust: 'conditional',
@@ -368,38 +386,88 @@ describe('Foundry connector', () => {
       expect(snapshot.nodes[0]?.evidenceIds).toEqual(['foundry-evidence-assessed-agent'])
     },
   )
-  it('rejects unauthenticated issuers and caller-supplied freshness or source mode', () => {
+  it('rejects caller-supplied authentication, assessment time, freshness, or source mode', () => {
     const input = trustCompositionInput()
     expect(() =>
-      composeFoundryTrustAssessment({
-        ...input,
-        issuer: { ...input.issuer, authenticated: false },
-      }),
+      composeFoundryTrustAssessment(
+        {
+          ...input,
+          issuer: {
+            id: 'attacker',
+            authenticationMode: 'jwt',
+            authenticated: true,
+          },
+        },
+        trustServerContext,
+      ),
     ).toThrow()
     expect(() =>
-      composeFoundryTrustAssessment({
-        ...input,
-        sourceMode: 'live',
-      }),
+      composeFoundryTrustAssessment(
+        { ...input, assessedAt: '2099-01-01T00:00:00.000Z' },
+        trustServerContext,
+      ),
     ).toThrow()
     expect(() =>
-      composeFoundryTrustAssessment({
-        ...input,
-        evidence: input.evidence.map((item) => ({ ...item, freshness: 'live' })),
-      }),
+      composeFoundryTrustAssessment({ ...input, sourceMode: 'live' }, trustServerContext),
     ).toThrow()
     expect(() =>
-      composeFoundryTrustAssessment({
-        ...input,
-        subject: { ...input.subject, sourceId: ' primary ' },
-      }),
+      composeFoundryTrustAssessment(
+        {
+          ...input,
+          evidence: input.evidence.map((item) => ({ ...item, freshness: 'live' })),
+        },
+        trustServerContext,
+      ),
+    ).toThrow()
+    expect(() =>
+      composeFoundryTrustAssessment(
+        {
+          ...input,
+          subject: { ...input.subject, sourceId: ' primary ' },
+        },
+        trustServerContext,
+      ),
     ).toThrow('must not contain surrounding whitespace')
+  })
+  it('rejects future-dated evidence against the injected server clock', () => {
+    expect(() =>
+      composeFoundryTrustAssessment(
+        trustCompositionInput({ observedAt: '2026-09-04T08:10:00.001Z' }),
+        trustServerContext,
+      ),
+    ).toThrow('cannot be observed after the server assessment time')
+  })
+  it('reevaluates evidence freshness when trust is applied during discovery', () => {
+    const assessment = completeTrustAssessment()
+    const snapshot = mapAgentToSnapshot([{ id: 'assessed-agent' }], 'v1', config, {
+      ...trustComposition(assessment),
+      clock: () => new Date('2026-09-04T08:26:00.000Z'),
+    })
+
+    expect(snapshot.nodes[0]).toMatchObject({
+      trust: 'conditional',
+      metadata: { trustAssessmentStatus: 'incomplete' },
+    })
+    expect(snapshot.evidence.filter((item) => item.id.includes('trust-evidence'))).toEqual(
+      expect.arrayContaining([expect.objectContaining({ freshness: 'recent' })]),
+    )
+  })
+  it('rejects a trust assessment that is future-dated at discovery', () => {
+    const assessment = completeTrustAssessment()
+
+    expect(() =>
+      mapAgentToSnapshot([{ id: 'assessed-agent' }], 'v1', config, {
+        ...trustComposition(assessment),
+        clock: () => new Date('2026-09-04T08:09:59.999Z'),
+      }),
+    ).toThrow('future-dated')
   })
   it('does not accept a serialized assessment as authenticated server composition', () => {
     const forgedAssessment = structuredClone(completeTrustAssessment())
     const snapshot = mapAgentToSnapshot([{ id: 'assessed-agent' }], 'v1', config, {
       sourceId: 'primary',
       trustAssessments: [forgedAssessment],
+      clock: trustServerContext.clock,
     })
 
     expect(snapshot.nodes[0]).toMatchObject({
@@ -410,14 +478,17 @@ describe('Foundry connector', () => {
   it('rejects evidence whose subject differs from the assessment subject', () => {
     const input = trustCompositionInput()
     expect(() =>
-      composeFoundryTrustAssessment({
-        ...input,
-        evidence: input.evidence.map((item, index) =>
-          index === 0
-            ? { ...item, subject: { ...item.subject, tenantId: 'different-tenant' } }
-            : item,
-        ),
-      }),
+      composeFoundryTrustAssessment(
+        {
+          ...input,
+          evidence: input.evidence.map((item, index) =>
+            index === 0
+              ? { ...item, subject: { ...item.subject, tenantId: 'different-tenant' } }
+              : item,
+          ),
+        },
+        trustServerContext,
+      ),
     ).toThrow('Trust evidence subject binding must exactly match')
   })
   it('preserves every supplied Entra identity identifier for fail-closed correlation', () => {

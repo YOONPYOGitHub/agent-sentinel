@@ -14,13 +14,18 @@ test('optimization ranks bounded recommendations and opens simulation', async ({
     ),
   ).toBeVisible()
   await expect(
-    page.getByText(/Token economics data is available in synthetic demonstration mode/i),
+    page.getByText(/Token economics data is available in synthetic demonstration mode/i, {
+      exact: false,
+    }),
   ).toBeVisible()
 
   await page
     .getByRole('combobox', { name: 'Filter recommendations by priority' })
     .selectOption('critical')
-  const recommendation = page.locator('.recommendation-card').first()
+  const recommendation = page
+    .getByRole('region', { name: 'Optimization recommendations' })
+    .getByRole('article')
+    .first()
   await expect(recommendation.getByText('Simulation available')).toBeVisible()
   await recommendation.getByRole('link', { name: 'Preview response' }).click()
   await expect(page.getByRole('heading', { name: 'Affected attack path' })).toBeVisible()

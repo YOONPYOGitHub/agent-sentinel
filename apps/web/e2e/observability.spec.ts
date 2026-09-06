@@ -10,7 +10,9 @@ test('observability reports only available evidence operations', async ({ page }
   await expect(
     page.getByRole('heading', { name: 'Validation and evidence timeline' }),
   ).toBeVisible()
-  await expect(page.getByText('Safe validations')).toBeVisible()
+  await expect(
+    page.getByRole('region', { name: 'Evidence operations summary' }).getByText('Safe validations'),
+  ).toBeVisible()
   await expect(page.getByText('Latest evidence observed')).toBeVisible()
   await expect(
     page.getByText(

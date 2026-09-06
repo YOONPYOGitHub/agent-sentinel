@@ -19,7 +19,7 @@ test('contains a validated attack path and preserves the business workflow', asy
   await expect(page.getByText('Approved by Local demo operator')).toBeVisible()
   await page.getByRole('button', { name: 'Execute containment' }).click()
   await expect(page.getByText('Exposure removed')).toBeVisible()
-  await expect(page.getByText('Residual risk unknown')).toBeVisible()
+  await expect(page.getByText('Residual risk unknown', { exact: true })).toBeVisible()
   await expect(page.getByText('Mitigation status does not recalculate risk')).toBeVisible()
   await expect(page.getByTestId('graph-node-agent')).toContainText('Sales Research Agent')
 })

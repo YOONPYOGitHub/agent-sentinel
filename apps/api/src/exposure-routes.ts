@@ -208,7 +208,10 @@ export function buildRemediationPreview(
     0,
     ...residualFindings.map((candidate) => candidate.riskScore),
   )
-  const afterRiskScore = baselineCoversSelectedPolicy ? analyzedResidualRisk : beforeRiskScore
+  const afterRiskScore =
+    targetEdgeIds.length > 0 && baselineCoversSelectedPolicy
+      ? analyzedResidualRisk
+      : beforeRiskScore
   const beforeBlastRadius = calculateBlastRadius(snapshot, finding.affectedAgentId)
   const afterBlastRadius = calculateBlastRadius(previewSnapshot, finding.affectedAgentId)
   const comparisonNodeIds = new Set([

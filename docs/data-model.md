@@ -24,11 +24,14 @@ Represents a point-in-time view of an agent estate.
   authenticated server-side assessment whose agent, source, tenant, and
   environment subject binding exactly matches the authoritative inventory
   object.
-- The server derives trust evidence freshness from observation and assessment
-  times and derives source mode from evidence types. Every required plane must
-  cite its own evidence, and the runtime plane must cite non-synthetic
-  `observed_runtime` evidence. Synthetic, stale, unknown, missing, mismatched,
-  unauthenticated, or incomplete assessment evidence cannot produce `trusted`.
+- Public composition input cannot assert authentication or assessment time. The
+  server requires a verified authentication context, stamps the assessment with
+  its injected clock, derives source mode from evidence types, and reevaluates
+  freshness against the discovery clock whenever trust is applied. Every
+  required plane must cite its own exactly bound evidence, and the runtime plane
+  must cite non-synthetic `observed_runtime` evidence. Future-dated, synthetic,
+  stale, unknown, missing, mismatched, unauthenticated, or incomplete assessment
+  evidence cannot produce `trusted`.
 
 ### GraphEdge
 
@@ -139,8 +142,9 @@ provider write.
 - `beforeGraph` and `afterGraph` preserve the same evidence-backed comparison
   scope, with target edges disabled only in the simulated snapshot.
 - A finding with no currently active target route returns a deterministic no-op
-  preview with residual findings, routes, and uncertainty rather than a route
-  conflict.
+  preview with unchanged risk and zero risk reduction, while retaining current
+  residual findings, routes, uncertainty, and evidence rather than returning a
+  route conflict.
 
 ### GovernanceCase
 

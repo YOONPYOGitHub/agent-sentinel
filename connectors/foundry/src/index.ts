@@ -220,7 +220,6 @@ const foundryTrustSubjectSchema = z.strictObject({
 const foundryTrustIssuerSchema = z.strictObject({
   id: exactTrustIdentifierSchema,
   authenticationMode: z.enum(['managed-identity', 'workload-identity', 'jwt']),
-  authenticated: z.literal(true),
 })
 const foundryTrustEvidenceInputSchema = z.strictObject({
   id: exactTrustIdentifierSchema,
@@ -245,8 +244,6 @@ const foundryTrustCompositionInputSchema = z
   .strictObject({
     tier: z.enum(['trusted', 'conditional', 'untrusted']),
     subject: foundryTrustSubjectSchema,
-    issuer: foundryTrustIssuerSchema,
-    assessedAt: z.iso.datetime(),
     evidence: z.array(foundryTrustEvidenceInputSchema).min(1),
   })
   .superRefine((input, context) => {
@@ -258,7 +255,6 @@ const foundryTrustCompositionInputSchema = z
         message: 'Trust assessment evidence identifiers must be unique.',
       })
     }
-    const assessedAt = Date.parse(input.assessedAt)
     for (const [index, item] of input.evidence.entries()) {
       if (
         item.subject.agentId !== input.subject.agentId ||
@@ -270,13 +266,6 @@ const foundryTrustCompositionInputSchema = z
           code: 'custom',
           path: ['evidence', index, 'subject'],
           message: 'Trust evidence subject binding must exactly match the assessment subject.',
-        })
-      }
-      if (Date.parse(item.observedAt) > assessedAt) {
-        context.addIssue({
-          code: 'custom',
-          path: ['evidence', index, 'observedAt'],
-          message: 'Trust evidence cannot be observed after the assessment time.',
         })
       }
     }
@@ -301,8 +290,23 @@ const authenticatedServerAssessments = new WeakSet<object>()
 const LIVE_EVIDENCE_WINDOW_MS = 15 * 60 * 1000
 const RECENT_EVIDENCE_WINDOW_MS = 24 * 60 * 60 * 1000
 
-function derivedFreshness(observedAt: string, assessedAt: string): Evidence['freshness'] {
-  const age = Date.parse(assessedAt) - Date.parse(observedAt)
+export interface VerifiedFoundryServerAuthContext {
+  issuerId: string
+  authenticationMode: 'managed-identity' | 'workload-identity' | 'jwt'
+}
+
+export interface FoundryTrustCompositionContext {
+  auth: VerifiedFoundryServerAuthContext
+  clock: () => Date
+}
+
+const verifiedFoundryServerAuthContextSchema = z.strictObject({
+  issuerId: exactTrustIdentifierSchema,
+  authenticationMode: foundryTrustIssuerSchema.shape.authenticationMode,
+})
+
+function derivedFreshness(observedAt: string, evaluatedAt: string): Evidence['freshness'] {
+  const age = Date.parse(evaluatedAt) - Date.parse(observedAt)
   if (age <= LIVE_EVIDENCE_WINDOW_MS) return 'live'
   if (age <= RECENT_EVIDENCE_WINDOW_MS) return 'recent'
   return 'stale'
@@ -315,8 +319,25 @@ function deepFreeze<T>(value: T): T {
   return value
 }
 
-export function composeFoundryTrustAssessment(input: unknown): FoundryTrustAssessment {
+export function composeFoundryTrustAssessment(
+  input: unknown,
+  context: FoundryTrustCompositionContext,
+): FoundryTrustAssessment {
   const parsed = foundryTrustCompositionInputSchema.parse(input)
+  const auth = verifiedFoundryServerAuthContextSchema.parse(context.auth)
+  const issuer = foundryTrustIssuerSchema.parse({
+    id: auth.issuerId,
+    authenticationMode: auth.authenticationMode,
+  })
+  const assessedAt = context.clock().toISOString()
+  const futureEvidence = parsed.evidence.find(
+    (item) => Date.parse(item.observedAt) > Date.parse(assessedAt),
+  )
+  if (futureEvidence !== undefined) {
+    throw new FoundryConnectorError(
+      `Trust evidence ${futureEvidence.id} cannot be observed after the server assessment time.`,
+    )
+  }
   const planeEvidence = FOUNDRY_TRUST_REQUIRED_PLANES.flatMap((plane) => {
     const evidenceReferences = parsed.evidence
       .filter((item) => item.plane === plane)
@@ -331,13 +352,13 @@ export function composeFoundryTrustAssessment(input: unknown): FoundryTrustAsses
   const assessment = foundryTrustAssessmentSchema.parse({
     tier: parsed.tier,
     subject: parsed.subject,
-    issuer: parsed.issuer,
-    assessedAt: parsed.assessedAt,
+    issuer,
+    assessedAt,
     sourceMode,
     planeEvidence,
     evidence: parsed.evidence.map(({ plane, subject, ...item }) => ({
       ...item,
-      freshness: derivedFreshness(item.observedAt, parsed.assessedAt),
+      freshness: derivedFreshness(item.observedAt, assessedAt),
       metadata: {
         ...item.metadata,
         trustPlane: plane,
@@ -446,6 +467,7 @@ function normalizedTrustEvidenceId(agentId: string, evidenceId: string): string 
 export interface FoundrySnapshotComposition {
   sourceId: string
   trustAssessments: readonly FoundryTrustAssessment[]
+  clock?: () => Date
 }
 
 function exactTrustSubject(
@@ -466,6 +488,7 @@ function evaluateTrust(
   agent: NormalizedFoundryAgent,
   config: Pick<FoundryConnectorConfig, 'tenantId' | 'environment'>,
   composition: FoundrySnapshotComposition,
+  evaluatedAt: string,
 ): FoundryTrustResult {
   const names = toolNames(agent)
   const serverAssessments = composition.trustAssessments.filter((assessment) =>
@@ -499,7 +522,24 @@ function evaluateTrust(
     }
   }
 
-  const evidenceById = new Map(assessment.evidence.map((item) => [item.id, item]))
+  if (Date.parse(assessment.assessedAt) > Date.parse(evaluatedAt)) {
+    throw new FoundryConnectorError(
+      `Trust assessment for Foundry agent ${agent.id} is future-dated.`,
+    )
+  }
+  const futureEvidence = assessment.evidence.find(
+    (item) => Date.parse(item.observedAt) > Date.parse(evaluatedAt),
+  )
+  if (futureEvidence !== undefined) {
+    throw new FoundryConnectorError(
+      `Trust evidence ${futureEvidence.id} for Foundry agent ${agent.id} is future-dated.`,
+    )
+  }
+  const evaluatedEvidence = assessment.evidence.map((item) => ({
+    ...item,
+    freshness: derivedFreshness(item.observedAt, evaluatedAt),
+  }))
+  const evidenceById = new Map(evaluatedEvidence.map((item) => [item.id, item]))
   const planeEvidence = new Map(
     assessment.planeEvidence.map((plane) => [plane.plane, plane.evidenceReferences]),
   )
@@ -532,7 +572,7 @@ function evaluateTrust(
         !item.evidenceTypes.includes('unknown') &&
         !item.evidenceTypes.includes('synthetic_validation'),
     )
-  const evidence = assessment.evidence.map((item) => ({
+  const evidence = evaluatedEvidence.map((item) => ({
     ...item,
     id: normalizedTrustEvidenceId(agent.id, item.id),
     metadata: {
@@ -597,7 +637,7 @@ export function mapAgentToSnapshot(
     trustAssessments: [],
   },
 ): EstateSnapshot {
-  const generatedAt = new Date().toISOString()
+  const generatedAt = (composition.clock?.() ?? new Date()).toISOString()
   const nodes: GraphNode[] = []
   const edges: GraphEdge[] = []
   const evidence: Evidence[] = []
@@ -606,7 +646,7 @@ export function mapAgentToSnapshot(
     const agentId = `foundry-agent-${agent.id}`
     const evidenceId = `foundry-evidence-${agent.id}`
     const metadata = agent.metadata ?? {}
-    const trustResult = evaluateTrust(agent, config, composition)
+    const trustResult = evaluateTrust(agent, config, composition, generatedAt)
     nodes.push({
       id: agentId,
       kind: 'agent',
