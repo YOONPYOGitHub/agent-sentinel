@@ -46,11 +46,20 @@ export interface EntraGraphClientOptions {
 
 export interface EntraGraphOperationOptions {
   signal?: AbortSignal
+  maxPages?: number
+  maxRecords?: number
 }
 
-interface CollectionBudget {
+export interface EntraGraphOperationMeasurement {
   pages: number
-  items: number
+  records: number
+}
+
+export interface EntraGraphOperationContext {
+  readonly signal?: AbortSignal
+  readonly maxPages: number
+  readonly maxRecords: number
+  readonly measurement: EntraGraphOperationMeasurement
 }
 
 interface Page<T> {
@@ -114,28 +123,62 @@ export class EntraGraphClient {
     this.now = options.now ?? Date.now
   }
 
-  async probeStableInventory(options: EntraGraphOperationOptions = {}): Promise<void> {
+  createOperation(options: EntraGraphOperationOptions = {}): EntraGraphOperationContext {
+    const maxPages = Math.min(
+      options.maxPages ?? this.config.limits.maxPages,
+      this.config.limits.maxPages,
+    )
+    const maxRecords = Math.min(
+      options.maxRecords ?? this.config.limits.maxItems,
+      this.config.limits.maxItems,
+    )
+    if (!Number.isInteger(maxPages) || maxPages < 1) {
+      throw new EntraGraphError('bounds', 'Microsoft Graph page limit must be a positive integer.')
+    }
+    if (!Number.isInteger(maxRecords) || maxRecords < 1) {
+      throw new EntraGraphError(
+        'bounds',
+        'Microsoft Graph record limit must be a positive integer.',
+      )
+    }
+    return {
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      maxPages,
+      maxRecords,
+      measurement: { pages: 0, records: 0 },
+    }
+  }
+
+  async probeStableInventory(
+    options: EntraGraphOperationOptions | EntraGraphOperationContext = {},
+  ): Promise<EntraGraphOperationMeasurement> {
+    const operation = this.operation(options)
     const url = this.stableServicePrincipalsUrl()
     url.searchParams.set('$top', '1')
-    this.parsePage(servicePrincipalPageSchema, await this.requestJson(url, options.signal))
+    this.assertPageBudget(operation)
+    const page = this.parsePage(
+      servicePrincipalPageSchema,
+      await this.requestJson(url, operation.signal),
+    )
+    this.recordPage(operation, page.value.length)
+    return { ...operation.measurement }
   }
 
   listServicePrincipals(
-    options: EntraGraphOperationOptions = {},
+    options: EntraGraphOperationOptions | EntraGraphOperationContext = {},
   ): Promise<EntraServicePrincipal[]> {
     return this.collect<EntraServicePrincipal>(
       this.stableServicePrincipalsUrl(),
       servicePrincipalPageSchema,
-      this.newBudget(),
-      options.signal,
+      this.operation(options),
     )
   }
 
   async listOwners(
     servicePrincipals: readonly EntraServicePrincipal[],
-    options: EntraGraphOperationOptions = {},
+    options: EntraGraphOperationOptions | EntraGraphOperationContext = {},
   ): Promise<Map<string, EntraDirectoryOwner[]>> {
-    const budget = this.newBudget()
+    const operation = this.operation(options)
     const owners = new Map<string, EntraDirectoryOwner[]>()
     for (const principal of servicePrincipals) {
       const url = new URL(
@@ -145,12 +188,7 @@ export class EntraGraphClient {
       url.searchParams.set('$select', 'id,displayName,userPrincipalName')
       owners.set(
         principal.id,
-        await this.collect<EntraDirectoryOwner>(
-          url,
-          directoryOwnerPageSchema,
-          budget,
-          options.signal,
-        ),
+        await this.collect<EntraDirectoryOwner>(url, directoryOwnerPageSchema, operation),
       )
     }
     return owners
@@ -158,9 +196,9 @@ export class EntraGraphClient {
 
   async listAppRoleAssignments(
     servicePrincipals: readonly EntraServicePrincipal[],
-    options: EntraGraphOperationOptions = {},
+    options: EntraGraphOperationOptions | EntraGraphOperationContext = {},
   ): Promise<Map<string, EntraAppRoleAssignment[]>> {
-    const budget = this.newBudget()
+    const operation = this.operation(options)
     const assignments = new Map<string, EntraAppRoleAssignment[]>()
     for (const principal of servicePrincipals) {
       const url = new URL(
@@ -174,8 +212,7 @@ export class EntraGraphClient {
       const values = await this.collect<EntraAppRoleAssignment>(
         url,
         appRoleAssignmentPageSchema,
-        budget,
-        options.signal,
+        operation,
       )
       if (values.some((assignment) => assignment.principalId !== principal.id)) {
         throw new EntraGraphError(
@@ -189,7 +226,7 @@ export class EntraGraphClient {
   }
 
   listAgentIdentitiesPreview(
-    options: EntraGraphOperationOptions = {},
+    options: EntraGraphOperationOptions | EntraGraphOperationContext = {},
   ): Promise<AgentIdentityPreview[]> {
     const url = new URL(
       '/beta/servicePrincipals/microsoft.graph.agentIdentity',
@@ -202,8 +239,7 @@ export class EntraGraphClient {
     return this.collect<AgentIdentityPreview>(
       url,
       agentIdentityPreviewPageSchema,
-      this.newBudget(),
-      options.signal,
+      this.operation(options),
     )
   }
 
@@ -216,28 +252,40 @@ export class EntraGraphClient {
     return url
   }
 
-  private newBudget(): CollectionBudget {
-    return { pages: 0, items: 0 }
+  private operation(
+    options: EntraGraphOperationOptions | EntraGraphOperationContext,
+  ): EntraGraphOperationContext {
+    return 'measurement' in options ? options : this.createOperation(options)
+  }
+
+  private assertPageBudget(operation: EntraGraphOperationContext): void {
+    if (operation.measurement.pages >= operation.maxPages) {
+      throw new EntraGraphError('bounds', 'Microsoft Graph pagination exceeded the page limit.')
+    }
+  }
+
+  private recordPage(operation: EntraGraphOperationContext, records: number): void {
+    operation.measurement.pages += 1
+    operation.measurement.records += records
+    if (operation.measurement.records > operation.maxRecords) {
+      throw new EntraGraphError('bounds', 'Microsoft Graph pagination exceeded the item limit.')
+    }
   }
 
   private async collect<T>(
     initial: URL,
     schema: PageParser<T>,
-    budget: CollectionBudget = this.newBudget(),
-    signal?: AbortSignal,
+    operation: EntraGraphOperationContext,
   ): Promise<T[]> {
     const values: T[] = []
     let next: URL | undefined = new URL(initial)
     while (next !== undefined) {
-      if (budget.pages >= this.config.limits.maxPages) {
-        throw new EntraGraphError('bounds', 'Microsoft Graph pagination exceeded the page limit.')
-      }
-      const page: Page<T> = this.parsePage<T>(schema, await this.requestJson(next, signal))
-      budget.pages += 1
-      budget.items += page.value.length
-      if (budget.items > this.config.limits.maxItems) {
-        throw new EntraGraphError('bounds', 'Microsoft Graph pagination exceeded the item limit.')
-      }
+      this.assertPageBudget(operation)
+      const page: Page<T> = this.parsePage<T>(
+        schema,
+        await this.requestJson(next, operation.signal),
+      )
+      this.recordPage(operation, page.value.length)
       values.push(...page.value)
       next =
         page['@odata.nextLink'] === undefined

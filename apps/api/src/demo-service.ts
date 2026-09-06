@@ -6,7 +6,6 @@ import {
   ManifestIngestionSourceLimitError,
   MAX_MANIFEST_SOURCES,
   type AgentConnector,
-  type LiveSourceDataState,
   type ManifestIngestionRepository,
   type RuntimeObservationWindows,
   type RuntimeTelemetryConnector,
@@ -46,27 +45,6 @@ export class ReadModelUnavailableError extends Error {
 export interface PersistedReadModel {
   snapshotRepository: SnapshotRepository
   estate: EstateContext
-}
-
-function runtimeWindowDataState(windows: RuntimeObservationWindows): {
-  state: Exclude<LiveSourceDataState, 'failed' | 'cancelled'>
-  reason?: string
-} {
-  const observations = [...windows.baseline.observations, ...windows.observed.observations]
-  if (observations.length === 0) return { state: 'empty', reason: 'empty' }
-  const quality = [windows.baseline.otelQuality, windows.observed.otelQuality].filter(
-    (item) => item !== undefined,
-  )
-  if (quality.some((item) => item.caveats.includes('stale'))) {
-    return { state: 'stale', reason: 'stale' }
-  }
-  if (quality.some((item) => item.status !== 'available')) {
-    return { state: 'partial', reason: 'degraded-quality' }
-  }
-  const live = observations.filter((observation) => !observation.synthetic).length
-  if (live === 0) return { state: 'unsupported', reason: 'synthetic-only' }
-  if (live < observations.length) return { state: 'partial', reason: 'mixed-live-synthetic' }
-  return { state: 'complete' }
 }
 
 interface RuntimeEvidenceSourceRequest {
@@ -206,6 +184,27 @@ export class DemoService {
       )
       return request === undefined ? [] : [{ agent, request }]
     })
+    if (requests.length === 0) {
+      return {
+        snapshot: structuredClone(snapshot),
+        status: {
+          status: 'unavailable',
+          agentCount: agents.length,
+          eligibleAgentCount: 0,
+          queriedAgentCount: 0,
+          enrichedAgentCount: 0,
+          evidenceCount: 0,
+          sources: [],
+          failures: [],
+        },
+        coverage: {
+          configured: true,
+          queriedAgentIds: new Set(),
+          failedAgentIds: new Set(),
+          projectionFailedAgentIds: new Set(),
+        },
+      }
+    }
     const aggregation = await aggregateLiveSources<
       RuntimeEvidenceSourceRequest,
       RuntimeObservationWindows
@@ -222,18 +221,17 @@ export class DemoService {
         const windows = runtimeObservationWindowsSchema.parse(
           await connector.readObservationWindows(source.request, { signal: context.signal }),
         )
-        const classification = runtimeWindowDataState(windows)
         const observations = [...windows.baseline.observations, ...windows.observed.observations]
         return {
-          state: classification.state,
+          state: observations.length === 0 ? ('empty' as const) : ('complete' as const),
           value: windows,
           pages: 1,
           records: observations.length,
           evidenceIds:
-            classification.state === 'empty'
+            observations.length === 0
               ? []
               : [windows.baselineEvidenceId, windows.observedEvidenceId],
-          ...(classification.reason === undefined ? {} : { reason: classification.reason }),
+          ...(observations.length === 0 ? { reason: 'empty' } : {}),
         }
       },
       failureReason: () => 'query-failed',
@@ -264,7 +262,11 @@ export class DemoService {
         sourceAgentId: request.sourceAgentId!,
         agentId: agent.id,
       }
-      if (outcome.state === 'failed' || outcome.state === 'cancelled' || outcome.value === undefined) {
+      if (
+        outcome.state === 'failed' ||
+        outcome.state === 'cancelled' ||
+        outcome.value === undefined
+      ) {
         failures.push({ agentId: agent.id, reason: 'query-failed' })
         failedAgentIds.add(agent.id)
         sourceResults.push({
@@ -280,19 +282,15 @@ export class DemoService {
       }
       const windows = outcome.value
       const observations = [...windows.baseline.observations, ...windows.observed.observations]
-      const providerResourceIds = [
-        ...new Set(
-          [
-            ...(windows.provenance === undefined
+      const inputProviderResourceIds = [
+        ...new Set([
+          ...(windows.provenance === undefined ? [] : [windows.provenance.providerResourceId]),
+          ...observations.flatMap((observation) =>
+            observation.otelProvenance === undefined
               ? []
-              : [windows.provenance.providerResourceId]),
-            ...observations.flatMap((observation) =>
-              observation.otelProvenance === undefined
-                ? []
-                : [observation.otelProvenance.providerResourceId],
-            ),
-          ],
-        ),
+              : [observation.otelProvenance.providerResourceId],
+          ),
+        ]),
       ].sort()
       queriedAgentIds.add(agent.id)
       if (outcome.state === 'empty') {
@@ -302,7 +300,7 @@ export class DemoService {
           windowIds: [windows.baseline.windowId, windows.observed.windowId],
           observationIds: [],
           evidenceIds: [],
-          providerResourceIds,
+          providerResourceIds: inputProviderResourceIds,
           reason: outcome.reason ?? 'empty',
         })
         continue
@@ -310,24 +308,42 @@ export class DemoService {
       try {
         const projection = projectRuntimeEvidence(projected, windows)
         projected = projection.snapshot
+        const validatedObservations = [
+          ...projection.windows.baseline.observations,
+          ...projection.windows.observed.observations,
+        ]
+        const providerResourceIds = [
+          ...new Set([
+            ...(projection.windows.provenance === undefined
+              ? []
+              : [projection.windows.provenance.providerResourceId]),
+            ...validatedObservations.flatMap((observation) =>
+              observation.otelProvenance === undefined
+                ? []
+                : [observation.otelProvenance.providerResourceId],
+            ),
+          ]),
+        ].sort()
         evidenceCount += projection.addedEvidenceCount
         if (projection.addedEvidenceCount > 0) enrichedAgentCount += 1
         if (
-          outcome.state === 'complete' ||
-          outcome.state === 'partial' ||
-          outcome.state === 'stale'
+          projection.dataState.state === 'complete' ||
+          projection.dataState.state === 'partial' ||
+          projection.dataState.state === 'stale'
         ) {
           projectionSucceededAgentIds.add(agent.id)
         }
         queriedAt.push(windows.queriedAt)
         sourceResults.push({
           ...commonSourceResult,
-          state: outcome.state,
-          windowIds: [windows.baseline.windowId, windows.observed.windowId],
-          observationIds: observations.map((observation) => observation.id),
+          state: projection.dataState.state,
+          windowIds: [projection.windows.baseline.windowId, projection.windows.observed.windowId],
+          observationIds: validatedObservations.map((observation) => observation.id),
           evidenceIds: [...outcome.evidenceIds],
           providerResourceIds,
-          ...(outcome.reason === undefined ? {} : { reason: outcome.reason }),
+          ...(projection.dataState.reason === undefined
+            ? {}
+            : { reason: projection.dataState.reason }),
         })
       } catch {
         failures.push({ agentId: agent.id, reason: 'projection-failed' })
@@ -338,7 +354,7 @@ export class DemoService {
           windowIds: [windows.baseline.windowId, windows.observed.windowId],
           observationIds: observations.map((observation) => observation.id),
           evidenceIds: [],
-          providerResourceIds,
+          providerResourceIds: inputProviderResourceIds,
           reason: 'projection-failed',
         })
       }

@@ -16,6 +16,7 @@ import {
 
 import {
   runtimeObservationWindowsSchema,
+  type LiveSourceDataState,
   type RuntimeObservationWindows,
   type RuntimeTelemetryRequest,
 } from './index.js'
@@ -24,6 +25,11 @@ export interface RuntimeEvidenceProjection {
   snapshot: EstateSnapshot
   addedEvidenceCount: number
   unmatchedToolCallNames: string[]
+  windows: RuntimeObservationWindows
+  dataState: {
+    state: Exclude<LiveSourceDataState, 'failed' | 'cancelled'>
+    reason?: string
+  }
 }
 
 export function runtimeTelemetryRequestForAgent(
@@ -354,6 +360,33 @@ function enforceAssessedOtelQuality(windows: RuntimeObservationWindows): Runtime
   })
 }
 
+function projectedRuntimeDataState(windows: RuntimeObservationWindows): {
+  state: Exclude<LiveSourceDataState, 'failed' | 'cancelled'>
+  reason?: string
+} {
+  const observations = [...windows.baseline.observations, ...windows.observed.observations]
+  const quality = [windows.baseline.otelQuality, windows.observed.otelQuality].filter(
+    (item) => item !== undefined,
+  )
+  if (quality.some((item) => item.caveats.includes('stale'))) {
+    return { state: 'stale', reason: 'stale' }
+  }
+  if (observations.length === 0) {
+    return quality.some((item) => item.status !== 'available')
+      ? { state: 'partial', reason: 'degraded-quality' }
+      : { state: 'empty', reason: 'empty' }
+  }
+  const live = observations.filter((observation) => !observation.synthetic).length
+  if (live === 0) return { state: 'unsupported', reason: 'synthetic-only' }
+  if (quality.some((item) => item.status !== 'available')) {
+    return { state: 'partial', reason: 'degraded-quality' }
+  }
+  if (live < observations.length) {
+    return { state: 'partial', reason: 'mixed-live-synthetic' }
+  }
+  return { state: 'complete' }
+}
+
 function exactToolMatches(
   nodes: GraphNode[],
   edges: GraphEdge[],
@@ -446,5 +479,7 @@ export function projectRuntimeEvidence(
     snapshot: estateSnapshotSchema.parse(snapshot),
     addedEvidenceCount,
     unmatchedToolCallNames: [...unmatched].sort(),
+    windows,
+    dataState: projectedRuntimeDataState(windows),
   }
 }

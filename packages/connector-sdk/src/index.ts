@@ -82,6 +82,8 @@ export interface ConnectorSourceHealth {
   readonly configured: boolean
   readonly readiness: ConnectorReadiness
   readonly dataState?: LiveSourceDataState
+  readonly pages?: number
+  readonly records?: number
   readonly checkedAt?: string
   /** Stable, sanitized reason code. Never contains provider response data. */
   readonly reason?: string
@@ -169,6 +171,8 @@ export const connectorHealthReportSchema = z.strictObject({
       dataState: z
         .enum(['complete', 'partial', 'stale', 'unsupported', 'empty', 'failed', 'cancelled'])
         .optional(),
+      pages: z.number().int().min(0).optional(),
+      records: z.number().int().min(0).optional(),
       checkedAt: z.iso.datetime().optional(),
       reason: z.string().min(1).max(200).optional(),
       diagnostics: exactIdentityCorrelationDiagnosticsSchema.optional(),
@@ -239,6 +243,8 @@ export interface ApprovalContext {
 
 export interface ConnectorOperationRequest {
   readonly signal?: AbortSignal
+  readonly maxPages?: number
+  readonly maxRecords?: number
 }
 
 export interface AgentConnector {

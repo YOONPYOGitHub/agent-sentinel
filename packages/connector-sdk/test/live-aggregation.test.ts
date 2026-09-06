@@ -33,6 +33,16 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
 }
 
 describe('bounded live source aggregation', () => {
+  it('rejects an empty source set instead of reporting vacuous completeness', async () => {
+    await expect(
+      aggregateLiveSources({
+        sources: [],
+        limits,
+        execute: async (source: Source) => complete(source.id),
+      }),
+    ).rejects.toThrow('at least one')
+  })
+
   it('preserves configured order while bounding concurrent source execution', async () => {
     let active = 0
     let maximumActive = 0
@@ -160,14 +170,8 @@ describe('bounded live source aggregation', () => {
     const result = await resultPromise
 
     expect(started).toEqual(['started'])
-    expect(result.outcomes.map((outcome) => outcome.state)).toEqual([
-      'cancelled',
-      'cancelled',
-    ])
-    expect(result.outcomes.map((outcome) => outcome.reason)).toEqual([
-      'cancelled',
-      'cancelled',
-    ])
+    expect(result.outcomes.map((outcome) => outcome.state)).toEqual(['cancelled', 'cancelled'])
+    expect(result.outcomes.map((outcome) => outcome.reason)).toEqual(['cancelled', 'cancelled'])
   })
 
   it('applies one total duration deadline to all source work', async () => {
@@ -186,10 +190,7 @@ describe('bounded live source aggregation', () => {
 
     expect(started).toEqual(['slow'])
     expect(result.complete).toBe(false)
-    expect(result.outcomes.map((outcome) => outcome.state)).toEqual([
-      'cancelled',
-      'cancelled',
-    ])
+    expect(result.outcomes.map((outcome) => outcome.state)).toEqual(['cancelled', 'cancelled'])
     expect(result.outcomes.map((outcome) => outcome.reason)).toEqual([
       'duration-exceeded',
       'duration-exceeded',

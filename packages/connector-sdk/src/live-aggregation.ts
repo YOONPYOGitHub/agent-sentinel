@@ -1,13 +1,7 @@
 import { z } from 'zod'
 
 export type LiveSourceDataState =
-  | 'complete'
-  | 'partial'
-  | 'stale'
-  | 'unsupported'
-  | 'empty'
-  | 'failed'
-  | 'cancelled'
+  'complete' | 'partial' | 'stale' | 'unsupported' | 'empty' | 'failed' | 'cancelled'
 
 export interface LiveAggregationLimits {
   readonly maxSources: number
@@ -56,12 +50,20 @@ export interface AggregateLiveSourcesOptions<TSource extends { readonly id: stri
     context: LiveSourceExecutionContext,
   ) => Promise<LiveSourceValue<TValue>>
   readonly failureReason?: (error: unknown) => string
+  readonly failureMeasurement?: (
+    source: TSource,
+    error: unknown,
+  ) => { readonly pages: number; readonly records: number }
 }
 
 const limitsSchema = z.strictObject({
   maxSources: z.number().int().min(1).max(10_000),
   maxConcurrency: z.number().int().min(1).max(100),
-  maxDurationMs: z.number().int().min(1).max(60 * 60 * 1_000),
+  maxDurationMs: z
+    .number()
+    .int()
+    .min(1)
+    .max(60 * 60 * 1_000),
   maxPagesPerSource: z.number().int().min(1).max(100_000),
   maxRecordsPerSource: z.number().int().min(1).max(1_000_000),
 })
@@ -80,13 +82,13 @@ function cancelledOutcome<TSource, TValue>(
   }
 }
 
-export async function aggregateLiveSources<
-  TSource extends { readonly id: string },
-  TValue,
->(
+export async function aggregateLiveSources<TSource extends { readonly id: string }, TValue>(
   options: AggregateLiveSourcesOptions<TSource, TValue>,
 ): Promise<LiveSourceAggregation<TSource, TValue>> {
   const limits = limitsSchema.parse(options.limits)
+  if (options.sources.length === 0) {
+    throw new Error('Live source aggregation requires at least one source.')
+  }
   if (options.sources.length > limits.maxSources) {
     throw new Error(
       `Configured live source count exceeds maxSources (${options.sources.length} > ${limits.maxSources}).`,
@@ -111,9 +113,7 @@ export async function aggregateLiveSources<
   const deadline = setTimeout(() => abort('duration-exceeded'), limits.maxDurationMs)
   deadline.unref()
 
-  const outcomes = new Array<LiveSourceOutcome<TSource, TValue> | undefined>(
-    options.sources.length,
-  )
+  const outcomes = new Array<LiveSourceOutcome<TSource, TValue> | undefined>(options.sources.length)
   let nextIndex = 0
   const executeSource = async (index: number): Promise<void> => {
     const source = options.sources[index]!
@@ -172,13 +172,17 @@ export async function aggregateLiveSources<
             : { reason: result.reason }),
       }
     } catch (error: unknown) {
+      const measurement = options.failureMeasurement?.(source, error) ?? {
+        pages: 0,
+        records: 0,
+      }
       outcomes[index] = controller.signal.aborted
         ? cancelledOutcome(source, cancellationReason ?? 'cancelled')
         : {
             source,
             state: 'failed',
-            pages: 0,
-            records: 0,
+            pages: measurement.pages,
+            records: measurement.records,
             evidenceIds: [],
             reason: options.failureReason?.(error) ?? 'source-failed',
           }
@@ -197,9 +201,8 @@ export async function aggregateLiveSources<
 
   try {
     await Promise.all(
-      Array.from(
-        { length: Math.min(limits.maxConcurrency, options.sources.length) },
-        async () => worker(),
+      Array.from({ length: Math.min(limits.maxConcurrency, options.sources.length) }, async () =>
+        worker(),
       ),
     )
   } finally {

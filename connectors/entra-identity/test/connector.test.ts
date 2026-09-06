@@ -1216,6 +1216,337 @@ describe('composite enrichment connector', () => {
       }
     }
 
+    it('rejects an empty expected source set instead of reporting complete coverage', () => {
+      expect(
+        () =>
+          new MultiEntraEnrichmentConnector(connectorForSnapshot(aggregateBase()), [], {
+            enabled: false,
+            expectedSources: [],
+            credentialFactory: () => new Credential(),
+          }),
+      ).toThrow('at least one')
+    })
+
+    it('preserves degraded base health while Entra is disabled', () => {
+      const base = {
+        ...connectorForSnapshot(aggregateBase()),
+        getConnectorHealth: () => ({
+          overall: 'degraded' as const,
+          partial: false,
+          sources: [
+            {
+              id: 'base',
+              name: 'base',
+              role: 'discovery' as const,
+              enabled: true,
+              configured: true,
+              readiness: 'degraded' as const,
+              dataState: 'empty' as const,
+              reason: 'empty-source',
+            },
+          ],
+        }),
+      }
+      const connector = new MultiEntraEnrichmentConnector(base, [], {
+        enabled: false,
+        expectedSources,
+        credentialFactory: () => new Credential(),
+      })
+
+      const health = connector.getConnectorHealth()
+      expect(health).toMatchObject({ overall: 'degraded', partial: false })
+      expect(health.sources[0]).toMatchObject({
+        id: 'base',
+        readiness: 'degraded',
+        dataState: 'empty',
+      })
+    })
+
+    it('preserves degraded base health after successful Entra enrichment', async () => {
+      const expected = [expectedSources[0]!]
+      const base = {
+        ...connectorForSnapshot(aggregateBase()),
+        getConnectorHealth: () => ({
+          overall: 'degraded' as const,
+          partial: false,
+          sources: [
+            {
+              id: 'base',
+              name: 'base',
+              role: 'discovery' as const,
+              enabled: true,
+              configured: true,
+              readiness: 'degraded' as const,
+              dataState: 'failed' as const,
+              reason: 'source-failed',
+            },
+          ],
+        }),
+      }
+      const connector = new MultiEntraEnrichmentConnector(base, expected.map(sourceConfig), {
+        enabled: true,
+        expectedSources: expected,
+        credentialFactory: () => new Credential(),
+        clientFactory: () => ({
+          fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+            Response.json({
+              value: [
+                {
+                  id: '11111111-1111-4111-8111-111111111111',
+                  appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                  displayName: 'Tenant A identity',
+                  servicePrincipalType: 'Application',
+                  accountEnabled: true,
+                  appOwnerOrganizationId: tenantA,
+                  tags: [],
+                },
+              ],
+            }),
+          ),
+        }),
+      })
+
+      await connector.discover()
+
+      expect(connector.getConnectorHealth()).toMatchObject({
+        overall: 'degraded',
+        partial: false,
+        sources: [
+          { id: 'base', readiness: 'degraded', dataState: 'failed' },
+          { id: 'entra:project-a', readiness: 'ready', dataState: 'complete' },
+        ],
+      })
+    })
+
+    it('reports cumulative pages and records for an empty connection probe', async () => {
+      const expected = [expectedSources[0]!]
+      const connector = new MultiEntraEnrichmentConnector(
+        connectorForSnapshot(aggregateBase()),
+        expected.map(sourceConfig),
+        {
+          enabled: true,
+          expectedSources: expected,
+          credentialFactory: () => new Credential(),
+          clientFactory: () => ({
+            fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json({ value: [] })),
+          }),
+        },
+      )
+
+      await connector.testConnection()
+
+      expect(connector.getConnectorHealth().sources[1]).toMatchObject({
+        readiness: 'ready',
+        dataState: 'complete',
+        pages: 1,
+        records: 0,
+      })
+    })
+
+    it('fails a connection probe closed when its shared record budget is exceeded', async () => {
+      const expected = [expectedSources[0]!]
+      const connector = new MultiEntraEnrichmentConnector(
+        connectorForSnapshot(aggregateBase()),
+        expected.map(sourceConfig),
+        {
+          enabled: true,
+          expectedSources: expected,
+          aggregation: { maxRecordsPerSource: 1 },
+          credentialFactory: () => new Credential(),
+          clientFactory: () => ({
+            fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+              Response.json({
+                value: [
+                  {
+                    id: '11111111-1111-4111-8111-111111111111',
+                    appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                    displayName: 'Tenant A identity',
+                    servicePrincipalType: 'Application',
+                    accountEnabled: true,
+                    appOwnerOrganizationId: tenantA,
+                    tags: [],
+                  },
+                  {
+                    id: '22222222-2222-4222-8222-222222222222',
+                    appId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+                    displayName: 'Tenant A identity 2',
+                    servicePrincipalType: 'Application',
+                    accountEnabled: true,
+                    appOwnerOrganizationId: tenantA,
+                    tags: [],
+                  },
+                ],
+              }),
+            ),
+          }),
+        },
+      )
+
+      await connector.testConnection()
+
+      expect(connector.getConnectorHealth().sources[1]).toMatchObject({
+        readiness: 'unavailable',
+        dataState: 'failed',
+        pages: 1,
+        records: 2,
+        reason: 'bounds',
+      })
+    })
+
+    it('reports cumulative inventory and enrichment measurements', async () => {
+      const expected = [expectedSources[0]!]
+      const connector = new MultiEntraEnrichmentConnector(
+        connectorForSnapshot(aggregateBase()),
+        [
+          {
+            ...sourceConfig(expected[0]!),
+            capabilities: {
+              owners: true,
+              appRoleAssignments: true,
+              agentIdentityPreview: true,
+            },
+          },
+        ],
+        {
+          enabled: true,
+          expectedSources: expected,
+          credentialFactory: () => new Credential(),
+          clientFactory: () => ({
+            fetcher: vi
+              .fn<typeof fetch>()
+              .mockResolvedValueOnce(
+                Response.json({
+                  value: [
+                    {
+                      id: '11111111-1111-4111-8111-111111111111',
+                      appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                      displayName: 'Tenant A identity',
+                      servicePrincipalType: 'Application',
+                      accountEnabled: true,
+                      appOwnerOrganizationId: tenantA,
+                      tags: [],
+                    },
+                  ],
+                }),
+              )
+              .mockImplementation(() => Promise.resolve(Response.json({ value: [] }))),
+          }),
+        },
+      )
+
+      await connector.discover()
+
+      expect(connector.getConnectorHealth().sources[1]).toMatchObject({
+        readiness: 'ready',
+        dataState: 'complete',
+        pages: 4,
+        records: 1,
+      })
+    })
+
+    it('honors the shared page budget across inventory and enrichment operations', async () => {
+      const expected = [expectedSources[0]!]
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          Response.json({
+            value: [
+              {
+                id: '11111111-1111-4111-8111-111111111111',
+                appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                displayName: 'Tenant A identity',
+                servicePrincipalType: 'Application',
+                accountEnabled: true,
+                appOwnerOrganizationId: tenantA,
+                tags: [],
+              },
+            ],
+          }),
+        )
+        .mockResolvedValue(Response.json({ value: [] }))
+      const connector = new MultiEntraEnrichmentConnector(
+        connectorForSnapshot(aggregateBase()),
+        [
+          {
+            ...sourceConfig(expected[0]!),
+            capabilities: {
+              owners: true,
+              appRoleAssignments: true,
+              agentIdentityPreview: true,
+            },
+          },
+        ],
+        {
+          enabled: true,
+          expectedSources: expected,
+          aggregation: { maxPagesPerSource: 2 },
+          credentialFactory: () => new Credential(),
+          clientFactory: () => ({ fetcher }),
+        },
+      )
+
+      await connector.discover()
+
+      expect(fetcher).toHaveBeenCalledTimes(2)
+      expect(connector.getConnectorHealth().sources[1]).toMatchObject({
+        readiness: 'degraded',
+        dataState: 'partial',
+        pages: 2,
+        records: 1,
+        reason: 'bounds',
+      })
+    })
+
+    it('fails closed and reports consumed records when the shared record budget is exceeded', async () => {
+      const expected = [expectedSources[0]!]
+      const connector = new MultiEntraEnrichmentConnector(
+        connectorForSnapshot(aggregateBase()),
+        expected.map(sourceConfig),
+        {
+          enabled: true,
+          expectedSources: expected,
+          aggregation: { maxRecordsPerSource: 1 },
+          credentialFactory: () => new Credential(),
+          clientFactory: () => ({
+            fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+              Response.json({
+                value: [
+                  {
+                    id: '11111111-1111-4111-8111-111111111111',
+                    appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                    displayName: 'Tenant A identity',
+                    servicePrincipalType: 'Application',
+                    accountEnabled: true,
+                    appOwnerOrganizationId: tenantA,
+                    tags: [],
+                  },
+                  {
+                    id: '22222222-2222-4222-8222-222222222222',
+                    appId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+                    displayName: 'Tenant A identity 2',
+                    servicePrincipalType: 'Application',
+                    accountEnabled: true,
+                    appOwnerOrganizationId: tenantA,
+                    tags: [],
+                  },
+                ],
+              }),
+            ),
+          }),
+        },
+      )
+
+      await connector.discover()
+
+      expect(connector.getConnectorHealth().sources[1]).toMatchObject({
+        readiness: 'unavailable',
+        dataState: 'failed',
+        pages: 1,
+        records: 2,
+        reason: 'bounds',
+      })
+    })
+
     it('parses legacy and multi-source environment configuration', () => {
       expect(
         parseEntraSourcesConfig({

@@ -531,10 +531,15 @@ describe('Azure Monitor OTel connector', () => {
     })
     expect(connector.getConnectorHealth()).toMatchObject({
       overall: 'degraded',
-      partial: true,
+      partial: false,
       sources: [
         { id: 'otel:project-a', readiness: 'degraded' },
-        { id: 'otel:project-b', readiness: 'ready', dataState: 'complete' },
+        {
+          id: 'otel:project-b',
+          readiness: 'degraded',
+          dataState: 'partial',
+          reason: 'degraded-quality',
+        },
       ],
     })
   })

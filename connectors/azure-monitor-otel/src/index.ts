@@ -10,7 +10,9 @@ import type {
   RuntimeTelemetryConnector,
 } from '@agent-sentinel/connector-sdk'
 import {
+  assessRuntimeOtelQuality,
   observationWindowSchema,
+  runtimeOtelProvenanceSchema,
   runtimeObservationSchema,
   type RuntimeObservation,
 } from '@agent-sentinel/domain'
@@ -609,19 +611,52 @@ interface TelemetrySourceState {
   reason: string | undefined
 }
 
-function runtimeDataState(windows: RuntimeObservationWindows): LiveSourceDataState {
+function runtimeDataState(windows: RuntimeObservationWindows): {
+  state: LiveSourceDataState
+  reason?: string
+} {
   const observations = [...windows.baseline.observations, ...windows.observed.observations]
-  if (observations.length === 0) return 'empty'
-  const quality = [windows.baseline.otelQuality, windows.observed.otelQuality].filter(
-    (item) => item !== undefined,
+  if (observations.length === 0) return { state: 'empty', reason: 'empty' }
+  const quality = [windows.baseline, windows.observed].map((window) =>
+    assessRuntimeOtelQuality(window),
   )
-  if (quality.some((item) => item.caveats.includes('stale'))) return 'stale'
-  if (quality.some((item) => item.status !== 'available')) return 'partial'
+  if (quality.some((item) => item.quality?.caveats.includes('stale'))) {
+    return { state: 'stale', reason: 'stale' }
+  }
+  const provenance = windows.provenance
+  const exactInvocationCount = observations.filter((observation) => {
+    const parsed = runtimeOtelProvenanceSchema.safeParse(observation.otelProvenance)
+    if (!parsed.success || provenance === undefined) return false
+    const nested = parsed.data
+    return (
+      observation.tenantId === windows.observed.tenantId &&
+      observation.agentId === windows.observed.agentId &&
+      nested.estateId === provenance.estateId &&
+      nested.estateTenantId === provenance.estateTenantId &&
+      nested.estateEnvironment === provenance.estateEnvironment &&
+      nested.sourceConnectorId === provenance.sourceConnectorId &&
+      nested.sourceTenantId === provenance.sourceTenantId &&
+      nested.sourceEnvironment === provenance.sourceEnvironment &&
+      nested.provider === provenance.provider &&
+      nested.providerResourceId === provenance.providerResourceId &&
+      nested.providerAgentId === provenance.providerAgentId
+    )
+  }).length
+  if (
+    exactInvocationCount !== observations.length ||
+    quality.some(
+      (item) => item.quality?.status !== 'available' || item.validObservationIds.length === 0,
+    )
+  ) {
+    return { state: 'partial', reason: 'degraded-quality' }
+  }
   const classifications = new Set(
     observations.map((observation) => (observation.synthetic ? 'synthetic' : 'live')),
   )
-  if (!classifications.has('live')) return 'unsupported'
-  return classifications.size === 1 ? 'complete' : 'partial'
+  if (!classifications.has('live')) return { state: 'unsupported', reason: 'synthetic-only' }
+  return classifications.size === 1
+    ? { state: 'complete' }
+    : { state: 'partial', reason: 'mixed-live-synthetic' }
 }
 
 function rebindWindows(
@@ -725,15 +760,20 @@ export class MultiAzureMonitorOtelConnector implements RuntimeTelemetryConnector
       )
     }
     try {
-      const windows = await source.connector.readObservationWindows({
-        tenantId: source.config.tenantId,
-        agentId: sourceAgentId,
-      }, options)
-      source.dataState = runtimeDataState(windows)
-      source.readiness = source.dataState === 'complete' ? 'ready' : 'degraded'
-      source.checkedAt = windows.queriedAt
-      source.reason = source.dataState === 'complete' ? undefined : source.dataState
-      return rebindWindows(windows, request, source.config)
+      const windows = await source.connector.readObservationWindows(
+        {
+          tenantId: source.config.tenantId,
+          agentId: sourceAgentId,
+        },
+        options,
+      )
+      const rebound = rebindWindows(windows, request, source.config)
+      const dataState = runtimeDataState(rebound)
+      source.dataState = dataState.state
+      source.readiness = dataState.state === 'complete' ? 'ready' : 'degraded'
+      source.checkedAt = rebound.queriedAt
+      source.reason = dataState.reason
+      return rebound
     } catch (error) {
       source.dataState =
         error instanceof AzureMonitorOtelConnectorError && error.reason === 'cancelled'
