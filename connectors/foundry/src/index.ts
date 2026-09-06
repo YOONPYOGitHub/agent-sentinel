@@ -1,10 +1,14 @@
-import type {
-  AgentConnector,
-  ApprovalContext,
-  ConnectorSourceHealth,
-  ConnectorSourceProvenance,
-  ConnectorHealthReport,
-  ConnectorDescriptor,
+import {
+  aggregateLiveSources,
+  type LiveAggregationLimits,
+  type LiveSourceDataState,
+  type AgentConnector,
+  type ApprovalContext,
+  type ConnectionTestResult,
+  type ConnectorSourceHealth,
+  type ConnectorSourceProvenance,
+  type ConnectorHealthReport,
+  type ConnectorDescriptor,
 } from '@agent-sentinel/connector-sdk'
 import {
   assertEstateSnapshot,
@@ -66,6 +70,7 @@ const foundryDiscoveryLimitsSchema = z.strictObject({
 export interface FoundryConnectorOptions {
   readonly fetch?: typeof fetch
   readonly limits?: Partial<FoundryDiscoveryLimits>
+  readonly aggregation?: Partial<LiveAggregationLimits>
   readonly signal?: AbortSignal
 }
 
@@ -88,6 +93,8 @@ export type FoundryDiscoveryFailureReason =
   | 'malformed-page'
   | 'repeated-continuation'
   | 'unsafe-continuation-url'
+  | 'empty-source'
+  | 'aggregate-bounds-exceeded'
   | 'unexpected-failure'
 
 export interface FoundrySourceProvenance extends ConnectorSourceProvenance {
@@ -882,6 +889,38 @@ function readinessForFailure(reason: FoundryDiscoveryFailureReason): 'degraded' 
     : 'degraded'
 }
 
+function failureReasonForOutcome(
+  state: LiveSourceDataState,
+  reason: string | undefined,
+): FoundryDiscoveryFailureReason {
+  if (state === 'empty') return 'empty-source'
+  if (state === 'cancelled') return 'request-aborted'
+  switch (reason) {
+    case 'not-queried':
+    case 'portfolio-incomplete':
+    case 'authentication-or-access':
+    case 'credential-failed':
+    case 'request-timeout':
+    case 'request-aborted':
+    case 'provider-request-failed':
+    case 'response-too-large':
+    case 'total-response-too-large':
+    case 'page-limit-exceeded':
+    case 'item-limit-exceeded':
+    case 'malformed-page':
+    case 'repeated-continuation':
+    case 'unsafe-continuation-url':
+    case 'empty-source':
+    case 'aggregate-bounds-exceeded':
+    case 'unexpected-failure':
+      return reason
+    case 'bounds':
+      return 'aggregate-bounds-exceeded'
+    default:
+      return 'unexpected-failure'
+  }
+}
+
 export class FoundryAgentConnector implements AgentConnector {
   readonly descriptor: ConnectorDescriptor = {
     id: 'azure-ai-foundry-agent-service',
@@ -898,6 +937,7 @@ export class FoundryAgentConnector implements AgentConnector {
   private readonly defaultSignal: AbortSignal | undefined
   private evidenceById = new Map<string, Evidence>()
   private lastFailureReason: FoundryDiscoveryFailureReason | undefined = 'not-queried'
+  private lastDiscoveryMeasurement = { pages: 0, records: 0 }
   constructor(
     config: FoundryConnectorConfig,
     private readonly credential: TokenCredential,
@@ -915,10 +955,10 @@ export class FoundryAgentConnector implements AgentConnector {
       ...options.limits,
     })
   }
-  async testConnection() {
+  async testConnection(request: FoundryDiscoveryRequest = {}) {
     const checkedAt = new Date().toISOString()
     try {
-      await this.listAgents(1, this.defaultSignal)
+      await this.listAgents(1, request.signal ?? this.defaultSignal)
       this.lastFailureReason = undefined
       return { ok: true, checkedAt, message: 'Azure AI Foundry Agent Service is reachable.' }
     } catch (error: unknown) {
@@ -950,6 +990,9 @@ export class FoundryAgentConnector implements AgentConnector {
   getLastFailureReason(): FoundryDiscoveryFailureReason | undefined {
     return this.lastFailureReason
   }
+  getLastDiscoveryMeasurement(): { pages: number; records: number } {
+    return { ...this.lastDiscoveryMeasurement }
+  }
   getEvidence(id: string): Promise<Evidence> {
     const item = this.evidenceById.get(id)
     if (item === undefined) throw new FoundryConnectorError(`Foundry evidence was not found: ${id}`)
@@ -967,6 +1010,7 @@ export class FoundryAgentConnector implements AgentConnector {
     maximum?: number,
     signal?: AbortSignal,
   ): Promise<FoundryAgentDefinition[]> {
+    this.lastDiscoveryMeasurement = { pages: 0, records: 0 }
     const initial = new URL(`${this.config.projectEndpoint.replace(/\/+$/, '')}/agents`)
     initial.searchParams.set('api-version', FOUNDRY_API_VERSION)
     const agents: FoundryAgentDefinition[] = []
@@ -983,6 +1027,7 @@ export class FoundryAgentConnector implements AgentConnector {
       }
       const response = await this.request(next, totalResponseBytes, signal)
       pageCount += 1
+      this.lastDiscoveryMeasurement.pages = pageCount
       totalResponseBytes += response.bytes
       let page: z.output<typeof foundryAgentPageSchema>
       try {
@@ -1001,6 +1046,7 @@ export class FoundryAgentConnector implements AgentConnector {
         )
       }
       agents.push(...pageAgents)
+      this.lastDiscoveryMeasurement.records = agents.length
       next = this.resolveContinuation(page, response.continuation, initial)
       if (next !== undefined && seenContinuations.has(next.href)) {
         throw new FoundryConnectorError(
@@ -1257,9 +1303,11 @@ export class FoundryAgentConnector implements AgentConnector {
 }
 
 interface FoundrySourceState {
+  id: string
   config: FoundrySourceConfig
   connector: FoundryAgentConnector
   readiness: 'ready' | 'degraded' | 'unavailable'
+  dataState: LiveSourceDataState | undefined
   checkedAt: string | undefined
   reason: FoundryDiscoveryFailureReason | undefined
 }
@@ -1371,6 +1419,8 @@ export class MultiFoundryConnector implements AgentConnector {
 
   private readonly config: FoundryPortfolioConfig
   private readonly sources: FoundrySourceState[]
+  private readonly aggregationLimits: LiveAggregationLimits
+  private readonly defaultSignal: AbortSignal | undefined
   private evidenceById = new Map<string, Evidence>()
 
   constructor(
@@ -1380,7 +1430,21 @@ export class MultiFoundryConnector implements AgentConnector {
     options: FoundryConnectorOptions = {},
   ) {
     this.config = foundryPortfolioConfigSchema.parse(configInput)
+    const discoveryLimits = foundryDiscoveryLimitsSchema.parse({
+      ...DEFAULT_FOUNDRY_DISCOVERY_LIMITS,
+      ...options.limits,
+    })
+    this.aggregationLimits = {
+      maxSources: 50,
+      maxConcurrency: 4,
+      maxDurationMs: 60_000,
+      maxPagesPerSource: discoveryLimits.maxPages,
+      maxRecordsPerSource: discoveryLimits.maxItems,
+      ...options.aggregation,
+    }
+    this.defaultSignal = options.signal
     this.sources = this.config.sources.map((config) => ({
+      id: config.id,
       config,
       connector: new FoundryAgentConnector(
         {
@@ -1396,62 +1460,128 @@ export class MultiFoundryConnector implements AgentConnector {
         options,
       ),
       readiness: 'unavailable',
+      dataState: undefined,
       checkedAt: undefined,
       reason: 'not-queried',
     }))
   }
 
   async testConnection() {
-    const results = await Promise.all(
-      this.sources.map(async (source) => ({
-        source,
-        result: await source.connector.testConnection(),
-      })),
-    )
-    for (const { source, result } of results) {
-      source.checkedAt = result.checkedAt
-      source.reason = result.ok ? undefined : source.connector.getLastFailureReason()
-      source.readiness = source.reason === undefined ? 'ready' : readinessForFailure(source.reason)
+    const aggregation = await aggregateLiveSources<FoundrySourceState, ConnectionTestResult>({
+      sources: this.sources,
+      limits: this.aggregationLimits,
+      ...(this.defaultSignal === undefined ? {} : { signal: this.defaultSignal }),
+      execute: async (source, context) => {
+        const result = await source.connector.testConnection({ signal: context.signal })
+        const measurement = source.connector.getLastDiscoveryMeasurement()
+        if (!result.ok) {
+          throw new FoundryConnectorError(
+            result.message,
+            source.connector.getLastFailureReason() ?? 'unexpected-failure',
+          )
+        }
+        return {
+          state: measurement.records === 0 ? ('empty' as const) : ('complete' as const),
+          value: result,
+          pages: measurement.pages,
+          records: measurement.records,
+          evidenceIds: [],
+        }
+      },
+      failureReason: discoveryFailureReason,
+    })
+    for (const outcome of aggregation.outcomes) {
+      const source = outcome.source
+      source.checkedAt = outcome.value?.checkedAt ?? new Date().toISOString()
+      source.dataState = outcome.state
+      const reason =
+        outcome.state === 'complete'
+          ? undefined
+          : failureReasonForOutcome(outcome.state, outcome.reason)
+      source.reason = reason
+      source.readiness =
+        outcome.state === 'complete'
+          ? 'ready'
+          : outcome.state === 'failed'
+            ? readinessForFailure(reason ?? 'unexpected-failure')
+            : 'degraded'
     }
-    const ready = results.filter(({ result }) => result.ok).length
+    const ready = aggregation.outcomes.filter((outcome) => outcome.state === 'complete').length
     return {
-      ok: ready === results.length,
+      ok: aggregation.complete,
       checkedAt: new Date().toISOString(),
       message:
-        ready === results.length
+        aggregation.complete
           ? `All ${ready} configured Foundry sources are reachable.`
-          : `${ready} of ${results.length} configured Foundry sources are reachable.`,
+          : `${ready} of ${aggregation.outcomes.length} configured Foundry sources are reachable.`,
     }
   }
 
-  async discover(): Promise<EstateSnapshot> {
+  async discover(request: FoundryDiscoveryRequest = {}): Promise<EstateSnapshot> {
     this.evidenceById = new Map()
-    const results = await Promise.allSettled(
-      this.sources.map(async (source) => ({
-        source,
-        snapshot: await source.connector.discover(),
-      })),
-    )
+    const operationSignal = request.signal ?? this.defaultSignal
+    const aggregation = await aggregateLiveSources<FoundrySourceState, EstateSnapshot | undefined>({
+      sources: this.sources,
+      limits: this.aggregationLimits,
+      ...(operationSignal === undefined ? {} : { signal: operationSignal }),
+      execute: async (source, context) => {
+        try {
+          const snapshot = await source.connector.discover({ signal: context.signal })
+          const measurement = source.connector.getLastDiscoveryMeasurement()
+          return {
+            state: measurement.records === 0 ? ('empty' as const) : ('complete' as const),
+            value: snapshot,
+            pages: measurement.pages,
+            records: measurement.records,
+            evidenceIds: snapshot.evidence.map((item) => item.id),
+          }
+        } catch (error: unknown) {
+          if (context.signal.aborted) throw error
+          const measurement = source.connector.getLastDiscoveryMeasurement()
+          const reason = discoveryFailureReason(error)
+          if (measurement.records > 0) {
+            return {
+              state: 'partial',
+              value: undefined,
+              pages: measurement.pages,
+              records: measurement.records,
+              evidenceIds: [],
+              reason,
+            }
+          }
+          throw error
+        }
+      },
+      failureReason: discoveryFailureReason,
+    })
     const snapshots: EstateSnapshot[] = []
     const failures: FoundryPortfolioSourceFailure[] = []
     const checkedAt = new Date().toISOString()
-    for (const [index, result] of results.entries()) {
-      const source = this.sources[index]!
+    for (const outcome of aggregation.outcomes) {
+      const source = outcome.source
       source.checkedAt = checkedAt
-      if (result.status === 'fulfilled') {
+      source.dataState = outcome.state
+      if (outcome.state === 'complete' && outcome.value !== undefined) {
         source.readiness = 'ready'
         source.reason = undefined
         snapshots.push(
           scopeFoundrySnapshot(
-            result.value.snapshot,
+            outcome.value,
             source.config,
             this.config.estateTenantId,
             this.config.estateEnvironment,
           ),
         )
       } else {
-        source.reason = discoveryFailureReason(result.reason)
-        source.readiness = readinessForFailure(source.reason)
+        source.reason = failureReasonForOutcome(outcome.state, outcome.reason)
+        source.readiness =
+          outcome.state === 'failed'
+            ? readinessForFailure(source.reason)
+            : outcome.state === 'cancelled' &&
+                (source.reason === 'authentication-or-access' ||
+                  source.reason === 'credential-failed')
+              ? 'unavailable'
+              : 'degraded'
         failures.push({
           sourceId: source.config.id,
           reason: source.reason,
@@ -1484,7 +1614,9 @@ export class MultiFoundryConnector implements AgentConnector {
   }
 
   getConnectorHealth(): FoundryConnectorHealthReport {
-    const ready = this.sources.filter((source) => source.readiness === 'ready').length
+    const ready = this.sources.filter(
+      (source) => source.readiness === 'ready' && source.dataState === 'complete',
+    ).length
     const degraded = this.sources.some((source) => source.readiness === 'degraded')
     return {
       overall:
@@ -1501,6 +1633,7 @@ export class MultiFoundryConnector implements AgentConnector {
         enabled: true,
         configured: true,
         readiness: source.readiness,
+        ...(source.dataState !== undefined ? { dataState: source.dataState } : {}),
         provenance: this.sourceProvenance(source.config),
         ...(source.checkedAt !== undefined ? { checkedAt: source.checkedAt } : {}),
         ...(source.reason !== undefined ? { reason: source.reason } : {}),

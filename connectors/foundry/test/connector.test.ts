@@ -941,8 +941,104 @@ describe('multi-Foundry connector', () => {
       overall: 'ready',
       partial: false,
       sources: [
-        { id: 'foundry:tenant-a-project', readiness: 'ready' },
-        { id: 'foundry:tenant-b-project', readiness: 'ready' },
+        { id: 'foundry:tenant-a-project', readiness: 'ready', dataState: 'complete' },
+        { id: 'foundry:tenant-b-project', readiness: 'ready', dataState: 'complete' },
+      ],
+    })
+  })
+
+  it('bounds portfolio source concurrency and preserves configured result order', async () => {
+    let active = 0
+    let maximumActive = 0
+    const completed: string[] = []
+    const threeSourcePortfolio = {
+      ...portfolio,
+      sources: [
+        ...portfolio.sources,
+        {
+          id: 'tenant-c-project',
+          name: 'Tenant C project',
+          projectEndpoint: 'https://c.services.ai.azure.com/api/projects/project-c',
+          tenantId: 'tenant-c',
+          environment: 'development',
+        },
+      ],
+    }
+    const connector = new MultiFoundryConnector(
+      threeSourcePortfolio,
+      () => new Credential(),
+      [],
+      {
+        aggregation: {
+          maxConcurrency: 1,
+          maxDurationMs: 1_000,
+        },
+        fetch: vi.fn<typeof fetch>(async (input) => {
+          const url = new URL(input instanceof Request ? input.url : input.toString())
+          active += 1
+          maximumActive = Math.max(maximumActive, active)
+          await new Promise((resolve) => setTimeout(resolve, url.hostname.startsWith('a.') ? 5 : 1))
+          active -= 1
+          completed.push(url.hostname.slice(0, 1))
+          return Response.json({
+            data: [{ ...externalAgent, name: `${url.hostname.slice(0, 1)} agent` }],
+            has_more: false,
+          })
+        }),
+      },
+    )
+
+    const snapshot = await connector.discover()
+
+    expect(maximumActive).toBe(1)
+    expect(completed).toEqual(['a', 'b', 'c'])
+    expect(
+      snapshot.nodes.filter((node) => node.kind === 'agent').map((node) => node.name),
+    ).toEqual(['a agent', 'b agent', 'c agent'])
+  })
+
+  it('treats an empty configured source as explicit incomplete live discovery', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) => {
+        const url = new URL(input instanceof Request ? input.url : input.toString())
+        return Promise.resolve(
+          Response.json({
+            data: url.hostname.startsWith('a.') ? [externalAgent] : [],
+            has_more: false,
+          }),
+        )
+      }),
+    )
+    const connector = new MultiFoundryConnector(portfolio, () => new Credential())
+
+    const error: unknown = await connector.discover().catch((failure: unknown) => failure)
+
+    expect(error).toMatchObject({
+      failures: [
+        {
+          sourceId: 'tenant-b-project',
+          reason: 'empty-source',
+          provenance: {
+            sourceConnectorId: 'tenant-b-project',
+            sourceTenantId: 'tenant-b',
+            sourceEnvironment: 'validation',
+            providerObjectId: 'project-b',
+          },
+        },
+      ],
+    })
+    expect(connector.getConnectorHealth()).toMatchObject({
+      overall: 'degraded',
+      partial: true,
+      sources: [
+        { id: 'foundry:tenant-a-project', dataState: 'complete' },
+        {
+          id: 'foundry:tenant-b-project',
+          readiness: 'degraded',
+          dataState: 'empty',
+          reason: 'empty-source',
+        },
       ],
     })
   })
@@ -994,6 +1090,7 @@ describe('multi-Foundry connector', () => {
         {
           id: 'foundry:tenant-a-project',
           readiness: 'ready',
+          dataState: 'complete',
           provenance: {
             estateTenantId: 'estate',
             estateEnvironment: 'portfolio',
@@ -1007,6 +1104,7 @@ describe('multi-Foundry connector', () => {
         {
           id: 'foundry:tenant-b-project',
           readiness: 'unavailable',
+          dataState: 'failed',
           reason: 'authentication-or-access',
           provenance: {
             estateTenantId: 'estate',
@@ -1218,6 +1316,7 @@ describe('multi-Foundry connector', () => {
           enabled: true,
           configured: true,
           readiness: 'degraded',
+          dataState: 'failed',
           checkedAt: health.sources[0]?.checkedAt,
           reason: 'repeated-continuation',
           provenance: {

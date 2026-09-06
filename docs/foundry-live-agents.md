@@ -83,6 +83,10 @@ is bounded to 100 pages, 10,000 agents, 4 MiB per response, 16 MiB across the
 discovery run, and 30 seconds per request. Repeated continuations, malformed
 pages, oversized responses, timeouts, and aborts fail the affected source with
 a stable reason code. No agents accumulated before that failure are promoted.
+Portfolio aggregation accepts at most 50 configured sources, runs at most four
+sources concurrently, and applies one 60-second aggregate deadline in addition
+to the per-request limits. Caller cancellation is propagated to credential and
+HTTP operations, and queued sources do not start after cancellation.
 The connector maps each completed source object to evidence and an estate agent;
 it does not infer tools, relationships, owners, or health that Foundry did not
 return.
@@ -124,6 +128,11 @@ finding identifiers. Additional sources are namespaced by source id. Every
 node records `sourceConnectorId`, source tenant, project, and environment.
 Connector health records the aggregate estate tenant/environment plus the exact
 source connector, source tenant/environment, provider, and project object ID.
+It also retains a typed data state. A non-empty completed source is `complete`;
+an authorized source returning no agents is `empty`; bounded pagination after
+records have been received is `partial`; provider failures are `failed`; and
+caller or aggregate deadline cancellation is `cancelled`. Empty, partial,
+failed, or cancelled sources never establish complete live discovery.
 
 Same-tenant sources can use the default managed identity/developer credential.
 Cross-tenant sources use secretless workload identity federation: create an app
@@ -134,7 +143,9 @@ any configured discovery source fails, the connector updates every source's
 health and rejects with `FoundryPortfolioIncompleteError`. No partial aggregate
 snapshot escapes, jobs preserve the latest durable complete snapshot, and the
 connector invalidates in-memory evidence from the preceding discovery
-generation.
+generation. The same fail-closed behavior applies to valid-empty sources; an
+empty provider response is retained in health as `empty`, not relabeled as live
+inventory.
 
 ## Live validation
 
