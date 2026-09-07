@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 
 import type {
+  EstateContext,
   EstateSnapshot,
   TokenEconomicsAttribution,
   TokenEconomicsReport,
@@ -12,17 +13,25 @@ import { computeBaseline } from '@agent-sentinel/behavior-engine'
 import { MOCK_TOKEN_ECONOMICS_WINDOWS } from '@agent-sentinel/mock-connector'
 import {
   runtimeObservationWindowsSchema,
+  validateRuntimeTelemetryProvenance,
   withoutSyntheticObservations,
   type RuntimeTelemetryRequest,
   type RuntimeTelemetryConnector,
 } from '@agent-sentinel/connector-sdk'
 
+import { requireEstateContext } from './estate-auth.js'
+
 export interface TokenEconomicsRoutesOptions {
   mode: 'mock' | 'foundry'
-  defaultTenantId: string
   runtimeTelemetryConnector?: RuntimeTelemetryConnector
-  resolveTelemetryRequest?: (agentId: string) => Promise<RuntimeTelemetryRequest | undefined>
-  resolveAttribution?: (agentId: string) => Promise<TokenEconomicsAttribution | undefined>
+  resolveTelemetryRequest?: (
+    agentId: string,
+    estate: EstateContext,
+  ) => Promise<RuntimeTelemetryRequest | undefined>
+  resolveAttribution?: (
+    agentId: string,
+    estate: EstateContext,
+  ) => Promise<TokenEconomicsAttribution | undefined>
 }
 
 function unavailableReportId(agentId: string): string {
@@ -38,10 +47,11 @@ function unknownAttribution(
 async function resolvedAttribution(
   opts: TokenEconomicsRoutesOptions,
   agentId: string,
+  estate: EstateContext,
 ): Promise<TokenEconomicsAttribution> {
   if (opts.resolveAttribution === undefined) return unknownAttribution('resolver-not-configured')
   try {
-    const attribution = await opts.resolveAttribution(agentId)
+    const attribution = await opts.resolveAttribution(agentId, estate)
     return attribution === undefined
       ? unknownAttribution('agent-not-found')
       : tokenEconomicsAttributionSchema.parse(attribution)
@@ -111,13 +121,14 @@ export function registerTokenEconomicsRoutes(
     '/api/token-economics/agents/:agentId',
     async (request, reply) => {
       const { agentId } = request.params
-      const tenantId = opts.defaultTenantId
-      const attribution = await resolvedAttribution(opts, agentId)
+      const estate = requireEstateContext(request)
+      const tenantId = estate.tenantId
+      const attribution = await resolvedAttribution(opts, agentId, estate)
 
       if (opts.mode === 'foundry') {
         if (opts.runtimeTelemetryConnector !== undefined) {
           try {
-            const resolvedRequest = await opts.resolveTelemetryRequest?.(agentId)
+            const resolvedRequest = await opts.resolveTelemetryRequest?.(agentId, estate)
             if (opts.resolveTelemetryRequest !== undefined && resolvedRequest === undefined) {
               const now = new Date().toISOString()
               const result: TokenEconomicsReport = tokenEconomicsReportSchema.parse({
@@ -135,17 +146,22 @@ export function registerTokenEconomicsRoutes(
               })
               return reply.status(200).send(attachAttribution(result, attribution))
             }
-            const telemetryRequest = resolvedRequest ?? { tenantId, agentId }
+            const telemetryRequest = resolvedRequest ?? {
+              estateId: estate.id,
+              estateEnvironment: estate.environment,
+              tenantId,
+              agentId,
+            }
             const windows = withoutSyntheticObservations(
-              runtimeObservationWindowsSchema.parse(
-                await opts.runtimeTelemetryConnector.readObservationWindows({
-                  ...telemetryRequest,
-                }),
+              validateRuntimeTelemetryProvenance(
+                telemetryRequest,
+                runtimeObservationWindowsSchema.parse(
+                  await opts.runtimeTelemetryConnector.readObservationWindows({
+                    ...telemetryRequest,
+                  }),
+                ),
               ),
             )
-            if (windows.observed.tenantId !== tenantId || windows.observed.agentId !== agentId) {
-              throw new Error('Runtime telemetry response does not match the API request binding.')
-            }
             const baselineResult = computeBaseline(windows.baseline, windows.baselineEvidenceId)
             if ('baseline' in baselineResult) {
               const result = analyzeTokenEconomics(windows.observed, baselineResult.baseline, {

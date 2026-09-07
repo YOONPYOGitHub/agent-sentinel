@@ -14,6 +14,7 @@ import {
   observationWindowSchema,
   runtimeOtelProvenanceSchema,
   runtimeObservationSchema,
+  type OtelEvidenceCaveat,
   type RuntimeObservation,
 } from '@agent-sentinel/domain'
 import type { TokenCredential } from '@azure/core-auth'
@@ -162,8 +163,21 @@ async function readBoundedJson(
   }
 }
 
-function windowQuality(observations: readonly RuntimeObservation[]) {
-  if (observations.length === 0) {
+interface AzureMonitorRowQuality {
+  recordsReceived: number
+  duplicatesRemoved: number
+  caveats: readonly OtelEvidenceCaveat[]
+}
+
+function windowQuality(
+  observations: readonly RuntimeObservation[],
+  rowQuality: AzureMonitorRowQuality = {
+    recordsReceived: observations.length,
+    duplicatesRemoved: 0,
+    caveats: [],
+  },
+) {
+  if (observations.length === 0 && rowQuality.recordsReceived === 0) {
     return {
       status: 'unknown' as const,
       classification: 'unknown' as const,
@@ -187,7 +201,14 @@ function windowQuality(observations: readonly RuntimeObservation[]) {
       !parsed.data.partial
     )
   })
-  const available = valid.length === observations.length && classifications.size === 1
+  const available =
+    observations.length > 0 &&
+    valid.length === observations.length &&
+    classifications.size === 1 &&
+    rowQuality.caveats.length === 0
+  const caveats = new Set<OtelEvidenceCaveat>(rowQuality.caveats)
+  if (valid.length !== observations.length) caveats.add('invalid-record')
+  if (classifications.size > 1) caveats.add('mixed-classification')
   return {
     status: available ? ('available' as const) : ('degraded' as const),
     classification:
@@ -196,14 +217,10 @@ function windowQuality(observations: readonly RuntimeObservation[]) {
         : classifications.has('synthetic')
           ? ('synthetic' as const)
           : ('live' as const),
-    caveats: available
-      ? []
-      : classifications.size > 1
-        ? (['invalid-record', 'mixed-classification'] as const)
-        : (['invalid-record'] as const),
-    recordsReceived: observations.length * 6,
+    caveats: [...caveats].sort(),
+    recordsReceived: Math.min(rowQuality.recordsReceived * 6, 10_000),
     recordsAccepted: valid.length * 6,
-    duplicatesRemoved: 0,
+    duplicatesRemoved: rowQuality.duplicatesRemoved,
     pagesProcessed: 1,
   }
 }
@@ -368,6 +385,14 @@ const projectedRowSchema = z.strictObject({
   SpanId: z.string().max(32).nullable(),
   ItemCount: z.number().int().min(1).max(1_000_000).nullable(),
 })
+type ProjectedRow = z.infer<typeof projectedRowSchema>
+
+interface CanonicalAzureMonitorRows {
+  rows: ProjectedRow[]
+  recordsReceived: number
+  duplicatesRemoved: number
+  caveats: OtelEvidenceCaveat[]
+}
 
 function parseToolCallNames(value: string | null): string[] {
   if (value === null || value === '') return []
@@ -413,10 +438,7 @@ function invocationEvidenceIds(
   )
 }
 
-function rowOtelProvenance(
-  row: z.infer<typeof projectedRowSchema>,
-  binding: z.infer<typeof rowBindingSchema>,
-) {
+function rowOtelProvenance(row: ProjectedRow, binding: z.infer<typeof rowBindingSchema>) {
   const provenance = binding.provenance
   if (
     provenance === undefined ||
@@ -450,10 +472,10 @@ function rowOtelProvenance(
   })
 }
 
-export function mapAzureMonitorRows(
+function parseAzureMonitorRows(
   value: unknown,
   binding: z.input<typeof rowBindingSchema>,
-): RuntimeObservation[] {
+): { binding: z.infer<typeof rowBindingSchema>; rows: ProjectedRow[] } {
   const expectedBinding = rowBindingSchema.parse(binding)
   const response = azureMonitorLogsQueryResponseSchema.parse(value)
   assertColumns(response)
@@ -472,7 +494,7 @@ export function mapAzureMonitorRows(
     throw new AzureMonitorOtelConnectorError('The requested telemetry window is invalid.')
   }
 
-  return table.rows.map((values, index) => {
+  const rows = table.rows.map((values, index) => {
     const row = projectedRowSchema.parse(
       Object.fromEntries(expectedColumns.map(([name], columnIndex) => [name, values[columnIndex]])),
     )
@@ -488,27 +510,77 @@ export function mapAzureMonitorRows(
         `Azure Monitor row ${index} does not match the requested tenant, agent, environment, or time window.`,
       )
     }
-
-    const otelProvenance = rowOtelProvenance(row, expectedBinding)
-    return runtimeObservationSchema.parse({
-      id: row.ObservationId,
-      tenantId: row.TenantId,
-      agentId: row.AgentId,
-      environment: row.Environment,
-      source: 'azure-monitor-otel',
-      observedAt: row.ObservedAt,
-      correlations: rowCorrelations(row),
-      ...(row.LatencyMs !== null ? { latencyMs: row.LatencyMs } : {}),
-      ...(row.InputTokens !== null ? { inputTokens: row.InputTokens } : {}),
-      ...(row.OutputTokens !== null ? { outputTokens: row.OutputTokens } : {}),
-      ...(row.CostUsd !== null ? { costUsd: row.CostUsd } : {}),
-      success: row.Success,
-      ...(row.ErrorCode !== null && row.ErrorCode !== '' ? { errorCode: row.ErrorCode } : {}),
-      toolCallNames: parseToolCallNames(row.ToolCallNames),
-      synthetic: row.Synthetic,
-      ...(otelProvenance === undefined ? {} : { otelProvenance }),
-    })
+    return row
   })
+  return { binding: expectedBinding, rows }
+}
+
+function canonicalizeAzureMonitorRows(rows: readonly ProjectedRow[]): CanonicalAzureMonitorRows {
+  const grouped = new Map<string, Array<{ canonical: string; row: ProjectedRow }>>()
+  for (const row of rows) {
+    const group = grouped.get(row.ObservationId) ?? []
+    group.push({ canonical: JSON.stringify(row), row })
+    grouped.set(row.ObservationId, group)
+  }
+  const canonicalRows: ProjectedRow[] = []
+  const caveats = new Set<OtelEvidenceCaveat>()
+  let duplicatesRemoved = 0
+  for (const [, group] of [...grouped.entries()].sort(([left], [right]) =>
+    left < right ? -1 : left > right ? 1 : 0,
+  )) {
+    const variants = new Set(group.map((item) => item.canonical))
+    if (variants.size > 1) {
+      duplicatesRemoved += group.length
+      caveats.add('conflicting-duplicate')
+      continue
+    }
+    if (group.length > 1) {
+      duplicatesRemoved += group.length - 1
+      caveats.add('duplicate-record')
+    }
+    canonicalRows.push(group[0]!.row)
+  }
+  return {
+    rows: canonicalRows,
+    recordsReceived: rows.length,
+    duplicatesRemoved,
+    caveats: [...caveats].sort(),
+  }
+}
+
+function runtimeObservationForRow(
+  row: ProjectedRow,
+  binding: z.infer<typeof rowBindingSchema>,
+): RuntimeObservation {
+  const otelProvenance = rowOtelProvenance(row, binding)
+  return runtimeObservationSchema.parse({
+    id: row.ObservationId,
+    tenantId: row.TenantId,
+    agentId: row.AgentId,
+    environment: row.Environment,
+    source: 'azure-monitor-otel',
+    observedAt: row.ObservedAt,
+    correlations: rowCorrelations(row),
+    ...(row.LatencyMs !== null ? { latencyMs: row.LatencyMs } : {}),
+    ...(row.InputTokens !== null ? { inputTokens: row.InputTokens } : {}),
+    ...(row.OutputTokens !== null ? { outputTokens: row.OutputTokens } : {}),
+    ...(row.CostUsd !== null ? { costUsd: row.CostUsd } : {}),
+    success: row.Success,
+    ...(row.ErrorCode !== null && row.ErrorCode !== '' ? { errorCode: row.ErrorCode } : {}),
+    toolCallNames: parseToolCallNames(row.ToolCallNames),
+    synthetic: row.Synthetic,
+    ...(otelProvenance === undefined ? {} : { otelProvenance }),
+  })
+}
+
+export function mapAzureMonitorRows(
+  value: unknown,
+  binding: z.input<typeof rowBindingSchema>,
+): RuntimeObservation[] {
+  const parsed = parseAzureMonitorRows(value, binding)
+  return canonicalizeAzureMonitorRows(parsed.rows).rows.map((row) =>
+    runtimeObservationForRow(row, parsed.binding),
+  )
 }
 
 function kqlString(value: string): string {
@@ -760,7 +832,7 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
     }
     if (!response.ok) throw errorFromBody(body, response.status)
 
-    const observations = mapAzureMonitorRows(body, {
+    const parsedRows = parseAzureMonitorRows(body, {
       tenantId: binding.tenantId,
       agentId: binding.agentId,
       environment: this.config.environment,
@@ -777,6 +849,22 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
         providerAgentId: binding.agentId,
       },
     })
+    const baselineRows = canonicalizeAzureMonitorRows(
+      parsedRows.rows.filter(
+        (row) => new Date(row.ObservedAt).getTime() < new Date(baselineEnd).getTime(),
+      ),
+    )
+    const observedRows = canonicalizeAzureMonitorRows(
+      parsedRows.rows.filter(
+        (row) => new Date(row.ObservedAt).getTime() >= new Date(observedStart).getTime(),
+      ),
+    )
+    const baselineObservations = baselineRows.rows.map((row) =>
+      runtimeObservationForRow(row, parsedRows.binding),
+    )
+    const observedObservations = observedRows.rows.map((row) =>
+      runtimeObservationForRow(row, parsedRows.binding),
+    )
     const baseBinding = `${binding.tenantId}\0${binding.agentId}\0${this.config.environment}`
     const baselineWindowId = windowId('baseline', baseBinding, baselineStart, baselineEnd)
     const observedWindowId = windowId('observed', baseBinding, observedStart, observedEnd)
@@ -788,14 +876,8 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
       source: 'azure-monitor-otel',
       windowStart: baselineStart,
       windowEnd: baselineEnd,
-      observations: observations.filter(
-        (item) => new Date(item.observedAt).getTime() < new Date(baselineEnd).getTime(),
-      ),
-      otelQuality: windowQuality(
-        observations.filter(
-          (item) => new Date(item.observedAt).getTime() < new Date(baselineEnd).getTime(),
-        ),
-      ),
+      observations: baselineObservations,
+      otelQuality: windowQuality(baselineObservations, baselineRows),
     })
     const observed = observationWindowSchema.parse({
       windowId: observedWindowId,
@@ -805,14 +887,8 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
       source: 'azure-monitor-otel',
       windowStart: observedStart,
       windowEnd: observedEnd,
-      observations: observations.filter(
-        (item) => new Date(item.observedAt).getTime() >= new Date(observedStart).getTime(),
-      ),
-      otelQuality: windowQuality(
-        observations.filter(
-          (item) => new Date(item.observedAt).getTime() >= new Date(observedStart).getTime(),
-        ),
-      ),
+      observations: observedObservations,
+      otelQuality: windowQuality(observedObservations, observedRows),
     })
 
     return runtimeObservationWindowsSchema.parse({
@@ -839,12 +915,16 @@ function runtimeDataState(windows: RuntimeObservationWindows): {
   reason?: string
 } {
   const observations = [...windows.baseline.observations, ...windows.observed.observations]
-  if (observations.length === 0) return { state: 'empty', reason: 'empty' }
   const quality = [windows.baseline, windows.observed].map((window) =>
     assessRuntimeOtelQuality(window),
   )
   if (quality.some((item) => item.quality?.caveats.includes('stale'))) {
     return { state: 'stale', reason: 'stale' }
+  }
+  if (observations.length === 0) {
+    return quality.some((item) => item.quality?.status === 'degraded')
+      ? { state: 'partial', reason: 'degraded-quality' }
+      : { state: 'empty', reason: 'empty' }
   }
   const provenance = windows.provenance
   const exactInvocationCount = observations.filter((observation) => {

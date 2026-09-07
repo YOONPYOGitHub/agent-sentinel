@@ -22,6 +22,7 @@ import {
   entraIdentityConnectorConfigSchema,
   mapEntraInventoryToSnapshot,
   parseEntraSourcesConfig,
+  resolveEntraRuntimeActivation,
   servicePrincipalPageSchema,
 } from '../src/index.js'
 
@@ -218,6 +219,45 @@ describe('Microsoft Graph client contracts', () => {
       },
     )
     await expect(connector.discover()).resolves.toMatchObject({ tenantId })
+  })
+
+  it('resolves complete legacy Entra tuples in live mode', () => {
+    expect(
+      resolveEntraRuntimeActivation(
+        {
+          ENTRA_CONNECTOR_ENABLED: 'true',
+          ENTRA_CONNECTOR_TENANT_ID: tenantId,
+          ENTRA_CONNECTOR_ENVIRONMENT: 'validation',
+        },
+        'live',
+      ),
+    ).toMatchObject({
+      active: true,
+      enabled: true,
+      sources: [{ id: 'primary', tenantId, environment: 'validation' }],
+    })
+  })
+
+  it.each([
+    ['tenant only', { ENTRA_CONNECTOR_TENANT_ID: tenantId }],
+    ['environment only', { ENTRA_CONNECTOR_ENVIRONMENT: 'validation' }],
+  ])('rejects partial legacy Entra tuples: %s', (_label, environment) => {
+    expect(() => resolveEntraRuntimeActivation(environment, 'live')).toThrow(
+      'Legacy Entra configuration requires',
+    )
+  })
+
+  it('hides and does not parse inactive Entra sources in mock mode', () => {
+    expect(
+      resolveEntraRuntimeActivation(
+        {
+          ENTRA_CONNECTOR_ENABLED: 'true',
+          ENTRA_SOURCES_JSON: '{invalid',
+          ENTRA_CONNECTOR_TENANT_ID: tenantId,
+        },
+        'mock',
+      ),
+    ).toEqual({ active: false, enabled: false, sources: [] })
   })
 
   it('follows same-resource pagination and enforces item bounds', async () => {

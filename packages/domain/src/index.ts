@@ -383,7 +383,7 @@ export const agentSentinelStateSchema = z.object({
             ]),
             windowIds: z.array(z.string().min(1).max(200)).max(2),
             observationIds: z.array(z.string().min(1).max(200)).max(10_000),
-            evidenceIds: z.array(z.string().min(1).max(200)).max(2),
+            evidenceIds: z.array(z.string().min(1).max(200)).max(4),
             providerResourceIds: z.array(z.string().min(1).max(500)).max(100),
             reason: z.string().min(1).optional(),
           }),

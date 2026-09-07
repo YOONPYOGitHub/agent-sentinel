@@ -152,21 +152,30 @@ describe('bounded live source aggregation', () => {
   it('cancels queued work and classifies started work when the caller aborts', async () => {
     const controller = new AbortController()
     const started: string[] = []
+    let settleProvider!: () => void
+    let aggregationSettled = false
     const resultPromise = aggregateLiveSources({
       sources: [{ id: 'started' }, { id: 'queued' }],
       limits: { ...limits, maxConcurrency: 1 },
       signal: controller.signal,
-      execute: async (source, context) => {
+      execute: async (source) => {
         started.push(source.id)
-        await new Promise<void>((resolve) =>
-          context.signal.addEventListener('abort', () => resolve(), { once: true }),
-        )
+        await new Promise<void>((resolve) => {
+          settleProvider = resolve
+        })
         return complete(source.id)
       },
     })
+    void resultPromise.then(() => {
+      aggregationSettled = true
+    })
 
-    await Promise.resolve()
+    await waitUntil(() => started.length === 1)
     controller.abort()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    expect(aggregationSettled).toBe(false)
+    settleProvider()
     const result = await resultPromise
 
     expect(started).toEqual(['started'])
@@ -176,18 +185,37 @@ describe('bounded live source aggregation', () => {
 
   it('applies one total duration deadline to all source work', async () => {
     const started: string[] = []
-    const result = await aggregateLiveSources({
+    let deadlineObserved = false
+    let settleProvider!: () => void
+    let aggregationSettled = false
+    const resultPromise = aggregateLiveSources({
       sources: [{ id: 'slow' }, { id: 'never-started' }],
       limits: { ...limits, maxConcurrency: 1, maxDurationMs: 10 },
       execute: async (source, context) => {
         started.push(source.id)
-        await new Promise<void>((resolve) =>
-          context.signal.addEventListener('abort', () => resolve(), { once: true }),
+        context.signal.addEventListener(
+          'abort',
+          () => {
+            deadlineObserved = true
+          },
+          { once: true },
         )
+        await new Promise<void>((resolve) => {
+          settleProvider = resolve
+        })
         return complete(source.id)
       },
     })
+    void resultPromise.then(() => {
+      aggregationSettled = true
+    })
 
+    await new Promise<void>((resolve) => setTimeout(resolve, 20))
+    expect(deadlineObserved).toBe(true)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(aggregationSettled).toBe(false)
+    settleProvider()
+    const result = await resultPromise
     expect(started).toEqual(['slow'])
     expect(result.complete).toBe(false)
     expect(result.outcomes.map((outcome) => outcome.state)).toEqual(['cancelled', 'cancelled'])

@@ -13,6 +13,7 @@ import { MockAgentConnector } from '@agent-sentinel/mock-connector'
 import { createApp } from '../src/app.js'
 import { DemoService } from '../src/demo-service.js'
 import {
+  createMixedRuntimeTelemetryFixture,
   createRuntimeTelemetryFixture,
   createSyntheticCanaryTelemetryFixture,
 } from './runtime-telemetry-fixture.js'
@@ -561,6 +562,7 @@ describe('live product read model', () => {
           sourceConnectorId: 'primary',
           agentId: agent.id,
           state: 'unsupported',
+          evidenceIds: ['otel-baseline-evidence-synthetic', 'otel-observed-evidence-synthetic'],
           reason: 'synthetic-only',
         },
       ],
@@ -574,6 +576,41 @@ describe('live product read model', () => {
         evidence.evidenceTypes.includes('synthetic_validation'),
       ),
     ).toBe(true)
+  })
+
+  it('reports all projected live and synthetic runtime evidence IDs', async () => {
+    const snapshot = await new MockAgentConnector().discover()
+    configureFoundryFor(snapshot)
+    const agent = snapshot.nodes.find((node) => node.kind === 'agent')
+    if (agent === undefined) throw new Error('Expected an agent fixture.')
+    Object.assign(agent.metadata, {
+      sourceConnectorId: 'primary',
+      sourceTenantId: snapshot.tenantId,
+      sourceObjectId: 'provider-agent-id',
+      sourceEnvironment: snapshot.environment,
+    })
+    const { repository } = snapshotRepository(snapshot)
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled' },
+      {
+        dataMode: 'live',
+        snapshotRepository: repository,
+        runtimeTelemetryConnector: createMixedRuntimeTelemetryFixture(snapshot.environment),
+      },
+    )
+    apps.push(app)
+
+    const response = await app.inject({ method: 'GET', url: '/api/demo/state' })
+    const state = agentSentinelStateSchema.parse(response.json())
+
+    expect(response.statusCode).toBe(200)
+    expect(state.runtimeEvidence?.sources?.[0]?.evidenceIds).toEqual([
+      'otel-baseline-evidence',
+      'otel-baseline-evidence-synthetic',
+      'otel-observed-evidence',
+      'otel-observed-evidence-synthetic',
+    ])
   })
 
   it('returns explicit unavailability instead of rediscovering or falling back to mock', async () => {

@@ -150,14 +150,17 @@ function defaultEnvironment(): string {
 
 function telemetryRequestResolver(
   snapshotRepository: SnapshotRepository | undefined,
-  estate: EstateContext,
-): ((agentId: string) => Promise<RuntimeTelemetryRequest | undefined>) | undefined {
+):
+  | ((agentId: string, estate: EstateContext) => Promise<RuntimeTelemetryRequest | undefined>)
+  | undefined {
   if (snapshotRepository === undefined) return undefined
-  return async (agentId) => {
+  return async (agentId, estate) => {
     const snapshot = await snapshotRepository.findLatest(estate)
     if (snapshot === null) return undefined
     const agent = snapshot.nodes.find((node) => node.kind === 'agent' && node.id === agentId)
-    return agent === undefined ? undefined : runtimeTelemetryRequestForAgent(snapshot, agent)
+    return agent === undefined
+      ? undefined
+      : runtimeTelemetryRequestForAgent(snapshot, agent, estate)
   }
 }
 
@@ -546,23 +549,21 @@ export async function createApp(
     writeEnabled,
     ...(governanceCaseRepository ? { repository: governanceCaseRepository } : {}),
   })
-  const resolveTelemetryRequest = telemetryRequestResolver(snapshotRepository, defaultEstate)
-  const resolveTokenEconomicsAttribution = async (agentId: string) => {
+  const resolveTelemetryRequest = telemetryRequestResolver(snapshotRepository)
+  const resolveTokenEconomicsAttribution = async (agentId: string, estate: EstateContext) => {
     const snapshot =
       resolvedDataMode === 'live'
-        ? await snapshotRepository?.findLatest(defaultEstate)
+        ? await snapshotRepository?.findLatest(estate)
         : (await stateService.getState()).snapshot
     return tokenEconomicsAttributionForAgent(snapshot, agentId)
   }
   registerBehaviorRoutes(app, {
     mode: exposureMode,
-    defaultTenantId: defaultTenantId(),
     ...(runtimeTelemetryConnector !== undefined ? { runtimeTelemetryConnector } : {}),
     ...(resolveTelemetryRequest !== undefined ? { resolveTelemetryRequest } : {}),
   })
   registerTokenEconomicsRoutes(app, {
     mode: exposureMode,
-    defaultTenantId: defaultTenantId(),
     ...(runtimeTelemetryConnector !== undefined ? { runtimeTelemetryConnector } : {}),
     ...(resolveTelemetryRequest !== undefined ? { resolveTelemetryRequest } : {}),
     resolveAttribution: resolveTokenEconomicsAttribution,

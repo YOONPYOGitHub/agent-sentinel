@@ -103,6 +103,17 @@ export function createRuntimeTelemetryFixture(
           baselineEvidenceId: 'otel-baseline-evidence',
           observedEvidenceId: 'otel-observed-evidence',
           queriedAt: QUERIED_AT,
+          provenance: {
+            estateId: request.estateId ?? `estate-${request.tenantId}`,
+            estateTenantId: request.tenantId,
+            estateEnvironment: request.estateEnvironment ?? environment,
+            sourceConnectorId: request.sourceConnectorId ?? 'primary',
+            sourceTenantId: request.sourceTenantId ?? request.tenantId,
+            sourceEnvironment: request.sourceEnvironment ?? environment,
+            provider: 'azure-monitor-otel',
+            providerResourceId: '/subscriptions/example/resource',
+            providerAgentId: request.sourceAgentId ?? request.agentId,
+          },
         }),
       )
     },
@@ -150,6 +161,50 @@ export function createSyntheticCanaryTelemetryFixture(
                 : { ...observation.otelProvenance, classification: 'synthetic' as const },
           })),
         },
+      })
+    },
+  }
+}
+
+export function createMixedRuntimeTelemetryFixture(
+  environment = 'production',
+): RuntimeTelemetryConnector {
+  const connector = createRuntimeTelemetryFixture(environment)
+  return {
+    id: 'azure-monitor-otel',
+    async readObservationWindows(request): Promise<RuntimeObservationWindows> {
+      const windows = await connector.readObservationWindows(request)
+      const mixedWindow = (source: ObservationWindow): ObservationWindow => ({
+        ...source,
+        observations: [
+          ...source.observations,
+          ...source.observations.map((observation, index) => ({
+            ...structuredClone(observation),
+            id: `${observation.id}-synthetic`,
+            synthetic: true,
+            otelProvenance: {
+              ...observation.otelProvenance!,
+              traceId: `f${index.toString(16).padStart(31, '0')}`,
+              spanId: `f${index.toString(16).padStart(15, '0')}`,
+              classification: 'synthetic' as const,
+              evidenceIds: observation.otelProvenance!.evidenceIds.map((id) => `${id}-synthetic`),
+            },
+          })),
+        ],
+        otelQuality: {
+          status: 'degraded',
+          classification: 'mixed',
+          caveats: ['mixed-classification'],
+          recordsReceived: source.observations.length * 12,
+          recordsAccepted: source.observations.length * 12,
+          duplicatesRemoved: 0,
+          pagesProcessed: 1,
+        },
+      })
+      return runtimeObservationWindowsSchema.parse({
+        ...windows,
+        baseline: mixedWindow(windows.baseline),
+        observed: mixedWindow(windows.observed),
       })
     },
   }

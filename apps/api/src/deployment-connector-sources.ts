@@ -21,7 +21,7 @@ import {
   type ConnectorType,
   type EstateContext,
 } from '@agent-sentinel/domain'
-import { parseEntraSourcesConfig } from '@agent-sentinel/entra-identity-connector'
+import { resolveEntraRuntimeActivation } from '@agent-sentinel/entra-identity-connector'
 import { parseFoundryPortfolioConfig } from '@agent-sentinel/foundry-connector'
 import { parsePowerPlatformConfig } from '@agent-sentinel/power-platform-connector'
 import { parsePurviewConfig } from '@agent-sentinel/purview-connector'
@@ -190,15 +190,13 @@ export function buildDeploymentConnectorSources(
       (source) => ({ type: 'foundry', projectEndpoint: source.projectEndpoint }),
     )
   }
-  if (configured(environment, 'ENTRA_SOURCES_JSON')) {
-    const sources = parseEntraSourcesConfig(environment)
-    add('entra-identity', enabled(environment, 'ENTRA_CONNECTOR_ENABLED'), sources, (source) => ({
-      type: 'entra-identity',
-      graphBaseUrl: source.graphBaseUrl,
-      capabilities: source.capabilities,
-      limits: connectorLimits(source.limits),
-    }))
-  }
+  const entraActivation = resolveEntraRuntimeActivation(environment, dataMode)
+  add('entra-identity', entraActivation.enabled, entraActivation.sources, (source) => ({
+    type: 'entra-identity',
+    graphBaseUrl: source.graphBaseUrl,
+    capabilities: source.capabilities,
+    limits: connectorLimits(source.limits),
+  }))
   if (configured(environment, 'POWER_PLATFORM_SOURCES_JSON')) {
     const config = parsePowerPlatformConfig(environment)
     add(

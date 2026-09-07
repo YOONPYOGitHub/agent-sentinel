@@ -373,6 +373,7 @@ export interface BusinessOutcomeConnector {
 export {
   projectRuntimeEvidence,
   runtimeTelemetryRequestForAgent,
+  validateRuntimeTelemetryProvenance,
   withoutSyntheticObservations,
   type RuntimeEvidenceProjection,
 } from './runtime-evidence.js'

@@ -339,7 +339,7 @@ export class DemoService {
           state: projection.dataState.state,
           windowIds: [projection.windows.baseline.windowId, projection.windows.observed.windowId],
           observationIds: validatedObservations.map((observation) => observation.id),
-          evidenceIds: [...outcome.evidenceIds],
+          evidenceIds: projection.evidenceIds,
           providerResourceIds,
           ...(projection.dataState.reason === undefined
             ? {}

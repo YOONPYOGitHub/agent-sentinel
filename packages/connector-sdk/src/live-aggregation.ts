@@ -121,21 +121,12 @@ export async function aggregateLiveSources<TSource extends { readonly id: string
       outcomes[index] = cancelledOutcome(source, cancellationReason ?? 'cancelled')
       return
     }
-    let removeAbortListener = (): void => undefined
-    const aborted = new Promise<never>((_, reject) => {
-      const onAbort = (): void => reject(new Error(cancellationReason ?? 'cancelled'))
-      controller.signal.addEventListener('abort', onAbort, { once: true })
-      removeAbortListener = () => controller.signal.removeEventListener('abort', onAbort)
-    })
     try {
-      const result = await Promise.race([
-        options.execute(source, {
-          signal: controller.signal,
-          maxPages: limits.maxPagesPerSource,
-          maxRecords: limits.maxRecordsPerSource,
-        }),
-        aborted,
-      ])
+      const result = await options.execute(source, {
+        signal: controller.signal,
+        maxPages: limits.maxPagesPerSource,
+        maxRecords: limits.maxRecordsPerSource,
+      })
       if (controller.signal.aborted) {
         outcomes[index] = cancelledOutcome(source, cancellationReason ?? 'cancelled')
         return
@@ -186,8 +177,6 @@ export async function aggregateLiveSources<TSource extends { readonly id: string
             evidenceIds: [],
             reason: options.failureReason?.(error) ?? 'source-failed',
           }
-    } finally {
-      removeAbortListener()
     }
   }
   const worker = async (): Promise<void> => {

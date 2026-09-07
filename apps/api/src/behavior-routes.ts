@@ -1,24 +1,29 @@
 import type { FastifyInstance } from 'fastify'
 import { createHash } from 'node:crypto'
 
-import type { DriftAnalysisResult } from '@agent-sentinel/domain'
+import type { DriftAnalysisResult, EstateContext } from '@agent-sentinel/domain'
 import { driftAnalysisResultSchema } from '@agent-sentinel/domain'
 import { analyzeDrift } from '@agent-sentinel/behavior-engine'
 import { computeBaseline } from '@agent-sentinel/behavior-engine'
 import { MOCK_BEHAVIOR_WINDOWS } from '@agent-sentinel/mock-connector'
 import {
   runtimeObservationWindowsSchema,
+  validateRuntimeTelemetryProvenance,
   withoutSyntheticObservations,
   type RuntimeTelemetryRequest,
   type RuntimeTelemetryConnector,
 } from '@agent-sentinel/connector-sdk'
 
+import { requireEstateContext } from './estate-auth.js'
+
 export interface BehaviorRoutesOptions {
   /** `'mock'` returns synthetic drift results; `'foundry'` uses only injected telemetry. */
   mode: 'mock' | 'foundry'
-  defaultTenantId: string
   runtimeTelemetryConnector?: RuntimeTelemetryConnector
-  resolveTelemetryRequest?: (agentId: string) => Promise<RuntimeTelemetryRequest | undefined>
+  resolveTelemetryRequest?: (
+    agentId: string,
+    estate: EstateContext,
+  ) => Promise<RuntimeTelemetryRequest | undefined>
 }
 
 function unavailableAnalysisId(kind: 'unavailable' | 'no-data', agentId: string): string {
@@ -48,12 +53,13 @@ export function registerBehaviorRoutes(app: FastifyInstance, opts: BehaviorRoute
           message: 'agentId must be at most 200 characters.',
         })
       }
-      const tenantId = opts.defaultTenantId
+      const estate = requireEstateContext(request)
+      const tenantId = estate.tenantId
 
       if (opts.mode === 'foundry') {
         if (opts.runtimeTelemetryConnector !== undefined) {
           try {
-            const resolvedRequest = await opts.resolveTelemetryRequest?.(agentId)
+            const resolvedRequest = await opts.resolveTelemetryRequest?.(agentId, estate)
             if (opts.resolveTelemetryRequest !== undefined && resolvedRequest === undefined) {
               const result: DriftAnalysisResult = driftAnalysisResultSchema.parse({
                 analysisId: unavailableAnalysisId('unavailable', agentId),
@@ -70,17 +76,22 @@ export function registerBehaviorRoutes(app: FastifyInstance, opts: BehaviorRoute
               })
               return reply.status(200).send(result)
             }
-            const telemetryRequest = resolvedRequest ?? { tenantId, agentId }
+            const telemetryRequest = resolvedRequest ?? {
+              estateId: estate.id,
+              estateEnvironment: estate.environment,
+              tenantId,
+              agentId,
+            }
             const windows = withoutSyntheticObservations(
-              runtimeObservationWindowsSchema.parse(
-                await opts.runtimeTelemetryConnector.readObservationWindows({
-                  ...telemetryRequest,
-                }),
+              validateRuntimeTelemetryProvenance(
+                telemetryRequest,
+                runtimeObservationWindowsSchema.parse(
+                  await opts.runtimeTelemetryConnector.readObservationWindows({
+                    ...telemetryRequest,
+                  }),
+                ),
               ),
             )
-            if (windows.observed.tenantId !== tenantId || windows.observed.agentId !== agentId) {
-              throw new Error('Runtime telemetry response does not match the API request binding.')
-            }
             const baselineResult = computeBaseline(windows.baseline, windows.baselineEvidenceId)
             if ('baseline' in baselineResult) {
               const driftResult = analyzeDrift(baselineResult.baseline, windows.observed, {

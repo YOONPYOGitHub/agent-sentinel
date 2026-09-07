@@ -102,6 +102,12 @@ export const entraSourcesConfigSchema = z
     }
   })
 export type EntraCredentialFactory = (source: EntraSourceConfig) => TokenCredential
+export type EntraRuntimeMode = 'mock' | 'live'
+export interface EntraRuntimeActivation {
+  active: boolean
+  enabled: boolean
+  sources: EntraSourceConfig[]
+}
 
 export function createEntraSourceCredential(source: EntraSourceConfig): TokenCredential {
   if (source.credential?.mode === 'federated-app') {
@@ -1106,8 +1112,16 @@ export function parseEntraSourcesConfig(
     }
     return entraSourcesConfigSchema.parse(sources)
   }
+  const legacyNames = ['ENTRA_CONNECTOR_TENANT_ID', 'ENTRA_CONNECTOR_ENVIRONMENT'] as const
+  const configured = legacyNames.filter((name) => (environment[name]?.trim().length ?? 0) > 0)
+  if (configured.length === 0) return []
+  if (configured.length !== legacyNames.length) {
+    const missing = legacyNames.filter((name) => !configured.includes(name))
+    throw new Error(
+      `Legacy Entra configuration requires all of ${legacyNames.join(', ')} when any are configured. Missing: ${missing.join(', ')}.`,
+    )
+  }
   const input = entraConfigInput(environment)
-  if (input.tenantId.length === 0 || input.environment.length === 0) return []
   return [
     entraSourceConfigSchema.parse({
       ...input,
@@ -1115,6 +1129,20 @@ export function parseEntraSourcesConfig(
       name: 'Primary Foundry project',
     }),
   ]
+}
+
+export function resolveEntraRuntimeActivation(
+  environment: NodeJS.ProcessEnv = process.env,
+  mode: EntraRuntimeMode = 'live',
+): EntraRuntimeActivation {
+  if (mode !== 'live') return { active: false, enabled: false, sources: [] }
+  const enabled = envBoolean(environment, 'ENTRA_CONNECTOR_ENABLED')
+  const sources = parseEntraSourcesConfig(environment)
+  return {
+    active: enabled && sources.length > 0,
+    enabled,
+    sources,
+  }
 }
 
 export function createEntraIdentityConnector(
@@ -1138,6 +1166,7 @@ export interface OptionalEntraEnrichmentOptions {
   expectedSources?: readonly ExpectedEntraSource[]
   expectedTenantId?: string
   expectedEnvironment?: string
+  mode?: EntraRuntimeMode
 }
 
 export function createOptionalEntraEnrichmentConnector(
@@ -1145,29 +1174,21 @@ export function createOptionalEntraEnrichmentConnector(
   environment: NodeJS.ProcessEnv = process.env,
   options: OptionalEntraEnrichmentOptions = {},
 ): AgentConnector {
-  let enabled = false
+  let activation: EntraRuntimeActivation
   try {
-    enabled = envBoolean(environment, 'ENTRA_CONNECTOR_ENABLED')
+    activation = resolveEntraRuntimeActivation(environment, options.mode ?? 'live')
   } catch {
     return new EntraEnrichmentConnector(base, undefined, {
-      enabled: true,
+      enabled:
+        (options.mode ?? 'live') === 'live' &&
+        (environment['ENTRA_CONNECTOR_ENABLED']?.trim().length ?? 0) > 0,
       configured: false,
       configurationReason: 'invalid-configuration',
     })
   }
   if (options.expectedSources !== undefined) {
-    let sources: EntraSourceConfig[]
-    try {
-      sources = parseEntraSourcesConfig(environment)
-    } catch {
-      return new EntraEnrichmentConnector(base, undefined, {
-        enabled: true,
-        configured: false,
-        configurationReason: 'invalid-configuration',
-      })
-    }
-    return new MultiEntraEnrichmentConnector(base, sources, {
-      enabled,
+    return new MultiEntraEnrichmentConnector(base, activation.sources, {
+      enabled: activation.enabled,
       expectedSources: options.expectedSources,
       ...(options.credentialFactory !== undefined
         ? { credentialFactory: options.credentialFactory }
@@ -1181,33 +1202,57 @@ export function createOptionalEntraEnrichmentConnector(
           : {}),
     })
   }
-  const tenantId = environment['ENTRA_CONNECTOR_TENANT_ID']?.trim() ?? ''
-  const connectorEnvironment = environment['ENTRA_CONNECTOR_ENVIRONMENT']?.trim() ?? ''
-  const configured = tenantId.length > 0 && connectorEnvironment.length > 0
-  if (!enabled) return new EntraEnrichmentConnector(base, undefined, { enabled, configured })
+  const source = activation.sources[0]
+  const configured = source !== undefined && activation.sources.length === 1
+  if (!activation.enabled) {
+    return new EntraEnrichmentConnector(base, undefined, {
+      enabled: false,
+      configured,
+    })
+  }
+  if (source === undefined || activation.sources.length !== 1) {
+    return new EntraEnrichmentConnector(base, undefined, {
+      enabled: true,
+      configured: false,
+      configurationReason: 'invalid-configuration',
+    })
+  }
   if (
     options.expectedTenantId &&
-    tenantId.toLowerCase() !== options.expectedTenantId.toLowerCase()
+    source.tenantId.toLowerCase() !== options.expectedTenantId.toLowerCase()
   ) {
     return new EntraEnrichmentConnector(base, undefined, {
-      enabled,
+      enabled: activation.enabled,
       configured,
       configurationReason: 'tenant-mismatch',
     })
   }
-  if (options.expectedEnvironment && connectorEnvironment !== options.expectedEnvironment) {
+  if (options.expectedEnvironment && source.environment !== options.expectedEnvironment) {
     return new EntraEnrichmentConnector(base, undefined, {
-      enabled,
+      enabled: activation.enabled,
       configured,
       configurationReason: 'environment-mismatch',
     })
   }
   try {
-    const entra = createEntraIdentityConnector(environment, options.credential, options.client)
-    return new EntraEnrichmentConnector(base, entra, { enabled, configured: true })
+    const entra = new EntraIdentityConnector(
+      {
+        tenantId: source.tenantId,
+        environment: source.environment,
+        graphBaseUrl: source.graphBaseUrl,
+        capabilities: source.capabilities,
+        limits: source.limits,
+      },
+      options.credential ?? createEntraSourceCredential(source),
+      options.client,
+    )
+    return new EntraEnrichmentConnector(base, entra, {
+      enabled: activation.enabled,
+      configured: true,
+    })
   } catch {
     return new EntraEnrichmentConnector(base, undefined, {
-      enabled,
+      enabled: activation.enabled,
       configured,
       configurationReason: 'invalid-configuration',
     })

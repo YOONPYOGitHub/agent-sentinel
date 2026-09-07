@@ -335,6 +335,8 @@ describe('behavior drift API — foundry/live mode', () => {
       url: '/api/behavior/agents/live-agent/drift',
     })
     expect(readObservationWindows).toHaveBeenCalledWith({
+      estateId: 'default',
+      estateEnvironment: 'validation',
       tenantId: 'tenant-demo',
       agentId: 'live-agent',
       sourceConnectorId: 'project-a',
@@ -342,6 +344,41 @@ describe('behavior drift API — foundry/live mode', () => {
       sourceAgentId: 'provider-agent-id',
       sourceEnvironment: 'production',
     })
+    await app.close()
+  })
+
+  it('rejects runtime telemetry with mismatched estate provenance before drift analysis', async () => {
+    const fixture = createRuntimeTelemetryFixture()
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: {
+          id: fixture.id,
+          async readObservationWindows(request, options) {
+            const windows = await fixture.readObservationWindows(request, options)
+            return {
+              ...windows,
+              provenance: {
+                ...windows.provenance!,
+                estateId: 'wrong-estate',
+              },
+            }
+          },
+        },
+        ...makeStubRepositories(),
+      },
+    )
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/live-agent/drift',
+    })
+    const result = driftAnalysisResultSchema.parse(response.json())
+
+    expect(result.status).toBe('invalid')
+    expect(result.anyDrift).toBe(false)
     await app.close()
   })
 

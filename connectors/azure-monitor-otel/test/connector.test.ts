@@ -221,6 +221,110 @@ describe('Azure Monitor OTel connector', () => {
     expect(body.timespan).toBe('2026-08-22T12:00:00.000Z/2026-08-24T12:00:00.000Z')
   })
 
+  it('removes exact duplicate rows before quality and readiness assessment', async () => {
+    const duplicate = exactInvocationRow(
+      'aaaaaaaaaaaaaaaa',
+      '11111111111111111111111111111111',
+      '2026-08-23T01:00:00.000Z',
+      1,
+    )
+    const connector = new MultiAzureMonitorOtelConnector(
+      [
+        {
+          id: 'project-a',
+          name: 'Provider project A',
+          workspaceId: config.workspaceId,
+          tenantId: config.tenantId,
+          environment: config.environment,
+        },
+      ],
+      () => new Credential(),
+      () =>
+        vi.fn<typeof fetch>().mockResolvedValue(
+          Response.json({
+            tables: [{ name: 'PrimaryResult', columns, rows: [duplicate, duplicate] }],
+          }),
+        ),
+      () => new Date('2026-08-24T12:00:00.000Z'),
+    )
+
+    const windows = await connector.readObservationWindows({
+      estateId: 'estate-a',
+      estateEnvironment: 'portfolio',
+      tenantId: 'estate',
+      agentId: 'aggregate-agent',
+      sourceConnectorId: 'project-a',
+      sourceTenantId: config.tenantId,
+      sourceEnvironment: config.environment,
+      sourceAgentId: 'provider-project-a',
+    })
+
+    expect(windows.baseline.observations).toHaveLength(1)
+    expect(windows.baseline.otelQuality).toMatchObject({
+      status: 'degraded',
+      duplicatesRemoved: 1,
+    })
+    expect(windows.baseline.otelQuality?.caveats).toContain('duplicate-record')
+    expect(connector.getConnectorHealth().sources[0]).toMatchObject({
+      readiness: 'degraded',
+      dataState: 'partial',
+      reason: 'degraded-quality',
+    })
+  })
+
+  it('drops every conflicting duplicate row without reporting valid-empty readiness', async () => {
+    const first = exactInvocationRow(
+      'aaaaaaaaaaaaaaaa',
+      '11111111111111111111111111111111',
+      '2026-08-23T01:00:00.000Z',
+      1,
+    )
+    const conflicting = [...first]
+    conflicting[8] = 999
+    const connector = new MultiAzureMonitorOtelConnector(
+      [
+        {
+          id: 'project-a',
+          name: 'Provider project A',
+          workspaceId: config.workspaceId,
+          tenantId: config.tenantId,
+          environment: config.environment,
+        },
+      ],
+      () => new Credential(),
+      () =>
+        vi.fn<typeof fetch>().mockResolvedValue(
+          Response.json({
+            tables: [{ name: 'PrimaryResult', columns, rows: [first, conflicting] }],
+          }),
+        ),
+      () => new Date('2026-08-24T12:00:00.000Z'),
+    )
+
+    const windows = await connector.readObservationWindows({
+      estateId: 'estate-a',
+      estateEnvironment: 'portfolio',
+      tenantId: 'estate',
+      agentId: 'aggregate-agent',
+      sourceConnectorId: 'project-a',
+      sourceTenantId: config.tenantId,
+      sourceEnvironment: config.environment,
+      sourceAgentId: 'provider-project-a',
+    })
+
+    expect(windows.baseline.observations).toEqual([])
+    expect(windows.baseline.otelQuality).toMatchObject({
+      status: 'degraded',
+      duplicatesRemoved: 2,
+    })
+    expect(windows.baseline.otelQuality?.caveats).toContain('conflicting-duplicate')
+    expect(connector.getConnectorHealth().sources[0]).toMatchObject({
+      readiness: 'degraded',
+      dataState: 'partial',
+      reason: 'degraded-quality',
+    })
+  })
+
   it('stabilizes evidence IDs within a five-minute query window', async () => {
     let now = new Date('2026-08-24T12:01:15.000Z')
     let rows: unknown[][] = []

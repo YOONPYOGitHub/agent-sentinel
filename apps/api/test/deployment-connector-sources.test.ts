@@ -11,6 +11,12 @@ const estate = {
 }
 
 const registry = buildEstateRegistry({}, estate)
+const entraEstate = {
+  id: 'entra',
+  tenantId: '11111111-1111-4111-8111-111111111111',
+  environment: 'production',
+}
+const entraRegistry = buildEstateRegistry({}, entraEstate)
 
 const configuredEnvironment = {
   AGENT_SENTINEL_DATA_MODE: 'live',
@@ -72,6 +78,68 @@ describe('deployment Azure Monitor OTel source projection', () => {
         workspaceId: '11111111-1111-4111-8111-111111111111',
         maxResponseBytes: 8_192,
       },
+    })
+  })
+
+  describe('deployment Entra source projection', () => {
+    it('projects a complete legacy tuple through the runtime resolver', () => {
+      const [source] = buildDeploymentConnectorSources(
+        {
+          ENTRA_CONNECTOR_ENABLED: 'true',
+          ENTRA_CONNECTOR_TENANT_ID: entraEstate.tenantId,
+          ENTRA_CONNECTOR_ENVIRONMENT: entraEstate.environment,
+        },
+        entraRegistry,
+        'live',
+      )
+
+      expect(source).toMatchObject({
+        estateId: entraEstate.id,
+        tenantId: entraEstate.tenantId,
+        environment: entraEstate.environment,
+        sourceId: 'entra-identity-primary',
+        connectorType: 'entra-identity',
+        enabled: true,
+      })
+    })
+
+    it.each([
+      ['tenant only', { ENTRA_CONNECTOR_TENANT_ID: estate.tenantId }],
+      ['environment only', { ENTRA_CONNECTOR_ENVIRONMENT: estate.environment }],
+    ])('rejects partial legacy tuples before projection: %s', (_label, environment) => {
+      expect(() => buildDeploymentConnectorSources(environment, registry, 'live')).toThrow(
+        'Legacy Entra configuration requires',
+      )
+    })
+
+    it('hides inactive Entra sources and invalid configuration in mock mode', () => {
+      expect(
+        buildDeploymentConnectorSources(
+          {
+            ENTRA_CONNECTOR_ENABLED: 'true',
+            ENTRA_SOURCES_JSON: JSON.stringify([
+              {
+                id: 'primary',
+                name: 'Production Entra',
+                tenantId: estate.tenantId,
+                environment: estate.environment,
+              },
+            ]),
+          },
+          registry,
+          'mock',
+        ),
+      ).toEqual([])
+      expect(
+        buildDeploymentConnectorSources(
+          {
+            ENTRA_CONNECTOR_ENABLED: 'true',
+            ENTRA_SOURCES_JSON: '{invalid',
+          },
+          registry,
+          'mock',
+        ),
+      ).toEqual([])
     })
   })
 

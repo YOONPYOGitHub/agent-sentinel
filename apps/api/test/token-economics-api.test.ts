@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { tokenEconomicsReportSchema } from '@agent-sentinel/domain'
 import { createApp } from '../src/app.js'
 import type { ExposureFindingRepository, SnapshotRepository } from '@agent-sentinel/domain'
@@ -276,6 +276,75 @@ describe('token economics API - foundry mode', () => {
     expect(result.source).toBe('azure-monitor-otel')
     expect(result.coverage).toBeUndefined()
     expect(result.unavailableReason).not.toContain('provider details')
+    await app.close()
+  })
+
+  it('passes exact estate and source identity to token-economics telemetry', async () => {
+    const fixture = createRuntimeTelemetryFixture()
+    const readObservationWindows = vi.fn(fixture.readObservationWindows.bind(fixture))
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: {
+          id: fixture.id,
+          readObservationWindows,
+        },
+        ...makeStubRepositories(),
+      },
+    )
+
+    await app.inject({
+      method: 'GET',
+      url: '/api/token-economics/agents/live-agent',
+    })
+
+    expect(readObservationWindows).toHaveBeenCalledWith({
+      estateId: 'default',
+      estateEnvironment: 'validation',
+      tenantId: 'tenant-demo',
+      agentId: 'live-agent',
+      sourceConnectorId: 'primary',
+      sourceTenantId: 'tenant-demo',
+      sourceAgentId: 'live-agent',
+      sourceEnvironment: 'production',
+    })
+    await app.close()
+  })
+
+  it('rejects runtime telemetry with mismatched estate provenance before economics analysis', async () => {
+    const fixture = createRuntimeTelemetryFixture()
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: {
+          id: fixture.id,
+          async readObservationWindows(request, options) {
+            const windows = await fixture.readObservationWindows(request, options)
+            return {
+              ...windows,
+              provenance: {
+                ...windows.provenance!,
+                estateEnvironment: 'wrong-environment',
+              },
+            }
+          },
+        },
+        ...makeStubRepositories(),
+      },
+    )
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/token-economics/agents/live-agent',
+    })
+    const result = tokenEconomicsReportSchema.parse(response.json())
+
+    expect(result.status).toBe('unavailable')
+    expect(result.unavailableReason).toBeDefined()
     await app.close()
   })
 

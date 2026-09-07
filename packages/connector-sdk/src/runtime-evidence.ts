@@ -24,6 +24,7 @@ import {
 export interface RuntimeEvidenceProjection {
   snapshot: EstateSnapshot
   addedEvidenceCount: number
+  evidenceIds: string[]
   unmatchedToolCallNames: string[]
   windows: RuntimeObservationWindows
   dataState: {
@@ -64,6 +65,65 @@ export function runtimeTelemetryRequestForAgent(
     sourceAgentId,
     sourceEnvironment,
   }
+}
+
+export function validateRuntimeTelemetryProvenance(
+  request: RuntimeTelemetryRequest,
+  windowsInput: RuntimeObservationWindows,
+): RuntimeObservationWindows {
+  const windows = runtimeObservationWindowsSchema.parse(windowsInput)
+  if (request.estateId === undefined || request.estateEnvironment === undefined) {
+    throw new Error('Runtime telemetry requests require exact estate identity.')
+  }
+  const sourceConnectorId = request.sourceConnectorId
+  const sourceTenantId = request.sourceTenantId ?? request.tenantId
+  const sourceEnvironment = request.sourceEnvironment ?? windows.observed.environment
+  const sourceAgentId = request.sourceAgentId ?? request.agentId
+  const provenance = windows.provenance
+  if (
+    windows.baseline.tenantId !== request.tenantId ||
+    windows.observed.tenantId !== request.tenantId ||
+    windows.baseline.agentId !== request.agentId ||
+    windows.observed.agentId !== request.agentId ||
+    windows.baseline.environment !== sourceEnvironment ||
+    windows.observed.environment !== sourceEnvironment ||
+    provenance === undefined ||
+    provenance.estateId !== request.estateId ||
+    provenance.estateTenantId !== request.tenantId ||
+    provenance.estateEnvironment !== request.estateEnvironment ||
+    (sourceConnectorId !== undefined && provenance.sourceConnectorId !== sourceConnectorId) ||
+    provenance.sourceTenantId !== sourceTenantId ||
+    provenance.sourceEnvironment !== sourceEnvironment ||
+    provenance.providerAgentId !== sourceAgentId
+  ) {
+    throw new Error('Runtime telemetry response provenance does not match the exact request.')
+  }
+  for (const window of [windows.baseline, windows.observed]) {
+    for (const observation of window.observations) {
+      const nested = runtimeOtelProvenanceSchema.safeParse(observation.otelProvenance)
+      const expectedClassification = observation.synthetic ? 'synthetic' : 'live'
+      if (
+        !nested.success ||
+        observation.tenantId !== request.tenantId ||
+        observation.agentId !== request.agentId ||
+        observation.environment !== sourceEnvironment ||
+        nested.data.estateId !== provenance.estateId ||
+        nested.data.estateTenantId !== provenance.estateTenantId ||
+        nested.data.estateEnvironment !== provenance.estateEnvironment ||
+        nested.data.sourceConnectorId !== provenance.sourceConnectorId ||
+        nested.data.sourceTenantId !== provenance.sourceTenantId ||
+        nested.data.sourceEnvironment !== provenance.sourceEnvironment ||
+        nested.data.provider !== provenance.provider ||
+        nested.data.providerResourceId !== provenance.providerResourceId ||
+        nested.data.providerAgentId !== provenance.providerAgentId ||
+        nested.data.observedAt !== observation.observedAt ||
+        nested.data.classification !== expectedClassification
+      ) {
+        throw new Error('Runtime observation provenance does not match the exact request.')
+      }
+    }
+  }
+  return windows
 }
 
 export function withoutSyntheticObservations(
@@ -428,6 +488,7 @@ export function projectRuntimeEvidence(
   windows = enforceAssessedOtelQuality(windows)
   const unmatched = new Set<string>()
   let addedEvidenceCount = 0
+  const projectedEvidenceIds: string[] = []
 
   for (const [kind, window, baseId] of [
     ['baseline', windows.baseline, windows.baselineEvidenceId],
@@ -451,6 +512,7 @@ export function projectRuntimeEvidence(
         }
       }
       const id = evidenceId(baseId, synthetic)
+      if (!projectedEvidenceIds.includes(id)) projectedEvidenceIds.push(id)
       const evidence = evidenceForWindow(
         window,
         observations,
@@ -478,6 +540,7 @@ export function projectRuntimeEvidence(
   return {
     snapshot: estateSnapshotSchema.parse(snapshot),
     addedEvidenceCount,
+    evidenceIds: projectedEvidenceIds,
     unmatchedToolCallNames: [...unmatched].sort(),
     windows,
     dataState: projectedRuntimeDataState(windows),
