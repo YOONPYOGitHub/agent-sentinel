@@ -391,16 +391,11 @@ function addConnectorEvidenceIssues(value: ConnectorEvidence, context: z.Refinem
   }
   if (
     value.readiness === 'ready' &&
-    (value.classification !== 'live' ||
-      value.freshness !== 'fresh' ||
-      value.deploymentRef === null ||
-      value.snapshotRef === null ||
-      value.findingRefs.length === 0)
+    (value.classification !== 'live' || value.freshness !== 'fresh')
   ) {
     context.addIssue({
       code: 'custom',
-      message:
-        'ready connector evidence must be live and fresh with deployment, snapshot, and finding references',
+      message: 'ready connector evidence must be live and fresh',
     })
   }
   if (value.classification === 'blocked' && value.readiness !== 'blocked') {

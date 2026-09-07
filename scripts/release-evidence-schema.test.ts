@@ -1162,15 +1162,18 @@ describe('release evidence schema', () => {
             observedAt: '2026-09-03T23:15:00.000Z',
           },
           {
-            connectorId: 'entra:secondary',
+            connectorId: 'otel:application-insights-primary',
             classification: 'live',
-            readiness: 'unavailable',
+            readiness: 'ready',
             freshness: 'fresh',
             observedAt: '2026-09-03T23:45:00.000Z',
             source: 'sanitized-connector-health',
-            scope: { ...sanitizedScope, sourceRef: 'entra-secondary' },
-            evidenceRefs: ['entra-health'],
-            summary: 'This later unavailable connector does not support the passing validation.',
+            scope: {
+              ...sanitizedScope,
+              sourceRef: 'otel-application-insights-primary',
+            },
+            evidenceRefs: ['otel-health'],
+            summary: 'This global ready connector does not support the passing validation.',
           },
         ],
       },
@@ -1179,7 +1182,11 @@ describe('release evidence schema', () => {
 
     expect(manifest.liveValidations[0]?.connectorRefs).toEqual(['foundry:primary'])
     expect(manifest.connectors[1]).toMatchObject({
-      readiness: 'unavailable',
+      connectorId: 'otel:application-insights-primary',
+      deploymentRef: null,
+      snapshotRef: null,
+      findingRefs: [],
+      readiness: 'ready',
       observedAt: '2026-09-03T23:45:00.000Z',
     })
   })

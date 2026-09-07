@@ -75,11 +75,14 @@ Connector readiness is separately typed as `ready`, `degraded`, `unavailable`,
 or `planned`. Connector IDs retain the connector-health identifier syntax,
 including colon-qualified IDs such as `foundry:primary`; they are never
 normalized to a different identity. `ready` is valid only for fresh live
-evidence. Version 1 fixes the freshness window at 24 hours and records that
-window explicitly in `release.freshnessWindowHours`. `fresh` and `stale` are
-computed relative to `release.generatedAt`; a missing observation must remain
-`unknown`. Passing OneRAI evidence is also rejected after the same 24-hour
-window.
+evidence with complete live provenance. Deployment, snapshot, and finding
+references are required only when a passing live validation selects the
+connector in `connectorRefs`; unreferenced ready connectors such as
+`otel:<source>` may leave those references null or empty. Version 1 fixes the
+freshness window at 24 hours and records that window explicitly in
+`release.freshnessWindowHours`. `fresh` and `stale` are computed relative to
+`release.generatedAt`; a missing observation must remain `unknown`. Passing
+OneRAI evidence is also rejected after the same 24-hour window.
 
 ## Manifest contents
 
@@ -94,8 +97,8 @@ Version 1 covers:
 - lint, typecheck, unit test, build, E2E, and Bicep outcomes;
 - bounded live-validation summaries with typed deployment, snapshot, finding,
   and supporting connector references;
-- connector readiness and freshness linked to the same typed release
-  references;
+- global connector readiness and freshness, with selected supporting connectors
+  linked to the validation's typed release references;
 - a bounded OneRAI summary with synthetic and human-review state.
 
 Live records retain sanitized opaque `estateRef`, `tenantRef`,
@@ -249,8 +252,9 @@ The validator also rejects contradictions including:
   not match the deployed candidate;
 - a passing live validation without bounded supporting `connectorRefs`, with a
   connector reference that does not identify manifest connector evidence, or
-  with a referenced connector whose deployment, snapshot, finding, freshness,
-  classification, or readiness contradicts the validation;
+  with a referenced connector whose deployment, snapshot, or finding references
+  are missing or mismatched, or whose freshness, classification, or readiness
+  contradicts the validation;
 - referenced supporting connector evidence observed at or before deployment,
   or after its passing live validation;
 - blocked or planned evidence paired with pass;
