@@ -59,20 +59,27 @@ reference regardless of classification. OneRAI evidence requires the same
 attribution when it is classified `tested` or has a `pass` or `fail` outcome.
 Passing repository checks must be within the explicit freshness window and
 cannot attest a dirty worktree. A passing live validation must also identify
-the exact deployed candidate, snapshot, and evaluated findings. Every included
-connector must be ready against those same typed references, with exact timing
-order `deployment.observedAt < connector.observedAt <= validation.observedAt`.
+the exact deployed candidate, snapshot, evaluated findings, and one to 20
+unique supporting connector IDs in `connectorRefs`. Only those exactly
+referenced connectors must be ready against the same typed references, with
+exact timing order
+`deployment.observedAt < connector.observedAt <= validation.observedAt`.
+Unreferenced connector evidence retains its own readiness without affecting an
+unrelated validation.
 OneRAI classification and `syntheticOnly` must agree exactly: `synthetic`
 requires `true`, `live` or `tested` requires `false`, and `planned` or `blocked`
 requires `null`. Missing, stale, or unknown provenance never becomes pass.
 
-Connector readiness is separately typed as `ready`, `degraded`,
-`authorization-required`, `insufficient-data`, `unknown`, `blocked`, or
-`planned`. `ready` is valid only for fresh live evidence. Version 1 fixes the
-freshness window at 24 hours and records that window explicitly in
-`release.freshnessWindowHours`. `fresh` and `stale` are computed relative to
-`release.generatedAt`; a missing observation must remain `unknown`. Passing
-OneRAI evidence is also rejected after the same 24-hour window.
+Connector readiness is separately typed as `ready`, `degraded`, `unavailable`,
+`disabled`, `authorization-required`, `insufficient-data`, `unknown`, `blocked`,
+or `planned`. Connector IDs retain the connector-health identifier syntax,
+including colon-qualified IDs such as `foundry:primary`; they are never
+normalized to a different identity. `ready` is valid only for fresh live
+evidence. Version 1 fixes the freshness window at 24 hours and records that
+window explicitly in `release.freshnessWindowHours`. `fresh` and `stale` are
+computed relative to `release.generatedAt`; a missing observation must remain
+`unknown`. Passing OneRAI evidence is also rejected after the same 24-hour
+window.
 
 ## Manifest contents
 
@@ -85,8 +92,8 @@ Version 1 covers:
   deployment evidence, plus an opaque typed deployment reference;
 - SHA-256 over canonical, allow-listed configuration, retaining only key names;
 - lint, typecheck, unit test, build, E2E, and Bicep outcomes;
-- bounded live-validation summaries with typed deployment, snapshot, and
-  finding references;
+- bounded live-validation summaries with typed deployment, snapshot, finding,
+  and supporting connector references;
 - connector readiness and freshness linked to the same typed release
   references;
 - a bounded OneRAI summary with synthetic and human-review state.
@@ -240,11 +247,12 @@ The validator also rejects contradictions including:
 - a passing live validation without a live deployed candidate, with an
   observation at or before deployment, or with a deployment reference that does
   not match the deployed candidate;
-- a passing live validation without connector evidence, or with connector
-  deployment, snapshot, finding, freshness, classification, or readiness that
-  contradicts the validation;
-- supporting connector evidence observed at or before deployment, or after its
-  passing live validation;
+- a passing live validation without bounded supporting `connectorRefs`, with a
+  connector reference that does not identify manifest connector evidence, or
+  with a referenced connector whose deployment, snapshot, finding, freshness,
+  classification, or readiness contradicts the validation;
+- referenced supporting connector evidence observed at or before deployment,
+  or after its passing live validation;
 - blocked or planned evidence paired with pass;
 - OneRAI classification and `syntheticOnly` values that do not agree exactly;
 - any tested or evaluated OneRAI evidence without complete source, observation

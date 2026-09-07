@@ -18,6 +18,8 @@ export const evidenceFreshnessSchema = z.enum(['fresh', 'stale', 'unknown'])
 export const connectorReadinessSchema = z.enum([
   'ready',
   'degraded',
+  'unavailable',
+  'disabled',
   'authorization-required',
   'insufficient-data',
   'unknown',
@@ -34,6 +36,7 @@ const boundedIdSchema = z
   .min(1)
   .max(100)
   .regex(/^[a-z0-9][a-z0-9._-]*$/)
+const connectorIdSchema = z.string().min(1).max(200)
 const boundedTextSchema = z.string().trim().min(1).max(500)
 const boundedSourceSchema = z.string().trim().min(1).max(200)
 const sanitizedScopeSchema = z.strictObject({
@@ -70,6 +73,23 @@ const liveValidationFindingReferencesInputSchema =
   liveValidationFindingReferencesManifestSchema.default([])
 const connectorFindingReferencesManifestSchema = referenceArraySchema()
 const connectorFindingReferencesInputSchema = connectorFindingReferencesManifestSchema.default([])
+const connectorReferencesManifestSchema = z
+  .array(connectorIdSchema)
+  .max(20)
+  .superRefine((value, context) => {
+    const seen = new Set<string>()
+    value.forEach((reference, index) => {
+      if (seen.has(reference)) {
+        context.addIssue({
+          code: 'custom',
+          path: [index],
+          message: 'connector references must be unique',
+        })
+      }
+      seen.add(reference)
+    })
+  })
+const connectorReferencesInputSchema = connectorReferencesManifestSchema.default([])
 
 const imageComponentSchema = z.strictObject({
   tag: imageTagSchema.nullable(),
@@ -267,6 +287,7 @@ const liveValidationEvidenceShape = {
   deploymentRef: deploymentReferenceSchema.nullable(),
   snapshotRef: snapshotReferenceSchema.nullable(),
   findingRefs: liveValidationFindingReferencesManifestSchema,
+  connectorRefs: connectorReferencesManifestSchema,
   classification: evidenceClassificationSchema,
   outcome: evidenceOutcomeSchema,
   freshness: evidenceFreshnessSchema,
@@ -327,6 +348,7 @@ const liveValidationInputSchema = z
     deploymentRef: deploymentReferenceSchema.nullable().default(null),
     snapshotRef: snapshotReferenceSchema.nullable().default(null),
     findingRefs: liveValidationFindingReferencesInputSchema,
+    connectorRefs: connectorReferencesInputSchema,
     observedAt: isoTimestampSchema.nullable().default(null),
     source: boundedSourceSchema.nullable().default(null),
     scope: sanitizedScopeSchema.nullable().default(null),
@@ -335,7 +357,7 @@ const liveValidationInputSchema = z
   .superRefine(addLiveValidationEvidenceIssues)
 
 const connectorEvidenceShape = {
-  connectorId: boundedIdSchema,
+  connectorId: connectorIdSchema,
   deploymentRef: deploymentReferenceSchema.nullable(),
   snapshotRef: snapshotReferenceSchema.nullable(),
   findingRefs: connectorFindingReferencesManifestSchema,
@@ -827,6 +849,12 @@ export const releaseEvidenceManifestSchema = releaseEvidenceManifestObjectSchema
         }
       }
     }
+    const connectorsById = new Map(
+      value.connectors.map((connector, connectorIndex) => [
+        connector.connectorId,
+        { connector, connectorIndex },
+      ]),
+    )
     value.liveValidations.forEach((validation, index) => {
       addFreshnessIssues(
         validation,
@@ -834,6 +862,20 @@ export const releaseEvidenceManifestSchema = releaseEvidenceManifestObjectSchema
         value.release.freshnessWindowHours,
         ['liveValidations', index],
         context,
+      )
+      const supportingConnectors = validation.connectorRefs.flatMap(
+        (connectorRef, connectorRefIndex) => {
+          const match = connectorsById.get(connectorRef)
+          if (match === undefined) {
+            context.addIssue({
+              code: 'custom',
+              path: ['liveValidations', index, 'connectorRefs', connectorRefIndex],
+              message: 'connector reference must identify manifest connector evidence',
+            })
+            return []
+          }
+          return [match]
+        },
       )
       if (validation.classification !== 'live' || validation.outcome !== 'pass') return
 
@@ -866,14 +908,14 @@ export const releaseEvidenceManifestSchema = releaseEvidenceManifestObjectSchema
           message: 'validation observation must be after deployment',
         })
       }
-      if (value.connectors.length === 0) {
+      if (validation.connectorRefs.length === 0) {
         context.addIssue({
           code: 'custom',
-          path: ['liveValidations', index, 'outcome'],
-          message: 'passing live validation requires linked connector evidence',
+          path: ['liveValidations', index, 'connectorRefs'],
+          message: 'passing live validation requires supporting connector references',
         })
       }
-      value.connectors.forEach((connector, connectorIndex) => {
+      supportingConnectors.forEach(({ connector, connectorIndex }) => {
         if (connector.deploymentRef !== validation.deploymentRef) {
           context.addIssue({
             code: 'custom',

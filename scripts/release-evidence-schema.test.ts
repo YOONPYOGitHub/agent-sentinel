@@ -42,6 +42,7 @@ const linkedReadinessInput = {
       deploymentRef: 'deployment-candidate-a',
       snapshotRef: 'snapshot-a',
       findingRefs: ['finding-a'],
+      connectorRefs: ['foundry:primary'],
       classification: 'live',
       outcome: 'pass',
       freshness: 'fresh',
@@ -54,7 +55,7 @@ const linkedReadinessInput = {
   ],
   connectors: [
     {
-      connectorId: 'foundry-primary',
+      connectorId: 'foundry:primary',
       deploymentRef: 'deployment-candidate-a',
       snapshotRef: 'snapshot-a',
       findingRefs: ['finding-a'],
@@ -572,6 +573,7 @@ describe('release evidence schema', () => {
             deploymentRef: 'deployment-candidate-a',
             snapshotRef: 'snapshot-a',
             findingRefs: ['finding-a'],
+            connectorRefs: ['foundry:primary'],
             classification: 'live',
             outcome: 'pass',
             freshness: 'fresh',
@@ -594,6 +596,7 @@ describe('release evidence schema', () => {
           deploymentRef: 'deployment-candidate-a',
           snapshotRef: 'snapshot-a',
           findingRefs: ['finding-a'],
+          connectorRefs: ['foundry:primary'],
           classification: 'live',
           outcome: 'pass',
           freshness: 'fresh',
@@ -830,6 +833,7 @@ describe('release evidence schema', () => {
               deploymentRef: 'deployment-candidate-a',
               snapshotRef: 'snapshot-a',
               findingRefs: ['finding-a'],
+              connectorRefs: ['foundry:primary'],
               classification: 'live',
               outcome: 'pass',
               freshness: 'fresh',
@@ -905,6 +909,7 @@ describe('release evidence schema', () => {
               deploymentRef: 'deployment-candidate-a',
               snapshotRef: 'snapshot-a',
               findingRefs: ['finding-a'],
+              connectorRefs: ['foundry:primary'],
               classification: 'live',
               outcome: 'pass',
               freshness: 'stale',
@@ -1101,7 +1106,151 @@ describe('release evidence schema', () => {
         },
         generatedAt,
       ),
-    ).toThrow(/passing live validation requires linked connector evidence/)
+    ).toThrow(/connector reference must identify manifest connector evidence/)
+  })
+
+  it('preserves colon-qualified connector IDs and unavailable or disabled readiness', () => {
+    const manifest = buildReleaseEvidence(
+      cleanRepository,
+      {
+        connectors: [
+          {
+            connectorId: 'foundry:primary',
+            classification: 'live',
+            readiness: 'unavailable',
+            freshness: 'fresh',
+            observedAt: generatedAt,
+            source: 'sanitized-connector-health',
+            scope: { ...sanitizedScope, sourceRef: 'foundry-primary' },
+            evidenceRefs: ['foundry-health'],
+            summary: 'The provider was unavailable during the bounded observation.',
+          },
+          {
+            connectorId: 'entra:secondary',
+            classification: 'tested',
+            readiness: 'disabled',
+            freshness: 'unknown',
+            summary: 'The connector was disabled by sanitized configuration.',
+          },
+        ],
+      },
+      generatedAt,
+    )
+
+    expect(
+      manifest.connectors.map(({ connectorId, readiness }) => ({ connectorId, readiness })),
+    ).toEqual([
+      { connectorId: 'foundry:primary', readiness: 'unavailable' },
+      { connectorId: 'entra:secondary', readiness: 'disabled' },
+    ])
+  })
+
+  it('applies passing validation linkage and timing only to referenced supporting connectors', () => {
+    const manifest = buildReleaseEvidence(
+      cleanRepository,
+      {
+        ...linkedReadinessInput,
+        liveValidations: [
+          {
+            ...linkedReadinessInput.liveValidations[0]!,
+            observedAt: '2026-09-03T23:30:00.000Z',
+          },
+        ],
+        connectors: [
+          {
+            ...linkedReadinessInput.connectors[0]!,
+            observedAt: '2026-09-03T23:15:00.000Z',
+          },
+          {
+            connectorId: 'entra:secondary',
+            classification: 'live',
+            readiness: 'unavailable',
+            freshness: 'fresh',
+            observedAt: '2026-09-03T23:45:00.000Z',
+            source: 'sanitized-connector-health',
+            scope: { ...sanitizedScope, sourceRef: 'entra-secondary' },
+            evidenceRefs: ['entra-health'],
+            summary: 'This later unavailable connector does not support the passing validation.',
+          },
+        ],
+      },
+      generatedAt,
+    )
+
+    expect(manifest.liveValidations[0]?.connectorRefs).toEqual(['foundry:primary'])
+    expect(manifest.connectors[1]).toMatchObject({
+      readiness: 'unavailable',
+      observedAt: '2026-09-03T23:45:00.000Z',
+    })
+  })
+
+  it('requires bounded unique connector references that identify manifest connectors', () => {
+    expect(() =>
+      buildReleaseEvidence(
+        cleanRepository,
+        {
+          ...linkedReadinessInput,
+          liveValidations: [
+            {
+              ...linkedReadinessInput.liveValidations[0]!,
+              connectorRefs: [],
+            },
+          ],
+        },
+        generatedAt,
+      ),
+    ).toThrow(/passing live validation requires supporting connector references/)
+
+    expect(() =>
+      buildReleaseEvidence(
+        cleanRepository,
+        {
+          ...linkedReadinessInput,
+          liveValidations: [
+            {
+              ...linkedReadinessInput.liveValidations[0]!,
+              connectorRefs: ['missing:connector'],
+            },
+          ],
+        },
+        generatedAt,
+      ),
+    ).toThrow(/connector reference must identify manifest connector evidence/)
+
+    expect(() =>
+      buildReleaseEvidence(
+        cleanRepository,
+        {
+          ...linkedReadinessInput,
+          liveValidations: [
+            {
+              ...linkedReadinessInput.liveValidations[0]!,
+              connectorRefs: ['foundry:primary', 'foundry:primary'],
+            },
+          ],
+        },
+        generatedAt,
+      ),
+    ).toThrow(/connector references must be unique/)
+
+    expect(() =>
+      buildReleaseEvidence(
+        cleanRepository,
+        {
+          ...linkedReadinessInput,
+          liveValidations: [
+            {
+              ...linkedReadinessInput.liveValidations[0]!,
+              connectorRefs: Array.from(
+                { length: 21 },
+                (_, index) => `connector:${String(index).padStart(2, '0')}`,
+              ),
+            },
+          ],
+        },
+        generatedAt,
+      ),
+    ).toThrow()
   })
 
   it('requires deployment < connector <= passing validation observation timing', () => {
@@ -1223,6 +1372,7 @@ describe('release evidence schema', () => {
             deploymentRef: 'deployment-candidate-a',
             snapshotRef: 'snapshot-a',
             findingRefs: ['finding-a'],
+            connectorRefs: ['foundry:primary'],
             classification: 'live',
             outcome: 'pass',
             freshness: 'fresh',
@@ -1235,7 +1385,7 @@ describe('release evidence schema', () => {
         ],
         connectors: [
           {
-            connectorId: 'foundry-primary',
+            connectorId: 'foundry:primary',
             deploymentRef: 'deployment-candidate-a',
             snapshotRef: 'snapshot-a',
             findingRefs: ['finding-a'],
@@ -1528,6 +1678,7 @@ describe('release evidence schema', () => {
               deploymentRef: 'deployment-candidate-a',
               snapshotRef: 'snapshot-a',
               findingRefs: ['finding-a'],
+              connectorRefs: ['foundry:primary'],
               outcome: 'pass',
               freshness: 'fresh',
               summary: 'Future evidence is invalid.',
@@ -1591,6 +1742,7 @@ describe('release evidence schema', () => {
     expect(structuralContract).toContain('"deploymentRef"')
     expect(structuralContract).toContain('"snapshotRef"')
     expect(structuralContract).toContain('"findingRefs"')
+    expect(structuralContract).toContain('"connectorRefs"')
   })
 
   it('defaults ergonomic input fields but requires every field in output manifests', () => {
@@ -1653,6 +1805,7 @@ describe('release evidence schema', () => {
       deploymentRef: null,
       snapshotRef: null,
       findingRefs: [],
+      connectorRefs: [],
       observedAt: null,
       source: null,
       scope: null,
@@ -1709,6 +1862,10 @@ describe('release evidence schema', () => {
         (manifest) => omitLiveValidationProperty(manifest, 'findingRefs'),
       ],
       [
+        'liveValidations[0].connectorRefs',
+        (manifest) => omitLiveValidationProperty(manifest, 'connectorRefs'),
+      ],
+      [
         'liveValidations[0].observedAt',
         (manifest) => omitLiveValidationProperty(manifest, 'observedAt'),
       ],
@@ -1746,6 +1903,7 @@ describe('release evidence schema', () => {
       'deploymentRef',
       'snapshotRef',
       'findingRefs',
+      'connectorRefs',
       'command',
       'completedAt',
       'observedAt',
