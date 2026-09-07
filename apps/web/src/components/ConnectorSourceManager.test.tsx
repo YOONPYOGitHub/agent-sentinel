@@ -236,6 +236,41 @@ describe('ConnectorSourceManager', () => {
     expect(connectorSourcesApi.list).toHaveBeenCalledTimes(2)
   })
 
+  it('creates Azure Monitor sources with an explicit response byte bound', async () => {
+    const user = userEvent.setup()
+    vi.mocked(connectorSourcesApi.create).mockResolvedValue({
+      replayed: false,
+      source: userSource,
+    })
+    render(<ConnectorSourceManager />)
+
+    await user.click(await screen.findByRole('button', { name: 'Add connector source' }))
+    const dialog = screen.getByRole('dialog', { name: 'Add connector source' })
+    await user.type(within(dialog).getByLabelText('Source ID'), 'runtime-otel')
+    await user.type(within(dialog).getByLabelText('Display name'), 'Runtime telemetry')
+    await user.selectOptions(within(dialog).getByLabelText('Connector type'), 'azure-monitor-otel')
+    await user.type(
+      within(dialog).getByLabelText('Workspace ID'),
+      '11111111-1111-4111-8111-111111111111',
+    )
+    fireEvent.change(within(dialog).getByLabelText('Maximum response bytes'), {
+      target: { value: '4096' },
+    })
+    await user.click(within(dialog).getByRole('button', { name: 'Create source' }))
+
+    await waitFor(() => expect(connectorSourcesApi.create).toHaveBeenCalledOnce())
+    const [request, idempotencyKey] = vi.mocked(connectorSourcesApi.create).mock.calls[0]!
+    expect(request).toMatchObject({
+      connectorType: 'azure-monitor-otel',
+      configuration: {
+        type: 'azure-monitor-otel',
+        workspaceId: '11111111-1111-4111-8111-111111111111',
+        maxResponseBytes: 4_096,
+      },
+    })
+    expect(idempotencyKey).toMatch(/^connector-source-create-/)
+  })
+
   it('reuses a create key after ambiguous failures and replaces it when the payload changes', async () => {
     const user = userEvent.setup()
     vi.mocked(connectorSourcesApi.create).mockRejectedValue(new TypeError('Network unavailable.'))

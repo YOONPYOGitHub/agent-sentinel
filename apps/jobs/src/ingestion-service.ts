@@ -76,7 +76,13 @@ export class IngestionService {
     const correlationId = this.options.correlationIdFactory?.() ?? randomUUID()
     logger.info('ingestion.start', { correlationId, sourceMode: this.options.sourceMode })
 
-    const discovered = await this.connector.discover()
+    let discovered: EstateSnapshot
+    try {
+      discovered = await this.connector.discover()
+    } catch (error) {
+      await this.persistConnectorHealth()
+      throw error
+    }
     if (discovered.tenantId !== this.options.estate.tenantId) {
       throw new Error('Discovered snapshot tenant does not match the configured ingestion tenant.')
     }
@@ -85,18 +91,7 @@ export class IngestionService {
         'Discovered snapshot environment does not match the configured ingestion estate.',
       )
     }
-    const connectorHealth = this.connector.getConnectorHealth?.()
-    if (connectorHealth !== undefined && this.options.connectorHealthRepository !== undefined) {
-      const measuredAt = (this.options.clock?.() ?? new Date()).toISOString()
-      await this.options.connectorHealthRepository.save(this.options.estate, {
-        estateId: this.options.estate.id,
-        tenantId: this.options.estate.tenantId,
-        environment: this.options.estate.environment,
-        connectorId: this.connector.descriptor.id,
-        measuredAt,
-        health: connectorHealth,
-      })
-    }
+    const connectorHealth = await this.persistConnectorHealth()
     const connectorDegraded = connectorHealth?.overall === 'degraded'
     const connectorPartial = connectorHealth?.partial === true
     let snapshot: EstateSnapshot = discovered
@@ -237,5 +232,22 @@ export class IngestionService {
       newFindings,
       resolvedFindings,
     }
+  }
+
+  private async persistConnectorHealth(): Promise<ConnectorHealthReport | undefined> {
+    const connectorHealth = this.connector.getConnectorHealth?.()
+    if (connectorHealth === undefined || this.options.connectorHealthRepository === undefined) {
+      return connectorHealth
+    }
+    const measuredAt = (this.options.clock?.() ?? new Date()).toISOString()
+    await this.options.connectorHealthRepository.save(this.options.estate, {
+      estateId: this.options.estate.id,
+      tenantId: this.options.estate.tenantId,
+      environment: this.options.estate.environment,
+      connectorId: this.connector.descriptor.id,
+      measuredAt,
+      health: connectorHealth,
+    })
+    return connectorHealth
   }
 }

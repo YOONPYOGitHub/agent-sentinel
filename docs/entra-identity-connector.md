@@ -59,7 +59,9 @@ All requests use `DefaultAzureCredential`, the
 `https://graph.microsoft.com/.default` scope, HTTPS-only
 `graph.microsoft.com`, strict projected response schemas, same-resource
 next-link validation, bounded pagination, request timeouts, and retries only
-for 429/500/502/503/504 responses carrying a bounded `Retry-After`.
+for 429/500/502/503/504 responses carrying a bounded `Retry-After`. Response
+bodies are streamed through a configured byte limit, with both
+`Content-Length` and actual bytes enforced before JSON parsing.
 Multi-source enrichment accepts at most 50 configured sources, runs at most
 four source reads concurrently, and applies one 60-second aggregate deadline.
 Caller cancellation is propagated through token acquisition, retry waits, and
@@ -75,7 +77,9 @@ consent. Jobs report partial success when primary discovery succeeds but Entra
 does not. Stable inventory or composition failures remain partial and are not
 persisted, so a transient Graph failure cannot erase the last complete state.
 Optional-only degradation reports partial success but preserves the complete
-stable v1.0 inventory. There is no mock fallback.
+stable v1.0 inventory and exact `RUNS_AS` correlations. A successful zero-row
+probe or inventory remains insufficient and non-ready. There is no mock
+fallback.
 
 For multiple Foundry tenant/project sources, set `ENTRA_SOURCES_JSON`. Every
 entry uses the same `id`, tenant, and source environment as its matching

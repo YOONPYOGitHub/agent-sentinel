@@ -221,6 +221,12 @@ export const connectorSourceConfigurationSchema = z.discriminatedUnion('type', [
     baselineWindowHours: z.number().int().min(1).max(744).default(168),
     observedWindowHours: z.number().int().min(1).max(168).default(24),
     requestTimeoutMs: z.number().int().min(1_000).max(60_000).default(15_000),
+    maxResponseBytes: z
+      .number()
+      .int()
+      .min(1_024)
+      .max(64 * 1024 * 1024)
+      .default(4 * 1024 * 1024),
   }),
   z.strictObject({
     type: z.literal('manifest'),

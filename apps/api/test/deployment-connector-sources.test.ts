@@ -23,6 +23,7 @@ const configuredEnvironment = {
       workspaceId: '11111111-1111-4111-8111-111111111111',
       tenantId: estate.tenantId,
       environment: estate.environment,
+      maxResponseBytes: 8_192,
     },
   ]),
 }
@@ -69,6 +70,7 @@ describe('deployment Azure Monitor OTel source projection', () => {
       configuration: {
         type: 'azure-monitor-otel',
         workspaceId: '11111111-1111-4111-8111-111111111111',
+        maxResponseBytes: 8_192,
       },
     })
   })
@@ -83,6 +85,7 @@ describe('deployment Azure Monitor OTel source projection', () => {
         AZURE_MONITOR_BASELINE_WINDOW_HOURS: '48',
         AZURE_MONITOR_OBSERVED_WINDOW_HOURS: '12',
         AZURE_MONITOR_REQUEST_TIMEOUT_MS: '20000',
+        AZURE_MONITOR_MAX_RESPONSE_BYTES: '2048',
       },
       registry,
       'live',
@@ -104,6 +107,7 @@ describe('deployment Azure Monitor OTel source projection', () => {
         baselineWindowHours: 48,
         observedWindowHours: 12,
         requestTimeoutMs: 20_000,
+        maxResponseBytes: 2_048,
       },
     })
   })

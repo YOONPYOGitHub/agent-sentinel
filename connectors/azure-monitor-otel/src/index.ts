@@ -55,6 +55,12 @@ export const azureMonitorOtelConfigSchema = z.strictObject({
   baselineWindowHours: z.number().int().min(1).max(MAX_QUERY_HOURS).default(168),
   observedWindowHours: z.number().int().min(1).max(168).default(24),
   requestTimeoutMs: z.number().int().min(1_000).max(60_000).default(15_000),
+  maxResponseBytes: z
+    .number()
+    .int()
+    .min(1_024)
+    .max(64 * 1024 * 1024)
+    .default(4 * 1024 * 1024),
 })
 export type AzureMonitorOtelConfig = z.infer<typeof azureMonitorOtelConfigSchema>
 
@@ -76,6 +82,7 @@ export const azureMonitorOtelSourceConfigSchema = azureMonitorOtelConfigSchema.e
   credential: telemetrySourceCredentialSchema.optional(),
 })
 export type AzureMonitorOtelSourceConfig = z.infer<typeof azureMonitorOtelSourceConfigSchema>
+export type AzureMonitorOtelSourceConfigInput = z.input<typeof azureMonitorOtelSourceConfigSchema>
 export type AzureMonitorCredentialFactory = (
   source: AzureMonitorOtelSourceConfig,
 ) => TokenCredential
@@ -83,6 +90,122 @@ export type AzureMonitorOtelRuntimeMode = 'mock' | 'live'
 export interface AzureMonitorOtelRuntimeActivation {
   active: boolean
   sources: AzureMonitorOtelSourceConfig[]
+}
+
+async function readResponseChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal: AbortSignal,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (signal.aborted) throw new Error('Azure Monitor response body read was aborted.')
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      void reader.cancel(signal.reason).catch(() => undefined)
+      reject(new Error('Azure Monitor response body read was aborted.'))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    void reader
+      .read()
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener('abort', onAbort))
+  })
+}
+
+async function readBoundedJson(
+  response: Response,
+  maximumBytes: number,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const declaredLength = response.headers.get('content-length')
+  if (declaredLength !== null) {
+    if (!/^\d+$/.test(declaredLength)) {
+      throw new AzureMonitorOtelConnectorError(
+        'Azure Monitor Logs returned an invalid content-length header.',
+      )
+    }
+    if (Number(declaredLength) > maximumBytes) {
+      void response.body?.cancel().catch(() => undefined)
+      throw new AzureMonitorOtelConnectorError(
+        `Azure Monitor Logs response exceeded the ${maximumBytes} byte response limit.`,
+        'response-too-large',
+      )
+    }
+  }
+  if (response.body === null) {
+    throw new AzureMonitorOtelConnectorError('Azure Monitor Logs returned no response body.')
+  }
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let bytesRead = 0
+  while (true) {
+    const chunk = await readResponseChunk(reader, signal)
+    if (chunk.done) break
+    bytesRead += chunk.value.byteLength
+    if (bytesRead > maximumBytes) {
+      void reader.cancel().catch(() => undefined)
+      throw new AzureMonitorOtelConnectorError(
+        `Azure Monitor Logs response exceeded the ${maximumBytes} byte response limit.`,
+        'response-too-large',
+      )
+    }
+    chunks.push(chunk.value)
+  }
+  const bytes = new Uint8Array(bytesRead)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  try {
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+  } catch {
+    throw new AzureMonitorOtelConnectorError('Azure Monitor Logs returned a non-JSON response.')
+  }
+}
+
+function windowQuality(observations: readonly RuntimeObservation[]) {
+  if (observations.length === 0) {
+    return {
+      status: 'unknown' as const,
+      classification: 'unknown' as const,
+      caveats: ['empty' as const],
+      recordsReceived: 0,
+      recordsAccepted: 0,
+      duplicatesRemoved: 0,
+      pagesProcessed: 1,
+    }
+  }
+  const classifications = new Set(
+    observations.map((observation) => (observation.synthetic ? 'synthetic' : 'live')),
+  )
+  const valid = observations.filter((observation) => {
+    const parsed = runtimeOtelProvenanceSchema.safeParse(observation.otelProvenance)
+    return (
+      parsed.success &&
+      parsed.data.sampling.state === 'complete' &&
+      parsed.data.sampling.rate === 1 &&
+      parsed.data.aggregation.kind === 'raw' &&
+      !parsed.data.partial
+    )
+  })
+  const available = valid.length === observations.length && classifications.size === 1
+  return {
+    status: available ? ('available' as const) : ('degraded' as const),
+    classification:
+      classifications.size > 1
+        ? ('mixed' as const)
+        : classifications.has('synthetic')
+          ? ('synthetic' as const)
+          : ('live' as const),
+    caveats: available
+      ? []
+      : classifications.size > 1
+        ? (['invalid-record', 'mixed-classification'] as const)
+        : (['invalid-record'] as const),
+    recordsReceived: observations.length * 6,
+    recordsAccepted: valid.length * 6,
+    duplicatesRemoved: 0,
+    pagesProcessed: 1,
+  }
 }
 
 const azureMonitorOtelSourcesConfigSchema = z
@@ -142,6 +265,18 @@ const rowBindingSchema = runtimeTelemetryRequestSchema.extend({
   environment: bindingSchema,
   windowStart: z.iso.datetime(),
   windowEnd: z.iso.datetime(),
+  provenance: z
+    .strictObject({
+      estateId: bindingSchema,
+      estateTenantId: bindingSchema,
+      estateEnvironment: bindingSchema,
+      sourceConnectorId: bindingSchema,
+      sourceTenantId: bindingSchema,
+      sourceEnvironment: bindingSchema,
+      providerResourceId: bindingSchema,
+      providerAgentId: bindingSchema,
+    })
+    .optional(),
 })
 
 const expectedColumns = [
@@ -161,6 +296,9 @@ const expectedColumns = [
   ['ErrorCode', 'string'],
   ['ToolCallNames', 'string'],
   ['Synthetic', 'bool'],
+  ['TraceId', 'string'],
+  ['SpanId', 'string'],
+  ['ItemCount', 'long'],
 ] as const
 
 const queryTableSchema = z.strictObject({
@@ -186,7 +324,8 @@ export class AzureMonitorOtelConnectorError extends Error {
 
   constructor(
     message: string,
-    readonly reason: 'cancelled' | 'timeout' | 'query-failed' = 'query-failed',
+    readonly reason:
+      'cancelled' | 'timeout' | 'query-failed' | 'response-too-large' = 'query-failed',
   ) {
     super(message)
   }
@@ -225,6 +364,9 @@ const projectedRowSchema = z.strictObject({
   ErrorCode: z.string().max(100).nullable(),
   ToolCallNames: z.string().max(20_000).nullable(),
   Synthetic: z.boolean(),
+  TraceId: z.string().max(64).nullable(),
+  SpanId: z.string().max(32).nullable(),
+  ItemCount: z.number().int().min(1).max(1_000_000).nullable(),
 })
 
 function parseToolCallNames(value: string | null): string[] {
@@ -248,15 +390,69 @@ function rowCorrelations(
   ]
 }
 
+const invocationClaimNames = [
+  'invocation',
+  'latency',
+  'error',
+  'input-tokens',
+  'output-tokens',
+  'cost',
+] as const
+
+function invocationEvidenceIds(
+  providerResourceId: string,
+  traceId: string,
+  spanId: string,
+): string[] {
+  return invocationClaimNames.map(
+    (claim) =>
+      `otel-claim-${createHash('sha256')
+        .update(`${providerResourceId}\0${traceId}\0${spanId}\0${claim}`)
+        .digest('hex')
+        .slice(0, 32)}`,
+  )
+}
+
+function rowOtelProvenance(
+  row: z.infer<typeof projectedRowSchema>,
+  binding: z.infer<typeof rowBindingSchema>,
+) {
+  const provenance = binding.provenance
+  if (
+    provenance === undefined ||
+    row.TraceId === null ||
+    row.SpanId === null ||
+    !/^[0-9a-f]{32}$/.test(row.TraceId) ||
+    !/^[0-9a-f]{16}$/.test(row.SpanId) ||
+    row.LatencyMs === null ||
+    row.InputTokens === null ||
+    row.OutputTokens === null ||
+    row.CostUsd === null
+  ) {
+    return undefined
+  }
+  return runtimeOtelProvenanceSchema.parse({
+    ...provenance,
+    provider: 'azure-monitor-otel',
+    traceId: row.TraceId,
+    spanId: row.SpanId,
+    observedAt: row.ObservedAt,
+    classification: row.Synthetic ? 'synthetic' : 'live',
+    sampling:
+      row.ItemCount === 1
+        ? { state: 'complete', rate: 1 }
+        : row.ItemCount === null
+          ? { state: 'unknown' }
+          : { state: 'sampled', rate: 1 / row.ItemCount },
+    aggregation: { kind: 'raw' },
+    partial: false,
+    evidenceIds: invocationEvidenceIds(provenance.providerResourceId, row.TraceId, row.SpanId),
+  })
+}
+
 export function mapAzureMonitorRows(
   value: unknown,
-  binding: {
-    tenantId: string
-    agentId: string
-    environment: string
-    windowStart: string
-    windowEnd: string
-  },
+  binding: z.input<typeof rowBindingSchema>,
 ): RuntimeObservation[] {
   const expectedBinding = rowBindingSchema.parse(binding)
   const response = azureMonitorLogsQueryResponseSchema.parse(value)
@@ -293,6 +489,7 @@ export function mapAzureMonitorRows(
       )
     }
 
+    const otelProvenance = rowOtelProvenance(row, expectedBinding)
     return runtimeObservationSchema.parse({
       id: row.ObservationId,
       tenantId: row.TenantId,
@@ -309,6 +506,7 @@ export function mapAzureMonitorRows(
       ...(row.ErrorCode !== null && row.ErrorCode !== '' ? { errorCode: row.ErrorCode } : {}),
       toolCallNames: parseToolCallNames(row.ToolCallNames),
       synthetic: row.Synthetic,
+      ...(otelProvenance === undefined ? {} : { otelProvenance }),
     })
   })
 }
@@ -361,7 +559,10 @@ export function buildAzureMonitorOtelQuery(binding: {
     '          Success = tobool(Success),',
     '          ErrorCode = iff(tobool(Success), "", tostring(coalesce(OtelAttributes["error.type"], ResultCode))),',
     '          ToolCallNames = tostring(OtelAttributes["agent.sentinel.tool_call_names"]),',
-    '          Synthetic = tobool(coalesce(OtelAttributes["agent.sentinel.synthetic"], false))',
+    '          Synthetic = tobool(coalesce(OtelAttributes["agent.sentinel.synthetic"], false)),',
+    '          TraceId = tolower(tostring(coalesce(OtelAttributes["trace_id"], OtelAttributes["otel.trace_id"], OperationId))),',
+    '          SpanId = tolower(tostring(coalesce(OtelAttributes["span_id"], OtelAttributes["otel.span_id"], extract(@"([0-9a-fA-F]{16})\\|?$", 1, Id), Id))),',
+    '          ItemCount = tolong(ItemCount)',
     '| order by ObservedAt asc',
     `| take ${String(parsed.maximumRows)}`,
   ].join('\n')
@@ -390,6 +591,7 @@ function evidenceId(
       observation.errorCode ?? null,
       observation.toolCallNames,
       observation.synthetic,
+      observation.otelProvenance ?? null,
       observation.correlations === undefined
         ? null
         : [...observation.correlations]
@@ -539,8 +741,9 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
 
     let body: unknown
     try {
-      body = await response.json()
-    } catch {
+      body = await readBoundedJson(response, this.config.maxResponseBytes, signal)
+    } catch (error) {
+      if (error instanceof AzureMonitorOtelConnectorError) throw error
       if (options.signal?.aborted === true) {
         throw new AzureMonitorOtelConnectorError(
           'Azure Monitor Logs query was cancelled.',
@@ -563,6 +766,16 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
       environment: this.config.environment,
       windowStart: baselineStart,
       windowEnd: observedEnd,
+      provenance: {
+        estateId: this.config.tenantId,
+        estateTenantId: this.config.tenantId,
+        estateEnvironment: this.config.environment,
+        sourceConnectorId: 'direct',
+        sourceTenantId: this.config.tenantId,
+        sourceEnvironment: this.config.environment,
+        providerResourceId: this.config.workspaceId,
+        providerAgentId: binding.agentId,
+      },
     })
     const baseBinding = `${binding.tenantId}\0${binding.agentId}\0${this.config.environment}`
     const baselineWindowId = windowId('baseline', baseBinding, baselineStart, baselineEnd)
@@ -578,6 +791,11 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
       observations: observations.filter(
         (item) => new Date(item.observedAt).getTime() < new Date(baselineEnd).getTime(),
       ),
+      otelQuality: windowQuality(
+        observations.filter(
+          (item) => new Date(item.observedAt).getTime() < new Date(baselineEnd).getTime(),
+        ),
+      ),
     })
     const observed = observationWindowSchema.parse({
       windowId: observedWindowId,
@@ -589,6 +807,11 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
       windowEnd: observedEnd,
       observations: observations.filter(
         (item) => new Date(item.observedAt).getTime() >= new Date(observedStart).getTime(),
+      ),
+      otelQuality: windowQuality(
+        observations.filter(
+          (item) => new Date(item.observedAt).getTime() >= new Date(observedStart).getTime(),
+        ),
       ),
     })
 
@@ -676,6 +899,23 @@ function rebindWindows(
       id: boundedId('observation', observation.id),
       tenantId: request.tenantId,
       agentId: request.agentId,
+      ...(observation.otelProvenance === undefined ||
+      request.estateId === undefined ||
+      request.estateEnvironment === undefined
+        ? {}
+        : {
+            otelProvenance: {
+              ...observation.otelProvenance,
+              estateId: request.estateId,
+              estateTenantId: request.tenantId,
+              estateEnvironment: request.estateEnvironment,
+              sourceConnectorId: source.id,
+              sourceTenantId: source.tenantId,
+              sourceEnvironment: source.environment,
+              providerResourceId: source.workspaceId,
+              providerAgentId: request.sourceAgentId ?? request.agentId,
+            },
+          }),
     })),
   })
   return runtimeObservationWindowsSchema.parse({
@@ -707,7 +947,7 @@ export class MultiAzureMonitorOtelConnector implements RuntimeTelemetryConnector
   private readonly sources: TelemetrySourceState[]
 
   constructor(
-    sourcesInput: readonly AzureMonitorOtelSourceConfig[],
+    sourcesInput: readonly AzureMonitorOtelSourceConfigInput[],
     credentialFactory: AzureMonitorCredentialFactory = createTelemetrySourceCredential,
     fetcherFactory: (source: AzureMonitorOtelSourceConfig) => typeof fetch = () => fetch,
     clock: () => Date = () => new Date(),
@@ -723,6 +963,7 @@ export class MultiAzureMonitorOtelConnector implements RuntimeTelemetryConnector
           baselineWindowHours: config.baselineWindowHours,
           observedWindowHours: config.observedWindowHours,
           requestTimeoutMs: config.requestTimeoutMs,
+          maxResponseBytes: config.maxResponseBytes,
         },
         credentialFactory(config),
         fetcherFactory(config),
@@ -854,6 +1095,11 @@ export function parseAzureMonitorOtelSources(
       baselineWindowHours: numberValue(environment, 'AZURE_MONITOR_BASELINE_WINDOW_HOURS', 168),
       observedWindowHours: numberValue(environment, 'AZURE_MONITOR_OBSERVED_WINDOW_HOURS', 24),
       requestTimeoutMs: numberValue(environment, 'AZURE_MONITOR_REQUEST_TIMEOUT_MS', 15_000),
+      maxResponseBytes: numberValue(
+        environment,
+        'AZURE_MONITOR_MAX_RESPONSE_BYTES',
+        4 * 1024 * 1024,
+      ),
     }),
   ]
 }

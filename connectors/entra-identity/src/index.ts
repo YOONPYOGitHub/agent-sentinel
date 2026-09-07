@@ -49,7 +49,7 @@ import {
 export type EntraCapabilityStatus = 'disabled' | 'available' | 'degraded' | 'unavailable'
 
 export interface EntraConnectorHealth {
-  stableInventory: { status: 'available' | 'unavailable'; reason?: string }
+  stableInventory: { status: 'available' | 'insufficient' | 'unavailable'; reason?: string }
   owners: { status: EntraCapabilityStatus; reason?: string }
   appRoleAssignments: { status: EntraCapabilityStatus; reason?: string }
   agentIdentityPreview: { status: EntraCapabilityStatus; reason?: string }
@@ -258,6 +258,14 @@ export class EntraIdentityConnector implements AgentConnector {
     const operation = this.client.createOperation(request)
     try {
       await this.client.probeStableInventory(operation)
+      if (operation.measurement.records === 0) {
+        this.health.stableInventory = { status: 'insufficient', reason: 'empty' }
+        return {
+          ok: false,
+          checkedAt,
+          message: 'Microsoft Graph v1.0 service-principal inventory returned no records.',
+        }
+      }
       this.health.stableInventory = { status: 'available' }
       return {
         ok: true,
@@ -281,7 +289,10 @@ export class EntraIdentityConnector implements AgentConnector {
     let servicePrincipals: EntraServicePrincipal[]
     try {
       servicePrincipals = await this.client.listServicePrincipals(operation)
-      this.health.stableInventory = { status: 'available' }
+      this.health.stableInventory =
+        servicePrincipals.length === 0
+          ? { status: 'insufficient', reason: 'empty' }
+          : { status: 'available' }
     } catch (error) {
       this.health.stableInventory = { status: 'unavailable', reason: safeFailureReason(error) }
       this.lastOperationMeasurement = { ...operation.measurement }
@@ -815,13 +826,26 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
           maxRecords: context.maxRecords,
         })
         const measurement = source.connector.getLastOperationMeasurement()
+        if (
+          measurement.records === 0 &&
+          source.connector.getHealth().stableInventory.status === 'insufficient'
+        ) {
+          return {
+            state: 'empty',
+            value: result,
+            pages: measurement.pages,
+            records: measurement.records,
+            evidenceIds: [],
+            reason: 'empty',
+          }
+        }
         if (!result.ok) {
           throw new EntraSourceFailure(
             source.connector.getHealth().stableInventory.reason ?? 'unexpected-failure',
           )
         }
         return {
-          state: 'complete',
+          state: measurement.records === 0 ? ('empty' as const) : ('complete' as const),
           value: result,
           pages: measurement.pages,
           records: measurement.records,
@@ -842,6 +866,9 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
         const measured = entraReadiness(source.connector)
         source.readiness = measured.readiness
         source.reason = measured.reason
+      } else if (outcome.state === 'empty') {
+        source.readiness = 'degraded'
+        source.reason = 'empty'
       } else if (outcome.state === 'unsupported') {
         source.reason ??= outcome.reason
       } else {
@@ -898,12 +925,7 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
         const measurement = source.connector.getLastOperationMeasurement()
         const measured = entraReadiness(source.connector)
         return {
-          state:
-            measurement.records === 0
-              ? ('empty' as const)
-              : measured.readiness === 'ready'
-                ? 'complete'
-                : 'partial',
+          state: measurement.records === 0 ? ('empty' as const) : 'complete',
           value: identities,
           pages: measurement.pages,
           records: measurement.records,
@@ -1066,6 +1088,7 @@ function entraConfigInput(environment: NodeJS.ProcessEnv) {
       requestTimeoutMs: envNumber(environment, 'ENTRA_CONNECTOR_REQUEST_TIMEOUT_MS'),
       maxRetries: envNumber(environment, 'ENTRA_CONNECTOR_MAX_RETRIES'),
       maxRetryAfterMs: envNumber(environment, 'ENTRA_CONNECTOR_MAX_RETRY_AFTER_MS'),
+      maxResponseBytes: envNumber(environment, 'ENTRA_CONNECTOR_MAX_RESPONSE_BYTES'),
     },
   }
 }

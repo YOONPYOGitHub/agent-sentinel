@@ -282,6 +282,7 @@ export function buildDeploymentConnectorSources(
       baselineWindowHours: source.baselineWindowHours,
       observedWindowHours: source.observedWindowHours,
       requestTimeoutMs: source.requestTimeoutMs,
+      maxResponseBytes: source.maxResponseBytes,
     }),
   )
 

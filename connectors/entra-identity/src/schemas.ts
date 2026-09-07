@@ -113,6 +113,7 @@ export const entraIdentityConnectorConfigSchema = z.strictObject({
       requestTimeoutMs: z.number().int().min(100).max(120_000).default(15_000),
       maxRetries: z.number().int().min(0).max(5).default(2),
       maxRetryAfterMs: z.number().int().min(0).max(60_000).default(30_000),
+      maxResponseBytes: z.number().int().min(1_024).max(10_000_000).default(2_000_000),
     })
     .default({
       maxPages: 20,
@@ -120,6 +121,7 @@ export const entraIdentityConnectorConfigSchema = z.strictObject({
       requestTimeoutMs: 15_000,
       maxRetries: 2,
       maxRetryAfterMs: 30_000,
+      maxResponseBytes: 2_000_000,
     }),
 })
 export type EntraIdentityConnectorConfig = z.infer<typeof entraIdentityConnectorConfigSchema>

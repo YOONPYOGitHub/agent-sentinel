@@ -186,6 +186,7 @@ function configuration(form: SourceFormState): ConnectorSourceConfiguration {
         baselineWindowHours: numeric(form.baselineWindowHours),
         observedWindowHours: numeric(form.observedWindowHours),
         requestTimeoutMs: numeric(form.requestTimeoutMs),
+        maxResponseBytes: numeric(form.maxResponseBytes),
       }
     case 'manifest':
       return { type: 'manifest', manifestId: form.manifestId }
@@ -270,6 +271,7 @@ function formForSource(source: ConnectorSourceDefinition): SourceFormState {
       form.baselineWindowHours = String(value.baselineWindowHours)
       form.observedWindowHours = String(value.observedWindowHours)
       form.requestTimeoutMs = String(value.requestTimeoutMs)
+      form.maxResponseBytes = String(value.maxResponseBytes)
       break
     case 'manifest':
       form.manifestId = value.manifestId
@@ -763,6 +765,14 @@ function SourceForm({
                   min={1000}
                   max={60000}
                   onChange={(value) => setField('requestTimeoutMs', value)}
+                />
+                <NumberField
+                  id="source-otel-response-bytes"
+                  label="Maximum response bytes"
+                  value={form.maxResponseBytes}
+                  min={1024}
+                  max={67108864}
+                  onChange={(value) => setField('maxResponseBytes', value)}
                 />
               </>
             ) : null}

@@ -534,6 +534,7 @@ describe('IngestionService', () => {
   it('preserves the durable snapshot when one configured Foundry source fails', async () => {
     const snapshots = new InMemorySnapshotRepository()
     const exposures = new InMemoryExposureFindingRepository()
+    const connectorHealth = new InMemoryConnectorHealthRepository()
     const baseline = fullSnapshot()
     baseline.generatedAt = '2026-09-05T08:00:00.000Z'
     await snapshots.save(testEstate, baseline)
@@ -567,14 +568,48 @@ describe('IngestionService', () => {
         }),
       },
     )
+    await connectorHealth.save(testEstate, {
+      estateId: testEstate.id,
+      tenantId: testEstate.tenantId,
+      environment: testEstate.environment,
+      connectorId: connector.descriptor.id,
+      measuredAt: '2026-09-05T08:00:00.000Z',
+      health: {
+        overall: 'ready',
+        partial: false,
+        sources: [
+          {
+            id: 'foundry:primary',
+            name: 'Validation project',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+            dataState: 'complete',
+          },
+          {
+            id: 'foundry:secondary',
+            name: 'Secondary validation project',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+            dataState: 'complete',
+          },
+        ],
+      },
+    })
     const service = new IngestionService(connector, snapshots, exposures, {
       estate: testEstate,
       sourceMode: 'foundry',
+      clock: () => new Date('2026-09-05T08:05:00.000Z'),
+      connectorHealthRepository: connectorHealth,
     })
 
     await expect(service.run()).rejects.toBeInstanceOf(FoundryPortfolioIncompleteError)
     expect(await snapshots.list(testEstate)).toEqual([baseline])
-    expect(connector.getConnectorHealth()).toMatchObject({
+    const currentHealth = connector.getConnectorHealth()
+    expect(currentHealth).toMatchObject({
       overall: 'degraded',
       partial: true,
       sources: [
@@ -590,6 +625,14 @@ describe('IngestionService', () => {
           provenance: { sourceConnectorId: 'secondary', providerObjectId: 'validation-b' },
         },
       ],
+    })
+    await expect(connectorHealth.findLatest(testEstate, connector.descriptor.id)).resolves.toEqual({
+      estateId: testEstate.id,
+      tenantId: testEstate.tenantId,
+      environment: testEstate.environment,
+      connectorId: connector.descriptor.id,
+      measuredAt: '2026-09-05T08:05:00.000Z',
+      health: currentHealth,
     })
   })
 

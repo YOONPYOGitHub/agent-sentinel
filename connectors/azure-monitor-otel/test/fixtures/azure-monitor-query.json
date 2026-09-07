@@ -18,7 +18,10 @@
         { "name": "Success", "type": "bool" },
         { "name": "ErrorCode", "type": "string" },
         { "name": "ToolCallNames", "type": "string" },
-        { "name": "Synthetic", "type": "bool" }
+        { "name": "Synthetic", "type": "bool" },
+        { "name": "TraceId", "type": "string" },
+        { "name": "SpanId", "type": "string" },
+        { "name": "ItemCount", "type": "long" }
       ],
       "rows": [
         [
@@ -37,7 +40,10 @@
           true,
           "",
           "[\"knowledge_search\",\"answer\"]",
-          false
+          false,
+          null,
+          null,
+          null
         ],
         [
           "fixture-baseline-2",
@@ -55,7 +61,10 @@
           false,
           "timeout",
           "[\"knowledge_search\"]",
-          true
+          true,
+          null,
+          null,
+          null
         ],
         [
           "fixture-observed-1",
@@ -73,7 +82,10 @@
           true,
           "",
           "[\"knowledge_search\",\"answer\"]",
-          false
+          false,
+          null,
+          null,
+          null
         ],
         [
           "fixture-observed-2",
@@ -91,7 +103,10 @@
           true,
           "",
           "[]",
-          false
+          false,
+          null,
+          null,
+          null
         ]
       ]
     }

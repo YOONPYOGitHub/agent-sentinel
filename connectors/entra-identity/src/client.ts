@@ -106,6 +106,77 @@ function signalAborted(signal?: AbortSignal): boolean {
   return signal?.aborted === true
 }
 
+async function readResponseChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal: AbortSignal,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (signal.aborted) throw new Error('Microsoft Graph response body read was aborted.')
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      void reader.cancel(signal.reason).catch(() => undefined)
+      reject(new Error('Microsoft Graph response body read was aborted.'))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    void reader
+      .read()
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener('abort', onAbort))
+  })
+}
+
+async function readBoundedJson(
+  response: Response,
+  maximumBytes: number,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const declaredLength = response.headers.get('content-length')
+  if (declaredLength !== null) {
+    if (!/^\d+$/.test(declaredLength)) {
+      throw new EntraGraphError(
+        'malformed-response',
+        'Microsoft Graph returned an invalid content-length header.',
+      )
+    }
+    if (Number(declaredLength) > maximumBytes) {
+      void response.body?.cancel().catch(() => undefined)
+      throw new EntraGraphError(
+        'bounds',
+        `Microsoft Graph response exceeded the ${maximumBytes} byte response limit.`,
+      )
+    }
+  }
+  if (response.body === null) {
+    throw new EntraGraphError('malformed-response', 'Microsoft Graph returned no response body.')
+  }
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let bytesRead = 0
+  while (true) {
+    const chunk = await readResponseChunk(reader, signal)
+    if (chunk.done) break
+    bytesRead += chunk.value.byteLength
+    if (bytesRead > maximumBytes) {
+      void reader.cancel().catch(() => undefined)
+      throw new EntraGraphError(
+        'bounds',
+        `Microsoft Graph response exceeded the ${maximumBytes} byte response limit.`,
+      )
+    }
+    chunks.push(chunk.value)
+  }
+  const bytes = new Uint8Array(bytesRead)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  try {
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+  } catch {
+    throw new EntraGraphError('malformed-response', 'Microsoft Graph returned a non-JSON response.')
+  }
+}
+
 export class EntraGraphClient {
   private readonly fetcher: typeof fetch
   private readonly sleep: (milliseconds: number) => Promise<void>
@@ -403,14 +474,19 @@ export class EntraGraphClient {
         throw statusError(response.status)
       }
 
-      const bodyTimer = setTimeout(() => controller.abort(), this.config.limits.requestTimeoutMs)
+      let bodyTimedOut = false
+      const bodyTimer = setTimeout(() => {
+        bodyTimedOut = true
+        controller.abort()
+      }, this.config.limits.requestTimeoutMs)
       try {
-        return await response.json()
-      } catch {
+        return await readBoundedJson(response, this.config.limits.maxResponseBytes, signal)
+      } catch (error) {
+        if (error instanceof EntraGraphError) throw error
         if (signalAborted(externalSignal)) {
           throw new EntraGraphError('cancelled', 'Microsoft Graph request was cancelled.')
         }
-        if (controller.signal.aborted) {
+        if (bodyTimedOut) {
           throw new EntraGraphError('timeout', 'Microsoft Graph response body timed out.')
         }
         throw new EntraGraphError(

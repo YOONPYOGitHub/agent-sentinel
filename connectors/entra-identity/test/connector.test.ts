@@ -37,6 +37,7 @@ const config = {
     requestTimeoutMs: 100,
     maxRetries: 2,
     maxRetryAfterMs: 5_000,
+    maxResponseBytes: 2_000_000,
   },
 }
 
@@ -359,6 +360,57 @@ describe('Microsoft Graph client contracts', () => {
     expect(credentialSignals[0]?.aborted).toBe(true)
   })
 
+  it('cancels a stalled streamed response body when the caller aborts', async () => {
+    const controller = new AbortController()
+    const client = new EntraGraphClient(config, new Credential(), {
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull: () => new Promise<void>(() => undefined),
+          }),
+        ),
+      ),
+    })
+    const pending = client.listServicePrincipals({ signal: controller.signal })
+
+    await Promise.resolve()
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject({ code: 'cancelled' })
+  }, 1_000)
+
+  it.each([
+    {
+      name: 'declared content length',
+      response: () =>
+        new Response('x'.repeat(1_025), {
+          headers: { 'content-length': '1025' },
+        }),
+    },
+    {
+      name: 'streamed bytes without content length',
+      response: () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('x'.repeat(1_025)))
+              controller.close()
+            },
+          }),
+        ),
+    },
+  ])('rejects a response above the byte limit from $name', async ({ response }) => {
+    const boundedConfig = {
+      ...config,
+      limits: { ...config.limits, maxResponseBytes: 1_024 },
+    }
+    const client = new EntraGraphClient(boundedConfig, new Credential(), {
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(response()),
+    })
+
+    await expect(client.listServicePrincipals()).rejects.toMatchObject({ code: 'bounds' })
+  })
+
   it('sanitizes Graph and credential errors without leaking tokens', async () => {
     const secret = 'super-secret-token'
     const connector = new EntraIdentityConnector(config, new Credential(secret), {
@@ -368,10 +420,46 @@ describe('Microsoft Graph client contracts', () => {
           Response.json({ error: { message: `denied ${secret}` } }, { status: 403 }),
         ),
     })
+
     const result = await connector.testConnection()
     expect(result.ok).toBe(false)
     expect(JSON.stringify(result)).not.toContain(secret)
     expect(JSON.stringify(connector.getHealth())).not.toContain(secret)
+  })
+
+  it('reports an empty stable inventory probe as insufficient', async () => {
+    const connector = new EntraIdentityConnector(config, new Credential(), {
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json({ value: [] })),
+    })
+
+    await expect(connector.testConnection()).resolves.toMatchObject({ ok: false })
+    expect(connector.getHealth().stableInventory).toEqual({
+      status: 'insufficient',
+      reason: 'empty',
+    })
+  })
+
+  it('keeps an empty stable inventory non-ready during composition', async () => {
+    const entra = new EntraIdentityConnector(config, new Credential(), {
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json({ value: [] })),
+    })
+    const composite = new EntraEnrichmentConnector(baseConnector(), entra)
+
+    const snapshot = await composite.discover()
+
+    expect(snapshot.nodes.filter((node) => node.kind === 'identity')).toHaveLength(0)
+    expect(composite.getConnectorHealth()).toMatchObject({
+      overall: 'degraded',
+      partial: true,
+      sources: [
+        { id: 'base', readiness: 'ready' },
+        {
+          id: 'microsoft-entra-service-principals',
+          readiness: 'degraded',
+          reason: 'empty',
+        },
+      ],
+    })
   })
 
   it('reads optional owners and app-role assignments with explicit health', async () => {
@@ -1318,7 +1406,7 @@ describe('composite enrichment connector', () => {
       })
     })
 
-    it('reports cumulative pages and records for an empty connection probe', async () => {
+    it('reports an empty connection probe as non-ready', async () => {
       const expected = [expectedSources[0]!]
       const connector = new MultiEntraEnrichmentConnector(
         connectorForSnapshot(aggregateBase()),
@@ -1336,10 +1424,11 @@ describe('composite enrichment connector', () => {
       await connector.testConnection()
 
       expect(connector.getConnectorHealth().sources[1]).toMatchObject({
-        readiness: 'ready',
-        dataState: 'complete',
+        readiness: 'degraded',
+        dataState: 'empty',
         pages: 1,
         records: 0,
+        reason: 'empty',
       })
     })
 
@@ -1444,7 +1533,74 @@ describe('composite enrichment connector', () => {
       })
     })
 
-    it('honors the shared page budget across inventory and enrichment operations', async () => {
+    it('keeps stable exact correlation complete when optional preview enrichment fails', async () => {
+      const expected = [expectedSources[0]!]
+      const connector = new MultiEntraEnrichmentConnector(
+        connectorForSnapshot(aggregateBase()),
+        [
+          {
+            ...sourceConfig(expected[0]!),
+            capabilities: {
+              owners: false,
+              appRoleAssignments: false,
+              agentIdentityPreview: true,
+            },
+          },
+        ],
+        {
+          enabled: true,
+          expectedSources: expected,
+          credentialFactory: () => new Credential(),
+          clientFactory: () => ({
+            fetcher: vi
+              .fn<typeof fetch>()
+              .mockResolvedValueOnce(
+                Response.json({
+                  value: [
+                    {
+                      id: '11111111-1111-4111-8111-111111111111',
+                      appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                      displayName: 'Tenant A identity',
+                      servicePrincipalType: 'Application',
+                      accountEnabled: true,
+                      appOwnerOrganizationId: tenantA,
+                      tags: [],
+                    },
+                  ],
+                }),
+              )
+              .mockResolvedValueOnce(new Response('', { status: 403 })),
+          }),
+        },
+      )
+
+      const snapshot = await connector.discover()
+
+      expect(snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(1)
+      expect(connector.getConnectorHealth()).toMatchObject({
+        overall: 'degraded',
+        partial: false,
+        sources: [
+          { id: 'base', readiness: 'ready' },
+          {
+            id: 'entra:project-a',
+            readiness: 'degraded',
+            dataState: 'complete',
+            records: 1,
+            diagnostics: {
+              runsAsEdgesEmitted: 1,
+              previewCoverage: {
+                status: 'authorization-required',
+                reason: 'authorization (403)',
+                evidenceReferences: [],
+              },
+            },
+          },
+        ],
+      })
+    })
+
+    it('preserves stable inventory when optional enrichment exhausts the shared page budget', async () => {
       const expected = [expectedSources[0]!]
       const fetcher = vi
         .fn<typeof fetch>()
@@ -1490,10 +1646,14 @@ describe('composite enrichment connector', () => {
       expect(fetcher).toHaveBeenCalledTimes(2)
       expect(connector.getConnectorHealth().sources[1]).toMatchObject({
         readiness: 'degraded',
-        dataState: 'partial',
+        dataState: 'complete',
         pages: 2,
         records: 1,
         reason: 'bounds',
+      })
+      expect(connector.getConnectorHealth()).toMatchObject({
+        overall: 'degraded',
+        partial: false,
       })
     })
 
