@@ -186,6 +186,7 @@ describe('release evidence CLI', () => {
           jobs: { tag: 'e'.repeat(40), digest: null },
         },
         deployed: {
+          deploymentRef: null,
           classification: 'planned',
           observedAt: null,
           source: null,

@@ -42,22 +42,34 @@ const sanitizedScopeSchema = z.strictObject({
   environmentRef: boundedIdSchema,
   sourceRef: boundedIdSchema,
 })
-const evidenceReferencesSchema = z
-  .array(boundedIdSchema)
-  .max(20)
-  .superRefine((value, context) => {
-    const seen = new Set<string>()
-    value.forEach((reference, index) => {
-      if (seen.has(reference)) {
-        context.addIssue({
-          code: 'custom',
-          path: [index],
-          message: 'evidence references must be unique',
-        })
-      }
-      seen.add(reference)
+
+function referenceArraySchema() {
+  return z
+    .array(boundedIdSchema)
+    .max(20)
+    .superRefine((value, context) => {
+      const seen = new Set<string>()
+      value.forEach((reference, index) => {
+        if (seen.has(reference)) {
+          context.addIssue({
+            code: 'custom',
+            path: [index],
+            message: 'evidence references must be unique',
+          })
+        }
+        seen.add(reference)
+      })
     })
-  })
+}
+
+const evidenceReferencesSchema = referenceArraySchema()
+const deploymentReferenceSchema = boundedIdSchema
+const snapshotReferenceSchema = boundedIdSchema
+const liveValidationFindingReferencesManifestSchema = referenceArraySchema()
+const liveValidationFindingReferencesInputSchema =
+  liveValidationFindingReferencesManifestSchema.default([])
+const connectorFindingReferencesManifestSchema = referenceArraySchema()
+const connectorFindingReferencesInputSchema = connectorFindingReferencesManifestSchema.default([])
 
 const imageComponentSchema = z.strictObject({
   tag: imageTagSchema.nullable(),
@@ -71,31 +83,43 @@ const expectedImageEvidenceSchema = z.strictObject({
   jobs: imageComponentSchema,
 })
 
-const deployedImageEvidenceSchema = z
-  .strictObject({
-    classification: evidenceClassificationSchema,
-    observedAt: isoTimestampSchema.nullable().default(null),
-    source: boundedSourceSchema.nullable().default(null),
-    scope: sanitizedScopeSchema.nullable().default(null),
-    evidenceRefs: evidenceReferencesSchema.default([]),
-    web: imageComponentSchema,
-    api: imageComponentSchema,
-    jobs: imageComponentSchema,
-  })
-  .superRefine((value, context) => {
-    if (
-      value.classification === 'live' &&
-      (value.observedAt === null ||
-        value.source === null ||
-        value.scope === null ||
-        value.evidenceRefs.length === 0)
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message: 'live evidence requires sanitized scope and evidence references',
-      })
-    }
-  })
+const deployedImageEvidenceShape = {
+  deploymentRef: deploymentReferenceSchema.nullable(),
+  classification: evidenceClassificationSchema,
+  observedAt: isoTimestampSchema.nullable(),
+  source: boundedSourceSchema.nullable(),
+  scope: sanitizedScopeSchema.nullable(),
+  evidenceRefs: evidenceReferencesSchema,
+  web: imageComponentSchema,
+  api: imageComponentSchema,
+  jobs: imageComponentSchema,
+}
+const deployedImageEvidenceObjectSchema = z.strictObject(deployedImageEvidenceShape)
+type DeployedImageEvidence = z.infer<typeof deployedImageEvidenceObjectSchema>
+
+function addDeployedImageEvidenceIssues(
+  value: DeployedImageEvidence,
+  context: z.RefinementCtx,
+): void {
+  if (
+    value.classification === 'live' &&
+    (value.deploymentRef === null ||
+      value.observedAt === null ||
+      value.source === null ||
+      value.scope === null ||
+      value.evidenceRefs.length === 0)
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message:
+        'live deployment evidence requires deployment reference, source, observedAt, sanitized scope, and evidence references',
+    })
+  }
+}
+
+const deployedImageManifestSchema = deployedImageEvidenceObjectSchema.superRefine(
+  addDeployedImageEvidenceIssues,
+)
 
 const imageSetInputSchema = z.strictObject({
   web: imageComponentSchema,
@@ -103,7 +127,16 @@ const imageSetInputSchema = z.strictObject({
   jobs: imageComponentSchema,
 })
 
-const deployedImageInputSchema = deployedImageEvidenceSchema
+const deployedImageInputSchema = z
+  .strictObject({
+    ...deployedImageEvidenceShape,
+    deploymentRef: deploymentReferenceSchema.nullable().default(null),
+    observedAt: isoTimestampSchema.nullable().default(null),
+    source: boundedSourceSchema.nullable().default(null),
+    scope: sanitizedScopeSchema.nullable().default(null),
+    evidenceRefs: evidenceReferencesSchema.default([]),
+  })
+  .superRefine(addDeployedImageEvidenceIssues)
 
 export const SAFE_CONFIGURATION_KEYS = [
   'AGENT365_CONNECTOR_ENABLED',
@@ -160,45 +193,56 @@ const configurationEvidenceSchema = z.discriminatedUnion('classification', [
   }),
 ])
 
-const checkEvidenceSchema = z
+const checkEvidenceShape = {
+  classification: evidenceClassificationSchema,
+  outcome: evidenceOutcomeSchema,
+  command: z.string().trim().min(1).max(300).nullable(),
+  completedAt: isoTimestampSchema.nullable(),
+  summary: boundedTextSchema,
+}
+const checkEvidenceObjectSchema = z.strictObject(checkEvidenceShape)
+type CheckEvidence = z.infer<typeof checkEvidenceObjectSchema>
+
+function addCheckEvidenceIssues(value: CheckEvidence, context: z.RefinementCtx): void {
+  if (value.outcome === 'pass' && (value.command === null || value.completedAt === null)) {
+    context.addIssue({
+      code: 'custom',
+      message: 'passing check requires command and completedAt',
+    })
+  }
+  if (
+    (value.classification === 'blocked' || value.classification === 'planned') &&
+    value.outcome === 'pass'
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'blocked or planned evidence cannot pass',
+    })
+  }
+  if (value.outcome === 'pass' || value.outcome === 'fail') {
+    if (value.classification !== 'tested') {
+      context.addIssue({
+        code: 'custom',
+        message: 'local check pass or fail requires the tested classification',
+      })
+    }
+  }
+  if (value.outcome === 'blocked' && value.classification !== 'blocked') {
+    context.addIssue({
+      code: 'custom',
+      message: 'blocked check outcome requires the blocked classification',
+    })
+  }
+}
+
+const checkEvidenceSchema = checkEvidenceObjectSchema.superRefine(addCheckEvidenceIssues)
+const checkInputSchema = z
   .strictObject({
-    classification: evidenceClassificationSchema,
-    outcome: evidenceOutcomeSchema,
+    ...checkEvidenceShape,
     command: z.string().trim().min(1).max(300).nullable().default(null),
     completedAt: isoTimestampSchema.nullable().default(null),
-    summary: boundedTextSchema,
   })
-  .superRefine((value, context) => {
-    if (value.outcome === 'pass' && (value.command === null || value.completedAt === null)) {
-      context.addIssue({
-        code: 'custom',
-        message: 'passing check requires command and completedAt',
-      })
-    }
-    if (
-      (value.classification === 'blocked' || value.classification === 'planned') &&
-      value.outcome === 'pass'
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message: 'blocked or planned evidence cannot pass',
-      })
-    }
-    if (value.outcome === 'pass' || value.outcome === 'fail') {
-      if (value.classification !== 'tested') {
-        context.addIssue({
-          code: 'custom',
-          message: 'local check pass or fail requires the tested classification',
-        })
-      }
-    }
-    if (value.outcome === 'blocked' && value.classification !== 'blocked') {
-      context.addIssue({
-        code: 'custom',
-        message: 'blocked check outcome requires the blocked classification',
-      })
-    }
-  })
+  .superRefine(addCheckEvidenceIssues)
 
 const checkEvidenceSetSchema = z.strictObject({
   lint: checkEvidenceSchema,
@@ -210,177 +254,254 @@ const checkEvidenceSetSchema = z.strictObject({
 })
 
 const checkInputSetSchema = z.strictObject({
-  lint: checkEvidenceSchema.optional(),
-  typecheck: checkEvidenceSchema.optional(),
-  test: checkEvidenceSchema.optional(),
-  build: checkEvidenceSchema.optional(),
-  e2e: checkEvidenceSchema.optional(),
-  bicep: checkEvidenceSchema.optional(),
+  lint: checkInputSchema.optional(),
+  typecheck: checkInputSchema.optional(),
+  test: checkInputSchema.optional(),
+  build: checkInputSchema.optional(),
+  e2e: checkInputSchema.optional(),
+  bicep: checkInputSchema.optional(),
 })
 
-const liveValidationEvidenceSchema = z
-  .strictObject({
-    id: boundedIdSchema,
-    classification: evidenceClassificationSchema,
-    outcome: evidenceOutcomeSchema,
-    freshness: evidenceFreshnessSchema,
-    observedAt: isoTimestampSchema.nullable().default(null),
-    source: boundedSourceSchema.nullable().default(null),
-    scope: sanitizedScopeSchema.nullable().default(null),
-    evidenceRefs: evidenceReferencesSchema.default([]),
-    summary: boundedTextSchema,
-  })
-  .superRefine((value, context) => {
-    const evaluated = value.outcome === 'pass' || value.outcome === 'fail'
-    if (
-      (value.classification === 'live' || evaluated) &&
-      (value.observedAt === null ||
-        value.source === null ||
-        value.scope === null ||
-        value.evidenceRefs.length === 0)
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message:
-          'live or evaluated validation evidence requires source, observedAt, sanitized scope, and evidence references',
-      })
-    }
-    if (
-      (value.classification === 'blocked' || value.classification === 'planned') &&
-      value.outcome === 'pass'
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message: 'blocked or planned evidence cannot pass',
-      })
-    }
-  })
+const liveValidationEvidenceShape = {
+  id: boundedIdSchema,
+  deploymentRef: deploymentReferenceSchema.nullable(),
+  snapshotRef: snapshotReferenceSchema.nullable(),
+  findingRefs: liveValidationFindingReferencesManifestSchema,
+  classification: evidenceClassificationSchema,
+  outcome: evidenceOutcomeSchema,
+  freshness: evidenceFreshnessSchema,
+  observedAt: isoTimestampSchema.nullable(),
+  source: boundedSourceSchema.nullable(),
+  scope: sanitizedScopeSchema.nullable(),
+  evidenceRefs: evidenceReferencesSchema,
+  summary: boundedTextSchema,
+}
+const liveValidationEvidenceObjectSchema = z.strictObject(liveValidationEvidenceShape)
+type LiveValidationEvidence = z.infer<typeof liveValidationEvidenceObjectSchema>
 
-const connectorEvidenceSchema = z
-  .strictObject({
-    connectorId: boundedIdSchema,
-    classification: evidenceClassificationSchema,
-    readiness: connectorReadinessSchema,
-    freshness: evidenceFreshnessSchema,
-    observedAt: isoTimestampSchema.nullable().default(null),
-    source: boundedSourceSchema.nullable().default(null),
-    scope: sanitizedScopeSchema.nullable().default(null),
-    evidenceRefs: evidenceReferencesSchema.default([]),
-    summary: boundedTextSchema,
-  })
-  .superRefine((value, context) => {
-    if (value.classification === 'live' && (value.observedAt === null || value.source === null)) {
-      context.addIssue({
-        code: 'custom',
-        message: 'live evidence requires source and observedAt',
-      })
-    }
-    if (
-      value.classification === 'live' &&
-      (value.scope === null || value.evidenceRefs.length === 0)
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message: 'live evidence requires sanitized scope and evidence references',
-      })
-    }
-    if (
-      value.readiness === 'ready' &&
-      (value.classification !== 'live' || value.freshness !== 'fresh')
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message: 'ready connector evidence must be live and fresh',
-      })
-    }
-    if (value.classification === 'blocked' && value.readiness !== 'blocked') {
-      context.addIssue({
-        code: 'custom',
-        message: 'blocked connector evidence must use blocked readiness',
-      })
-    }
-    if (value.classification === 'planned' && value.readiness !== 'planned') {
-      context.addIssue({
-        code: 'custom',
-        message: 'planned connector evidence must use planned readiness',
-      })
-    }
-  })
+function addLiveValidationEvidenceIssues(
+  value: LiveValidationEvidence,
+  context: z.RefinementCtx,
+): void {
+  const evaluated = value.outcome === 'pass' || value.outcome === 'fail'
+  if (
+    (value.classification === 'live' || evaluated) &&
+    (value.observedAt === null ||
+      value.source === null ||
+      value.scope === null ||
+      value.evidenceRefs.length === 0)
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message:
+        'live or evaluated validation evidence requires source, observedAt, sanitized scope, and evidence references',
+    })
+  }
+  if (
+    value.classification === 'live' &&
+    evaluated &&
+    (value.deploymentRef === null || value.snapshotRef === null || value.findingRefs.length === 0)
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'evaluated live validation requires deployment, snapshot, and finding references',
+    })
+  }
+  if (
+    (value.classification === 'blocked' || value.classification === 'planned') &&
+    value.outcome === 'pass'
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'blocked or planned evidence cannot pass',
+    })
+  }
+}
 
-const oneRaiEvidenceSchema = z
+const liveValidationManifestSchema = liveValidationEvidenceObjectSchema.superRefine(
+  addLiveValidationEvidenceIssues,
+)
+const liveValidationInputSchema = z
   .strictObject({
-    classification: evidenceClassificationSchema,
-    outcome: evidenceOutcomeSchema,
+    ...liveValidationEvidenceShape,
+    deploymentRef: deploymentReferenceSchema.nullable().default(null),
+    snapshotRef: snapshotReferenceSchema.nullable().default(null),
+    findingRefs: liveValidationFindingReferencesInputSchema,
     observedAt: isoTimestampSchema.nullable().default(null),
     source: boundedSourceSchema.nullable().default(null),
     scope: sanitizedScopeSchema.nullable().default(null),
     evidenceRefs: evidenceReferencesSchema.default([]),
-    syntheticOnly: z.boolean().nullable(),
-    automated: z.boolean().nullable(),
-    cases: z.number().int().min(0).nullable(),
-    defects: z.number().int().min(0).nullable(),
-    humanReviewRequired: z.boolean().nullable(),
-    summary: boundedTextSchema,
   })
-  .superRefine((value, context) => {
-    const requiresAttribution =
-      value.classification === 'live' ||
-      value.classification === 'tested' ||
-      value.outcome === 'pass' ||
-      value.outcome === 'fail'
-    if (
-      requiresAttribution &&
-      (value.observedAt === null ||
-        value.source === null ||
-        value.scope === null ||
-        value.evidenceRefs.length === 0)
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message:
-          'live, tested, or evaluated OneRAI evidence requires source, observedAt, sanitized scope, and evidence references',
-      })
-    }
-    if (value.syntheticOnly === true && value.classification !== 'synthetic') {
-      context.addIssue({
-        code: 'custom',
-        message: 'synthetic OneRAI evidence must use the synthetic classification',
-      })
-    }
-    if (value.classification === 'synthetic' && value.syntheticOnly !== true) {
-      context.addIssue({
-        code: 'custom',
-        message: 'synthetic OneRAI classification requires syntheticOnly true',
-      })
-    }
-    if (value.classification === 'live' && value.syntheticOnly !== false) {
-      context.addIssue({
-        code: 'custom',
-        message: 'live OneRAI classification requires syntheticOnly false',
-      })
-    }
-    if (
-      (value.classification === 'blocked' || value.classification === 'planned') &&
-      value.outcome === 'pass'
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message: 'blocked or planned evidence cannot pass',
-      })
-    }
-    if (value.outcome === 'pass' && (value.cases === null || value.cases === 0)) {
-      context.addIssue({
-        code: 'custom',
-        message: 'passing OneRAI evidence requires at least one evaluated case',
-      })
-    }
-    if (value.cases !== null && value.defects !== null && value.defects > value.cases) {
-      context.addIssue({
-        code: 'custom',
-        message: 'OneRAI defects cannot exceed evaluated cases',
-      })
-    }
+  .superRefine(addLiveValidationEvidenceIssues)
+
+const connectorEvidenceShape = {
+  connectorId: boundedIdSchema,
+  deploymentRef: deploymentReferenceSchema.nullable(),
+  snapshotRef: snapshotReferenceSchema.nullable(),
+  findingRefs: connectorFindingReferencesManifestSchema,
+  classification: evidenceClassificationSchema,
+  readiness: connectorReadinessSchema,
+  freshness: evidenceFreshnessSchema,
+  observedAt: isoTimestampSchema.nullable(),
+  source: boundedSourceSchema.nullable(),
+  scope: sanitizedScopeSchema.nullable(),
+  evidenceRefs: evidenceReferencesSchema,
+  summary: boundedTextSchema,
+}
+const connectorEvidenceObjectSchema = z.strictObject(connectorEvidenceShape)
+type ConnectorEvidence = z.infer<typeof connectorEvidenceObjectSchema>
+
+function addConnectorEvidenceIssues(value: ConnectorEvidence, context: z.RefinementCtx): void {
+  if (value.classification === 'live' && (value.observedAt === null || value.source === null)) {
+    context.addIssue({
+      code: 'custom',
+      message: 'live evidence requires source and observedAt',
+    })
+  }
+  if (
+    value.classification === 'live' &&
+    (value.scope === null || value.evidenceRefs.length === 0)
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'live evidence requires sanitized scope and evidence references',
+    })
+  }
+  if (
+    value.readiness === 'ready' &&
+    (value.classification !== 'live' ||
+      value.freshness !== 'fresh' ||
+      value.deploymentRef === null ||
+      value.snapshotRef === null ||
+      value.findingRefs.length === 0)
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message:
+        'ready connector evidence must be live and fresh with deployment, snapshot, and finding references',
+    })
+  }
+  if (value.classification === 'blocked' && value.readiness !== 'blocked') {
+    context.addIssue({
+      code: 'custom',
+      message: 'blocked connector evidence must use blocked readiness',
+    })
+  }
+  if (value.classification === 'planned' && value.readiness !== 'planned') {
+    context.addIssue({
+      code: 'custom',
+      message: 'planned connector evidence must use planned readiness',
+    })
+  }
+}
+
+const connectorManifestSchema = connectorEvidenceObjectSchema.superRefine(
+  addConnectorEvidenceIssues,
+)
+const connectorInputSchema = z
+  .strictObject({
+    ...connectorEvidenceShape,
+    deploymentRef: deploymentReferenceSchema.nullable().default(null),
+    snapshotRef: snapshotReferenceSchema.nullable().default(null),
+    findingRefs: connectorFindingReferencesInputSchema,
+    observedAt: isoTimestampSchema.nullable().default(null),
+    source: boundedSourceSchema.nullable().default(null),
+    scope: sanitizedScopeSchema.nullable().default(null),
+    evidenceRefs: evidenceReferencesSchema.default([]),
   })
+  .superRefine(addConnectorEvidenceIssues)
+
+const oneRaiEvidenceShape = {
+  classification: evidenceClassificationSchema,
+  outcome: evidenceOutcomeSchema,
+  observedAt: isoTimestampSchema.nullable(),
+  source: boundedSourceSchema.nullable(),
+  scope: sanitizedScopeSchema.nullable(),
+  evidenceRefs: evidenceReferencesSchema,
+  syntheticOnly: z.boolean().nullable(),
+  automated: z.boolean().nullable(),
+  cases: z.number().int().min(0).nullable(),
+  defects: z.number().int().min(0).nullable(),
+  humanReviewRequired: z.boolean().nullable(),
+  summary: boundedTextSchema,
+}
+const oneRaiEvidenceObjectSchema = z.strictObject(oneRaiEvidenceShape)
+type OneRaiEvidence = z.infer<typeof oneRaiEvidenceObjectSchema>
+
+function addOneRaiEvidenceIssues(value: OneRaiEvidence, context: z.RefinementCtx): void {
+  const evaluated = value.outcome === 'pass' || value.outcome === 'fail'
+  const requiresAttribution =
+    value.classification === 'live' || value.classification === 'tested' || evaluated
+  if (
+    requiresAttribution &&
+    (value.observedAt === null ||
+      value.source === null ||
+      value.scope === null ||
+      value.evidenceRefs.length === 0)
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message:
+        'live, tested, or evaluated OneRAI evidence requires source, observedAt, sanitized scope, and evidence references',
+    })
+  }
+  if (value.classification === 'synthetic' && value.syntheticOnly !== true) {
+    context.addIssue({
+      code: 'custom',
+      message: 'synthetic OneRAI classification requires syntheticOnly true',
+    })
+  }
+  if (
+    (value.classification === 'live' || value.classification === 'tested') &&
+    value.syntheticOnly !== false
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'non-synthetic OneRAI classification requires syntheticOnly false',
+    })
+  }
+  if (
+    (value.classification === 'blocked' || value.classification === 'planned') &&
+    value.syntheticOnly !== null
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'planned or blocked OneRAI evidence requires syntheticOnly null',
+    })
+  }
+  if (
+    (value.classification === 'blocked' || value.classification === 'planned') &&
+    value.outcome === 'pass'
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'blocked or planned evidence cannot pass',
+    })
+  }
+  if (value.outcome === 'pass' && (value.cases === null || value.cases === 0)) {
+    context.addIssue({
+      code: 'custom',
+      message: 'passing OneRAI evidence requires at least one evaluated case',
+    })
+  }
+  if (value.cases !== null && value.defects !== null && value.defects > value.cases) {
+    context.addIssue({
+      code: 'custom',
+      message: 'OneRAI defects cannot exceed evaluated cases',
+    })
+  }
+}
+
+const oneRaiManifestSchema = oneRaiEvidenceObjectSchema.superRefine(addOneRaiEvidenceIssues)
+const oneRaiInputSchema = z
+  .strictObject({
+    ...oneRaiEvidenceShape,
+    observedAt: isoTimestampSchema.nullable().default(null),
+    source: boundedSourceSchema.nullable().default(null),
+    scope: sanitizedScopeSchema.nullable().default(null),
+    evidenceRefs: evidenceReferencesSchema.default([]),
+  })
+  .superRefine(addOneRaiEvidenceIssues)
 
 const releaseMetadataSchema = z.strictObject({
   commitSha: shaSchema,
@@ -391,11 +512,23 @@ const releaseMetadataSchema = z.strictObject({
 
 const imageEvidenceSchema = z.strictObject({
   expected: expectedImageEvidenceSchema,
-  deployed: deployedImageEvidenceSchema,
+  deployed: deployedImageManifestSchema,
 })
 
 const liveValidationEvidenceSetSchema = z
-  .array(liveValidationEvidenceSchema)
+  .array(liveValidationManifestSchema)
+  .max(50)
+  .superRefine((values, context) => {
+    addDuplicateIdentityIssues(
+      values.map((validation) => validation.id),
+      'id',
+      'live validation',
+      context,
+    )
+  })
+
+const liveValidationInputSetSchema = z
+  .array(liveValidationInputSchema)
   .max(50)
   .superRefine((values, context) => {
     addDuplicateIdentityIssues(
@@ -407,7 +540,7 @@ const liveValidationEvidenceSetSchema = z
   })
 
 const connectorEvidenceSetSchema = z
-  .array(connectorEvidenceSchema)
+  .array(connectorManifestSchema)
   .max(100)
   .superRefine((values, context) => {
     addDuplicateIdentityIssues(
@@ -418,15 +551,45 @@ const connectorEvidenceSetSchema = z
     )
   })
 
-export const releaseEvidenceInputSchema = z.strictObject({
-  expectedImages: imageSetInputSchema.optional(),
-  deployedImages: deployedImageInputSchema.optional(),
-  safeConfiguration: safeConfigurationSchema.optional(),
-  checks: checkInputSetSchema.optional(),
-  liveValidations: liveValidationEvidenceSetSchema.optional(),
-  connectors: connectorEvidenceSetSchema.optional(),
-  oneRai: oneRaiEvidenceSchema.optional(),
-})
+const connectorInputSetSchema = z
+  .array(connectorInputSchema)
+  .max(100)
+  .superRefine((values, context) => {
+    addDuplicateIdentityIssues(
+      values.map((connector) => connector.connectorId),
+      'connectorId',
+      'connector',
+      context,
+    )
+  })
+
+export const releaseEvidenceInputSchema = z
+  .strictObject({
+    expectedImages: imageSetInputSchema.optional(),
+    deployedImages: deployedImageInputSchema.optional(),
+    safeConfiguration: safeConfigurationSchema.optional(),
+    checks: checkInputSetSchema.optional(),
+    liveValidations: liveValidationInputSetSchema.optional(),
+    connectors: connectorInputSetSchema.optional(),
+    oneRai: oneRaiInputSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    addConsistentScopeIssues(
+      [
+        { scope: value.deployedImages?.scope ?? null, path: ['deployedImages', 'scope'] },
+        ...(value.liveValidations ?? []).map((validation, index) => ({
+          scope: validation.scope,
+          path: ['liveValidations', index, 'scope'] as const,
+        })),
+        ...(value.connectors ?? []).map((connector, index) => ({
+          scope: connector.scope,
+          path: ['connectors', index, 'scope'] as const,
+        })),
+        { scope: value.oneRai?.scope ?? null, path: ['oneRai', 'scope'] },
+      ],
+      context,
+    )
+  })
 
 const releaseEvidenceManifestObjectSchema = z.strictObject({
   schemaVersion: z.literal(RELEASE_EVIDENCE_SCHEMA_VERSION),
@@ -436,7 +599,7 @@ const releaseEvidenceManifestObjectSchema = z.strictObject({
   checks: checkEvidenceSetSchema,
   liveValidations: liveValidationEvidenceSetSchema,
   connectors: connectorEvidenceSetSchema,
-  oneRai: oneRaiEvidenceSchema,
+  oneRai: oneRaiManifestSchema,
 })
 
 const imageComponents = ['web', 'api', 'jobs'] as const
@@ -483,6 +646,7 @@ function addFreshnessIssues(
   value: {
     readonly freshness: z.infer<typeof evidenceFreshnessSchema>
     readonly observedAt: string | null
+    readonly outcome?: z.infer<typeof evidenceOutcomeSchema>
   },
   generatedAt: number,
   freshnessWindowHours: number,
@@ -513,6 +677,51 @@ function addFreshnessIssues(
       path: [...path, 'freshness'],
       message: `freshness must be ${expectedFreshness} relative to release.generatedAt and freshnessWindowHours`,
     })
+  }
+  if (value.outcome === 'pass' && expectedFreshness !== 'fresh') {
+    context.addIssue({
+      code: 'custom',
+      path: [...path, 'outcome'],
+      message: 'passing live validation must be fresh',
+    })
+  }
+}
+
+function referencesMatch(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false
+  const rightReferences = new Set(right)
+  return left.every((reference) => rightReferences.has(reference))
+}
+
+type SanitizedScope = z.infer<typeof sanitizedScopeSchema>
+type ScopeDimension = keyof Pick<SanitizedScope, 'estateRef' | 'tenantRef' | 'environmentRef'>
+
+interface ScopedEvidence {
+  readonly scope: SanitizedScope | null
+  readonly path: readonly (string | number)[]
+}
+
+function addConsistentScopeIssues(
+  evidence: readonly ScopedEvidence[],
+  context: z.RefinementCtx,
+): void {
+  const scopedEvidence = evidence.filter(
+    (item): item is ScopedEvidence & { readonly scope: SanitizedScope } => item.scope !== null,
+  )
+  const expectedScope = scopedEvidence[0]?.scope
+  if (expectedScope === undefined) return
+
+  const dimensions: readonly ScopeDimension[] = ['estateRef', 'tenantRef', 'environmentRef']
+  for (const item of scopedEvidence.slice(1)) {
+    for (const dimension of dimensions) {
+      if (item.scope[dimension] !== expectedScope[dimension]) {
+        context.addIssue({
+          code: 'custom',
+          path: [...item.path, dimension],
+          message: `all manifest evidence must use the same ${dimension}`,
+        })
+      }
+    }
   }
 }
 
@@ -585,14 +794,38 @@ export const releaseEvidenceManifestSchema = releaseEvidenceManifestObjectSchema
     }
 
     const generatedAt = Date.parse(value.release.generatedAt)
-    addTimestampIssue(
+    const deploymentObservedAt = addTimestampIssue(
       deployedImages.observedAt,
       generatedAt,
       ['images', 'deployed', 'observedAt'],
       context,
     )
     for (const [name, check] of Object.entries(value.checks)) {
-      addTimestampIssue(check.completedAt, generatedAt, ['checks', name, 'completedAt'], context)
+      const completedAt = addTimestampIssue(
+        check.completedAt,
+        generatedAt,
+        ['checks', name, 'completedAt'],
+        context,
+      )
+      if (check.outcome === 'pass') {
+        if (value.release.dirty) {
+          context.addIssue({
+            code: 'custom',
+            path: ['checks', name, 'outcome'],
+            message: 'passing checks cannot attest a dirty release',
+          })
+        }
+        if (
+          completedAt !== null &&
+          (generatedAt - completedAt) / (60 * 60 * 1000) > value.release.freshnessWindowHours
+        ) {
+          context.addIssue({
+            code: 'custom',
+            path: ['checks', name, 'completedAt'],
+            message: 'passing checks must be fresh relative to release.generatedAt',
+          })
+        }
+      }
     }
     value.liveValidations.forEach((validation, index) => {
       addFreshnessIssues(
@@ -602,6 +835,96 @@ export const releaseEvidenceManifestSchema = releaseEvidenceManifestObjectSchema
         ['liveValidations', index],
         context,
       )
+      if (validation.classification !== 'live' || validation.outcome !== 'pass') return
+
+      if (
+        deployedImages.classification !== 'live' ||
+        deployedImages.deploymentRef === null ||
+        deploymentObservedAt === null
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['liveValidations', index, 'outcome'],
+          message: 'passing live validation requires a live deployed candidate',
+        })
+      }
+      if (validation.deploymentRef !== deployedImages.deploymentRef) {
+        context.addIssue({
+          code: 'custom',
+          path: ['liveValidations', index, 'deploymentRef'],
+          message: 'validation deploymentRef must match the deployed candidate',
+        })
+      }
+      if (
+        deploymentObservedAt !== null &&
+        validation.observedAt !== null &&
+        Date.parse(validation.observedAt) <= deploymentObservedAt
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['liveValidations', index, 'observedAt'],
+          message: 'validation observation must be after deployment',
+        })
+      }
+      if (value.connectors.length === 0) {
+        context.addIssue({
+          code: 'custom',
+          path: ['liveValidations', index, 'outcome'],
+          message: 'passing live validation requires linked connector evidence',
+        })
+      }
+      value.connectors.forEach((connector, connectorIndex) => {
+        if (connector.deploymentRef !== validation.deploymentRef) {
+          context.addIssue({
+            code: 'custom',
+            path: ['connectors', connectorIndex, 'deploymentRef'],
+            message: 'connector deploymentRef must match the passing validation',
+          })
+        }
+        if (connector.snapshotRef !== validation.snapshotRef) {
+          context.addIssue({
+            code: 'custom',
+            path: ['connectors', connectorIndex, 'snapshotRef'],
+            message: 'connector snapshotRef must match the passing validation',
+          })
+        }
+        if (!referencesMatch(connector.findingRefs, validation.findingRefs)) {
+          context.addIssue({
+            code: 'custom',
+            path: ['connectors', connectorIndex, 'findingRefs'],
+            message: 'connector findingRefs must match the passing validation',
+          })
+        }
+        if (connector.readiness !== 'ready') {
+          context.addIssue({
+            code: 'custom',
+            path: ['connectors', connectorIndex, 'readiness'],
+            message: 'passing live validation contradicts connector readiness',
+          })
+        }
+        if (
+          deploymentObservedAt !== null &&
+          connector.observedAt !== null &&
+          Date.parse(connector.observedAt) <= deploymentObservedAt
+        ) {
+          context.addIssue({
+            code: 'custom',
+            path: ['connectors', connectorIndex, 'observedAt'],
+            message: 'connector observation must be after deployment',
+          })
+        }
+        if (
+          validation.observedAt !== null &&
+          connector.observedAt !== null &&
+          Date.parse(connector.observedAt) > Date.parse(validation.observedAt)
+        ) {
+          context.addIssue({
+            code: 'custom',
+            path: ['connectors', connectorIndex, 'observedAt'],
+            message: 'connector observation cannot be after the passing validation',
+          })
+        }
+      })
     })
     value.connectors.forEach((connector, index) => {
       addFreshnessIssues(
@@ -612,14 +935,46 @@ export const releaseEvidenceManifestSchema = releaseEvidenceManifestObjectSchema
         context,
       )
     })
-    addTimestampIssue(value.oneRai.observedAt, generatedAt, ['oneRai', 'observedAt'], context)
+    const oneRaiObservedAt = addTimestampIssue(
+      value.oneRai.observedAt,
+      generatedAt,
+      ['oneRai', 'observedAt'],
+      context,
+    )
+    if (
+      value.oneRai.outcome === 'pass' &&
+      oneRaiObservedAt !== null &&
+      (generatedAt - oneRaiObservedAt) / (60 * 60 * 1000) > value.release.freshnessWindowHours
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['oneRai', 'outcome'],
+        message: 'passing OneRAI evidence must be fresh relative to release.generatedAt',
+      })
+    }
+
+    addConsistentScopeIssues(
+      [
+        { scope: deployedImages.scope, path: ['images', 'deployed', 'scope'] },
+        ...value.liveValidations.map((validation, index) => ({
+          scope: validation.scope,
+          path: ['liveValidations', index, 'scope'] as const,
+        })),
+        ...value.connectors.map((connector, index) => ({
+          scope: connector.scope,
+          path: ['connectors', index, 'scope'] as const,
+        })),
+        { scope: value.oneRai.scope, path: ['oneRai', 'scope'] },
+      ],
+      context,
+    )
   },
 )
 
 export type EvidenceClassification = z.infer<typeof evidenceClassificationSchema>
 export type EvidenceOutcome = z.infer<typeof evidenceOutcomeSchema>
 export type SafeConfiguration = z.infer<typeof safeConfigurationSchema>
-export type ReleaseEvidenceInput = z.infer<typeof releaseEvidenceInputSchema>
+export type ReleaseEvidenceInput = z.input<typeof releaseEvidenceInputSchema>
 export type ReleaseEvidenceManifest = z.infer<typeof releaseEvidenceManifestSchema>
 
 export function generateReleaseEvidenceJsonSchema() {
@@ -822,6 +1177,7 @@ export function buildReleaseEvidence(
         ...expected,
       },
       deployed: parsedInput.deployedImages ?? {
+        deploymentRef: null,
         classification: 'planned',
         observedAt: null,
         source: null,

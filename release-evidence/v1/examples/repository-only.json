@@ -23,6 +23,7 @@
       }
     },
     "deployed": {
+      "deploymentRef": null,
       "classification": "planned",
       "observedAt": null,
       "source": null,

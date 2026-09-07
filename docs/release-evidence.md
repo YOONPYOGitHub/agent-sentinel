@@ -57,16 +57,22 @@ Check and validation outcomes are `pass`, `fail`, `unknown`, `blocked`, or
 sanitized source, observation timestamp, scope, and at least one evidence
 reference regardless of classification. OneRAI evidence requires the same
 attribution when it is classified `tested` or has a `pass` or `fail` outcome.
-A `live` OneRAI record must explicitly set `syntheticOnly` to `false`; null or
-omitted synthetic provenance cannot support a live classification. Missing or
-unknown provenance never becomes pass.
+Passing repository checks must be within the explicit freshness window and
+cannot attest a dirty worktree. A passing live validation must also identify
+the exact deployed candidate, snapshot, and evaluated findings. Every included
+connector must be ready against those same typed references, with exact timing
+order `deployment.observedAt < connector.observedAt <= validation.observedAt`.
+OneRAI classification and `syntheticOnly` must agree exactly: `synthetic`
+requires `true`, `live` or `tested` requires `false`, and `planned` or `blocked`
+requires `null`. Missing, stale, or unknown provenance never becomes pass.
 
 Connector readiness is separately typed as `ready`, `degraded`,
 `authorization-required`, `insufficient-data`, `unknown`, `blocked`, or
 `planned`. `ready` is valid only for fresh live evidence. Version 1 fixes the
 freshness window at 24 hours and records that window explicitly in
 `release.freshnessWindowHours`. `fresh` and `stale` are computed relative to
-`release.generatedAt`; a missing observation must remain `unknown`.
+`release.generatedAt`; a missing observation must remain `unknown`. Passing
+OneRAI evidence is also rejected after the same 24-hour window.
 
 ## Manifest contents
 
@@ -76,27 +82,35 @@ Version 1 covers:
   freshness window;
 - expected web/API/jobs full-SHA image tags and optional SHA-256 digests;
 - deployed web/API/jobs full-SHA image tags and mandatory digests for live
-  deployment evidence;
+  deployment evidence, plus an opaque typed deployment reference;
 - SHA-256 over canonical, allow-listed configuration, retaining only key names;
 - lint, typecheck, unit test, build, E2E, and Bicep outcomes;
-- bounded live-validation summaries;
-- connector readiness and freshness;
+- bounded live-validation summaries with typed deployment, snapshot, and
+  finding references;
+- connector readiness and freshness linked to the same typed release
+  references;
 - a bounded OneRAI summary with synthetic and human-review state.
 
 Live records retain sanitized opaque `estateRef`, `tenantRef`,
 `environmentRef`, and `sourceRef` values plus bounded evidence references.
 These are correlation handles, not raw provider payloads or private cloud
-identifiers.
+identifiers. All scoped records in one manifest must use the same estate,
+tenant, and environment references; source references remain record-specific.
 
 ## Sanitized input
 
-The input object is strict. Unknown properties are rejected. A representative
-shape is below. The repeated `a` value represents the exact full SHA of the
-checked-out release being generated:
+The input object is strict. Unknown properties are rejected. For generator
+ergonomics, omitted nullable provenance fields, check command/completion fields,
+and evidence-reference arrays are defaulted to `null` or `[]` at this input
+boundary. Generated and externally validated manifests must include every field
+explicitly; the output schema does not apply defaults. A representative shape
+is below. The repeated `a` value represents the exact full SHA of the checked-out
+release being generated:
 
 ```json
 {
   "deployedImages": {
+    "deploymentRef": "deployment-candidate-a",
     "classification": "live",
     "observedAt": "2026-09-04T00:00:00.000Z",
     "source": "sanitized-deployment-observation",
@@ -205,10 +219,15 @@ hide an earlier secret-shaped value.
 The validator also rejects contradictions including:
 
 - a passing check without a command and completion timestamp;
+- a stale passing check or any passing check attached to a dirty worktree;
 - live evidence, or any evaluated live-validation pass/fail, without observation
   time, source, sanitized scope, and evidence references;
+- evaluated live validation without typed deployment, snapshot, and finding
+  references;
 - tested or evaluated OneRAI evidence without equivalent attribution;
 - configuration classification that contradicts its hash or key list;
+- mismatched estate, tenant, or environment references across manifest
+  evidence;
 - duplicate live-validation IDs, connector IDs, or evidence references;
 - timestamps later than `release.generatedAt`;
 - freshness values that contradict the explicit 24-hour window;
@@ -218,9 +237,19 @@ The validator also rejects contradictions including:
 - a digest without a corresponding image tag;
 - expected and deployed digests that contradict each other;
 - a connector marked ready when it is not fresh and live;
+- a passing live validation without a live deployed candidate, with an
+  observation at or before deployment, or with a deployment reference that does
+  not match the deployed candidate;
+- a passing live validation without connector evidence, or with connector
+  deployment, snapshot, finding, freshness, classification, or readiness that
+  contradicts the validation;
+- supporting connector evidence observed at or before deployment, or after its
+  passing live validation;
 - blocked or planned evidence paired with pass;
-- live OneRAI classification unless `syntheticOnly` is explicitly `false`;
-- synthetic OneRAI pass/fail evidence without source and observation time;
+- OneRAI classification and `syntheticOnly` values that do not agree exactly;
+- any tested or evaluated OneRAI evidence without complete source, observation
+  time, sanitized scope, and evidence-reference provenance;
+- passing OneRAI evidence older than the 24-hour freshness window;
 - defect counts greater than evaluated case counts.
 
 Schema drift checks parse and compare canonical JSON, so property ordering and

@@ -52,4 +52,12 @@ describe('release evidence JSON Schema writer', () => {
     expect(releaseEvidenceSchemaMatches(duplicateTitle)).toBe(false)
     expect(releaseEvidenceSchemaMatches('{not-json')).toBe(false)
   })
+
+  it('rejects drift in the generated typed reference contract', () => {
+    const generated = JSON.stringify(generateReleaseEvidenceJsonSchema())
+    const structurallyDrifted = generated.replace('"snapshotRef"', '"snapshotReference"')
+
+    expect(structurallyDrifted).not.toBe(generated)
+    expect(releaseEvidenceSchemaMatches(structurallyDrifted)).toBe(false)
+  })
 })
