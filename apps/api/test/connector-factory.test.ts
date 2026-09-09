@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   ConnectorSourceDefinition,
+  ConnectorSourceReadModel,
   ConnectorSourceRepository,
   EstateContext,
 } from '@agent-sentinel/domain'
+import { hydratePersistedConnectorSourceDefinition } from '@agent-sentinel/domain'
 import type { OperationAwareAgentConnector } from '@agent-sentinel/connector-sdk'
 import {
   buildDeploymentConnectorSources,
@@ -57,9 +59,37 @@ function agent365RuntimeSource(): ConnectorSourceDefinition {
   }
 }
 
-function runtimeRepository(
-  values: readonly ConnectorSourceDefinition[],
-): ConnectorSourceRepository {
+function migrationRequiredOtelSource(): ConnectorSourceReadModel {
+  return hydratePersistedConnectorSourceDefinition({
+    estateId: runtimeEstate.id,
+    tenantId: runtimeEstate.tenantId,
+    environment: runtimeEstate.environment,
+    sourceId: 'azure-monitor-legacy',
+    connectorType: 'azure-monitor-otel',
+    displayName: 'Legacy Azure Monitor',
+    enabled: true,
+    origin: 'user',
+    configuration: {
+      type: 'azure-monitor-otel',
+      workspaceId: '00000000-0000-4000-8000-000000000003',
+      logsBaseUrl: 'https://api.loganalytics.io',
+      baselineWindowHours: 168,
+      observedWindowHours: 24,
+      requestTimeoutMs: 15_000,
+      maxResponseBytes: 4_194_304,
+    },
+    credential: { mode: 'default' },
+    testStatus: { status: 'not-tested' },
+    version: 1,
+    etag: 'etag-azure-monitor-legacy',
+    createdBy: { type: 'service-principal', id: 'configuration-api' },
+    updatedBy: { type: 'service-principal', id: 'configuration-api' },
+    createdAt: '2026-09-09T00:00:00.000Z',
+    updatedAt: '2026-09-09T00:00:00.000Z',
+  })
+}
+
+function runtimeRepository(values: readonly ConnectorSourceReadModel[]): ConnectorSourceRepository {
   return {
     create: () => Promise.reject(new Error('not used')),
     findById: () => Promise.resolve(null),
@@ -454,6 +484,58 @@ describe('connector selection', () => {
         }),
       ]),
     )
+  })
+
+  it('activates Agent 365 when a migration-required legacy OTel source coexists in the API repository', async () => {
+    const result = await createConfiguredConnectorForEstate(
+      runtimeEstate,
+      runtimeRepository([migrationRequiredOtelSource(), agent365RuntimeSource()]),
+      {
+        AGENT_SENTINEL_CONNECTOR: 'foundry',
+        AGENT_SENTINEL_TENANT_ID: runtimeEstate.tenantId,
+        AGENT_SENTINEL_ENVIRONMENT: runtimeEstate.environment,
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+        FOUNDRY_TENANT_ID: runtimeEstate.tenantId,
+        FOUNDRY_ENVIRONMENT: runtimeEstate.environment,
+        AGENT365_CONNECTOR_ENABLED: 'false',
+      },
+      {
+        credentialFactory: () => ({ getToken: () => Promise.resolve(null) }),
+        agent365CredentialFactory: () => ({ getToken: () => Promise.resolve(null) }),
+        agent365Client: {
+          fetcher: () => Promise.resolve(Response.json({ value: [] })),
+        },
+      },
+    )
+
+    expect(
+      result.connector
+        .getConnectorHealth?.()
+        .sources.some((source) => source.id === 'agent365:agent365-live'),
+    ).toBe(true)
+  })
+
+  it('fails the API factory closed for a malformed Agent 365 repository record', async () => {
+    const malformed = {
+      ...agent365RuntimeSource(),
+      migration: {
+        status: 'migration-required',
+        active: false,
+        reason: 'missing-source-project-id',
+        action: 'supply-exact-source-project-id',
+      },
+    } as unknown as ConnectorSourceReadModel
+
+    await expect(
+      createConfiguredConnectorForEstate(runtimeEstate, runtimeRepository([malformed]), {
+        AGENT_SENTINEL_CONNECTOR: 'foundry',
+        AGENT_SENTINEL_TENANT_ID: runtimeEstate.tenantId,
+        AGENT_SENTINEL_ENVIRONMENT: runtimeEstate.environment,
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+        FOUNDRY_TENANT_ID: runtimeEstate.tenantId,
+        FOUNDRY_ENVIRONMENT: runtimeEstate.environment,
+      }),
+    ).rejects.toThrow()
   })
 
   it('rejects an enabled Agent 365 API deployment without a source boundary', async () => {

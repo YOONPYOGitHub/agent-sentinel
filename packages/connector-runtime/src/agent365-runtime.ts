@@ -22,6 +22,8 @@ import {
 import {
   agent365AggregationSchema,
   connectorSourceDefinitionSchema,
+  connectorSourceReadModelSchema,
+  isConnectorSourceMigrationRequired,
   type ConnectorSourceDefinition,
   type ConnectorSourceRepository,
   type EstateContext,
@@ -379,10 +381,11 @@ export async function resolveAgent365Runtime(
   const maxSources = positiveInteger(options.maxSources ?? 1_000, 'maxSources', 1_000)
   const sources: ConnectorSourceDefinition[] = []
   const seen = new Set<string>()
+  let sourceCount = 0
   let cursor: string | undefined
 
   for (;;) {
-    const remaining = maxSources - sources.length
+    const remaining = maxSources - sourceCount
     const limit = Math.min(pageSize, remaining + 1)
     const page = await repository.list(estate, limit, cursor)
     if (page.length === 0) break
@@ -392,24 +395,26 @@ export async function resolveAgent365Runtime(
     }
 
     for (const value of page) {
-      const source = connectorSourceDefinitionSchema.parse(value)
+      const readModel = connectorSourceReadModelSchema.parse(value)
       if (
-        source.estateId !== estate.id ||
-        source.tenantId !== estate.tenantId ||
-        source.environment !== estate.environment
+        readModel.estateId !== estate.id ||
+        readModel.tenantId !== estate.tenantId ||
+        readModel.environment !== estate.environment
       ) {
         throw new Error(
-          `Connector source ${source.sourceId} does not match the requested estate boundary.`,
+          `Connector source ${readModel.sourceId} does not match the requested estate boundary.`,
         )
       }
-      if (seen.has(source.sourceId)) {
-        throw new Error(`Duplicate connector source identity: ${source.sourceId}`)
+      if (seen.has(readModel.sourceId)) {
+        throw new Error(`Duplicate connector source identity: ${readModel.sourceId}`)
       }
-      seen.add(source.sourceId)
-      sources.push(source)
-      if (sources.length > maxSources) {
+      seen.add(readModel.sourceId)
+      sourceCount += 1
+      if (sourceCount > maxSources) {
         throw new Error(`Connector source count exceeds the runtime maximum of ${maxSources}.`)
       }
+      if (isConnectorSourceMigrationRequired(readModel)) continue
+      sources.push(connectorSourceDefinitionSchema.parse(readModel))
     }
 
     cursor = nextCursor

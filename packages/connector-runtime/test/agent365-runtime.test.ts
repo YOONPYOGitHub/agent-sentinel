@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import type {
   ConnectorSourceDefinition,
+  ConnectorSourceReadModel,
   ConnectorSourceRepository,
   EstateContext,
   EstateSnapshot,
 } from '@agent-sentinel/domain'
+import { hydratePersistedConnectorSourceDefinition } from '@agent-sentinel/domain'
 import type { AgentConnector } from '@agent-sentinel/connector-sdk'
 
 import {
@@ -84,8 +86,41 @@ function source(
   }
 }
 
+function migrationRequiredOtelSource(
+  sourceId = 'azure-monitor-legacy',
+  boundary: EstateContext = estate,
+): ConnectorSourceReadModel {
+  return hydratePersistedConnectorSourceDefinition({
+    estateId: boundary.id,
+    tenantId: boundary.tenantId,
+    environment: boundary.environment,
+    sourceId,
+    connectorType: 'azure-monitor-otel',
+    displayName: 'Legacy Azure Monitor',
+    enabled: true,
+    origin: 'user',
+    configuration: {
+      type: 'azure-monitor-otel',
+      workspaceId: '00000000-0000-4000-8000-000000000003',
+      logsBaseUrl: 'https://api.loganalytics.io',
+      baselineWindowHours: 168,
+      observedWindowHours: 24,
+      requestTimeoutMs: 15_000,
+      maxResponseBytes: 4_194_304,
+    },
+    credential: { mode: 'default' },
+    testStatus: { status: 'not-tested' },
+    version: 1,
+    etag: `etag-${sourceId}`,
+    createdBy: { type: 'service-principal', id: 'configuration-api' },
+    updatedBy: { type: 'service-principal', id: 'configuration-api' },
+    createdAt: '2026-09-09T00:00:00.000Z',
+    updatedAt: '2026-09-09T00:00:00.000Z',
+  })
+}
+
 function repository(
-  values: readonly ConnectorSourceDefinition[],
+  values: readonly ConnectorSourceReadModel[],
   listOverride?: ConnectorSourceRepository['list'],
 ): ConnectorSourceRepository {
   return {
@@ -151,6 +186,65 @@ function baseConnector(): AgentConnector {
 }
 
 describe('Agent 365 runtime source resolution', () => {
+  it('excludes a migration-required legacy OTel source while resolving active Agent 365', async () => {
+    const resolved = await resolveAgent365Runtime(
+      repository([migrationRequiredOtelSource(), source('agent365-active')]),
+      estate,
+    )
+
+    expect(resolved.bindings.map((binding) => binding.sourceId)).toEqual(['agent365-active'])
+    expect(resolved.config?.sources.map((value) => value.id)).toEqual(['agent365-active'])
+  })
+
+  it('enforces estate checks before excluding legacy OTel sources', async () => {
+    const otherEstate = { ...estate, id: 'estate-b' }
+    await expect(
+      resolveAgent365Runtime(
+        repository([migrationRequiredOtelSource('legacy', otherEstate)]),
+        estate,
+      ),
+    ).rejects.toThrow('does not match the requested estate boundary')
+  })
+
+  it('enforces duplicate identity checks before excluding legacy OTel sources', async () => {
+    await expect(
+      resolveAgent365Runtime(
+        repository([migrationRequiredOtelSource('duplicate'), source('duplicate')]),
+        estate,
+      ),
+    ).rejects.toThrow('Duplicate connector source identity: duplicate')
+  })
+
+  it.each([
+    {
+      name: 'an incomplete current definition',
+      value: {
+        ...source('agent365-malformed'),
+        configuration: {
+          type: 'agent365',
+          graphBaseUrl: 'https://graph.microsoft.com',
+          unexpected: true,
+        },
+      },
+    },
+    {
+      name: 'a spoofed migration marker',
+      value: {
+        ...source('agent365-spoofed-migration'),
+        migration: {
+          status: 'migration-required',
+          active: false,
+          reason: 'missing-source-project-id',
+          action: 'supply-exact-source-project-id',
+        },
+      },
+    },
+  ])('fails closed for malformed Agent 365 records: $name', async ({ value }) => {
+    await expect(
+      resolveAgent365Runtime(repository([value as unknown as ConnectorSourceReadModel]), estate),
+    ).rejects.toThrow()
+  })
+
   it('resolves only exact-estate Agent 365 sources with typed activation', async () => {
     const resolved = await resolveAgent365Runtime(
       repository([
@@ -351,6 +445,17 @@ describe('Agent 365 runtime source resolution', () => {
         repository([source('agent365-a'), source('agent365-b'), source('agent365-c')]),
         estate,
         { pageSize: 2, maxSources: 2 },
+      ),
+    ).rejects.toThrow('exceeds the runtime maximum')
+
+    await expect(
+      resolveAgent365Runtime(
+        repository([
+          migrationRequiredOtelSource('azure-monitor-a'),
+          migrationRequiredOtelSource('azure-monitor-b'),
+        ]),
+        estate,
+        { maxSources: 1 },
       ),
     ).rejects.toThrow('exceeds the runtime maximum')
   })
