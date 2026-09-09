@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ConnectorSourceDefinition } from '@agent-sentinel/domain'
+import type { ConnectorSourceDefinition, ConnectorSourceReadModel } from '@agent-sentinel/domain'
 
 import {
   ConnectorSourceApiError,
@@ -60,6 +60,77 @@ const deploymentSource: ConnectorSourceDefinition = {
   createdBy: { type: 'deployment', id: 'deployment-json' },
   updatedBy: { type: 'deployment', id: 'deployment-json' },
 }
+
+const agent365Configuration = {
+  type: 'agent365',
+  graphBaseUrl: 'https://graph.microsoft.com',
+  limits: {
+    maxPages: 20,
+    maxItems: 5_000,
+    requestTimeoutMs: 15_000,
+    maxRetries: 2,
+    maxRetryAfterMs: 30_000,
+    maxResponseBytes: 2_000_000,
+  },
+  aggregation: {
+    maxConcurrency: 4,
+    maxDurationMs: 120_000,
+  },
+} as const satisfies ConnectorSourceDefinition['configuration']
+
+const agent365Source: ConnectorSourceDefinition = {
+  ...userSource,
+  sourceId: 'agent365-live',
+  connectorType: 'agent365',
+  displayName: 'Live Agent 365',
+  enabled: true,
+  configuration: agent365Configuration,
+  credential: {
+    mode: 'managed-identity',
+    managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+  },
+}
+
+const otelUserSource = {
+  ...userSource,
+  sourceId: 'runtime-otel',
+  connectorType: 'azure-monitor-otel',
+  displayName: 'Runtime telemetry',
+  enabled: true,
+  configuration: {
+    type: 'azure-monitor-otel',
+    workspaceId: '11111111-1111-4111-8111-111111111111',
+    sourceProjectId: 'project-a',
+    logsBaseUrl: 'https://api.loganalytics.io',
+    baselineWindowHours: 168,
+    observedWindowHours: 24,
+    requestTimeoutMs: 15_000,
+    maxResponseBytes: 4_096,
+  },
+} satisfies ConnectorSourceDefinition
+
+const migrationRequiredSource = {
+  ...otelUserSource,
+  sourceId: 'legacy-runtime-otel',
+  displayName: 'Legacy runtime telemetry',
+  enabled: false,
+  configuration: {
+    type: 'azure-monitor-otel',
+    workspaceId: '11111111-1111-4111-8111-111111111111',
+    logsBaseUrl: 'https://api.loganalytics.io',
+    baselineWindowHours: 168,
+    observedWindowHours: 24,
+    requestTimeoutMs: 15_000,
+    maxResponseBytes: 4_096,
+  },
+  testStatus: { status: 'not-tested' },
+  migration: {
+    status: 'migration-required',
+    active: false,
+    reason: 'missing-source-project-id',
+    action: 'supply-exact-source-project-id',
+  },
+} satisfies ConnectorSourceReadModel
 
 const writablePage: ConnectorSourcePage = {
   items: [userSource, deploymentSource],
@@ -116,7 +187,11 @@ describe('ConnectorSourceManager', () => {
   it('shows exact IDs, deployment immutability, disabled state, and stale evidence', async () => {
     render(<ConnectorSourceManager />)
 
-    const userCard = await screen.findByRole('article', { name: 'Primary Foundry' })
+    expect(
+      await screen.findByText(/enabled Agent 365 sources activate persisted live discovery/i),
+    ).toBeVisible()
+
+    const userCard = screen.getByRole('article', { name: 'Primary Foundry' })
     expect(userCard).toHaveTextContent('primary')
     expect(userCard).toHaveTextContent('Disabled')
     expect(userCard).toHaveTextContent('Stale')
@@ -253,6 +328,7 @@ describe('ConnectorSourceManager', () => {
       within(dialog).getByLabelText('Workspace ID'),
       '11111111-1111-4111-8111-111111111111',
     )
+    await user.type(within(dialog).getByLabelText('Source project ID'), 'project-a')
     fireEvent.change(within(dialog).getByLabelText('Maximum response bytes'), {
       target: { value: '4096' },
     })
@@ -265,10 +341,168 @@ describe('ConnectorSourceManager', () => {
       configuration: {
         type: 'azure-monitor-otel',
         workspaceId: '11111111-1111-4111-8111-111111111111',
+        sourceProjectId: 'project-a',
         maxResponseBytes: 4_096,
       },
     })
     expect(idempotencyKey).toMatch(/^connector-source-create-/)
+  })
+
+  it('uses the strict Agent 365 retry-after input bound', async () => {
+    const user = userEvent.setup()
+    render(<ConnectorSourceManager />)
+
+    await user.click(await screen.findByRole('button', { name: 'Add connector source' }))
+    const dialog = screen.getByRole('dialog', { name: 'Add connector source' })
+    await user.selectOptions(within(dialog).getByLabelText('Connector type'), 'agent365')
+    const retryAfter = within(dialog).getByLabelText('Maximum retry-after (ms)')
+
+    expect(retryAfter).toHaveAttribute('max', '60000')
+    fireEvent.change(retryAfter, { target: { value: '60001' } })
+    expect(retryAfter).toBeInvalid()
+  })
+
+  it('creates Agent 365 sources with explicit aggregation bounds', async () => {
+    const user = userEvent.setup()
+    vi.mocked(connectorSourcesApi.create).mockResolvedValue({
+      replayed: false,
+      source: agent365Source,
+    })
+    render(<ConnectorSourceManager />)
+
+    await user.click(await screen.findByRole('button', { name: 'Add connector source' }))
+    const dialog = screen.getByRole('dialog', { name: 'Add connector source' })
+    await user.type(within(dialog).getByLabelText('Source ID'), 'agent365-new')
+    await user.type(within(dialog).getByLabelText('Display name'), 'New Agent 365')
+    await user.selectOptions(within(dialog).getByLabelText('Connector type'), 'agent365')
+    fireEvent.change(within(dialog).getByLabelText('Maximum concurrent sources'), {
+      target: { value: '3' },
+    })
+    fireEvent.change(within(dialog).getByLabelText('Maximum operation duration (ms)'), {
+      target: { value: '180000' },
+    })
+    await user.click(within(dialog).getByRole('button', { name: 'Create source' }))
+
+    await waitFor(() => expect(connectorSourcesApi.create).toHaveBeenCalledOnce())
+    expect(vi.mocked(connectorSourcesApi.create).mock.calls[0]?.[0]).toMatchObject({
+      sourceId: 'agent365-new',
+      connectorType: 'agent365',
+      configuration: {
+        type: 'agent365',
+        aggregation: {
+          maxConcurrency: 3,
+          maxDurationMs: 180_000,
+        },
+      },
+    })
+  })
+
+  it('hydrates and edits Agent 365 aggregation bounds', async () => {
+    const user = userEvent.setup()
+    vi.mocked(connectorSourcesApi.list).mockResolvedValue({
+      ...writablePage,
+      items: [agent365Source],
+    })
+    vi.mocked(connectorSourcesApi.update).mockResolvedValue({
+      replayed: false,
+      source: {
+        ...agent365Source,
+        configuration: {
+          ...agent365Configuration,
+          aggregation: {
+            maxConcurrency: 6,
+            maxDurationMs: 240_000,
+          },
+        },
+      },
+    })
+    render(<ConnectorSourceManager />)
+
+    const card = await screen.findByRole('article', { name: 'Live Agent 365' })
+    await user.click(within(card).getByRole('button', { name: 'Edit' }))
+    const dialog = screen.getByRole('dialog', { name: 'Edit Live Agent 365' })
+    const concurrency = within(dialog).getByLabelText('Maximum concurrent sources')
+    const duration = within(dialog).getByLabelText('Maximum operation duration (ms)')
+    expect(concurrency).toHaveValue(4)
+    expect(duration).toHaveValue(120_000)
+
+    fireEvent.change(concurrency, { target: { value: '6' } })
+    fireEvent.change(duration, { target: { value: '240000' } })
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(connectorSourcesApi.update).toHaveBeenCalledOnce())
+    expect(vi.mocked(connectorSourcesApi.update).mock.calls[0]?.[1]).toMatchObject({
+      configuration: {
+        type: 'agent365',
+        aggregation: {
+          maxConcurrency: 6,
+          maxDurationMs: 240_000,
+        },
+      },
+    })
+  })
+
+  it('enforces Agent 365 aggregation input bounds', async () => {
+    const user = userEvent.setup()
+    render(<ConnectorSourceManager />)
+
+    await user.click(await screen.findByRole('button', { name: 'Add connector source' }))
+    const dialog = screen.getByRole('dialog', { name: 'Add connector source' })
+    await user.selectOptions(within(dialog).getByLabelText('Connector type'), 'agent365')
+    const concurrency = within(dialog).getByLabelText('Maximum concurrent sources')
+    const duration = within(dialog).getByLabelText('Maximum operation duration (ms)')
+
+    expect(concurrency).toHaveAttribute('min', '1')
+    expect(concurrency).toHaveAttribute('max', '10')
+    expect(duration).toHaveAttribute('min', '100')
+    expect(duration).toHaveAttribute('max', '300000')
+
+    fireEvent.change(concurrency, { target: { value: '11' } })
+    fireEvent.change(duration, { target: { value: '300001' } })
+    expect(concurrency).toBeInvalid()
+    expect(duration).toBeInvalid()
+  })
+
+  it('hydrates and updates the bounded Azure Monitor source project ID', async () => {
+    const user = userEvent.setup()
+    vi.mocked(connectorSourcesApi.list).mockResolvedValue({
+      ...writablePage,
+      items: [otelUserSource],
+    })
+    vi.mocked(connectorSourcesApi.update).mockResolvedValue({
+      replayed: false,
+      source: {
+        ...otelUserSource,
+        configuration: {
+          ...otelUserSource.configuration,
+          sourceProjectId: 'project-b',
+        },
+      },
+    })
+    render(<ConnectorSourceManager />)
+
+    const card = await screen.findByRole('article', { name: 'Runtime telemetry' })
+    await user.click(within(card).getByRole('button', { name: 'Edit' }))
+    const dialog = screen.getByRole('dialog', { name: 'Edit Runtime telemetry' })
+    const sourceProjectId = within(dialog).getByLabelText('Source project ID')
+    expect(sourceProjectId).toHaveValue('project-a')
+    expect(sourceProjectId).toHaveAttribute('required')
+    expect(sourceProjectId).toHaveAttribute('maxlength', '200')
+
+    await user.clear(sourceProjectId)
+    await user.type(sourceProjectId, 'project-b')
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(connectorSourcesApi.update).toHaveBeenCalledOnce())
+    const [sourceId, patch, etag, idempotencyKey] = vi.mocked(connectorSourcesApi.update).mock
+      .calls[0]!
+    expect(sourceId).toBe('runtime-otel')
+    expect(patch.configuration).toMatchObject({
+      type: 'azure-monitor-otel',
+      sourceProjectId: 'project-b',
+    })
+    expect(etag).toBe('etag-two')
+    expect(idempotencyKey).toMatch(/^connector-source-update-/)
   })
 
   it('reuses a create key after ambiguous failures and replaces it when the payload changes', async () => {
@@ -536,6 +770,24 @@ describe('ConnectorSourceManager', () => {
     )
     expect(within(card).getByRole('status')).toHaveTextContent('Unknown')
     expect(within(card).getByRole('status')).toHaveTextContent('Unknown / no evidence')
+  })
+
+  it('renders legacy Azure Monitor sources inactive with migration guidance and no actions', async () => {
+    vi.mocked(connectorSourcesApi.list).mockResolvedValueOnce({
+      ...writablePage,
+      items: [migrationRequiredSource],
+    })
+
+    render(<ConnectorSourceManager />)
+
+    const card = await screen.findByRole('article', { name: 'Legacy runtime telemetry' })
+    expect(within(card).getByText('Migration required')).toBeVisible()
+    expect(within(card).getByRole('status')).toHaveTextContent(
+      'Add the exact authoritative source project ID before activating this connector.',
+    )
+    expect(within(card).queryByRole('button', { name: 'Edit' })).toBeNull()
+    expect(within(card).queryByRole('button', { name: 'Enable' })).toBeNull()
+    expect(within(card).queryByRole('button', { name: 'Check test evidence' })).toBeNull()
   })
 
   it('shows a cursor loading state, suppresses duplicate requests, and merges exact IDs in order', async () => {

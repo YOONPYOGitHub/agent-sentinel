@@ -5,15 +5,16 @@ import { z } from 'zod'
 
 import {
   connectorCredentialMetadataSchema,
-  connectorSourceAuditRecordSchema,
+  connectorSourceAuditReadModelSchema,
   connectorSourceConfigurationSchema,
-  connectorSourceDefinitionSchema,
   connectorSourceIdSchema,
+  connectorSourceReadModelSchema,
   connectorTypeSchema,
+  isConnectorSourceMigrationRequired,
   type ConnectorSourceActor,
   type ConnectorSourceAuditCursor,
-  type ConnectorSourceAuditRecord,
-  type ConnectorSourceDefinition,
+  type ConnectorSourceAuditReadModel,
+  type ConnectorSourceReadModel,
   type ConnectorSourceMutationContext,
   type ConnectorSourceRepository,
   type ConnectorSourceTestStatus,
@@ -176,7 +177,7 @@ function expectedEtag(request: FastifyRequest): string {
     .parse(request.headers['if-match'])
 }
 
-function setEtag(reply: FastifyReply, source: ConnectorSourceDefinition): void {
+function setEtag(reply: FastifyReply, source: ConnectorSourceReadModel): void {
   void reply.header('etag', `"${source.etag}"`)
 }
 
@@ -194,8 +195,8 @@ function testStatusResponse(status: ConnectorSourceTestStatus): ConnectorSourceT
   }
 }
 
-function sourceResponse(source: ConnectorSourceDefinition): ConnectorSourceDefinition {
-  const parsed = connectorSourceDefinitionSchema.parse(source)
+function sourceResponse(source: ConnectorSourceReadModel): ConnectorSourceReadModel {
+  const parsed = connectorSourceReadModelSchema.parse(source)
   const configuration =
     parsed.configuration.type === 'manifest'
       ? {
@@ -208,18 +209,18 @@ function sourceResponse(source: ConnectorSourceDefinition): ConnectorSourceDefin
             environmentId: redactSensitiveText(parsed.configuration.environmentId),
           }
         : parsed.configuration
-  return {
+  return connectorSourceReadModelSchema.parse({
     ...parsed,
     displayName: redactSensitiveText(parsed.displayName),
     configuration,
     testStatus: testStatusResponse(parsed.testStatus),
     createdBy: actorResponse(parsed.createdBy),
     updatedBy: actorResponse(parsed.updatedBy),
-  }
+  })
 }
 
-function auditResponse(auditValue: ConnectorSourceAuditRecord) {
-  const audit = connectorSourceAuditRecordSchema.parse(auditValue)
+function auditResponse(auditValue: ConnectorSourceAuditReadModel) {
+  const audit = connectorSourceAuditReadModelSchema.parse(auditValue)
   return {
     id: audit.id,
     estateId: audit.estateId,
@@ -234,7 +235,7 @@ function auditResponse(auditValue: ConnectorSourceAuditRecord) {
   }
 }
 
-function nextTimestamp(clock: () => Date, source: ConnectorSourceDefinition | null): string {
+function nextTimestamp(clock: () => Date, source: ConnectorSourceReadModel | null): string {
   const now = clock()
   if (Number.isNaN(now.getTime()))
     throw new Error('Connector source clock returned an invalid date.')
@@ -246,7 +247,7 @@ function mutationContext(
   key: string,
   actor: ConnectorSourceActor,
   clock: () => Date,
-  source: ConnectorSourceDefinition | null,
+  source: ConnectorSourceReadModel | null,
 ): ConnectorSourceMutationContext {
   return {
     auditId: randomUUID(),
@@ -321,6 +322,14 @@ async function sendWriteResult(
     })
     return
   }
+  if (result.status === 'migration_required') {
+    await reply.status(409).send({
+      error: 'connector_source_migration_required',
+      message:
+        'An exact source project ID must be migrated before this connector source can be changed.',
+    })
+    return
+  }
   if (result.status !== 'conflict') {
     throw new Error('Unexpected connector source write status.')
   }
@@ -346,7 +355,7 @@ async function sendWriteResult(
   })
 }
 
-function encodeAuditCursor(audit: ConnectorSourceAuditRecord): string {
+function encodeAuditCursor(audit: ConnectorSourceAuditReadModel): string {
   return Buffer.from(JSON.stringify([audit.occurredAt, audit.id]), 'utf8').toString('base64url')
 }
 
@@ -441,6 +450,18 @@ export function registerConnectorSourceRoutes(
         sourceId: source.sourceId,
         connectorType: source.connectorType,
         readOnly: true as const,
+      }
+      if (isConnectorSourceMigrationRequired(source)) {
+        return connectionTestStatusResponseSchema.parse({
+          ...common,
+          status: 'unknown',
+          evidenceAvailability: 'unavailable',
+          evidenceBasis: null,
+          evidenceIds: [],
+          checkedAt: null,
+          checkedBy: null,
+          summary: 'An exact source project ID is required before this source can be activated.',
+        })
       }
       if (source.testStatus.status === 'not-tested') {
         return connectionTestStatusResponseSchema.parse({

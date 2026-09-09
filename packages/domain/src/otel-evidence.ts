@@ -1,5 +1,8 @@
 import { z } from 'zod'
 
+import { agentCorrelationsSchema } from './correlation.js'
+import { sourceProjectIdSchema } from './source-project.js'
+
 const boundedIdentifierSchema = z.string().trim().min(1).max(200)
 const otelTraceIdSchema = z.string().regex(/^[0-9a-f]{32}$/)
 const otelSpanIdSchema = z.string().regex(/^[0-9a-f]{16}$/)
@@ -89,11 +92,13 @@ export const otelAggregationSchema = z
 export type OtelAggregation = z.infer<typeof otelAggregationSchema>
 
 export const otelEvidenceProvenanceSchema = z.strictObject({
+  snapshotGeneratedAt: z.iso.datetime().optional(),
   estateId: boundedIdentifierSchema,
   estateTenantId: boundedIdentifierSchema,
   estateEnvironment: boundedIdentifierSchema,
   sourceConnectorId: boundedIdentifierSchema,
   sourceTenantId: boundedIdentifierSchema,
+  sourceProjectId: sourceProjectIdSchema,
   sourceEnvironment: boundedIdentifierSchema,
   provider: z.literal('azure-monitor-otel'),
   providerResourceId: boundedIdentifierSchema.optional(),
@@ -143,8 +148,11 @@ export type OtelEvidenceClaim = z.infer<typeof otelEvidenceClaimSchema>
 export const representativeOtelEvidenceSchema = z.strictObject({
   id: boundedIdentifierSchema,
   providerRecordId: boundedIdentifierSchema,
+  observationId: boundedIdentifierSchema.optional(),
   signal: otelSignalTypeSchema,
-  provenance: otelEvidenceProvenanceSchema,
+  provenance: otelEvidenceProvenanceSchema.required({ snapshotGeneratedAt: true }),
+  correlations: agentCorrelationsSchema.optional(),
+  toolCallNames: z.array(boundedIdentifierSchema).max(50).optional(),
   claim: otelEvidenceClaimSchema,
   partial: z.boolean(),
 })
@@ -208,6 +216,7 @@ export type OtelWindowQuality = z.infer<typeof otelWindowQualitySchema>
 
 export const runtimeOtelProvenanceSchema = otelEvidenceProvenanceSchema
   .required({
+    snapshotGeneratedAt: true,
     providerResourceId: true,
     traceId: true,
     spanId: true,
@@ -221,12 +230,16 @@ export type RuntimeOtelProvenance = z.infer<typeof runtimeOtelProvenanceSchema>
 export const runtimeOtelEvidenceItemSchema = z.strictObject({
   id: boundedIdentifierSchema,
   observedAt: z.iso.datetime(),
+  agentRunId: boundedIdentifierSchema.optional(),
+  correlationId: boundedIdentifierSchema.optional(),
+  agentVersion: boundedIdentifierSchema.optional(),
   latencyMs: z.number().int().min(0).max(300_000),
   inputTokens: z.number().int().min(0).max(1_000_000),
   outputTokens: z.number().int().min(0).max(1_000_000),
   costUsd: z.number().min(0).max(10_000),
   success: z.boolean(),
   errorCode: z.string().trim().min(1).max(100).optional(),
+  toolCallNames: z.array(boundedIdentifierSchema).max(50),
   provenance: runtimeOtelProvenanceSchema,
 })
 export type RuntimeOtelEvidenceItem = z.infer<typeof runtimeOtelEvidenceItemSchema>

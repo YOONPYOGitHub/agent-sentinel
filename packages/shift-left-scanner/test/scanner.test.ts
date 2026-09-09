@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import type { ManifestEnvelope } from '@agent-sentinel/connector-sdk'
 import { evidenceSchema, exposureFindingSchema } from '@agent-sentinel/domain'
 import { normalizeManifest } from '@agent-sentinel/manifest-connector'
+import { createLiveGraphTraversalContextForSnapshot } from '@agent-sentinel/graph-engine'
 import { evaluateAllExposurePolicies } from '@agent-sentinel/policy-engine'
 import { describe, expect, it } from 'vitest'
 
@@ -24,7 +25,18 @@ describe('shift-left manifest scanning', () => {
   it('uses the runtime policy engine without changing its findings', () => {
     const envelope = fixture() as ManifestEnvelope
     const report = scanValidatedManifest(envelope, scope)
-    const runtimeFindings = evaluateAllExposurePolicies(normalizeManifest(envelope, scope).snapshot)
+    const snapshot = normalizeManifest(envelope, scope).snapshot
+    const runtimeFindings = evaluateAllExposurePolicies(
+      snapshot,
+      createLiveGraphTraversalContextForSnapshot(snapshot, {
+        estate: {
+          id: 'shift-left',
+          tenantId: scope.tenantId,
+          environment: scope.environmentId,
+        },
+        clock: () => new Date(snapshot.generatedAt),
+      }),
+    )
 
     expect(
       report.policies.flatMap((policy) => policy.findings.map(({ finding }) => finding)),

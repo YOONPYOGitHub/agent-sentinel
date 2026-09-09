@@ -39,6 +39,18 @@ export class FakeCosmosStore {
     return [...this.documents.values()].map((document) => clone(document))
   }
 
+  mutate(
+    predicate: (document: StoredDocument) => boolean,
+    update: (document: StoredDocument) => void,
+  ): void {
+    for (const [key, value] of this.documents) {
+      if (!predicate(value)) continue
+      const document = clone(value)
+      update(document)
+      this.documents.set(key, document)
+    }
+  }
+
   barrierNextBatches(count = 2, loserStatusCode?: 404 | 409 | 412): void {
     if (!Number.isSafeInteger(count) || count < 2) {
       throw new Error('A fake Cosmos batch barrier requires at least two arrivals.')

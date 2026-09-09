@@ -17,14 +17,16 @@ import {
   createEntraIdentityConnector,
   createOptionalEntraEnrichmentConnector,
   enrichAggregateSnapshotWithEntraAndDiagnostics,
-  enrichSnapshotWithEntra,
-  enrichSnapshotWithEntraAndDiagnostics,
+  enrichSnapshotWithEntra as enrichSnapshotWithEntraWithoutBinding,
+  enrichSnapshotWithEntraAndDiagnostics as enrichSnapshotWithEntraAndDiagnosticsWithoutBinding,
   entraIdentityConnectorConfigSchema,
   mapEntraInventoryToSnapshot,
+  parseEntraRunsAsBindings,
   parseEntraSourcesConfig,
   resolveEntraRuntimeActivation,
   servicePrincipalPageSchema,
 } from '../src/index.js'
+import { enrichAggregateSnapshotWithExactEntraBindingsAndDiagnostics } from '../src/normalize.js'
 
 const tenantId = '99999999-9999-4999-8999-999999999999'
 const config = {
@@ -40,6 +42,32 @@ const config = {
     maxRetryAfterMs: 5_000,
     maxResponseBytes: 2_000_000,
   },
+}
+
+const defaultRunsAsBinding = {
+  estateId: 'default',
+  foundry: {
+    sourceId: 'foundry:primary',
+    tenantId,
+    environment: 'validation',
+    provider: 'azure-ai-foundry-agent-service' as const,
+    sourceObjectId: 'test',
+  },
+  entra: {
+    sourceId: 'entra:primary',
+    tenantId,
+    environment: 'validation',
+    provider: 'microsoft-entra' as const,
+    sourceObjectId: tenantId,
+  },
+}
+
+function enrichSnapshotWithEntra(base: EstateSnapshot, identities: EstateSnapshot): EstateSnapshot {
+  return enrichSnapshotWithEntraWithoutBinding(base, identities, defaultRunsAsBinding)
+}
+
+function enrichSnapshotWithEntraAndDiagnostics(base: EstateSnapshot, identities: EstateSnapshot) {
+  return enrichSnapshotWithEntraAndDiagnosticsWithoutBinding(base, identities, defaultRunsAsBinding)
 }
 
 class Credential implements TokenCredential {
@@ -59,6 +87,17 @@ function response(name: string, init?: ResponseInit): Response {
 
 function baseSnapshot(metadata: Record<string, string>): EstateSnapshot {
   const observedAt = '2026-08-27T08:00:00.000Z'
+  const authority = {
+    estateId: 'default',
+    sourceId: 'foundry:primary',
+    tenantId,
+    environment: 'validation',
+    provider: 'azure-ai-foundry-agent-service' as const,
+    sourceObjectId: 'test',
+    providerObjectId: 'agent-1',
+    snapshotGeneratedAt: observedAt,
+    sourceRelease: 'v1',
+  }
   return {
     tenantId,
     environment: 'validation',
@@ -71,7 +110,19 @@ function baseSnapshot(metadata: Record<string, string>): EstateSnapshot {
         description: 'test',
         environment: 'validation',
         evidenceIds: ['base-evidence'],
-        metadata,
+        metadata: {
+          sourceOfTruth: 'true',
+          estateId: authority.estateId,
+          sourceId: authority.sourceId,
+          sourceTenantId: authority.tenantId,
+          sourceEnvironment: authority.environment,
+          sourceProjectId: authority.sourceObjectId,
+          provider: authority.provider,
+          providerObjectId: authority.providerObjectId,
+          snapshotGeneratedAt: authority.snapshotGeneratedAt,
+          sourceRelease: authority.sourceRelease,
+          ...metadata,
+        },
       },
     ],
     edges: [],
@@ -79,12 +130,13 @@ function baseSnapshot(metadata: Record<string, string>): EstateSnapshot {
       {
         id: 'base-evidence',
         source: 'Foundry',
-        sourceObjectId: 'agent-1',
+        sourceObjectId: 'primary:agent-1',
         observedAt,
         freshness: 'live',
         confidence: 1,
         evidenceTypes: ['declared_configuration'],
         summary: 'Declared configuration.',
+        authority,
       },
     ],
   }
@@ -105,18 +157,41 @@ function baseSnapshotWithAgents(
       description: 'test',
       environment: 'validation',
       evidenceIds: [`evidence-${agent.id}`],
-      metadata: agent.metadata,
+      metadata: {
+        sourceOfTruth: 'true',
+        estateId: 'default',
+        sourceId: 'foundry:primary',
+        sourceTenantId: tenantId,
+        sourceEnvironment: 'validation',
+        sourceProjectId: 'test',
+        provider: 'azure-ai-foundry-agent-service',
+        providerObjectId: agent.id,
+        snapshotGeneratedAt: observedAt,
+        sourceRelease: 'v1',
+        ...agent.metadata,
+      },
     })),
     edges: [],
     evidence: agents.map((agent) => ({
       id: `evidence-${agent.id}`,
       source: 'Foundry',
-      sourceObjectId: agent.id,
+      sourceObjectId: `primary:${agent.id}`,
       observedAt,
       freshness: 'live' as const,
       confidence: 1,
       evidenceTypes: ['declared_configuration' as const],
       summary: 'Declared configuration.',
+      authority: {
+        estateId: 'default',
+        sourceId: 'foundry:primary',
+        tenantId,
+        environment: 'validation',
+        provider: 'azure-ai-foundry-agent-service' as const,
+        sourceObjectId: 'test',
+        providerObjectId: agent.id,
+        snapshotGeneratedAt: observedAt,
+        sourceRelease: 'v1',
+      },
     })),
   }
 }
@@ -560,7 +635,7 @@ describe('normalization and correlation', () => {
     expect(snapshot.evidence.every((item) => item.confidence === 1)).toBe(true)
   })
 
-  it('correlates only an explicit directory or application ID', () => {
+  it('correlates an explicit directory ID and fails closed for application-ID-only authority', () => {
     const identities = inventorySnapshot()
     const directoryMatch = enrichSnapshotWithEntra(
       baseSnapshot({ servicePrincipalId: '11111111-1111-4111-8111-111111111111' }),
@@ -572,7 +647,11 @@ describe('normalization and correlation', () => {
       baseSnapshot({ clientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }),
       identities,
     )
-    expect(appMatch.edges.some((edge) => edge.relationship === 'RUNS_AS')).toBe(true)
+    expect(appMatch.edges.some((edge) => edge.relationship === 'RUNS_AS')).toBe(false)
+    expect(appMatch.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'unmatched',
+      entraCorrelationReason: 'application-id-authority-unavailable',
+    })
 
     const noMatch = enrichSnapshotWithEntra(
       baseSnapshot({ displayName: 'Explicit Agent Identity' }),
@@ -582,6 +661,15 @@ describe('normalization and correlation', () => {
     expect(
       noMatch.nodes.find((node) => node.kind === 'identity')?.metadata['correlationStatus'],
     ).toBe('uncorrelated')
+  })
+
+  it('does not correlate a tenant-wide inventory without an explicit source binding', () => {
+    const result = enrichSnapshotWithEntraWithoutBinding(
+      baseSnapshot({ servicePrincipalId: '11111111-1111-4111-8111-111111111111' }),
+      inventorySnapshot(),
+    )
+
+    expect(result.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
   })
 
   it('treats objectId as an exact directory object identifier', () => {
@@ -594,7 +682,8 @@ describe('normalization and correlation', () => {
     expect(result.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
       entraCorrelationStatus: 'matched',
       entraCorrelationMatchKind: 'object-id',
-      entraIdentityNodeId: 'entra-service-principal-11111111-1111-4111-8111-111111111111',
+      entraIdentityNodeId:
+        'entra-source-primary--entra-service-principal-11111111-1111-4111-8111-111111111111',
     })
   })
 
@@ -720,17 +809,78 @@ describe('normalization and correlation', () => {
     expect(result.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
       entraCorrelationStatus: 'matched',
       entraCorrelationMatchKind: 'object-id',
-      entraIdentityNodeId: 'entra-service-principal-11111111-1111-4111-8111-111111111111',
+      entraIdentityNodeId:
+        'entra-source-primary--entra-service-principal-11111111-1111-4111-8111-111111111111',
     })
   })
 
-  it('rejects cross-tenant composition', () => {
-    expect(() =>
-      enrichSnapshotWithEntra(
-        { ...baseSnapshot({}), tenantId: '88888888-8888-4888-8888-888888888888' },
-        inventorySnapshot(),
-      ),
-    ).toThrow('different Microsoft Entra tenants')
+  it('correlates exact cross-tenant sources inside an independently scoped estate', () => {
+    const entraTenantId = '88888888-8888-4888-8888-888888888888'
+    const identities = mapEntraInventoryToSnapshot(
+      {
+        servicePrincipals: [
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            displayName: 'Cross-tenant identity',
+          },
+        ],
+        owners: new Map(),
+        appRoleAssignments: new Map(),
+        agentIdentitiesPreview: [],
+      },
+      { ...config, tenantId: entraTenantId, environment: 'directory' },
+      '2026-08-27T08:00:00.000Z',
+    )
+    const base = {
+      ...baseSnapshot({ servicePrincipalId: '11111111-1111-4111-8111-111111111111' }),
+      tenantId: '77777777-7777-4777-8777-777777777777',
+      environment: 'portfolio',
+    }
+    base.nodes[0] = {
+      ...base.nodes[0]!,
+      metadata: {
+        ...base.nodes[0]!.metadata,
+        estateId: 'custom-estate',
+      },
+    }
+    base.evidence[0] = {
+      ...base.evidence[0]!,
+      authority: {
+        ...base.evidence[0]!.authority!,
+        estateId: 'custom-estate',
+      },
+    }
+    const result = enrichAggregateSnapshotWithExactEntraBindingsAndDiagnostics(
+      base,
+      identities,
+      {
+        id: 'directory-b',
+        name: 'Directory B',
+        tenantId: entraTenantId,
+        environment: 'directory',
+      },
+      [
+        {
+          estateId: 'custom-estate',
+          foundry: {
+            ...defaultRunsAsBinding.foundry,
+            tenantId,
+          },
+          entra: {
+            sourceId: 'entra:directory-b',
+            tenantId: entraTenantId,
+            environment: 'directory',
+            provider: 'microsoft-entra',
+            sourceObjectId: entraTenantId,
+          },
+        },
+      ],
+      'custom-estate',
+    )
+
+    expect(result.snapshot.tenantId).toBe('77777777-7777-4777-8777-777777777777')
+    expect(result.snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(1)
   })
 
   it('requires preview classification for an Agent Identity identifier', () => {
@@ -822,50 +972,49 @@ describe('normalization and correlation', () => {
     })
   })
 
-  it('preserves duplicate authoritative object IDs until correlation fails closed', () => {
+  it('rejects duplicate authoritative object IDs during Entra normalization', () => {
     const duplicateObjectId = '11111111-1111-4111-8111-111111111111'
-    const identities = mapEntraInventoryToSnapshot(
-      {
-        servicePrincipals: [
-          {
-            id: duplicateObjectId,
-            appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-            displayName: 'First duplicate record',
-          },
-          {
-            id: duplicateObjectId,
-            appId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-            displayName: 'Second duplicate record',
-          },
-        ],
-        owners: new Map(),
-        appRoleAssignments: new Map(),
-        agentIdentitiesPreview: [],
-      },
-      config,
-      '2026-08-27T08:00:00.000Z',
-    )
+    expect(() =>
+      mapEntraInventoryToSnapshot(
+        {
+          servicePrincipals: [
+            {
+              id: duplicateObjectId,
+              appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              displayName: 'First duplicate record',
+            },
+            {
+              id: duplicateObjectId,
+              appId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              displayName: 'Second duplicate record',
+            },
+          ],
+          owners: new Map(),
+          appRoleAssignments: new Map(),
+          agentIdentitiesPreview: [],
+        },
+        config,
+        '2026-08-27T08:00:00.000Z',
+      ),
+    ).toThrow(/duplicate graph node id/i)
+  })
 
-    expect(identities.nodes).toHaveLength(2)
-    const result = enrichSnapshotWithEntraAndDiagnostics(
-      baseSnapshot({ clientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }),
-      identities,
-    )
+  it('rejects duplicate node IDs before Entra composition maps or deduplication', () => {
+    const base = baseSnapshot({ servicePrincipalId: '11111111-1111-4111-8111-111111111111' })
+    base.nodes.push({ ...base.nodes[0]! })
 
-    expect(result.snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
-    expect(result.snapshot.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
-      entraCorrelationStatus: 'ambiguous',
-      entraCorrelationReason: 'duplicate-authoritative-object-id',
-    })
-    expect(result.diagnostics).toMatchObject({
-      authoritativeAgentsConsidered: 1,
-      exactObjectIdMatches: 0,
-      exactApplicationIdMatches: 0,
-      exactAgentIdentityMatches: 0,
-      unmatched: 0,
-      ambiguous: 1,
-      runsAsEdgesEmitted: 0,
-    })
+    expect(() => enrichSnapshotWithEntra(base, inventorySnapshot())).toThrow(
+      /duplicate graph node id/i,
+    )
+  })
+
+  it('rejects duplicate evidence IDs before Entra composition maps or deduplication', () => {
+    const base = baseSnapshot({ servicePrincipalId: '11111111-1111-4111-8111-111111111111' })
+    base.evidence.push({ ...base.evidence[0]! })
+
+    expect(() => enrichSnapshotWithEntra(base, inventorySnapshot())).toThrow(
+      /duplicate evidence id/i,
+    )
   })
 
   it('reports malformed identifiers without treating them as missing', () => {
@@ -985,7 +1134,7 @@ describe('optional preview capability', () => {
   })
 })
 describe('composite enrichment connector', () => {
-  it('reports disjoint exact-match diagnostics with evidence references', async () => {
+  it('keeps exact-match diagnostics unattributed without an explicit source binding', async () => {
     const objectId = '11111111-1111-4111-8111-111111111111'
     const applicationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
     const secondObjectId = '22222222-2222-4222-8222-222222222222'
@@ -1068,43 +1217,31 @@ describe('composite enrichment connector', () => {
     const snapshot = await composite.discover()
     const diagnostics = composite.getConnectorHealth().sources[1]?.diagnostics
 
-    expect(snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(3)
+    expect(snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
     expect(diagnostics).toMatchObject({
       kind: 'exact-identity-correlation',
       provider: 'microsoft-entra',
       sourceId: 'primary',
       sourceTenantId: tenantId,
       sourceEnvironment: 'validation',
-      authoritativeAgentsConsidered: 5,
-      exactObjectIdMatches: 1,
-      exactApplicationIdMatches: 1,
-      exactAgentIdentityMatches: 1,
-      unmatched: 1,
-      ambiguous: 1,
-      runsAsEdgesEmitted: 3,
+      authoritativeAgentsConsidered: 0,
+      exactObjectIdMatches: 0,
+      exactApplicationIdMatches: 0,
+      exactAgentIdentityMatches: 0,
+      unmatched: 0,
+      ambiguous: 0,
+      runsAsEdgesEmitted: 0,
       ownerCoverage: { status: 'disabled', evidenceReferences: [] },
       appRoleCoverage: { status: 'disabled', evidenceReferences: [] },
       previewCoverage: { status: 'available', considered: 3, covered: 1 },
     })
-    expect(diagnostics?.evidenceReferences).toEqual(
-      expect.arrayContaining([
-        'evidence-agent-object',
-        'evidence-agent-application',
-        'evidence-agent-preview',
-        'evidence-agent-missing',
-        'evidence-agent-ambiguous',
-        `entra-service-principal-evidence-${objectId}`,
-        `entra-agent-identity-preview-evidence-${previewObjectId}`,
-      ]),
+    expect(diagnostics?.evidenceReferences).toEqual([])
+    expect(snapshot.nodes.find((node) => node.id === 'agent-preview')?.metadata).not.toHaveProperty(
+      'entraIdentityNodeId',
     )
-    expect(snapshot.nodes.find((node) => node.id === 'agent-preview')?.metadata).toMatchObject({
-      entraCorrelationStatus: 'matched',
-      entraCorrelationMatchKind: 'agent-identity-id',
-    })
-    expect(snapshot.nodes.find((node) => node.id === 'agent-ambiguous')?.metadata).toMatchObject({
-      entraCorrelationStatus: 'ambiguous',
-      entraCorrelationReason: 'conflicting-exact-source-matches',
-    })
+    expect(
+      snapshot.nodes.find((node) => node.id === 'agent-ambiguous')?.metadata,
+    ).not.toHaveProperty('entraCorrelationStatus')
   })
 
   it('degrades only unauthorized preview coverage after stable inventory succeeds', async () => {
@@ -1244,7 +1381,7 @@ describe('composite enrichment connector', () => {
     const snapshot = await composite.discover()
     expect(snapshot.nodes.some((node) => node.kind === 'agent')).toBe(true)
     expect(snapshot.nodes.some((node) => node.kind === 'identity')).toBe(true)
-    expect(snapshot.edges.some((edge) => edge.relationship === 'RUNS_AS')).toBe(true)
+    expect(snapshot.edges.some((edge) => edge.relationship === 'RUNS_AS')).toBe(false)
     expect(composite.getHealth().entra.stableInventory.status).toBe('available')
   })
 
@@ -1288,12 +1425,14 @@ describe('composite enrichment connector', () => {
         name: 'Project A',
         tenantId: tenantA,
         environment: 'production',
+        projectId: 'project-a',
       },
       {
         id: 'project-b',
         name: 'Project B',
         tenantId: tenantB,
         environment: 'validation',
+        projectId: 'project-b',
       },
     ]
 
@@ -1311,9 +1450,17 @@ describe('composite enrichment connector', () => {
           environment: source.environment,
           evidenceIds: [`evidence-${source.id}`],
           metadata: {
+            sourceOfTruth: 'true',
+            estateId: 'estate-a',
+            sourceId: `foundry:${source.id}`,
             sourceConnectorId: source.id,
             sourceTenantId: source.tenantId,
             sourceEnvironment: source.environment,
+            sourceProjectId: source.projectId,
+            provider: 'azure-ai-foundry-agent-service',
+            providerObjectId: `provider-${source.id}`,
+            snapshotGeneratedAt: observedAt,
+            sourceRelease: 'v1',
             servicePrincipalId: '11111111-1111-4111-8111-111111111111',
           },
         })),
@@ -1321,19 +1468,35 @@ describe('composite enrichment connector', () => {
         evidence: expectedSources.map((source) => ({
           id: `evidence-${source.id}`,
           source: 'Foundry',
-          sourceObjectId: source.id,
+          sourceObjectId: `${source.id}:provider-${source.id}`,
           observedAt,
           freshness: 'live' as const,
           confidence: 1,
           evidenceTypes: ['declared_configuration' as const],
           summary: 'Declared configuration.',
+          authority: {
+            estateId: 'estate-a',
+            sourceId: `foundry:${source.id}`,
+            tenantId: source.tenantId,
+            environment: source.environment,
+            provider: 'azure-ai-foundry-agent-service' as const,
+            sourceObjectId: source.projectId,
+            providerObjectId: `provider-${source.id}`,
+            snapshotGeneratedAt: observedAt,
+            sourceRelease: 'v1',
+          },
         })),
       }
     }
 
-    function sourceConfig(source: (typeof expectedSources)[number]) {
+    function sourceConfig(
+      source: Pick<(typeof expectedSources)[number], 'id' | 'name' | 'tenantId' | 'environment'>,
+    ) {
       return {
-        ...source,
+        id: source.id,
+        name: source.name,
+        tenantId: source.tenantId,
+        environment: source.environment,
         graphBaseUrl: 'https://graph.microsoft.com',
         capabilities: {
           owners: false,
@@ -1342,6 +1505,26 @@ describe('composite enrichment connector', () => {
         },
         limits: config.limits,
       }
+    }
+
+    function bindingsFor(sources: readonly (typeof expectedSources)[number][]) {
+      return sources.map((source) => ({
+        estateId: 'estate-a',
+        foundry: {
+          sourceId: `foundry:${source.id}`,
+          tenantId: source.tenantId,
+          environment: source.environment,
+          provider: 'azure-ai-foundry-agent-service' as const,
+          sourceObjectId: source.projectId,
+        },
+        entra: {
+          sourceId: `entra:${source.id}`,
+          tenantId: source.tenantId,
+          environment: source.environment,
+          provider: 'microsoft-entra' as const,
+          sourceObjectId: source.tenantId,
+        },
+      }))
     }
 
     it('rejects an empty expected source set instead of reporting complete coverage', () => {
@@ -1454,6 +1637,7 @@ describe('composite enrichment connector', () => {
         {
           enabled: true,
           expectedSources: expected,
+          bindings: bindingsFor(expected),
           credentialFactory: () => new Credential(),
           clientFactory: () => ({
             fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json({ value: [] })),
@@ -1539,6 +1723,7 @@ describe('composite enrichment connector', () => {
         {
           enabled: true,
           expectedSources: expected,
+          bindings: bindingsFor(expected),
           credentialFactory: () => new Credential(),
           clientFactory: () => ({
             fetcher: vi
@@ -1590,6 +1775,7 @@ describe('composite enrichment connector', () => {
         {
           enabled: true,
           expectedSources: expected,
+          bindings: bindingsFor(expected),
           credentialFactory: () => new Credential(),
           clientFactory: () => ({
             fetcher: vi
@@ -1675,6 +1861,7 @@ describe('composite enrichment connector', () => {
         {
           enabled: true,
           expectedSources: expected,
+          bindings: bindingsFor(expected),
           aggregation: { maxPagesPerSource: 2 },
           credentialFactory: () => new Credential(),
           clientFactory: () => ({ fetcher }),
@@ -1756,12 +1943,406 @@ describe('composite enrichment connector', () => {
       ).toMatchObject([{ id: 'primary', tenantId: tenantA }])
       expect(
         parseEntraSourcesConfig({
-          ENTRA_SOURCES_JSON: JSON.stringify(expectedSources),
+          ENTRA_SOURCES_JSON: JSON.stringify(
+            expectedSources.map(({ id, name, tenantId, environment }) => ({
+              id,
+              name,
+              tenantId,
+              environment,
+            })),
+          ),
         }),
       ).toMatchObject([
         { id: 'project-a', tenantId: tenantA },
         { id: 'project-b', tenantId: tenantB },
       ])
+    })
+
+    it('parses only complete globally scoped Entra-to-Foundry bindings', () => {
+      const binding = {
+        estateId: 'estate-a',
+        foundry: {
+          sourceId: 'foundry:project-a',
+          tenantId: tenantA,
+          environment: 'production',
+          provider: 'azure-ai-foundry-agent-service',
+          sourceObjectId: 'project-a',
+        },
+        entra: {
+          sourceId: 'entra:directory-a',
+          tenantId: tenantA,
+          environment: 'directory',
+          provider: 'microsoft-entra',
+          sourceObjectId: tenantA,
+        },
+      }
+      expect(
+        parseEntraRunsAsBindings({
+          ENTRA_RUNS_AS_BINDINGS_JSON: JSON.stringify([binding]),
+        }),
+      ).toEqual([binding])
+      expect(
+        parseEntraRunsAsBindings({
+          ENTRA_RUNS_AS_BINDINGS_JSON: JSON.stringify([
+            {
+              ...binding,
+              entra: {
+                ...binding.entra,
+                tenantId: tenantB,
+                sourceObjectId: tenantB,
+              },
+            },
+          ]),
+        }),
+      ).toEqual([
+        {
+          ...binding,
+          entra: {
+            ...binding.entra,
+            tenantId: tenantB,
+            sourceObjectId: tenantB,
+          },
+        },
+      ])
+      expect(() =>
+        parseEntraRunsAsBindings({
+          ENTRA_RUNS_AS_BINDINGS_JSON: JSON.stringify([
+            {
+              ...binding,
+              foundry: { ...binding.foundry, sourceId: 'primary' },
+            },
+          ]),
+        }),
+      ).toThrow()
+      expect(() =>
+        parseEntraRunsAsBindings({
+          ENTRA_RUNS_AS_BINDINGS_JSON: JSON.stringify([
+            binding,
+            {
+              ...binding,
+              estateId: 'estate-b',
+              foundry: {
+                ...binding.foundry,
+                sourceId: 'foundry:project-b',
+                sourceObjectId: 'project-b',
+              },
+            },
+          ]),
+        }),
+      ).toThrow()
+    })
+
+    it('registers an exact cross-tenant binding against both configured source boundaries', () => {
+      expect(
+        () =>
+          new MultiEntraEnrichmentConnector(
+            connectorForSnapshot(aggregateBase()),
+            [
+              sourceConfig({
+                id: 'directory-b',
+                name: 'Directory B',
+                tenantId: tenantB,
+                environment: 'directory',
+              }),
+            ],
+            {
+              enabled: false,
+              estateId: 'estate-a',
+              expectedSources: [
+                {
+                  id: 'project-a',
+                  name: 'Project A',
+                  tenantId: tenantA,
+                  environment: 'production',
+                  projectId: 'project-a',
+                },
+              ],
+              bindings: [
+                {
+                  estateId: 'estate-a',
+                  foundry: {
+                    sourceId: 'foundry:project-a',
+                    tenantId: tenantA,
+                    environment: 'production',
+                    provider: 'azure-ai-foundry-agent-service',
+                    sourceObjectId: 'project-a',
+                  },
+                  entra: {
+                    sourceId: 'entra:directory-b',
+                    tenantId: tenantB,
+                    environment: 'directory',
+                    provider: 'microsoft-entra',
+                    sourceObjectId: tenantB,
+                  },
+                },
+              ],
+              credentialFactory: () => new Credential(),
+            },
+          ),
+      ).not.toThrow()
+    })
+
+    it('queries one estate-scoped Entra inventory once for two explicit Foundry bindings', async () => {
+      const observedAt = '2026-09-09T00:00:00.000Z'
+      const principalId = '11111111-1111-4111-8111-111111111111'
+      const foundrySources = [
+        {
+          id: 'project-a',
+          name: 'Project A',
+          tenantId: tenantA,
+          environment: 'production',
+          projectId: 'project-a',
+        },
+        {
+          id: 'project-b',
+          name: 'Project B',
+          tenantId: tenantA,
+          environment: 'validation',
+          projectId: 'project-b',
+        },
+      ]
+      const base: EstateSnapshot = {
+        tenantId: 'estate',
+        environment: 'portfolio',
+        generatedAt: observedAt,
+        nodes: [
+          ...foundrySources.map((source) => ({
+            id: `agent-${source.id}`,
+            kind: 'agent' as const,
+            name: `Agent ${source.id}`,
+            description: 'Foundry agent.',
+            environment: source.environment,
+            evidenceIds: [`evidence-${source.id}`],
+            metadata: {
+              sourceOfTruth: 'true',
+              estateId: 'estate-a',
+              sourceId: `foundry:${source.id}`,
+              sourceTenantId: source.tenantId,
+              sourceEnvironment: source.environment,
+              sourceProjectId: source.projectId,
+              provider: 'azure-ai-foundry-agent-service',
+              providerObjectId: `provider-agent-${source.id}`,
+              snapshotGeneratedAt: observedAt,
+              sourceRelease: 'v1',
+              servicePrincipalId: principalId,
+            },
+          })),
+          {
+            id: 'agent365-package',
+            kind: 'agent',
+            name: 'Agent 365 package',
+            description: 'Catalog package without principal evidence.',
+            environment: 'global',
+            evidenceIds: ['agent365-evidence'],
+            metadata: {
+              sourceOfTruth: 'true',
+              estateId: 'estate-a',
+              sourceId: 'agent365:catalog-a',
+              sourceTenantId: tenantA,
+              sourceEnvironment: 'global',
+              provider: 'microsoft-agent-365',
+              providerApplicationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            },
+          },
+        ],
+        edges: [],
+        evidence: [
+          ...foundrySources.map((source) => ({
+            id: `evidence-${source.id}`,
+            source: 'Foundry',
+            sourceObjectId: `${source.id}:provider-agent-${source.id}`,
+            observedAt,
+            freshness: 'live' as const,
+            confidence: 1,
+            evidenceTypes: ['declared_configuration' as const],
+            summary: 'Authoritative Foundry agent configuration.',
+            authority: {
+              estateId: 'estate-a',
+              sourceId: `foundry:${source.id}`,
+              tenantId: source.tenantId,
+              environment: source.environment,
+              provider: 'azure-ai-foundry-agent-service' as const,
+              sourceObjectId: source.projectId,
+              providerObjectId: `provider-agent-${source.id}`,
+              snapshotGeneratedAt: observedAt,
+              sourceRelease: 'v1',
+            },
+          })),
+          {
+            id: 'agent365-evidence',
+            source: 'Agent 365',
+            sourceObjectId: 'package-a',
+            observedAt,
+            freshness: 'live',
+            confidence: 1,
+            evidenceTypes: ['declared_configuration'],
+            summary: 'Authoritative package inventory, not principal evidence.',
+          },
+        ],
+      }
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          value: [
+            {
+              id: principalId,
+              appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              displayName: 'Shared principal',
+              servicePrincipalType: 'Application',
+              accountEnabled: true,
+              appOwnerOrganizationId: tenantA,
+              tags: [],
+            },
+          ],
+        }),
+      )
+      const connector = new MultiEntraEnrichmentConnector(
+        connectorForSnapshot(base),
+        [
+          {
+            ...sourceConfig({
+              id: 'directory-a',
+              name: 'Tenant A directory',
+              tenantId: tenantA,
+              environment: 'directory',
+            }),
+          },
+        ],
+        {
+          enabled: true,
+          expectedSources: foundrySources,
+          bindings: foundrySources.map((source) => ({
+            estateId: 'estate-a',
+            foundry: {
+              sourceId: `foundry:${source.id}`,
+              tenantId: source.tenantId,
+              environment: source.environment,
+              provider: 'azure-ai-foundry-agent-service',
+              sourceObjectId: source.projectId,
+            },
+            entra: {
+              sourceId: 'entra:directory-a',
+              tenantId: tenantA,
+              environment: 'directory',
+              provider: 'microsoft-entra',
+              sourceObjectId: tenantA,
+            },
+          })),
+          credentialFactory: () => new Credential(),
+          clientFactory: () => ({ fetcher }),
+        },
+      )
+
+      const snapshot = await connector.discover()
+
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      expect(snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(2)
+      expect(
+        snapshot.edges.some(
+          (edge) => edge.relationship === 'RUNS_AS' && edge.from === 'agent365-package',
+        ),
+      ).toBe(false)
+      expect(
+        snapshot.edges
+          .filter((edge) => edge.relationship === 'RUNS_AS')
+          .every((edge) => edge.runsAsBinding?.agent.estateId === 'estate-a'),
+      ).toBe(true)
+    })
+
+    it('rejects an explicit binding whose Foundry project identity is not registered', () => {
+      expect(
+        () =>
+          new MultiEntraEnrichmentConnector(
+            connectorForSnapshot(aggregateBase()),
+            [sourceConfig(expectedSources[0]!)],
+            {
+              enabled: true,
+              expectedSources: [
+                {
+                  ...expectedSources[0]!,
+                  projectId: 'project-a',
+                },
+              ],
+              bindings: [
+                {
+                  estateId: 'estate-a',
+                  foundry: {
+                    sourceId: 'foundry:project-a',
+                    tenantId: tenantA,
+                    environment: 'production',
+                    provider: 'azure-ai-foundry-agent-service',
+                    sourceObjectId: 'different-project',
+                  },
+                  entra: {
+                    sourceId: 'entra:project-a',
+                    tenantId: tenantA,
+                    environment: 'production',
+                    provider: 'microsoft-entra',
+                    sourceObjectId: tenantA,
+                  },
+                },
+              ],
+              credentialFactory: () => new Credential(),
+            },
+          ),
+      ).toThrow(/binding/i)
+      expect(
+        () =>
+          new MultiEntraEnrichmentConnector(
+            connectorForSnapshot(aggregateBase()),
+            [sourceConfig(expectedSources[0]!)],
+            {
+              enabled: true,
+              estateId: 'estate-a',
+              expectedSources: [expectedSources[0]!],
+              bindings: [
+                {
+                  ...bindingsFor([expectedSources[0]!])[0]!,
+                  estateId: 'estate-b',
+                },
+              ],
+              credentialFactory: () => new Credential(),
+            },
+          ),
+      ).toThrow(/estate/i)
+    })
+
+    it('keeps tenant-wide Entra inventory unattributed without an explicit source binding', async () => {
+      const principalId = '11111111-1111-4111-8111-111111111111'
+      const connector = new MultiEntraEnrichmentConnector(
+        connectorForSnapshot(aggregateBase()),
+        [sourceConfig(expectedSources[0]!)],
+        {
+          enabled: true,
+          expectedSources: [expectedSources[0]!],
+          credentialFactory: () => new Credential(),
+          clientFactory: () => ({
+            fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+              Response.json({
+                value: [
+                  {
+                    id: principalId,
+                    appId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                    displayName: 'Unbound inventory principal',
+                    servicePrincipalType: 'Application',
+                    accountEnabled: true,
+                    appOwnerOrganizationId: tenantA,
+                    tags: [],
+                  },
+                ],
+              }),
+            ),
+          }),
+        },
+      )
+
+      const snapshot = await connector.discover()
+
+      expect(snapshot.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
+      expect(snapshot.nodes.find((node) => node.id === 'agent-project-a')?.metadata).toMatchObject({
+        entraCorrelationStatus: 'unmatched',
+        entraCorrelationReason: 'missing-explicit-source-binding',
+      })
     })
 
     it('correlates identical directory ids only within matching source boundaries', async () => {
@@ -1780,6 +2361,7 @@ describe('composite enrichment connector', () => {
         {
           enabled: true,
           expectedSources,
+          bindings: bindingsFor(expectedSources),
           credentialFactory: () => new Credential(),
           clientFactory: () => ({
             fetcher: vi
@@ -1820,6 +2402,7 @@ describe('composite enrichment connector', () => {
         {
           enabled: true,
           expectedSources,
+          bindings: bindingsFor(expectedSources),
           aggregation: {
             maxConcurrency: 1,
             maxDurationMs: 1_000,
@@ -1899,6 +2482,7 @@ describe('composite enrichment connector', () => {
         {
           enabled: true,
           expectedSources,
+          bindings: bindingsFor(expectedSources),
           credentialFactory: () => new Credential(),
           clientFactory: (source) => ({
             fetcher: vi.fn<typeof fetch>().mockResolvedValue(
@@ -1949,6 +2533,7 @@ describe('composite enrichment connector', () => {
         {
           enabled: true,
           expectedSources,
+          bindings: bindingsFor([expectedSources[0]!]),
           credentialFactory: () => new Credential(),
           clientFactory: () => ({
             fetcher: vi.fn<typeof fetch>().mockResolvedValue(
@@ -1984,6 +2569,10 @@ describe('composite enrichment connector', () => {
             dataState: 'unsupported',
           },
         ],
+      })
+      expect(snapshot.nodes.find((node) => node.id === 'agent-project-b')?.metadata).toMatchObject({
+        entraCorrelationStatus: 'unmatched',
+        entraCorrelationReason: 'missing-explicit-source-binding',
       })
     })
 

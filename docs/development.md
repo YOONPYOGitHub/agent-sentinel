@@ -105,6 +105,16 @@ the legacy single-source variables:
 - `AZURE_MONITOR_WORKSPACE_ID`
 - `AZURE_MONITOR_TENANT_ID` (must match the API tenant binding)
 - `AZURE_MONITOR_ENVIRONMENT`
+- `FOUNDRY_PROJECT_ENDPOINT` (the final path segment supplies the exact source
+  project ID)
+
+Each `AZURE_MONITOR_SOURCES_JSON` item must include `sourceProjectId` matching
+the authoritative Foundry agent metadata for that source.
+Foundry configuration applies the same trimmed 200-character project-ID schema
+to connector-source API/domain endpoint ingress, legacy environment ingress,
+JSON portfolio parsing, and connector construction. An overlong final endpoint
+segment is rejected before persistence, credentials, or any provider request
+can start.
 
 The runtime does not read a separate Azure Monitor connector-enabled
 environment variable. The `azureMonitorConnectorEnabled` Bicep parameter gates
@@ -126,39 +136,88 @@ Optional bounds are `AZURE_MONITOR_BASELINE_WINDOW_HOURS` (default 168),
 `DefaultAzureCredential`; grant only the Azure Monitor Logs query data action
 (`Microsoft.OperationalInsights/workspaces/query/read`, commonly through Log
 Analytics Reader) on the target workspace. No shared key is accepted.
+Window and observation freshness are recomputed from the trusted provider
+`queriedAt` timestamp and `maximumFreshnessHours`; connector-supplied
+`available` status or stale caveats are not authoritative. A missing freshness
+maximum degrades quality as unverified, and timestamps outside the configured
+maximum remain stale. A default 168-hour baseline that ends within the
+168-hour freshness limit is therefore valid.
+
+Behavior and token-economics routes require a snapshot resolver to return the
+exact authoritative telemetry request before calling the runtime connector.
+Eligibility rejects unresolved or mixed-authority citations,
+`isNonAuthoritative=true`, synthetic/test markers, `synthetic_validation`
+evidence, missing exact declared configuration, and any estate, source,
+environment, or provider-agent mismatch. Identity names, owners, primary IDs,
+tenant inventory, and `RUNS_AS` edges never establish runtime eligibility.
 
 Instrumented request spans must reach `AppRequests` with these OTel/custom
 properties:
 
-| Property                         | Mapping                                                           |
-| -------------------------------- | ----------------------------------------------------------------- |
-| `agent.sentinel.tenant_id`       | Required tenant binding                                           |
-| `gen_ai.agent.id`                | Required agent binding                                            |
-| `deployment.environment.name`    | Required environment binding                                      |
-| `agent.sentinel.observation_id`  | Observation id (falls back to request id)                         |
-| `gen_ai.agent.run.id`            | Optional exact agent-run identifier                               |
-| `agent.sentinel.run_id`          | Optional fallback exact agent-run identifier                      |
-| `agent.sentinel.correlation_id`  | Optional exact correlation identifier (falls back to operation)   |
-| `gen_ai.agent.version`           | Optional broad agent-version context; not counted as an exact run |
-| `gen_ai.usage.input_tokens`      | Optional measured input tokens                                    |
-| `gen_ai.usage.output_tokens`     | Optional measured output tokens                                   |
-| `agent.sentinel.cost.usd`        | Optional measured USD cost; never estimated                       |
-| `agent.sentinel.tool_call_names` | Optional JSON string array of ordered tools                       |
-| `agent.sentinel.synthetic`       | Optional provenance flag for validation canaries; defaults false  |
-| `error.type`                     | Optional error code                                               |
+| Property                           | Mapping                                                           |
+| ---------------------------------- | ----------------------------------------------------------------- |
+| `agent.sentinel.tenant_id`         | Required tenant binding                                           |
+| `gen_ai.agent.id`                  | Required agent binding                                            |
+| `deployment.environment.name`      | Required environment binding                                      |
+| `agent.sentinel.source_project_id` | Required exact Foundry project binding                            |
+| `agent.sentinel.observation_id`    | Required unique observation ID; no request/operation fallback     |
+| `gen_ai.agent.run.id`              | Optional exact agent-run identifier                               |
+| `agent.sentinel.run_id`            | Optional fallback exact agent-run identifier                      |
+| `agent.sentinel.correlation_id`    | Optional exact correlation identifier (falls back to operation)   |
+| `gen_ai.agent.version`             | Optional broad agent-version context; not counted as an exact run |
+| `gen_ai.usage.input_tokens`        | Required measured input tokens for analysis-ready evidence        |
+| `gen_ai.usage.output_tokens`       | Required measured output tokens for analysis-ready evidence       |
+| `agent.sentinel.cost.usd`          | Required measured USD cost for analysis-ready evidence            |
+| `agent.sentinel.tool_call_names`   | Optional JSON string array of ordered tools                       |
+| `agent.sentinel.synthetic`         | Required explicit classification; live evidence must be `false`   |
+| `error.type`                       | Optional error code                                               |
 
-The live read model maps non-empty telemetry windows onto the already
-discovered agent node. Tool and `CAN_CALL` edge evidence is added only when a
-tool-call name has exactly one existing outgoing tool match; unmatched or
-ambiguous names are reported as coverage gaps and never create graph objects.
-This is a request-time projection with a short cache: the jobs-persisted
-configuration snapshot remains unchanged. Synthetic validation spans are
-typed separately and excluded from behavior-baseline and token-economics
-analysis. Token Economics reports runtime correlation-ID availability as the
-fraction of measured observations carrying an agent-run or correlation
-identifier. This is linkability, not evidence that an outcome was actually
-joined. Agent-version context is preserved but is not counted as exact because
-one version can span many unrelated runs and outcomes.
+`pnpm --filter @agent-sentinel/scripts validate-live` emits bounded synthetic
+validation spans. Their exact sanitized Foundry project ID supports source
+binding, but `agent.sentinel.synthetic=true` remains authoritative and the span
+must never be described as live runtime evidence.
+
+The Azure Monitor row must also expose a 32-lowercase-hex trace ID, a
+16-lowercase-hex span ID, and `ItemCount == 1`. Each row is converted into
+invocation, latency, error, input-token, output-token, and cost claims and then
+passed through the same representative normalizer used by offline contract
+tests. Missing, sampled, stale, synthetic, conflicting, or mismatched claims
+remain `unknown`, `insufficient-data`, or degraded; the connector does not
+substitute `AppMetrics`, fixtures, or estimated values.
+
+The complete bounded response is canonicalized by observation ID before
+baseline/observed partitioning. If one observation ID is reused with conflicting
+content across windows, every conflicting row is removed and each affected
+window is degraded with `conflicting-duplicate`.
+
+Jobs and the live read model map validated telemetry windows onto an already
+discovered agent node. Both paths validate the returned estate, snapshot,
+tenant, environment, source project, workspace, provider agent, and nested
+observation provenance against the exact request before projection. Jobs
+persists only validated projections and retains the authoritative discovery
+snapshot when optional runtime evidence is rejected; the API performs the same
+validation before its short-lived request projection. Tool and `CAN_CALL` edge
+evidence is added only when a tool-call name has exactly one existing outgoing
+tool match; unmatched or ambiguous names are reported as coverage gaps and
+never create graph objects. Synthetic validation spans are typed separately and
+excluded from behavior-baseline and token-economics analysis. Token Economics
+reports runtime correlation-ID availability as the fraction of measured
+observations carrying an agent-run or correlation identifier. This is
+linkability, not evidence that an outcome was actually joined. Agent-version
+context is preserved but is not counted as exact because one version can span
+many unrelated runs and outcomes.
+
+Before either path queries telemetry, the discovered agent and one cited
+declared-configuration evidence record must both be authoritative and exactly
+match the snapshot estate, connector source, source tenant, source project,
+source environment, and provider agent ID. Names, owners, primary IDs, tenant
+inventory membership, and non-authoritative manifest metadata never establish
+runtime eligibility or a `RUNS_AS` relationship.
+
+Persisted runtime invocation evidence retains bounded agent-run ID, correlation
+ID, agent version, and the original order of tool-call names that matched
+exactly one declared tool edge. Those fields participate in immutable evidence
+collision checks and are returned unchanged through `/api/demo/state`.
 
 The checked-in Azure Monitor response fixture is local-only and contract-tested:
 

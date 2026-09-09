@@ -14,7 +14,12 @@ import {
   type LiveSourceDataState,
   type OperationAwareAgentConnector,
 } from '@agent-sentinel/connector-sdk'
-import type { EstateSnapshot, Evidence, Remediation } from '@agent-sentinel/domain'
+import {
+  estateIdSchema,
+  type EstateSnapshot,
+  type Evidence,
+  type Remediation,
+} from '@agent-sentinel/domain'
 import type { TokenCredential } from '@azure/core-auth'
 import {
   ClientAssertionCredential,
@@ -32,10 +37,12 @@ import {
 import {
   enrichAggregateSnapshotWithEntra,
   enrichAggregateSnapshotWithEntraAndDiagnostics,
+  enrichAggregateSnapshotWithExactEntraBindingsAndDiagnostics,
   enrichSnapshotWithEntra,
   enrichSnapshotWithEntraAndDiagnostics,
   mapEntraInventoryToSnapshot,
   type EntraAggregateSource,
+  type EntraFoundryRunsAsBinding,
 } from './normalize.js'
 import {
   entraIdentityConnectorConfigSchema,
@@ -73,6 +80,50 @@ export const entraSourceConfigSchema = entraIdentityConnectorConfigSchema.extend
   credential: entraSourceCredentialSchema.optional(),
 })
 export type EntraSourceConfig = z.infer<typeof entraSourceConfigSchema>
+
+const runsAsSourceEndpointSchema = z.strictObject({
+  sourceId: z.string().min(3).max(200),
+  tenantId: z.string().trim().min(1).max(128),
+  environment: z.string().trim().min(1).max(128),
+  sourceObjectId: z.string().trim().min(1).max(500),
+})
+
+export const entraFoundryRunsAsBindingSchema = z.strictObject({
+  estateId: estateIdSchema,
+  foundry: runsAsSourceEndpointSchema.extend({
+    sourceId: z.string().regex(/^foundry:[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+    provider: z.literal('azure-ai-foundry-agent-service'),
+  }),
+  entra: runsAsSourceEndpointSchema.extend({
+    sourceId: z.string().regex(/^entra:[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+    provider: z.literal('microsoft-entra'),
+  }),
+})
+
+export const entraFoundryRunsAsBindingsSchema = z
+  .array(entraFoundryRunsAsBindingSchema)
+  .max(100)
+  .superRefine((bindings, context) => {
+    const foundrySources = new Set<string>()
+    const estateIds = new Set<string>()
+    for (const [index, binding] of bindings.entries()) {
+      estateIds.add(binding.estateId)
+      if (foundrySources.has(binding.foundry.sourceId)) {
+        context.addIssue({
+          code: 'custom',
+          path: [index, 'foundry', 'sourceId'],
+          message: 'A Foundry source can have only one explicit Entra RUNS_AS binding.',
+        })
+      }
+      foundrySources.add(binding.foundry.sourceId)
+    }
+    if (estateIds.size > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'One RUNS_AS binding configuration cannot span multiple estates.',
+      })
+    }
+  })
 
 export const entraSourcesConfigSchema = z
   .array(entraSourceConfigSchema)
@@ -634,6 +685,8 @@ export type ExpectedEntraSource = EntraAggregateSource
 export interface MultiEntraEnrichmentOptions {
   enabled: boolean
   expectedSources: readonly ExpectedEntraSource[]
+  estateId?: string
+  bindings?: readonly EntraFoundryRunsAsBinding[]
   credentialFactory?: EntraCredentialFactory
   clientFactory?: (source: EntraSourceConfig) => EntraGraphClientOptions
   aggregation?: Partial<LiveAggregationLimits>
@@ -653,10 +706,55 @@ interface MultiEntraSourceState {
   reason: string | undefined
   authoritativeComplete: boolean
   diagnostics: ExactIdentityCorrelationDiagnostics | undefined
+  bindings: readonly EntraFoundryRunsAsBinding[]
 }
 
 function sourceBoundary(source: Pick<EntraAggregateSource, 'tenantId' | 'environment'>): string {
   return `${source.tenantId.toLowerCase()}\0${source.environment}`
+}
+
+function exactBindingsByEntraSource(
+  configuredSources: readonly EntraSourceConfig[],
+  expectedSources: readonly ExpectedEntraSource[],
+  bindings: readonly EntraFoundryRunsAsBinding[],
+): ReadonlyMap<string, readonly EntraFoundryRunsAsBinding[]> {
+  const configuredBySourceId = new Map(
+    configuredSources.map((source) => [`entra:${source.id}`, source]),
+  )
+  const expectedBySourceId = new Map(
+    expectedSources.map((source) => [`foundry:${source.id}`, source]),
+  )
+  const boundFoundrySources = new Set<string>()
+  const grouped = new Map<string, EntraFoundryRunsAsBinding[]>()
+  for (const binding of bindings) {
+    const foundry = expectedBySourceId.get(binding.foundry.sourceId)
+    const entra = configuredBySourceId.get(binding.entra.sourceId)
+    if (
+      foundry === undefined ||
+      foundry.projectId === undefined ||
+      foundry.tenantId.toLowerCase() !== binding.foundry.tenantId.toLowerCase() ||
+      foundry.environment !== binding.foundry.environment ||
+      foundry.projectId !== binding.foundry.sourceObjectId ||
+      binding.foundry.provider !== 'azure-ai-foundry-agent-service'
+    ) {
+      throw new Error('Exact Entra binding references an unregistered Foundry project source.')
+    }
+    if (
+      entra === undefined ||
+      entra.tenantId.toLowerCase() !== binding.entra.tenantId.toLowerCase() ||
+      entra.environment !== binding.entra.environment ||
+      binding.entra.provider !== 'microsoft-entra' ||
+      binding.entra.sourceObjectId.toLowerCase() !== entra.tenantId.toLowerCase()
+    ) {
+      throw new Error('Exact Entra binding references an unregistered Entra inventory source.')
+    }
+    if (boundFoundrySources.has(binding.foundry.sourceId)) {
+      throw new Error('A Foundry source cannot have multiple Entra RUNS_AS bindings.')
+    }
+    boundFoundrySources.add(binding.foundry.sourceId)
+    grouped.set(binding.entra.sourceId, [...(grouped.get(binding.entra.sourceId) ?? []), binding])
+  }
+  return grouped
 }
 
 function entraReadiness(connector: EntraIdentityConnector): {
@@ -687,6 +785,8 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
   readonly descriptor: ConnectorDescriptor
   private readonly sources: MultiEntraSourceState[]
   private readonly enabled: boolean
+  private readonly estateId: string | undefined
+  private readonly allFoundrySourcesBound: boolean
   private readonly aggregationLimits: LiveAggregationLimits
   private evidenceById = new Map<string, Evidence>()
   private baseHealth: ConnectionTestResult = {
@@ -704,6 +804,10 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
       throw new Error('Multi-source Entra enrichment requires at least one expected source.')
     }
     this.enabled = options.enabled
+    this.estateId = options.estateId ?? options.bindings?.[0]?.estateId ?? 'default'
+    if (options.bindings?.some((binding) => binding.estateId !== this.estateId) === true) {
+      throw new Error('Exact Entra bindings do not match the requested estate.')
+    }
     const credentialFactory = options.credentialFactory ?? createEntraSourceCredential
     const maxPagesPerSource = Math.max(
       20,
@@ -721,13 +825,39 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
       maxRecordsPerSource,
       ...options.aggregation,
     }
-    const expectedIds = new Set(options.expectedSources.map((source) => source.id))
-    const unexpected = configuredSources.find((source) => !expectedIds.has(source.id))
-    if (unexpected !== undefined) {
-      throw new Error(`Entra source has no matching Foundry source: ${unexpected.id}`)
-    }
+    const exactBindings = exactBindingsByEntraSource(
+      configuredSources,
+      options.expectedSources,
+      options.bindings ?? [],
+    )
+    const boundFoundrySources = new Set(
+      (options.bindings ?? []).map((binding) => binding.foundry.sourceId),
+    )
+    this.allFoundrySourcesBound = options.expectedSources.every((source) =>
+      boundFoundrySources.has(`foundry:${source.id}`),
+    )
     const configuredById = new Map(configuredSources.map((source) => [source.id, source]))
-    this.sources = options.expectedSources.map((expected) => {
+    const configuredIds = new Set(configuredSources.map((source) => source.id))
+    const sourceDefinitions = [
+      ...configuredSources.map((source) => ({
+        id: source.id,
+        name: source.name,
+        tenantId: source.tenantId,
+        environment: source.environment,
+      })),
+      ...options.expectedSources
+        .filter(
+          (source) =>
+            !configuredIds.has(source.id) && !boundFoundrySources.has(`foundry:${source.id}`),
+        )
+        .map((source) => ({
+          id: source.id,
+          name: source.name,
+          tenantId: source.tenantId,
+          environment: source.environment,
+        })),
+    ]
+    this.sources = sourceDefinitions.map((expected) => {
       const config = configuredById.get(expected.id)
       const boundaryMatches =
         config !== undefined && sourceBoundary(config) === sourceBoundary(expected)
@@ -751,6 +881,7 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
           reason = 'invalid-configuration'
         }
       }
+      const sourceBindings = exactBindings.get(`entra:${expected.id}`) ?? []
       return {
         id: expected.id,
         expected,
@@ -772,8 +903,12 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
         checkedAt: undefined,
         authoritativeComplete: false,
         diagnostics: undefined,
+        bindings: sourceBindings,
         reason:
           reason ??
+          (config !== undefined && sourceBindings.length === 0
+            ? 'missing-explicit-source-binding'
+            : undefined) ??
           (this.enabled && connector !== undefined
             ? 'not-queried'
             : boundaryMatches
@@ -807,6 +942,7 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
   async testConnection(request: ConnectorOperationRequest = {}): Promise<ConnectionTestResult> {
     const base = await this.base.testConnection(request)
     this.baseHealth = base
+    if (this.sources.length === 0) return base
     const aggregation = await aggregateLiveSources<MultiEntraSourceState, ConnectionTestResult>({
       sources: this.sources,
       limits: this.aggregationLimits,
@@ -895,6 +1031,29 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
 
   async discover(request: ConnectorOperationRequest = {}): Promise<EstateSnapshot> {
     let snapshot = await this.base.discover(request)
+    const boundFoundrySources = new Set(
+      this.sources.flatMap((source) => source.bindings.map((binding) => binding.foundry.sourceId)),
+    )
+    snapshot = {
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => {
+        if (node.kind !== 'agent') return node
+        const sourceId =
+          node.metadata['sourceId'] ??
+          (node.metadata['sourceConnectorId'] === undefined
+            ? undefined
+            : `foundry:${node.metadata['sourceConnectorId']}`)
+        if (sourceId === undefined || boundFoundrySources.has(sourceId)) return node
+        return {
+          ...node,
+          metadata: {
+            ...node.metadata,
+            entraCorrelationStatus: 'unmatched',
+            entraCorrelationReason: 'missing-explicit-source-binding',
+          },
+        }
+      }),
+    }
     this.baseHealth = {
       ok: true,
       checkedAt: new Date().toISOString(),
@@ -967,10 +1126,12 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
         continue
       }
       try {
-        const composed = enrichAggregateSnapshotWithEntraAndDiagnostics(
+        const composed = enrichAggregateSnapshotWithExactEntraBindingsAndDiagnostics(
           snapshot,
           outcome.value,
           source.expected,
+          source.bindings,
+          this.estateId,
         )
         const capabilityCoverage = source.connector.getCapabilityCoverage()
         snapshot = composed.snapshot
@@ -1015,11 +1176,13 @@ export class MultiEntraEnrichmentConnector implements AgentConnector {
     const basePartial = baseHealth?.partial === true
     const entraReady =
       !this.enabled ||
-      this.sources.every(
-        (source) => source.readiness === 'ready' && source.dataState === 'complete',
-      )
+      (this.allFoundrySourcesBound &&
+        this.sources.every(
+          (source) => source.readiness === 'ready' && source.dataState === 'complete',
+        ))
     const entraAuthoritativeComplete =
-      !this.enabled || this.sources.every((source) => source.authoritativeComplete)
+      !this.enabled ||
+      (this.allFoundrySourcesBound && this.sources.every((source) => source.authoritativeComplete))
     return {
       overall:
         baseOverall === 'unavailable'
@@ -1110,6 +1273,7 @@ export function parseEntraSourcesConfig(
     } catch {
       throw new Error('ENTRA_SOURCES_JSON must be valid JSON.')
     }
+
     return entraSourcesConfigSchema.parse(sources)
   }
   const legacyNames = ['ENTRA_CONNECTOR_TENANT_ID', 'ENTRA_CONNECTOR_ENVIRONMENT'] as const
@@ -1129,6 +1293,20 @@ export function parseEntraSourcesConfig(
       name: 'Primary Foundry project',
     }),
   ]
+}
+
+export function parseEntraRunsAsBindings(
+  environment: NodeJS.ProcessEnv = process.env,
+): EntraFoundryRunsAsBinding[] {
+  const bindingsJson = environment['ENTRA_RUNS_AS_BINDINGS_JSON']?.trim()
+  if (bindingsJson === undefined || bindingsJson.length === 0) return []
+  let bindings: unknown
+  try {
+    bindings = JSON.parse(bindingsJson)
+  } catch {
+    throw new Error('ENTRA_RUNS_AS_BINDINGS_JSON must be valid JSON.')
+  }
+  return entraFoundryRunsAsBindingsSchema.parse(bindings)
 }
 
 export function resolveEntraRuntimeActivation(
@@ -1164,6 +1342,8 @@ export interface OptionalEntraEnrichmentOptions {
   credentialFactory?: EntraCredentialFactory
   clientFactory?: (source: EntraSourceConfig) => EntraGraphClientOptions
   expectedSources?: readonly ExpectedEntraSource[]
+  estateId?: string
+  bindings?: readonly EntraFoundryRunsAsBinding[]
   expectedTenantId?: string
   expectedEnvironment?: string
   mode?: EntraRuntimeMode
@@ -1175,8 +1355,10 @@ export function createOptionalEntraEnrichmentConnector(
   options: OptionalEntraEnrichmentOptions = {},
 ): AgentConnector {
   let activation: EntraRuntimeActivation
+  let bindings: readonly EntraFoundryRunsAsBinding[]
   try {
     activation = resolveEntraRuntimeActivation(environment, options.mode ?? 'live')
+    bindings = options.bindings ?? parseEntraRunsAsBindings(environment)
   } catch {
     return new EntraEnrichmentConnector(base, undefined, {
       enabled:
@@ -1190,6 +1372,8 @@ export function createOptionalEntraEnrichmentConnector(
     return new MultiEntraEnrichmentConnector(base, activation.sources, {
       enabled: activation.enabled,
       expectedSources: options.expectedSources,
+      ...(options.estateId === undefined ? {} : { estateId: options.estateId }),
+      bindings,
       ...(options.credentialFactory !== undefined
         ? { credentialFactory: options.credentialFactory }
         : options.credential !== undefined

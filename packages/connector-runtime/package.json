@@ -1,0 +1,33 @@
+{
+  "name": "@agent-sentinel/connector-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "lint": "eslint src test",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-sentinel/agent365-connector": "workspace:*",
+    "@agent-sentinel/azure-monitor-otel-connector": "workspace:*",
+    "@agent-sentinel/azure-resource-graph-connector": "workspace:*",
+    "@agent-sentinel/connector-sdk": "workspace:*",
+    "@agent-sentinel/defender-cloud-apps-connector": "workspace:*",
+    "@agent-sentinel/domain": "workspace:*",
+    "@agent-sentinel/entra-identity-connector": "workspace:*",
+    "@agent-sentinel/foundry-connector": "workspace:*",
+    "@agent-sentinel/power-platform-connector": "workspace:*",
+    "@agent-sentinel/purview-connector": "workspace:*",
+    "@agent-sentinel/teams-distribution-connector": "workspace:*"
+  }
+}

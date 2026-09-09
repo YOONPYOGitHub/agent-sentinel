@@ -16,6 +16,7 @@
     "@agent-sentinel/agent365-connector": "workspace:*",
     "@agent-sentinel/azure-resource-graph-connector": "workspace:*",
     "@agent-sentinel/azure-monitor-otel-connector": "workspace:*",
+    "@agent-sentinel/connector-runtime": "workspace:*",
     "@agent-sentinel/connector-sdk": "workspace:*",
     "@agent-sentinel/defender-cloud-apps-connector": "workspace:*",
     "@agent-sentinel/domain": "workspace:*",

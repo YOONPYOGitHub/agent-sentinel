@@ -14,16 +14,32 @@ import { buildEstateRegistry } from '../src/estate-config.js'
 import { MockAgentConnector } from '@agent-sentinel/mock-connector'
 import type { AuthConfig } from '../src/auth.js'
 import type {
+  AgentConnector,
   ConnectorHealthReport,
   RuntimeTelemetryConnector,
 } from '@agent-sentinel/connector-sdk'
+import { DefenderCloudAppsCompositionConnector } from '@agent-sentinel/defender-cloud-apps-connector'
+import { PurviewCompositionConnector } from '@agent-sentinel/purview-connector'
+import { AzureResourceGraphCompositionConnector } from '@agent-sentinel/azure-resource-graph-connector'
+import { TeamsDistributionCompositionConnector } from '@agent-sentinel/teams-distribution-connector'
 import {
   InMemoryConnectorHealthRepository,
   InMemoryExposureFindingRepository,
   InMemorySnapshotRepository,
 } from '@agent-sentinel/persistence'
+import { resolveAgent365Runtime } from '@agent-sentinel/connector-runtime'
+import type {
+  ConnectorSourceDefinition,
+  ConnectorSourceRepository,
+  EstateContext,
+} from '@agent-sentinel/domain'
 
 const apps: Awaited<ReturnType<typeof createApp>>[] = []
+const mockEstate = {
+  id: 'default',
+  tenantId: 'contoso-ai-lab',
+  environment: 'Demo / Korea Central',
+}
 
 beforeEach(() => {
   jose.jwtVerify.mockReset()
@@ -115,6 +131,127 @@ function persistedHealth(sourceId: string, readiness: 'ready' | 'degraded'): Con
       },
     ],
   }
+}
+
+const agent365Estate: EstateContext = {
+  id: 'agent365-estate',
+  tenantId: '11111111-1111-4111-8111-111111111111',
+  environment: 'production',
+}
+
+const agent365EstateRegistry = buildEstateRegistry(
+  {
+    AGENT_SENTINEL_ESTATES_JSON: JSON.stringify([
+      {
+        ...agent365Estate,
+        name: 'Agent 365 estate',
+        isDefault: true,
+        allowedAuthTenantIds: ['auth-tenant'],
+      },
+    ]),
+  },
+  { ...agent365Estate, authTenantId: 'auth-tenant' },
+)
+
+function agent365Source(etag = 'etag-current'): ConnectorSourceDefinition {
+  return {
+    estateId: agent365Estate.id,
+    tenantId: agent365Estate.tenantId,
+    environment: agent365Estate.environment,
+    sourceId: 'agent365-current',
+    connectorType: 'agent365',
+    displayName: 'Current Agent 365',
+    enabled: true,
+    origin: 'user',
+    configuration: {
+      type: 'agent365',
+      graphBaseUrl: 'https://graph.microsoft.com',
+      limits: {
+        maxPages: 3,
+        maxItems: 500,
+        requestTimeoutMs: 5_000,
+        maxRetries: 1,
+        maxRetryAfterMs: 1_000,
+        maxResponseBytes: 50_000,
+      },
+    },
+    credential: {
+      mode: 'managed-identity',
+      managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+    },
+    testStatus: { status: 'not-tested' },
+    version: 2,
+    etag,
+    createdBy: { type: 'service-principal', id: 'configuration-api' },
+    updatedBy: { type: 'service-principal', id: 'configuration-api' },
+    createdAt: '2026-09-09T00:00:00.000Z',
+    updatedAt: '2026-09-09T00:00:00.000Z',
+  }
+}
+
+function sourceRepository(values: readonly ConnectorSourceDefinition[]): ConnectorSourceRepository {
+  return {
+    create: () => Promise.reject(new Error('not used')),
+    findById: (_estate, sourceId) =>
+      Promise.resolve(values.find((source) => source.sourceId === sourceId) ?? null),
+    list: (_estate, limit = 100, cursor) =>
+      Promise.resolve(
+        values
+          .filter((source) => cursor === undefined || source.sourceId > cursor)
+          .toSorted((left, right) => left.sourceId.localeCompare(right.sourceId))
+          .slice(0, limit),
+      ),
+    update: () => Promise.reject(new Error('not used')),
+    delete: () => Promise.reject(new Error('not used')),
+    listAudit: () => Promise.resolve([]),
+  }
+}
+
+function measuredAgent365Health(
+  sourceSetFingerprint: string,
+  measuredAt: string,
+): ConnectorHealthReport {
+  return {
+    overall: 'ready',
+    partial: false,
+    sourceSetFingerprint,
+    sources: [
+      {
+        id: 'agent365:agent365-old',
+        name: 'Old Agent 365',
+        role: 'discovery',
+        enabled: true,
+        configured: true,
+        readiness: 'ready',
+        dataState: 'complete',
+        pages: 2,
+        records: 25,
+        checkedAt: measuredAt,
+        provenance: {
+          estateTenantId: agent365Estate.tenantId,
+          estateEnvironment: agent365Estate.environment,
+          sourceConnectorId: 'agent365-old',
+          sourceTenantId: agent365Estate.tenantId,
+          sourceEnvironment: agent365Estate.environment,
+          provider: 'microsoft-graph-agent365-package-catalog',
+          providerObjectId: '/v1.0/copilot/admin/catalog/packages',
+        },
+      },
+    ],
+  }
+}
+
+function postAgent365Composition(base: AgentConnector): AgentConnector {
+  return new TeamsDistributionCompositionConnector(
+    new AzureResourceGraphCompositionConnector(
+      new PurviewCompositionConnector(
+        new DefenderCloudAppsCompositionConnector(base, undefined),
+        undefined,
+      ),
+      undefined,
+    ),
+    undefined,
+  )
 }
 
 describe('GET /api/connectors', () => {
@@ -251,6 +388,7 @@ describe('GET /api/connectors', () => {
     })
     const app = await createApp(
       new DemoService(
+        defaultEstate,
         connector,
         'foundry',
         'https://default-estate.services.ai.azure.com/api/projects/default',
@@ -264,6 +402,7 @@ describe('GET /api/connectors', () => {
         snapshotRepository: new InMemorySnapshotRepository(),
         runtimeTelemetryConnector,
         businessOutcomeConnector: null,
+        connectorHealthClock: () => new Date('2026-09-04T13:10:00.000Z'),
       },
     )
     apps.push(app)
@@ -338,7 +477,7 @@ describe('GET /api/connectors', () => {
     const testConnection = vi
       .spyOn(connector, 'testConnection')
       .mockRejectedValue(new Error('live route must not probe the provider'))
-    const app = await createApp(new DemoService(connector, 'foundry'), jwtConfig, {
+    const app = await createApp(new DemoService(mockEstate, connector, 'foundry'), jwtConfig, {
       dataMode: 'live',
       estateRegistry,
       connectorHealthRepository: new InMemoryConnectorHealthRepository(),
@@ -361,6 +500,275 @@ describe('GET /api/connectors', () => {
     })
     expect(response.json()).not.toHaveProperty('health')
     expect(testConnection).not.toHaveBeenCalled()
+  })
+
+  it('synthesizes authorization-required health for an enabled Agent 365 source without UAMI', async () => {
+    jose.jwtVerify.mockResolvedValue({
+      payload: {
+        sub: 'viewer',
+        tid: 'auth-tenant',
+        roles: ['AgentSentinel.Viewer'],
+      },
+    })
+    const connector = new MockAgentConnector()
+    const sourceWithoutUami: ConnectorSourceDefinition = {
+      ...agent365Source(),
+      credential: { mode: 'default' },
+    }
+    const app = await createApp(new DemoService(agent365Estate, connector, 'foundry'), jwtConfig, {
+      dataMode: 'live',
+      estateRegistry: agent365EstateRegistry,
+      connectorSourceRepository: sourceRepository([sourceWithoutUami]),
+      connectorHealthRepository: new InMemoryConnectorHealthRepository(),
+      exposureRepository: new InMemoryExposureFindingRepository(),
+      snapshotRepository: new InMemorySnapshotRepository(),
+      runtimeTelemetryConnector: null,
+      businessOutcomeConnector: null,
+    })
+    apps.push(app)
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/connectors',
+      headers: { authorization: ['Bearer', 'valid-token'].join(' ') },
+    })
+
+    expect(response.statusCode).toBe(200)
+    const body = response.json<{
+      active: { lifecycleState: string }
+      catalog: Array<{ id: string; lifecycleState: string }>
+      health: ConnectorHealthReport
+    }>()
+    expect(body.active.lifecycleState).toBe('unavailable')
+    expect(body.health).toMatchObject({
+      overall: 'unavailable',
+      partial: true,
+      sources: [
+        {
+          id: 'agent365:agent365-current',
+          enabled: true,
+          configured: false,
+          readiness: 'authorization-required',
+          dataState: 'unsupported',
+          reason: 'dedicated-workload-identity-required',
+        },
+      ],
+    })
+    expect(body.catalog.find((entry) => entry.id === 'm365-agent-registry')?.lifecycleState).toBe(
+      'authorization-required',
+    )
+    expect(body.health.sources.some((source) => source.readiness === 'ready')).toBe(false)
+  })
+
+  it('synthesizes unavailable health for an active Agent 365 source without a measurement', async () => {
+    jose.jwtVerify.mockResolvedValue({
+      payload: {
+        sub: 'viewer',
+        tid: 'auth-tenant',
+        roles: ['AgentSentinel.Viewer'],
+      },
+    })
+    const connector = new MockAgentConnector()
+    const app = await createApp(new DemoService(agent365Estate, connector, 'foundry'), jwtConfig, {
+      dataMode: 'live',
+      estateRegistry: agent365EstateRegistry,
+      connectorSourceRepository: sourceRepository([agent365Source()]),
+      connectorHealthRepository: new InMemoryConnectorHealthRepository(),
+      exposureRepository: new InMemoryExposureFindingRepository(),
+      snapshotRepository: new InMemorySnapshotRepository(),
+      runtimeTelemetryConnector: null,
+      businessOutcomeConnector: null,
+    })
+    apps.push(app)
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/connectors',
+      headers: { authorization: ['Bearer', 'valid-token'].join(' ') },
+    })
+
+    expect(response.statusCode).toBe(200)
+    const body = response.json<{
+      catalog: Array<{ id: string; lifecycleState: string }>
+      health: ConnectorHealthReport
+    }>()
+    expect(body.health).toMatchObject({
+      overall: 'unavailable',
+      partial: true,
+      sources: [
+        {
+          id: 'agent365:agent365-current',
+          enabled: true,
+          configured: true,
+          readiness: 'unavailable',
+          reason: 'not-measured',
+        },
+      ],
+    })
+    expect(body.catalog.find((entry) => entry.id === 'm365-agent-registry')?.lifecycleState).toBe(
+      'unavailable',
+    )
+    expect(body.health.sources.some((source) => source.readiness === 'ready')).toBe(false)
+  })
+
+  it.each([
+    {
+      name: 'source generation changed',
+      measuredAt: '2026-09-09T00:00:00.000Z',
+      fingerprint: '0'.repeat(64),
+      now: new Date('2026-09-09T00:05:00.000Z'),
+      reason: 'source-set-changed',
+    },
+    {
+      name: 'measurement expired',
+      measuredAt: '2026-09-07T00:00:00.000Z',
+      fingerprint: undefined,
+      now: new Date('2026-09-09T00:00:00.001Z'),
+      reason: 'measurement-expired',
+    },
+  ])(
+    'degrades persisted Agent 365 health when the $name',
+    async ({ measuredAt, fingerprint, now, reason }) => {
+      jose.jwtVerify.mockResolvedValue({
+        payload: {
+          sub: 'viewer',
+          tid: 'auth-tenant',
+          roles: ['AgentSentinel.Viewer'],
+        },
+      })
+      const sources = sourceRepository([agent365Source()])
+      const currentRuntime = await resolveAgent365Runtime(sources, agent365Estate)
+      const measuredFingerprint = fingerprint ?? currentRuntime.sourceSetFingerprint
+      const connector = new MockAgentConnector()
+      const connectorHealth = new InMemoryConnectorHealthRepository()
+      const health = measuredAgent365Health(measuredFingerprint, measuredAt)
+      await connectorHealth.save(agent365Estate, {
+        estateId: agent365Estate.id,
+        tenantId: agent365Estate.tenantId,
+        environment: agent365Estate.environment,
+        connectorId: connector.descriptor.id,
+        sourceSetFingerprint: measuredFingerprint,
+        measuredAt,
+        health,
+      })
+      const app = await createApp(
+        new DemoService(agent365Estate, connector, 'foundry'),
+        jwtConfig,
+        {
+          dataMode: 'live',
+          estateRegistry: agent365EstateRegistry,
+          connectorSourceRepository: sources,
+          connectorHealthRepository: connectorHealth,
+          exposureRepository: new InMemoryExposureFindingRepository(),
+          snapshotRepository: new InMemorySnapshotRepository(),
+          runtimeTelemetryConnector: null,
+          businessOutcomeConnector: null,
+          connectorHealthClock: () => now,
+        },
+      )
+      apps.push(app)
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/connectors',
+        headers: { authorization: ['Bearer', 'valid-token'].join(' ') },
+      })
+
+      expect(response.statusCode).toBe(200)
+      const body = response.json<{
+        active: { lifecycleState: string }
+        health: ConnectorHealthReport
+      }>()
+      expect(body.active.lifecycleState).toBe('degraded')
+      expect(body.health).toMatchObject({
+        overall: 'degraded',
+        partial: true,
+      })
+      expect(
+        body.health.sources.find((source) => source.id === 'agent365:agent365-old'),
+      ).toMatchObject({
+        readiness: 'degraded',
+        dataState: 'stale',
+        pages: 2,
+        records: 25,
+        checkedAt: measuredAt,
+        reason,
+        provenance: {
+          sourceConnectorId: 'agent365-old',
+          provider: 'microsoft-graph-agent365-package-catalog',
+        },
+      })
+    },
+  )
+
+  it('serves aggregate Agent 365 health metadata persisted after every outer composition wrapper', async () => {
+    jose.jwtVerify.mockResolvedValue({
+      payload: {
+        sub: 'viewer',
+        tid: 'auth-tenant',
+        roles: ['AgentSentinel.Viewer'],
+      },
+    })
+    const measuredAt = '2026-09-09T00:05:00.000Z'
+    const sources = sourceRepository([agent365Source()])
+    const runtime = await resolveAgent365Runtime(sources, agent365Estate)
+    const baseHealth = measuredAgent365Health(runtime.sourceSetFingerprint, measuredAt)
+    const base: AgentConnector = {
+      descriptor: {
+        id: 'composed-agent365',
+        name: 'Composed Agent 365',
+        apiVersion: 'v1',
+        releaseStatus: 'ga',
+        capabilities: ['discovery'],
+        requiredPermissions: [],
+        blindSpots: [],
+      },
+      testConnection: () =>
+        Promise.resolve({ ok: true, checkedAt: measuredAt, message: 'Connected.' }),
+      discover: () => Promise.reject(new Error('not used')),
+      getEvidence: () => Promise.reject(new Error('not used')),
+      getConnectorHealth: () => structuredClone(baseHealth),
+    }
+    const connector = postAgent365Composition(base)
+    const connectorHealth = new InMemoryConnectorHealthRepository()
+    const health = connector.getConnectorHealth?.()
+    if (health === undefined) throw new Error('Expected composed connector health.')
+
+    expect(health.sourceSetFingerprint).toBe(runtime.sourceSetFingerprint)
+    await connectorHealth.save(agent365Estate, {
+      estateId: agent365Estate.id,
+      tenantId: agent365Estate.tenantId,
+      environment: agent365Estate.environment,
+      connectorId: connector.descriptor.id,
+      sourceSetFingerprint: runtime.sourceSetFingerprint,
+      measuredAt,
+      health,
+    })
+    const app = await createApp(new DemoService(agent365Estate, connector, 'foundry'), jwtConfig, {
+      dataMode: 'live',
+      estateRegistry: agent365EstateRegistry,
+      connectorSourceRepository: sources,
+      connectorHealthRepository: connectorHealth,
+      exposureRepository: new InMemoryExposureFindingRepository(),
+      snapshotRepository: new InMemorySnapshotRepository(),
+      runtimeTelemetryConnector: null,
+      businessOutcomeConnector: null,
+      connectorHealthClock: () => new Date(measuredAt),
+    })
+    apps.push(app)
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/connectors',
+      headers: { authorization: ['Bearer', 'valid-token'].join(' ') },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json<{ health: ConnectorHealthReport }>().health).toMatchObject({
+      sourceSetFingerprint: runtime.sourceSetFingerprint,
+      overall: 'degraded',
+      partial: true,
+    })
   })
 })
 
@@ -557,6 +965,7 @@ describe('buildConnectorsCollection', () => {
     const health = {
       overall: 'degraded' as const,
       partial: false,
+      sourceSetFingerprint: 'a'.repeat(64),
       sources: [
         {
           id: 'microsoft-entra-service-principals',
@@ -931,6 +1340,7 @@ describe('buildConnectorsCollection', () => {
             enabled: true,
             configured: true,
             readiness,
+            ...(readiness === 'ready' ? { dataState: 'complete' as const } : {}),
           },
         ],
       },
@@ -945,6 +1355,45 @@ describe('buildConnectorsCollection', () => {
       'connected',
     )
   })
+
+  it.each(['partial', 'stale', 'failed', 'cancelled', 'empty'] as const)(
+    'keeps successfully probed Agent 365 %s data degraded instead of connected',
+    (dataState) => {
+      const result = buildConnectorsCollection('foundry', {
+        connectorId: 'foundry-test',
+        connectorHealth: {
+          overall: 'degraded',
+          partial: true,
+          sources: [
+            {
+              id: 'foundry:primary',
+              name: 'Foundry',
+              role: 'discovery',
+              enabled: true,
+              configured: true,
+              readiness: 'ready',
+            },
+            {
+              id: 'agent365:tenant-a',
+              name: 'Agent 365 Tenant A',
+              role: 'discovery',
+              enabled: true,
+              configured: true,
+              readiness: 'ready',
+              dataState,
+            },
+          ],
+        },
+      })
+
+      expect(
+        result.catalog.find((entry) => entry.id === 'm365-agent-registry')?.lifecycleState,
+      ).toBe('degraded')
+      expect(
+        result.catalog.find((entry) => entry.id === 'm365-sharepoint-agents')?.lifecycleState,
+      ).toBe('degraded')
+    },
+  )
 
   it('marks mixed Agent 365 source health degraded and documents read-only prerequisites', () => {
     const result = buildConnectorsCollection('foundry', {
@@ -1061,12 +1510,12 @@ describe('buildConnectorsCollection', () => {
 
 describe('connector write status', () => {
   it('keeps mock simulation enabled by default', async () => {
-    const service = new DemoService(new MockAgentConnector(), 'mock')
+    const service = new DemoService(mockEstate, new MockAgentConnector(), 'mock')
     await expect(service.getConnectorStatus()).resolves.toMatchObject({ writeEnabled: true })
   })
 
   it('fails closed for Foundry unless writes are explicitly enabled', async () => {
-    const service = new DemoService(new MockAgentConnector(), 'foundry')
+    const service = new DemoService(mockEstate, new MockAgentConnector(), 'foundry')
     await expect(service.getConnectorStatus()).resolves.toMatchObject({ writeEnabled: false })
 
     process.env['AGENT_SENTINEL_WRITE_ENABLED'] = 'true'
@@ -1085,7 +1534,7 @@ describe('connector write status', () => {
       getEvidence: base.getEvidence.bind(base),
       execute: base.execute.bind(base),
     }
-    const service = new DemoService(connector, 'foundry')
+    const service = new DemoService(mockEstate, connector, 'mock')
     const initial = await service.getState()
     const findingId = initial.findings[0]?.id
     if (findingId === undefined) throw new Error('Expected a mock finding.')

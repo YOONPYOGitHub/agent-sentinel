@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { estateIdSchema } from './estate.js'
+import { sourceProjectIdSchema } from './source-project.js'
 
 const azureGuidSchema = z
   .string()
@@ -9,6 +10,7 @@ export const connectorSourceIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62
 const boundedIdentifierSchema = z.string().trim().min(1).max(256)
 const boundedEnvironmentSchema = z.string().trim().min(1).max(128)
 const boundedSummarySchema = z.string().trim().min(1).max(500)
+export const AGENT365_MAX_RETRY_AFTER_MS = 60_000
 const normalizedTimestampSchema = z.iso
   .datetime({ offset: true })
   .transform((value) => new Date(value).toISOString())
@@ -45,6 +47,16 @@ const foundryProjectEndpointSchema = z.string().transform((value, context) => {
     context.addIssue({
       code: 'custom',
       message: 'Azure AI Foundry project endpoint is not allowed.',
+    })
+    return z.NEVER
+  }
+  const sourceProjectId = sourceProjectIdSchema.safeParse(
+    url.pathname.replace(/\/+$/, '').split('/').at(-1),
+  )
+  if (!sourceProjectId.success) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Azure AI Foundry project ID must be between 1 and 200 characters.',
     })
     return z.NEVER
   }
@@ -107,22 +119,37 @@ const keyVaultUriSchema = z.string().transform((value, context) => {
   return `https://${url.hostname.toLowerCase()}`
 })
 
-const connectorLimitsSchema = z
+function connectorLimitsSchema(maxRetryAfterMs: number) {
+  return z
+    .strictObject({
+      maxPages: z.number().int().min(1).max(100).default(20),
+      maxItems: z.number().int().min(1).max(50_000).default(5_000),
+      requestTimeoutMs: z.number().int().min(100).max(120_000).default(15_000),
+      maxRetries: z.number().int().min(0).max(5).default(2),
+      maxRetryAfterMs: z.number().int().min(0).max(maxRetryAfterMs).default(30_000),
+      maxResponseBytes: z.number().int().min(1_024).max(10_000_000).default(2_000_000),
+    })
+    .default({
+      maxPages: 20,
+      maxItems: 5_000,
+      requestTimeoutMs: 15_000,
+      maxRetries: 2,
+      maxRetryAfterMs: 30_000,
+      maxResponseBytes: 2_000_000,
+    })
+}
+
+const standardConnectorLimitsSchema = connectorLimitsSchema(120_000)
+const agent365ConnectorLimitsSchema = connectorLimitsSchema(AGENT365_MAX_RETRY_AFTER_MS)
+
+export const agent365AggregationSchema = z
   .strictObject({
-    maxPages: z.number().int().min(1).max(100).default(20),
-    maxItems: z.number().int().min(1).max(50_000).default(5_000),
-    requestTimeoutMs: z.number().int().min(100).max(120_000).default(15_000),
-    maxRetries: z.number().int().min(0).max(5).default(2),
-    maxRetryAfterMs: z.number().int().min(0).max(120_000).default(30_000),
-    maxResponseBytes: z.number().int().min(1_024).max(10_000_000).default(2_000_000),
+    maxConcurrency: z.number().int().min(1).max(10).default(2),
+    maxDurationMs: z.number().int().min(100).max(300_000).default(60_000),
   })
   .default({
-    maxPages: 20,
-    maxItems: 5_000,
-    requestTimeoutMs: 15_000,
-    maxRetries: 2,
-    maxRetryAfterMs: 30_000,
-    maxResponseBytes: 2_000_000,
+    maxConcurrency: 2,
+    maxDurationMs: 60_000,
   })
 
 export const connectorTypeSchema = z.enum([
@@ -161,7 +188,7 @@ export const connectorSourceConfigurationSchema = z.discriminatedUnion('type', [
         appRoleAssignments: false,
         agentIdentityPreview: false,
       }),
-    limits: connectorLimitsSchema,
+    limits: standardConnectorLimitsSchema,
   }),
   z.strictObject({
     type: z.literal('power-platform'),
@@ -170,7 +197,7 @@ export const connectorSourceConfigurationSchema = z.discriminatedUnion('type', [
       'https://api.powerplatform.com',
       'Power Platform API base',
     ).default('https://api.powerplatform.com'),
-    limits: connectorLimitsSchema,
+    limits: standardConnectorLimitsSchema,
   }),
   z.strictObject({
     type: z.literal('agent365'),
@@ -178,13 +205,14 @@ export const connectorSourceConfigurationSchema = z.discriminatedUnion('type', [
       'https://graph.microsoft.com',
       'Microsoft Graph base',
     ).default('https://graph.microsoft.com'),
-    limits: connectorLimitsSchema,
+    limits: agent365ConnectorLimitsSchema,
+    aggregation: agent365AggregationSchema.optional(),
   }),
   z.strictObject({
     type: z.literal('defender-cloud-apps'),
     apiBaseUrl: defenderPortalSchema,
     lookbackHours: z.number().int().min(1).max(168).default(24),
-    limits: connectorLimitsSchema,
+    limits: standardConnectorLimitsSchema,
   }),
   z.strictObject({
     type: z.literal('purview'),
@@ -192,7 +220,7 @@ export const connectorSourceConfigurationSchema = z.discriminatedUnion('type', [
       'https://graph.microsoft.com',
       'Microsoft Graph base',
     ).default('https://graph.microsoft.com'),
-    limits: connectorLimitsSchema,
+    limits: standardConnectorLimitsSchema,
   }),
   z.strictObject({
     type: z.literal('azure-resource-graph'),
@@ -201,7 +229,7 @@ export const connectorSourceConfigurationSchema = z.discriminatedUnion('type', [
       'https://management.azure.com',
       'Azure Resource Manager base',
     ).default('https://management.azure.com'),
-    limits: connectorLimitsSchema,
+    limits: standardConnectorLimitsSchema,
   }),
   z.strictObject({
     type: z.literal('teams-distribution'),
@@ -209,11 +237,12 @@ export const connectorSourceConfigurationSchema = z.discriminatedUnion('type', [
       'https://graph.microsoft.com',
       'Microsoft Graph base',
     ).default('https://graph.microsoft.com'),
-    limits: connectorLimitsSchema,
+    limits: standardConnectorLimitsSchema,
   }),
   z.strictObject({
     type: z.literal('azure-monitor-otel'),
     workspaceId: azureGuidSchema,
+    sourceProjectId: sourceProjectIdSchema,
     logsBaseUrl: exactHttpsOriginSchema(
       'https://api.loganalytics.io',
       'Azure Monitor Logs base',
@@ -358,6 +387,156 @@ export const connectorSourceDefinitionSchema = connectorSourceCoreSchema
   })
 export type ConnectorSourceDefinition = z.infer<typeof connectorSourceDefinitionSchema>
 
+const legacyAzureMonitorConfigurationSchema = z.strictObject({
+  type: z.literal('azure-monitor-otel'),
+  workspaceId: azureGuidSchema,
+  logsBaseUrl: exactHttpsOriginSchema(
+    'https://api.loganalytics.io',
+    'Azure Monitor Logs base',
+  ).default('https://api.loganalytics.io'),
+  baselineWindowHours: z.number().int().min(1).max(744).default(168),
+  observedWindowHours: z.number().int().min(1).max(168).default(24),
+  requestTimeoutMs: z.number().int().min(1_000).max(60_000).default(15_000),
+  maxResponseBytes: z
+    .number()
+    .int()
+    .min(1_024)
+    .max(64 * 1024 * 1024)
+    .default(4 * 1024 * 1024),
+})
+
+const legacyAzureMonitorConnectorSourceSchema = z
+  .strictObject({
+    estateId: estateIdSchema,
+    tenantId: z.string().trim().min(1).max(128),
+    environment: boundedEnvironmentSchema,
+    sourceId: connectorSourceIdSchema,
+    connectorType: z.literal('azure-monitor-otel'),
+    displayName: z.string().trim().min(1).max(100),
+    enabled: z.boolean(),
+    origin: z.enum(['deployment', 'user']),
+    configuration: legacyAzureMonitorConfigurationSchema,
+    credential: connectorCredentialMetadataSchema,
+    testStatus: connectorSourceTestStatusSchema,
+    version: z.number().int().min(1),
+    etag: z.string().trim().min(1).max(256),
+    createdBy: connectorSourceActorSchema,
+    updatedBy: connectorSourceActorSchema,
+    createdAt: normalizedTimestampSchema,
+    updatedAt: normalizedTimestampSchema,
+  })
+  .superRefine((source, context) => {
+    if (source.updatedAt < source.createdAt) {
+      context.addIssue({
+        code: 'custom',
+        path: ['updatedAt'],
+        message: 'updatedAt cannot precede createdAt.',
+      })
+    }
+    if (source.origin === 'deployment' && source.createdBy.type !== 'deployment') {
+      context.addIssue({
+        code: 'custom',
+        path: ['createdBy', 'type'],
+        message: 'Deployment sources must be created by a deployment actor.',
+      })
+    }
+  })
+
+export const connectorSourceMigrationSchema = z.strictObject({
+  status: z.literal('migration-required'),
+  active: z.literal(false),
+  reason: z.literal('missing-source-project-id'),
+  action: z.literal('supply-exact-source-project-id'),
+})
+export type ConnectorSourceMigration = z.infer<typeof connectorSourceMigrationSchema>
+
+export const connectorSourceMigrationRequiredSchema =
+  legacyAzureMonitorConnectorSourceSchema.safeExtend({
+    enabled: z.literal(false),
+    testStatus: z.strictObject({ status: z.literal('not-tested') }),
+    migration: connectorSourceMigrationSchema,
+  })
+export type ConnectorSourceMigrationRequired = z.infer<
+  typeof connectorSourceMigrationRequiredSchema
+>
+
+export const connectorSourceReadModelSchema = z.union([
+  connectorSourceDefinitionSchema,
+  connectorSourceMigrationRequiredSchema,
+])
+export type ConnectorSourceReadModel = z.infer<typeof connectorSourceReadModelSchema>
+
+export function isConnectorSourceMigrationRequired(
+  source: ConnectorSourceReadModel,
+): source is ConnectorSourceMigrationRequired {
+  return 'migration' in source
+}
+
+function exactAzureMonitorBinding(
+  legacy: z.infer<typeof legacyAzureMonitorConnectorSourceSchema>,
+  candidate: ConnectorSourceDefinition,
+): boolean {
+  if (
+    candidate.origin !== 'deployment' ||
+    candidate.estateId !== legacy.estateId ||
+    candidate.tenantId !== legacy.tenantId ||
+    candidate.environment !== legacy.environment ||
+    candidate.sourceId !== legacy.sourceId ||
+    candidate.connectorType !== 'azure-monitor-otel' ||
+    candidate.configuration.type !== 'azure-monitor-otel'
+  ) {
+    return false
+  }
+  const current = candidate.configuration
+  const previous = legacy.configuration
+  return (
+    current.workspaceId === previous.workspaceId &&
+    current.logsBaseUrl === previous.logsBaseUrl &&
+    current.baselineWindowHours === previous.baselineWindowHours &&
+    current.observedWindowHours === previous.observedWindowHours &&
+    current.requestTimeoutMs === previous.requestTimeoutMs &&
+    current.maxResponseBytes === previous.maxResponseBytes
+  )
+}
+
+export function hydratePersistedConnectorSourceDefinition(
+  value: unknown,
+  authoritativeSources: readonly ConnectorSourceDefinition[] = [],
+): ConnectorSourceReadModel {
+  const current = connectorSourceDefinitionSchema.safeParse(value)
+  if (current.success) return current.data
+
+  const legacy = legacyAzureMonitorConnectorSourceSchema.parse(value)
+  const matches = authoritativeSources.filter((candidate) =>
+    exactAzureMonitorBinding(legacy, connectorSourceDefinitionSchema.parse(candidate)),
+  )
+  if (matches.length === 1) {
+    const binding = matches[0]!
+    if (binding.configuration.type !== 'azure-monitor-otel') {
+      throw new Error('Exact Azure Monitor source binding changed during hydration.')
+    }
+    return connectorSourceDefinitionSchema.parse({
+      ...legacy,
+      configuration: {
+        ...legacy.configuration,
+        sourceProjectId: binding.configuration.sourceProjectId,
+      },
+    })
+  }
+
+  return connectorSourceMigrationRequiredSchema.parse({
+    ...legacy,
+    enabled: false,
+    testStatus: { status: 'not-tested' },
+    migration: {
+      status: 'migration-required',
+      active: false,
+      reason: 'missing-source-project-id',
+      action: 'supply-exact-source-project-id',
+    },
+  })
+}
+
 export const connectorSourceMutationContextSchema = z.strictObject({
   auditId: boundedIdentifierSchema,
   idempotencyKey: z.string().trim().min(1).max(256),
@@ -366,113 +545,160 @@ export const connectorSourceMutationContextSchema = z.strictObject({
 })
 export type ConnectorSourceMutationContext = z.infer<typeof connectorSourceMutationContextSchema>
 
-export const connectorSourceAuditRecordSchema = z
-  .strictObject({
-    id: boundedIdentifierSchema,
-    estateId: estateIdSchema,
-    tenantId: z.string().trim().min(1).max(128),
-    environment: boundedEnvironmentSchema,
-    sourceId: connectorSourceIdSchema,
-    operation: z.enum(['create', 'update', 'delete']),
-    actor: connectorSourceActorSchema,
-    occurredAt: normalizedTimestampSchema,
-    idempotencyKey: z.string().trim().min(1).max(256),
+const connectorSourceAuditMetadataSchema = z.strictObject({
+  id: boundedIdentifierSchema,
+  estateId: estateIdSchema,
+  tenantId: z.string().trim().min(1).max(128),
+  environment: boundedEnvironmentSchema,
+  sourceId: connectorSourceIdSchema,
+  operation: z.enum(['create', 'update', 'delete']),
+  actor: connectorSourceActorSchema,
+  occurredAt: normalizedTimestampSchema,
+  idempotencyKey: z.string().trim().min(1).max(256),
+})
+
+type ConnectorSourceAuditValidation = z.infer<typeof connectorSourceAuditMetadataSchema> & {
+  before: ConnectorSourceReadModel | null
+  after: ConnectorSourceReadModel | null
+}
+
+function validateConnectorSourceAudit(
+  audit: ConnectorSourceAuditValidation,
+  context: z.RefinementCtx,
+): void {
+  for (const snapshot of [audit.before, audit.after]) {
+    if (
+      snapshot !== null &&
+      (snapshot.estateId !== audit.estateId ||
+        snapshot.tenantId !== audit.tenantId ||
+        snapshot.environment !== audit.environment ||
+        snapshot.sourceId !== audit.sourceId)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Audit snapshot does not match its source boundary.',
+      })
+    }
+  }
+  const validSnapshots =
+    (audit.operation === 'create' && audit.before === null && audit.after !== null) ||
+    (audit.operation === 'update' && audit.before !== null && audit.after !== null) ||
+    (audit.operation === 'delete' && audit.before !== null && audit.after === null)
+  if (!validSnapshots) {
+    context.addIssue({
+      code: 'custom',
+      message: `Audit snapshots are invalid for ${audit.operation}.`,
+    })
+  }
+  if (audit.before !== null && audit.after !== null) {
+    const immutableFieldsMatch =
+      audit.before.estateId === audit.after.estateId &&
+      audit.before.tenantId === audit.after.tenantId &&
+      audit.before.environment === audit.after.environment &&
+      audit.before.sourceId === audit.after.sourceId &&
+      audit.before.connectorType === audit.after.connectorType &&
+      audit.before.origin === audit.after.origin &&
+      audit.before.createdAt === audit.after.createdAt &&
+      audit.before.createdBy.type === audit.after.createdBy.type &&
+      audit.before.createdBy.id === audit.after.createdBy.id
+    if (!immutableFieldsMatch) {
+      context.addIssue({
+        code: 'custom',
+        path: ['after'],
+        message: 'Connector source immutable fields cannot change in audit history.',
+      })
+    }
+    if (audit.after.version !== audit.before.version + 1) {
+      context.addIssue({
+        code: 'custom',
+        path: ['after', 'version'],
+        message: 'An update audit must increment the source version by one.',
+      })
+    }
+  }
+  const actorMatches = (left: ConnectorSourceActor, right: ConnectorSourceActor) =>
+    left.type === right.type && left.id === right.id
+  if (
+    audit.operation === 'create' &&
+    audit.after !== null &&
+    (audit.after.version !== 1 ||
+      audit.after.createdAt !== audit.occurredAt ||
+      audit.after.updatedAt !== audit.occurredAt ||
+      !actorMatches(audit.actor, audit.after.createdBy) ||
+      !actorMatches(audit.actor, audit.after.updatedBy))
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['after'],
+      message: 'A create audit must bind its actor and timestamp to source creation.',
+    })
+  }
+  if (
+    audit.operation === 'update' &&
+    audit.before !== null &&
+    audit.after !== null &&
+    (audit.occurredAt <= audit.before.updatedAt ||
+      audit.after.updatedAt !== audit.occurredAt ||
+      !actorMatches(audit.actor, audit.after.updatedBy))
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['after'],
+      message:
+        'An update audit must occur after the current source version and bind its actor and timestamp to the resulting source.',
+    })
+  }
+  if (
+    audit.operation === 'delete' &&
+    audit.before !== null &&
+    audit.occurredAt <= audit.before.updatedAt
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['occurredAt'],
+      message: 'A delete audit must occur after the source version it removes.',
+    })
+  }
+}
+
+export const connectorSourceAuditRecordSchema = connectorSourceAuditMetadataSchema
+  .safeExtend({
     before: connectorSourceDefinitionSchema.nullable(),
     after: connectorSourceDefinitionSchema.nullable(),
   })
-  .superRefine((audit, context) => {
-    for (const snapshot of [audit.before, audit.after]) {
-      if (
-        snapshot !== null &&
-        (snapshot.estateId !== audit.estateId ||
-          snapshot.tenantId !== audit.tenantId ||
-          snapshot.environment !== audit.environment ||
-          snapshot.sourceId !== audit.sourceId)
-      ) {
-        context.addIssue({
-          code: 'custom',
-          message: 'Audit snapshot does not match its source boundary.',
-        })
-      }
-    }
-    const validSnapshots =
-      (audit.operation === 'create' && audit.before === null && audit.after !== null) ||
-      (audit.operation === 'update' && audit.before !== null && audit.after !== null) ||
-      (audit.operation === 'delete' && audit.before !== null && audit.after === null)
-    if (!validSnapshots) {
-      context.addIssue({
-        code: 'custom',
-        message: `Audit snapshots are invalid for ${audit.operation}.`,
-      })
-    }
-    if (audit.before !== null && audit.after !== null) {
-      const immutableFieldsMatch =
-        audit.before.estateId === audit.after.estateId &&
-        audit.before.tenantId === audit.after.tenantId &&
-        audit.before.environment === audit.after.environment &&
-        audit.before.sourceId === audit.after.sourceId &&
-        audit.before.connectorType === audit.after.connectorType &&
-        audit.before.origin === audit.after.origin &&
-        audit.before.createdAt === audit.after.createdAt &&
-        audit.before.createdBy.type === audit.after.createdBy.type &&
-        audit.before.createdBy.id === audit.after.createdBy.id
-      if (!immutableFieldsMatch) {
-        context.addIssue({
-          code: 'custom',
-          path: ['after'],
-          message: 'Connector source immutable fields cannot change in audit history.',
-        })
-      }
-      if (audit.after.version !== audit.before.version + 1) {
-        context.addIssue({
-          code: 'custom',
-          path: ['after', 'version'],
-          message: 'An update audit must increment the source version by one.',
-        })
-      }
-    }
-    const actorMatches = (left: ConnectorSourceActor, right: ConnectorSourceActor) =>
-      left.type === right.type && left.id === right.id
-    if (
-      audit.operation === 'create' &&
-      audit.after !== null &&
-      (audit.after.version !== 1 ||
-        audit.after.createdAt !== audit.occurredAt ||
-        audit.after.updatedAt !== audit.occurredAt ||
-        !actorMatches(audit.actor, audit.after.createdBy) ||
-        !actorMatches(audit.actor, audit.after.updatedBy))
-    ) {
-      context.addIssue({
-        code: 'custom',
-        path: ['after'],
-        message: 'A create audit must bind its actor and timestamp to source creation.',
-      })
-    }
-    if (
-      audit.operation === 'update' &&
-      audit.before !== null &&
-      audit.after !== null &&
-      (audit.occurredAt <= audit.before.updatedAt ||
-        audit.after.updatedAt !== audit.occurredAt ||
-        !actorMatches(audit.actor, audit.after.updatedBy))
-    ) {
-      context.addIssue({
-        code: 'custom',
-        path: ['after'],
-        message:
-          'An update audit must occur after the current source version and bind its actor and timestamp to the resulting source.',
-      })
-    }
-    if (
-      audit.operation === 'delete' &&
-      audit.before !== null &&
-      audit.occurredAt <= audit.before.updatedAt
-    ) {
-      context.addIssue({
-        code: 'custom',
-        path: ['occurredAt'],
-        message: 'A delete audit must occur after the source version it removes.',
-      })
-    }
-  })
+  .superRefine(validateConnectorSourceAudit)
 export type ConnectorSourceAuditRecord = z.infer<typeof connectorSourceAuditRecordSchema>
+
+export const connectorSourceAuditReadModelSchema = connectorSourceAuditMetadataSchema
+  .safeExtend({
+    before: connectorSourceReadModelSchema.nullable(),
+    after: connectorSourceReadModelSchema.nullable(),
+  })
+  .superRefine(validateConnectorSourceAudit)
+export type ConnectorSourceAuditReadModel = z.infer<typeof connectorSourceAuditReadModelSchema>
+
+const persistedConnectorSourceAuditSchema = connectorSourceAuditMetadataSchema.safeExtend({
+  before: z.unknown().nullable(),
+  after: z.unknown().nullable(),
+})
+
+export function hydratePersistedConnectorSourceAuditRecord(
+  value: unknown,
+  authoritativeSources: readonly ConnectorSourceDefinition[] = [],
+): ConnectorSourceAuditReadModel {
+  const current = connectorSourceAuditRecordSchema.safeParse(value)
+  if (current.success) return current.data
+
+  const persisted = persistedConnectorSourceAuditSchema.parse(value)
+  return connectorSourceAuditReadModelSchema.parse({
+    ...persisted,
+    before:
+      persisted.before === null
+        ? null
+        : hydratePersistedConnectorSourceDefinition(persisted.before, authoritativeSources),
+    after:
+      persisted.after === null
+        ? null
+        : hydratePersistedConnectorSourceDefinition(persisted.after, authoritativeSources),
+  })
+}

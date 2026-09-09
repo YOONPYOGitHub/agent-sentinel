@@ -32,7 +32,7 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     sourceOfTruth: true,
     ownershipModel: 'consumes',
     prerequisiteNote:
-      'Implemented read-only and disabled by default. Activation remains authorization-required until Microsoft Agent 365 licensing and tenant-admin CopilotPackages.Read.All application consent are separately approved; only the Global service is supported.',
+      'Read-only Global Graph v1.0 inventory. Enabled persisted sources activate discovery and each source requires Microsoft Agent 365 licensing, tenant-admin CopilotPackages.Read.All application consent, and an explicit managed identity client ID. Readiness is shown only from fresh health bound to the exact source generation.',
     unlocksScorecard: ['governance', 'lifecycle'],
   },
   {
@@ -84,7 +84,7 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     sourceOfTruth: true,
     ownershipModel: 'consumes',
     prerequisiteNote:
-      'Covered by the read-only Agent 365 package catalog connector. Activation requires Microsoft Agent 365 licensing and tenant-admin CopilotPackages.Read.All consent; no separate SharePoint scraping or private API is used.',
+      'Covered by the read-only Agent 365 package catalog connector with CopilotPackages.Read.All. Declarative-agent classification uses package host and element metadata only; no separate SharePoint scraping or private API is used.',
     unlocksScorecard: ['governance', 'lifecycle'],
   },
   {
@@ -138,7 +138,7 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     sourceOfTruth: true,
     ownershipModel: 'consumes',
     prerequisiteNote:
-      'Supports one workspace source per Foundry source id through AZURE_MONITOR_SOURCES_JSON. ' +
+      'Supports one exact Foundry project and workspace boundary per source id through AZURE_MONITOR_SOURCES_JSON. ' +
       'Each source requires read-only Log Analytics query permission and instrumented spans with the documented OTel attributes.',
     unlocksScorecard: ['cost'],
   },
@@ -290,16 +290,22 @@ export function buildConnectorsCollection(
       (entry.id === 'm365-agent-registry' || entry.id === 'm365-sharepoint-agents') &&
       enabledAgent365Sources.length > 0
     ) {
-      const ready = enabledAgent365Sources.filter((source) => source.readiness === 'ready').length
+      const complete = enabledAgent365Sources.filter(
+        (source) => source.readiness === 'ready' && source.dataState === 'complete',
+      ).length
+      const reachable = enabledAgent365Sources.filter(
+        (source) => source.readiness === 'ready',
+      ).length
       const authorizationRequired = enabledAgent365Sources.some(
         (source) => source.readiness === 'authorization-required',
       )
       return {
         ...entry,
         lifecycleState:
-          ready === enabledAgent365Sources.length
+          complete === enabledAgent365Sources.length
             ? 'connected'
-            : ready > 0 || enabledAgent365Sources.some((source) => source.readiness === 'degraded')
+            : reachable > 0 ||
+                enabledAgent365Sources.some((source) => source.readiness === 'degraded')
               ? 'degraded'
               : authorizationRequired
                 ? 'authorization-required'
@@ -419,6 +425,9 @@ export function buildConnectorsCollection(
                 : ('ready' as const),
           partial:
             opts.connectorHealth?.partial === true || opts.runtimeTelemetryHealth?.partial === true,
+          ...(opts.connectorHealth?.sourceSetFingerprint === undefined
+            ? {}
+            : { sourceSetFingerprint: opts.connectorHealth.sourceSetFingerprint }),
           sources: healthSources,
         }
   return {

@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  SOURCE_PROJECT_ID_MAX_LENGTH,
   connectorSourceAuditRecordSchema,
   connectorSourceCreateInputSchema,
   connectorSourceDefinitionSchema,
+  connectorSourceReadModelSchema,
   connectorSourceTestStatusSchema,
+  hydratePersistedConnectorSourceDefinition,
+  sourceProjectIdSchema,
 } from '../src/index.js'
 
 const ACTOR = { type: 'deployment', id: 'bicep' } as const
@@ -109,6 +113,223 @@ describe('connector source domain', () => {
         },
       }),
     ).toThrow()
+  })
+
+  it('uses the strict Agent 365 retry-after bound without narrowing other connectors', () => {
+    const limits = {
+      maxPages: 20,
+      maxItems: 5_000,
+      requestTimeoutMs: 15_000,
+      maxRetries: 2,
+      maxRetryAfterMs: 60_000,
+      maxResponseBytes: 2_000_000,
+    }
+    expect(
+      connectorSourceDefinitionSchema.parse({
+        ...DEFINITION,
+        sourceId: 'agent365-primary',
+        connectorType: 'agent365',
+        configuration: {
+          type: 'agent365',
+          graphBaseUrl: 'https://graph.microsoft.com',
+          limits,
+        },
+      }).configuration,
+    ).toMatchObject({ type: 'agent365', limits: { maxRetryAfterMs: 60_000 } })
+    expect(() =>
+      connectorSourceDefinitionSchema.parse({
+        ...DEFINITION,
+        sourceId: 'agent365-primary',
+        connectorType: 'agent365',
+        configuration: {
+          type: 'agent365',
+          graphBaseUrl: 'https://graph.microsoft.com',
+          limits: { ...limits, maxRetryAfterMs: 60_001 },
+        },
+      }),
+    ).toThrow()
+    expect(
+      connectorSourceDefinitionSchema.parse({
+        ...DEFINITION,
+        sourceId: 'defender-primary',
+        connectorType: 'defender-cloud-apps',
+        configuration: {
+          type: 'defender-cloud-apps',
+          apiBaseUrl: 'https://contoso.us2.portal.cloudappsecurity.com',
+          limits: { ...limits, maxRetryAfterMs: 120_000 },
+        },
+      }).configuration,
+    ).toMatchObject({
+      type: 'defender-cloud-apps',
+      limits: { maxRetryAfterMs: 120_000 },
+    })
+  })
+
+  it('keeps Azure Monitor writes strict when sourceProjectId is missing', () => {
+    expect(() =>
+      connectorSourceCreateInputSchema.parse({
+        ...CREATE_INPUT,
+        connectorType: 'azure-monitor-otel',
+        configuration: {
+          type: 'azure-monitor-otel',
+          workspaceId: '00000000-0000-0000-0000-000000000003',
+          logsBaseUrl: 'https://api.loganalytics.io',
+          baselineWindowHours: 168,
+          observedWindowHours: 24,
+          requestTimeoutMs: 15_000,
+          maxResponseBytes: 4_194_304,
+        },
+      }),
+    ).toThrow()
+  })
+
+  it('shares the exact Azure Monitor source project ID boundary', () => {
+    const maximum = 'p'.repeat(SOURCE_PROJECT_ID_MAX_LENGTH)
+    const tooLong = `${maximum}x`
+
+    expect(sourceProjectIdSchema.parse(maximum)).toBe(maximum)
+    expect(sourceProjectIdSchema.safeParse(tooLong).success).toBe(false)
+    expect(
+      connectorSourceCreateInputSchema.safeParse({
+        ...CREATE_INPUT,
+        connectorType: 'azure-monitor-otel',
+        configuration: {
+          type: 'azure-monitor-otel',
+          workspaceId: '00000000-0000-0000-0000-000000000003',
+          sourceProjectId: tooLong,
+          logsBaseUrl: 'https://api.loganalytics.io',
+          baselineWindowHours: 168,
+          observedWindowHours: 24,
+          requestTimeoutMs: 15_000,
+          maxResponseBytes: 4_194_304,
+        },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('shares the exact Foundry endpoint project ID boundary', () => {
+    const maximum = 'p'.repeat(SOURCE_PROJECT_ID_MAX_LENGTH)
+    const endpoint = (projectId: string) =>
+      `https://example.services.ai.azure.com/api/projects/${projectId}`
+
+    expect(
+      connectorSourceCreateInputSchema.parse({
+        ...CREATE_INPUT,
+        configuration: {
+          type: 'foundry',
+          projectEndpoint: ` ${endpoint(maximum)}/ `,
+        },
+      }).configuration,
+    ).toEqual({
+      type: 'foundry',
+      projectEndpoint: endpoint(maximum),
+    })
+    expect(
+      connectorSourceCreateInputSchema.safeParse({
+        ...CREATE_INPUT,
+        configuration: {
+          type: 'foundry',
+          projectEndpoint: endpoint(`${maximum}x`),
+        },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('marks a legacy Azure Monitor source inactive when no exact project binding exists', () => {
+    const legacy = {
+      ...DEFINITION,
+      sourceId: 'azure-monitor-primary',
+      connectorType: 'azure-monitor-otel',
+      configuration: {
+        type: 'azure-monitor-otel',
+        workspaceId: '00000000-0000-0000-0000-000000000003',
+        logsBaseUrl: 'https://api.loganalytics.io',
+        baselineWindowHours: 168,
+        observedWindowHours: 24,
+        requestTimeoutMs: 15_000,
+        maxResponseBytes: 4_194_304,
+      },
+    }
+
+    const hydrated = hydratePersistedConnectorSourceDefinition(legacy)
+
+    expect(connectorSourceReadModelSchema.parse(hydrated)).toMatchObject({
+      sourceId: 'azure-monitor-primary',
+      connectorType: 'azure-monitor-otel',
+      enabled: false,
+      testStatus: { status: 'not-tested' },
+      migration: {
+        status: 'migration-required',
+        active: false,
+        reason: 'missing-source-project-id',
+        action: 'supply-exact-source-project-id',
+      },
+    })
+    expect(hydrated.configuration).not.toHaveProperty('sourceProjectId')
+  })
+
+  it('hydrates sourceProjectId only from one exact authoritative deployment binding', () => {
+    const legacy = {
+      ...DEFINITION,
+      sourceId: 'azure-monitor-primary',
+      connectorType: 'azure-monitor-otel',
+      configuration: {
+        type: 'azure-monitor-otel',
+        workspaceId: '00000000-0000-0000-0000-000000000003',
+        logsBaseUrl: 'https://api.loganalytics.io',
+        baselineWindowHours: 168,
+        observedWindowHours: 24,
+        requestTimeoutMs: 15_000,
+        maxResponseBytes: 4_194_304,
+      },
+    }
+    const authoritative = connectorSourceDefinitionSchema.parse({
+      ...legacy,
+      origin: 'deployment',
+      configuration: {
+        ...legacy.configuration,
+        sourceProjectId: 'project-a',
+      },
+    })
+
+    expect(hydratePersistedConnectorSourceDefinition(legacy, [authoritative])).toMatchObject({
+      enabled: true,
+      configuration: {
+        type: 'azure-monitor-otel',
+        sourceProjectId: 'project-a',
+      },
+    })
+    expect(
+      hydratePersistedConnectorSourceDefinition(legacy, [
+        connectorSourceDefinitionSchema.parse({
+          ...legacy,
+          origin: 'deployment',
+          configuration: {
+            ...legacy.configuration,
+            sourceProjectId: 'project-a',
+            workspaceId: '00000000-0000-0000-0000-000000000004',
+          },
+        }),
+      ]),
+    ).toMatchObject({
+      enabled: false,
+      migration: { status: 'migration-required' },
+    })
+    expect(
+      hydratePersistedConnectorSourceDefinition(legacy, [
+        authoritative,
+        connectorSourceDefinitionSchema.parse({
+          ...authoritative,
+          configuration: {
+            ...authoritative.configuration,
+            sourceProjectId: 'project-b',
+          },
+        }),
+      ]),
+    ).toMatchObject({
+      enabled: false,
+      migration: { status: 'migration-required' },
+    })
   })
 
   it('requires real provider evidence for a passing test', () => {

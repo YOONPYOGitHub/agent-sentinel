@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { AGENT365_MAX_RETRY_AFTER_MS, agent365AggregationSchema } from '@agent-sentinel/domain'
+
 export const AGENT365_GRAPH_ORIGIN = 'https://graph.microsoft.com'
 export const AGENT365_API_VERSION = 'v1.0'
 export const AGENT365_PACKAGES_PATH = '/v1.0/copilot/admin/catalog/packages'
@@ -34,7 +36,7 @@ export const agent365LimitsSchema = z
     maxItems: z.number().int().min(1).max(50_000).default(5_000),
     requestTimeoutMs: z.number().int().min(100).max(120_000).default(15_000),
     maxRetries: z.number().int().min(0).max(5).default(2),
-    maxRetryAfterMs: z.number().int().min(0).max(60_000).default(30_000),
+    maxRetryAfterMs: z.number().int().min(0).max(AGENT365_MAX_RETRY_AFTER_MS).default(30_000),
     maxResponseBytes: z.number().int().min(1_024).max(10_000_000).default(2_000_000),
   })
   .default({
@@ -53,9 +55,13 @@ const sourceCredentialSchema = z.discriminatedUnion('mode', [
     managedIdentityClientId: azureGuidSchema.optional(),
   }),
   z.strictObject({
+    mode: z.literal('managed-identity'),
+    managedIdentityClientId: azureGuidSchema,
+  }),
+  z.strictObject({
     mode: z.literal('federated-app'),
     clientId: azureGuidSchema,
-    managedIdentityClientId: azureGuidSchema.optional(),
+    managedIdentityClientId: azureGuidSchema,
   }),
 ])
 
@@ -64,6 +70,8 @@ export const agent365SourceConfigSchema = z.strictObject({
   name: z.string().trim().min(1).max(100),
   tenantId: tenantIdSchema,
   environment: environmentSchema,
+  graphBaseUrl: z.string().transform(sanitizeAgent365GraphBaseUrl).default(AGENT365_GRAPH_ORIGIN),
+  limits: agent365LimitsSchema,
   credential: sourceCredentialSchema.optional(),
 })
 export type Agent365SourceConfig = z.infer<typeof agent365SourceConfigSchema>
@@ -99,6 +107,7 @@ export const agent365SourcesConfigSchema = z
 export const agent365ConfigSchema = z.strictObject({
   graphBaseUrl: z.string().transform(sanitizeAgent365GraphBaseUrl),
   limits: agent365LimitsSchema,
+  aggregation: agent365AggregationSchema,
   sources: agent365SourcesConfigSchema,
 })
 export type Agent365Config = z.infer<typeof agent365ConfigSchema>

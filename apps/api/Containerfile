@@ -4,6 +4,7 @@ RUN corepack enable
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/domain/package.json packages/domain/
 COPY packages/connector-sdk/package.json packages/connector-sdk/
+COPY packages/connector-runtime/package.json packages/connector-runtime/
 COPY packages/behavior-engine/package.json packages/behavior-engine/
 COPY packages/graph-engine/package.json packages/graph-engine/
 COPY packages/policy-engine/package.json packages/policy-engine/
@@ -45,6 +46,7 @@ RUN pnpm --filter @agent-sentinel/teams-distribution-connector build
 RUN pnpm --filter @agent-sentinel/manifest-connector build
 RUN pnpm --filter @agent-sentinel/mock-connector build
 RUN pnpm --filter @agent-sentinel/azure-monitor-otel-connector build
+RUN pnpm --filter @agent-sentinel/connector-runtime build
 RUN pnpm --filter @agent-sentinel/api build
 
 FROM node:22-slim AS runtime
@@ -58,6 +60,8 @@ COPY --from=builder /workspace/packages/domain/dist ./packages/domain/dist/
 COPY --from=builder /workspace/packages/domain/package.json ./packages/domain/
 COPY --from=builder /workspace/packages/connector-sdk/dist ./packages/connector-sdk/dist/
 COPY --from=builder /workspace/packages/connector-sdk/package.json ./packages/connector-sdk/
+COPY --from=builder /workspace/packages/connector-runtime/dist ./packages/connector-runtime/dist/
+COPY --from=builder /workspace/packages/connector-runtime/package.json ./packages/connector-runtime/
 COPY --from=builder /workspace/packages/behavior-engine/dist ./packages/behavior-engine/dist/
 COPY --from=builder /workspace/packages/behavior-engine/package.json ./packages/behavior-engine/
 COPY --from=builder /workspace/packages/graph-engine/dist ./packages/graph-engine/dist/

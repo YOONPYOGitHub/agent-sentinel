@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import type { EstateSnapshot } from '@agent-sentinel/domain'
 import { FOUNDRY_API_VERSION, mapAgentToSnapshot } from '@agent-sentinel/foundry-connector'
+import {
+  createLiveGraphTraversalContextForSnapshot,
+  trustedMockGraphTraversalContext,
+} from '@agent-sentinel/graph-engine'
 import { foundryManifest } from '@agent-sentinel/scenarios'
 
 import {
@@ -107,7 +111,7 @@ const legacySnapshot: EstateSnapshot = {
 
 describe('uncontrolled egress policy (AS-POL-004)', () => {
   it('creates an explainable critical finding', () => {
-    const findings = evaluateUncontrolledEgress(legacySnapshot)
+    const findings = evaluateUncontrolledEgress(legacySnapshot, trustedMockGraphTraversalContext)
     expect(findings).toHaveLength(1)
     expect(findings[0]).toMatchObject({ severity: 'critical', policyId: 'AS-POL-004' })
   })
@@ -117,6 +121,7 @@ describe('AS-POL-001 unapproved external transfer', () => {
   it('flags sales-research-vulnerable', () => {
     const findings = evaluateUnapprovedExternalTransfer(
       scenarioSnapshot('sales-research-vulnerable'),
+      trustedMockGraphTraversalContext,
     )
     expect(findings).toHaveLength(1)
     expect(findings[0]?.severity).toBe('critical')
@@ -143,15 +148,16 @@ describe('AS-POL-001 unapproved external transfer', () => {
     snapshot.nodes.forEach((node) => node.evidenceIds.push('runtime-evidence'))
     snapshot.edges.forEach((edge) => edge.evidenceIds.push('runtime-evidence'))
 
-    expect(evaluateUnapprovedExternalTransfer(snapshot)[0]?.evidenceTypes).toEqual([
-      'declared_configuration',
-      'observed_runtime',
-    ])
+    expect(
+      evaluateUnapprovedExternalTransfer(snapshot, trustedMockGraphTraversalContext)[0]
+        ?.evidenceTypes,
+    ).toEqual(['declared_configuration', 'observed_runtime'])
   })
 
   it('flags external-transfer-unsafe', () => {
     const findings = evaluateUnapprovedExternalTransfer(
       scenarioSnapshot('external-transfer-unsafe'),
+      trustedMockGraphTraversalContext,
     )
     expect(findings).toHaveLength(1)
     expect(findings[0]?.policyId).toBe('AS-POL-001')
@@ -163,20 +169,32 @@ describe('AS-POL-001 unapproved external transfer', () => {
     if (!agent) throw new Error('Expected an agent node.')
     delete agent.metadata['approvalRequired']
 
-    expect(evaluateUnapprovedExternalTransfer(snapshot)).toHaveLength(1)
+    expect(
+      evaluateUnapprovedExternalTransfer(snapshot, trustedMockGraphTraversalContext),
+    ).toHaveLength(1)
   })
 
   it('does not flag procurement-gated (approval required)', () => {
     const snapshot = scenarioSnapshot('procurement-gated')
-    expect(evaluateUnapprovedExternalTransfer(snapshot)).toHaveLength(0)
-    expect(evaluateUnapprovedMutation(snapshot)).toHaveLength(0)
+    expect(
+      evaluateUnapprovedExternalTransfer(snapshot, trustedMockGraphTraversalContext),
+    ).toHaveLength(0)
+    expect(evaluateUnapprovedMutation(snapshot, trustedMockGraphTraversalContext)).toHaveLength(0)
   })
 
   it('does not flag customer-support-safe or incident-triage-readonly', () => {
-    expect(evaluateAllExposurePolicies(scenarioSnapshot('customer-support-safe'))).toHaveLength(0)
-    expect(evaluateAllExposurePolicies(scenarioSnapshot('incident-triage-readonly'))).toHaveLength(
-      0,
-    )
+    expect(
+      evaluateAllExposurePolicies(
+        scenarioSnapshot('customer-support-safe'),
+        trustedMockGraphTraversalContext,
+      ),
+    ).toHaveLength(0)
+    expect(
+      evaluateAllExposurePolicies(
+        scenarioSnapshot('incident-triage-readonly'),
+        trustedMockGraphTraversalContext,
+      ),
+    ).toHaveLength(0)
   })
 })
 
@@ -184,6 +202,7 @@ describe('AS-POL-002 overprivileged employee lookup', () => {
   it('flags hr-policy-overprivileged', () => {
     const findings = evaluateOverprivilegedEmployeeLookup(
       scenarioSnapshot('hr-policy-overprivileged'),
+      trustedMockGraphTraversalContext,
     )
     expect(findings).toHaveLength(1)
     expect(findings[0]?.severity).toBe('high')
@@ -194,13 +213,18 @@ describe('AS-POL-002 overprivileged employee lookup', () => {
 
 describe('AS-POL-003 unapproved mutation', () => {
   it('does not flag procurement-gated because approvalRequired=true', () => {
-    expect(evaluateUnapprovedMutation(scenarioSnapshot('procurement-gated'))).toHaveLength(0)
+    expect(
+      evaluateUnapprovedMutation(
+        scenarioSnapshot('procurement-gated'),
+        trustedMockGraphTraversalContext,
+      ),
+    ).toHaveLength(0)
   })
 })
 
 describe('evaluateAllExposurePolicies over the manifest', () => {
   it('returns expected total per agent', () => {
-    const findings = evaluateAllExposurePolicies(fullSnapshot())
+    const findings = evaluateAllExposurePolicies(fullSnapshot(), trustedMockGraphTraversalContext)
     const byPolicy = findings.reduce<Record<string, number>>((acc, finding) => {
       acc[finding.policyId] = (acc[finding.policyId] ?? 0) + 1
       return acc
@@ -210,5 +234,33 @@ describe('evaluateAllExposurePolicies over the manifest', () => {
     expect(byPolicy['AS-POL-003'] ?? 0).toBe(0)
     const criticals = findings.filter((f) => f.severity === 'critical')
     expect(criticals.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('reuses one live authority validation across every policy finding', () => {
+    const snapshot = fullSnapshot()
+    let authorityReads = 0
+    for (const item of snapshot.evidence) {
+      const authority = item.authority
+      Object.defineProperty(item, 'authority', {
+        configurable: true,
+        enumerable: true,
+        get() {
+          authorityReads += 1
+          return authority
+        },
+      })
+    }
+    const context = createLiveGraphTraversalContextForSnapshot(snapshot, {
+      estate: {
+        id: 'policy-estate',
+        tenantId: snapshot.tenantId,
+        environment: snapshot.environment,
+      },
+      clock: () => new Date(Date.parse(snapshot.generatedAt) + 60_000),
+    })
+    authorityReads = 0
+
+    expect(evaluateAllExposurePolicies(snapshot, context).length).toBeGreaterThan(0)
+    expect(authorityReads).toBe(0)
   })
 })

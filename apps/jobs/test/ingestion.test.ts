@@ -5,8 +5,18 @@ import type {
   ConnectorHealthReport,
   ManifestIngestionRecord,
   ManifestIngestionRepository,
+  RuntimeTelemetryConnector,
+  RuntimeTelemetryRequest,
 } from '@agent-sentinel/connector-sdk'
-import type { EstateSnapshot } from '@agent-sentinel/domain'
+import {
+  runtimeObservationWindowsSchema,
+  runtimeTelemetryRequestForAgent,
+} from '@agent-sentinel/connector-sdk'
+import {
+  agentSentinelStateSchema,
+  type EstateSnapshot,
+  type OtelWindowQuality,
+} from '@agent-sentinel/domain'
 import {
   FOUNDRY_API_VERSION,
   FoundryPortfolioIncompleteError,
@@ -16,6 +26,7 @@ import {
   type FoundryDiscoveryFailureReason,
 } from '@agent-sentinel/foundry-connector'
 import { ManifestConnector } from '@agent-sentinel/manifest-connector'
+import { createLiveGraphTraversalContextForSnapshot } from '@agent-sentinel/graph-engine'
 import {
   InMemoryConnectorHealthRepository,
   InMemoryExposureFindingRepository,
@@ -23,7 +34,13 @@ import {
   InMemorySnapshotRepository,
 } from '@agent-sentinel/persistence'
 import { foundryManifest } from '@agent-sentinel/scenarios'
+import { DefenderCloudAppsCompositionConnector } from '@agent-sentinel/defender-cloud-apps-connector'
+import { PurviewCompositionConnector } from '@agent-sentinel/purview-connector'
+import { AzureResourceGraphCompositionConnector } from '@agent-sentinel/azure-resource-graph-connector'
+import { TeamsDistributionCompositionConnector } from '@agent-sentinel/teams-distribution-connector'
 
+import { createApp } from '../../api/src/app.js'
+import { createRuntimeTelemetryFixture } from '../../api/test/runtime-telemetry-fixture.js'
 import { IngestionService } from '../src/ingestion-service.js'
 
 function makeConnector(snapshot: EstateSnapshot, health?: ConnectorHealthReport): AgentConnector {
@@ -70,11 +87,102 @@ function fullSnapshot(): EstateSnapshot {
     { tenantId: 'tenant-demo', environment: 'validation' },
   )
 }
+
+function postAgent365Composition(base: AgentConnector): AgentConnector {
+  return new TeamsDistributionCompositionConnector(
+    new AzureResourceGraphCompositionConnector(
+      new PurviewCompositionConnector(
+        new DefenderCloudAppsCompositionConnector(base, undefined),
+        undefined,
+      ),
+      undefined,
+    ),
+    undefined,
+  )
+}
+
 const testEstate = {
   id: 'default',
   tenantId: 'tenant-demo',
   environment: 'validation',
 }
+
+function authorizeRuntimeAgent(
+  snapshot: EstateSnapshot,
+  agent: EstateSnapshot['nodes'][number],
+  sourceObjectId = 'provider-agent-id',
+): void {
+  Object.assign(agent.metadata, {
+    sourceOfTruth: 'true',
+    sourceConnectorId: 'primary',
+    sourceTenantId: testEstate.tenantId,
+    sourceProjectId: 'validation',
+    sourceObjectId,
+    sourceEnvironment: testEstate.environment,
+  })
+  const evidence = snapshot.evidence.find((item) => agent.evidenceIds.includes(item.id))
+  if (evidence === undefined) throw new Error('Expected authoritative agent evidence.')
+  evidence.sourceObjectId = sourceObjectId
+  evidence.metadata = {
+    ...evidence.metadata,
+    sourceOfTruth: 'true',
+    estateTenantId: testEstate.tenantId,
+    estateEnvironment: testEstate.environment,
+    sourceConnectorId: 'primary',
+    sourceTenantId: testEstate.tenantId,
+    sourceProjectId: 'validation',
+    sourceEnvironment: testEstate.environment,
+    sourceObjectId,
+  }
+}
+
+function emptyRuntimeWindows(
+  request: RuntimeTelemetryRequest,
+  quality: OtelWindowQuality,
+  estateId = request.estateId!,
+) {
+  return runtimeObservationWindowsSchema.parse({
+    baseline: {
+      windowId: 'baseline-window',
+      tenantId: request.tenantId,
+      agentId: request.agentId,
+      environment: request.sourceEnvironment!,
+      source: 'azure-monitor-otel',
+      windowStart: '2026-09-04T00:00:00.000Z',
+      windowEnd: '2026-09-05T00:00:00.000Z',
+      observations: [],
+      otelQuality: quality,
+    },
+    observed: {
+      windowId: 'observed-window',
+      tenantId: request.tenantId,
+      agentId: request.agentId,
+      environment: request.sourceEnvironment!,
+      source: 'azure-monitor-otel',
+      windowStart: '2026-09-05T00:00:00.000Z',
+      windowEnd: '2026-09-06T00:00:00.000Z',
+      observations: [],
+      otelQuality: quality,
+    },
+    baselineEvidenceId: 'baseline-evidence',
+    observedEvidenceId: 'observed-evidence',
+    queriedAt: '2026-09-06T00:00:00.000Z',
+    provenance: {
+      snapshotGeneratedAt: request.snapshotGeneratedAt!,
+      estateId,
+      estateTenantId: request.tenantId,
+      estateEnvironment: request.estateEnvironment!,
+      sourceConnectorId: request.sourceConnectorId!,
+      sourceTenantId: request.sourceTenantId!,
+      sourceProjectId: request.sourceProjectId!,
+      sourceEnvironment: request.sourceEnvironment!,
+      provider: 'azure-monitor-otel',
+      providerResourceId: '/subscriptions/example/resource',
+      providerAgentId: request.sourceAgentId!,
+    },
+  })
+}
+
 const liveFoundryPortfolio = {
   estateTenantId: testEstate.tenantId,
   estateEnvironment: testEstate.environment,
@@ -195,7 +303,71 @@ async function manifestRecord(): Promise<ManifestIngestionRecord> {
   }
 }
 
+function countAuthorityReads(snapshot: EstateSnapshot): () => number {
+  let reads = 0
+  for (const item of snapshot.evidence) {
+    const authority = item.authority
+    Object.defineProperty(item, 'authority', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        reads += 1
+        return authority
+      },
+    })
+  }
+  return () => reads
+}
+
 describe('IngestionService', () => {
+  it('rejects duplicate live graph IDs before persistence', async () => {
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const candidate = fullSnapshot()
+    candidate.nodes.push({ ...candidate.nodes[0]! })
+    const service = new IngestionService(makeConnector(candidate), snapshots, exposures, {
+      estate: testEstate,
+      sourceMode: 'foundry',
+    })
+
+    await expect(service.run()).rejects.toThrow(/duplicate graph node id/i)
+    await expect(snapshots.list(testEstate)).resolves.toEqual([])
+  })
+
+  it('validates live snapshot authority once before policy evaluation and persistence', async () => {
+    const control = fullSnapshot()
+    const controlReads = countAuthorityReads(control)
+    createLiveGraphTraversalContextForSnapshot(control, {
+      estate: testEstate,
+      clock: () => new Date(Date.parse(control.generatedAt) + 60_000),
+    })
+    const expectedBoundaryReads = controlReads()
+
+    const candidate = fullSnapshot()
+    const candidateReads = countAuthorityReads(candidate)
+    const connector = {
+      ...makeConnector(candidate),
+      discover: () => Promise.resolve(candidate),
+    }
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const save = snapshots.save.bind(snapshots)
+    let authorityReadsAtSave = -1
+    vi.spyOn(snapshots, 'save').mockImplementation(async (estate, snapshot) => {
+      authorityReadsAtSave = candidateReads()
+      await save(estate, snapshot)
+    })
+    const service = new IngestionService(connector, snapshots, exposures, {
+      estate: testEstate,
+      sourceMode: 'foundry',
+      clock: () => new Date(Date.parse(candidate.generatedAt) + 60_000),
+    })
+
+    await service.run()
+
+    expect(authorityReadsAtSave).toBe(expectedBoundaryReads)
+  })
+
   it('persists snapshots, preserves firstSeen on second run, and resolves absent findings', async () => {
     const snapshots = new InMemorySnapshotRepository()
     const exposures = new InMemoryExposureFindingRepository()
@@ -680,6 +852,57 @@ describe('IngestionService', () => {
     })
   })
 
+  it('persists aggregate Agent 365 health metadata through every outer composition wrapper', async () => {
+    const sourceSetFingerprint = 'a'.repeat(64)
+    const measuredAt = '2026-09-09T00:05:00.000Z'
+    const connector = postAgent365Composition(
+      makeConnector(fullSnapshot(), {
+        overall: 'ready',
+        partial: false,
+        sourceSetFingerprint,
+        sources: [
+          {
+            id: 'agent365:primary',
+            name: 'Primary Agent 365',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+            dataState: 'complete',
+            pages: 2,
+            records: 25,
+            checkedAt: measuredAt,
+          },
+        ],
+      }),
+    )
+    const connectorHealth = new InMemoryConnectorHealthRepository()
+    const service = new IngestionService(
+      connector,
+      new InMemorySnapshotRepository(),
+      new InMemoryExposureFindingRepository(),
+      {
+        estate: testEstate,
+        sourceMode: 'foundry',
+        clock: () => new Date(measuredAt),
+        connectorHealthRepository: connectorHealth,
+      },
+    )
+
+    await service.run()
+
+    await expect(
+      connectorHealth.findLatest(testEstate, connector.descriptor.id),
+    ).resolves.toMatchObject({
+      sourceSetFingerprint,
+      health: {
+        sourceSetFingerprint,
+        overall: 'degraded',
+        partial: true,
+      },
+    })
+  })
+
   it('rejects a discovered snapshot from another tenant', async () => {
     const snapshots = new InMemorySnapshotRepository()
     const exposures = new InMemoryExposureFindingRepository()
@@ -704,6 +927,226 @@ describe('IngestionService', () => {
 
     await expect(service.run()).rejects.toThrow('does not match the configured ingestion estate')
     expect(await snapshots.list(testEstate)).toHaveLength(0)
+  })
+
+  it('rejects wrong-estate runtime telemetry before persisting the projected snapshot', async () => {
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const discovered = fullSnapshot()
+    const agent = discovered.nodes.find((node) => node.kind === 'agent')
+    if (agent === undefined) throw new Error('Expected an agent fixture.')
+    authorizeRuntimeAgent(discovered, agent)
+    const runtimeTelemetryConnector: RuntimeTelemetryConnector = {
+      id: 'azure-monitor-otel',
+      readObservationWindows(request) {
+        return Promise.resolve(
+          emptyRuntimeWindows(
+            request,
+            {
+              status: 'unknown',
+              classification: 'unknown',
+              caveats: ['empty'],
+              recordsReceived: 0,
+              recordsAccepted: 0,
+              duplicatesRemoved: 0,
+              pagesProcessed: 1,
+            },
+            'wrong-estate',
+          ),
+        )
+      },
+    }
+    const service = new IngestionService(makeConnector(discovered), snapshots, exposures, {
+      estate: testEstate,
+      sourceMode: 'foundry',
+      runtimeTelemetryConnector,
+    })
+
+    const result = await service.run()
+
+    expect(result).toMatchObject({ outcome: 'partially-succeeded', persisted: true })
+    const persisted = await snapshots.findLatest(testEstate)
+    expect(persisted?.evidence.some((evidence) => evidence.id === 'observed-evidence')).toBe(false)
+  })
+
+  it('persists all-rejected runtime telemetry only as degraded unknown evidence', async () => {
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const discovered = fullSnapshot()
+    const agent = discovered.nodes.find((node) => node.kind === 'agent')
+    if (agent === undefined) throw new Error('Expected an agent fixture.')
+    authorizeRuntimeAgent(discovered, agent)
+    const runtimeTelemetryConnector: RuntimeTelemetryConnector = {
+      id: 'azure-monitor-otel',
+      readObservationWindows(request) {
+        return Promise.resolve(
+          emptyRuntimeWindows(request, {
+            status: 'degraded',
+            classification: 'unknown',
+            caveats: ['sampled'],
+            recordsReceived: 60,
+            recordsAccepted: 0,
+            duplicatesRemoved: 0,
+            pagesProcessed: 1,
+          }),
+        )
+      },
+    }
+    const service = new IngestionService(makeConnector(discovered), snapshots, exposures, {
+      estate: testEstate,
+      sourceMode: 'foundry',
+      runtimeTelemetryConnector,
+    })
+
+    const result = await service.run()
+
+    expect(result).toMatchObject({ outcome: 'partially-succeeded', persisted: true })
+    const persisted = await snapshots.findLatest(testEstate)
+    const runtimeEvidence = persisted?.evidence.filter((evidence) =>
+      ['baseline-evidence', 'observed-evidence'].includes(evidence.id),
+    )
+    expect(runtimeEvidence).toHaveLength(2)
+    expect(
+      runtimeEvidence?.every(
+        (evidence) =>
+          evidence.confidence === 0 &&
+          evidence.evidenceTypes.length === 1 &&
+          evidence.evidenceTypes[0] === 'unknown' &&
+          evidence.otel?.quality.status === 'degraded',
+      ),
+    ).toBe(true)
+  })
+
+  it('refreshes API telemetry from a jobs-persisted snapshot with degraded projected evidence', async () => {
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const discovered = fullSnapshot()
+    const agent = discovered.nodes.find((node) => node.kind === 'agent')
+    if (agent === undefined) throw new Error('Expected an agent fixture.')
+    authorizeRuntimeAgent(discovered, agent)
+    const fixture = createRuntimeTelemetryFixture(testEstate.environment)
+    const jobsRuntimeTelemetryConnector: RuntimeTelemetryConnector = {
+      id: fixture.id,
+      async readObservationWindows(request, options) {
+        const windows = await fixture.readObservationWindows(request, options)
+        return runtimeObservationWindowsSchema.parse({
+          ...windows,
+          baselineEvidenceId: 'jobs-baseline-degraded',
+          observedEvidenceId: 'jobs-observed-degraded',
+          baseline: {
+            ...windows.baseline,
+            observations: [],
+            otelQuality: {
+              status: 'degraded',
+              classification: 'unknown',
+              caveats: ['empty'],
+              recordsReceived: 0,
+              recordsAccepted: 0,
+              duplicatesRemoved: 0,
+              pagesProcessed: 1,
+            },
+          },
+          observed: {
+            ...windows.observed,
+            observations: [],
+            otelQuality: {
+              status: 'degraded',
+              classification: 'unknown',
+              caveats: ['empty'],
+              recordsReceived: 0,
+              recordsAccepted: 0,
+              duplicatesRemoved: 0,
+              pagesProcessed: 1,
+            },
+          },
+        })
+      },
+    }
+    const service = new IngestionService(makeConnector(discovered), snapshots, exposures, {
+      estate: testEstate,
+      sourceMode: 'foundry',
+      runtimeTelemetryConnector: jobsRuntimeTelemetryConnector,
+    })
+
+    await service.run()
+    const persisted = await snapshots.findLatest(testEstate)
+    expect(
+      persisted?.evidence.filter((evidence) =>
+        ['jobs-baseline-degraded', 'jobs-observed-degraded'].includes(evidence.id),
+      ),
+    ).toEqual([
+      expect.objectContaining({ evidenceTypes: ['unknown'] }),
+      expect.objectContaining({ evidenceTypes: ['unknown'] }),
+    ])
+    const persistedAgent = persisted?.nodes.find((node) => node.id === agent.id)
+    if (persisted === null || persistedAgent === undefined) {
+      throw new Error('Expected the jobs-persisted authoritative agent.')
+    }
+    expect(runtimeTelemetryRequestForAgent(persisted, persistedAgent, testEstate)).toMatchObject({
+      sourceAgentId: 'provider-agent-id',
+    })
+
+    const readObservationWindows = vi.fn(fixture.readObservationWindows.bind(fixture))
+    process.env['AGENT_SENTINEL_CONNECTOR'] = 'foundry'
+    process.env['FOUNDRY_PROJECT_ENDPOINT'] =
+      'https://example.services.ai.azure.com/api/projects/validation'
+    process.env['FOUNDRY_TENANT_ID'] = testEstate.tenantId
+    process.env['FOUNDRY_ENVIRONMENT'] = testEstate.environment
+    let app: Awaited<ReturnType<typeof createApp>> | undefined
+    try {
+      app = await createApp(
+        undefined,
+        { mode: 'disabled' },
+        {
+          dataMode: 'live',
+          snapshotRepository: snapshots,
+          runtimeTelemetryConnector: { id: fixture.id, readObservationWindows },
+        },
+      )
+      const response = await app.inject({ method: 'GET', url: '/api/demo/state' })
+      const state = agentSentinelStateSchema.parse(response.json())
+
+      expect(response.statusCode).toBe(200)
+      expect(state.runtimeEvidence).toMatchObject({
+        eligibleAgentCount: 1,
+        queriedAgentCount: 1,
+      })
+      expect(readObservationWindows).toHaveBeenCalledTimes(1)
+    } finally {
+      await app?.close()
+      delete process.env['AGENT_SENTINEL_CONNECTOR']
+      delete process.env['FOUNDRY_PROJECT_ENDPOINT']
+      delete process.env['FOUNDRY_TENANT_ID']
+      delete process.env['FOUNDRY_ENVIRONMENT']
+    }
+  })
+
+  it('does not query runtime telemetry for non-authoritative manifest-style agents', async () => {
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const discovered = fullSnapshot()
+    const agent = discovered.nodes.find((node) => node.kind === 'agent')
+    if (agent === undefined) throw new Error('Expected an agent fixture.')
+    authorizeRuntimeAgent(discovered, agent)
+    agent.metadata['sourceOfTruth'] = 'false'
+    const evidence = discovered.evidence.find((item) => agent.evidenceIds.includes(item.id))
+    if (evidence === undefined) throw new Error('Expected agent evidence.')
+    evidence.metadata = { ...evidence.metadata, sourceOfTruth: 'false' }
+    const readObservationWindows = vi.fn()
+    const service = new IngestionService(makeConnector(discovered), snapshots, exposures, {
+      estate: testEstate,
+      sourceMode: 'foundry',
+      runtimeTelemetryConnector: {
+        id: 'azure-monitor-otel',
+        readObservationWindows,
+      },
+    })
+
+    const result = await service.run()
+
+    expect(result).toMatchObject({ outcome: 'succeeded', persisted: true })
+    expect(readObservationWindows).not.toHaveBeenCalled()
+    expect(result.snapshot.evidence.some((item) => item.id === 'observed-evidence')).toBe(false)
   })
 
   it('merges latest non-authoritative manifests and preserves finding provenance', async () => {

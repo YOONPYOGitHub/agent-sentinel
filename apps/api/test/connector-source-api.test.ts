@@ -8,6 +8,7 @@ const jose = vi.hoisted(() => ({
 vi.mock('jose', () => jose)
 
 import {
+  type ConnectorSourceAuditRecord,
   type ConnectorSourceCreateInput,
   type ConnectorSourceDefinition,
   type ConnectorSourceMutationContext,
@@ -168,6 +169,60 @@ async function seed(
   return result.source
 }
 
+function legacyAzureMonitorSource(sourceId = 'azure-monitor-primary'): unknown {
+  return {
+    estateId: defaultEstate.id,
+    tenantId: defaultEstate.tenantId,
+    environment: defaultEstate.environment,
+    sourceId,
+    connectorType: 'azure-monitor-otel',
+    displayName: 'Legacy runtime telemetry',
+    enabled: true,
+    origin: 'user',
+    configuration: {
+      type: 'azure-monitor-otel',
+      workspaceId: '11111111-1111-4111-8111-111111111111',
+      logsBaseUrl: 'https://api.loganalytics.io',
+      baselineWindowHours: 168,
+      observedWindowHours: 24,
+      requestTimeoutMs: 15_000,
+      maxResponseBytes: 4_194_304,
+    },
+    credential: { mode: 'default' },
+    testStatus: {
+      status: 'passed',
+      evidenceBasis: 'provider-response',
+      evidenceIds: ['legacy-evidence'],
+      checkedAt: '2026-09-04T00:00:00.000Z',
+      checkedBy: { type: 'user', id: 'administrator-object-id' },
+      summary: 'Legacy provider response.',
+    },
+    version: 1,
+    etag: 'legacy-etag',
+    createdBy: { type: 'user', id: 'administrator-object-id' },
+    updatedBy: { type: 'user', id: 'administrator-object-id' },
+    createdAt: '2026-09-04T00:00:00.000Z',
+    updatedAt: '2026-09-04T00:00:00.000Z',
+  }
+}
+
+function legacyAzureMonitorAudit(sourceId = 'azure-monitor-primary'): unknown {
+  const after = legacyAzureMonitorSource(sourceId) as ConnectorSourceDefinition
+  return {
+    id: 'legacy-audit-create',
+    estateId: defaultEstate.id,
+    tenantId: defaultEstate.tenantId,
+    environment: defaultEstate.environment,
+    sourceId: after.sourceId,
+    operation: 'create',
+    actor: after.createdBy,
+    occurredAt: after.createdAt,
+    idempotencyKey: 'legacy-create',
+    before: null,
+    after,
+  } satisfies ConnectorSourceAuditRecord
+}
+
 beforeEach(() => {
   jose.createRemoteJWKSet.mockClear()
   jose.jwtVerify.mockReset()
@@ -184,6 +239,97 @@ afterEach(async () => {
 })
 
 describe('connector source API authorization and boundaries', () => {
+  it('lists legacy Azure Monitor sources as inactive migration-required records', async () => {
+    const repository = new InMemoryConnectorSourceRepository({
+      persistedSources: [legacyAzureMonitorSource()],
+    })
+    authenticate('Administrator')
+    const app = await makeApp(repository)
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/connector-sources',
+      headers: headers(),
+    })
+    const status = await app.inject({
+      method: 'GET',
+      url: '/api/connector-sources/azure-monitor-primary/connection-test-status',
+      headers: headers(),
+    })
+    const update = await app.inject({
+      method: 'PATCH',
+      url: '/api/connector-sources/azure-monitor-primary',
+      headers: headers({
+        'idempotency-key': 'legacy-update',
+        'if-match': '"legacy-etag"',
+      }),
+      payload: { enabled: true },
+    })
+
+    expect(listed.statusCode, listed.body).toBe(200)
+    expect(listed.json()).toMatchObject({
+      items: [
+        {
+          sourceId: 'azure-monitor-primary',
+          enabled: false,
+          testStatus: { status: 'not-tested' },
+          migration: {
+            status: 'migration-required',
+            active: false,
+            reason: 'missing-source-project-id',
+          },
+        },
+      ],
+    })
+    expect(status.statusCode).toBe(200)
+    expect(status.json()).toMatchObject({
+      status: 'unknown',
+      evidenceAvailability: 'unavailable',
+      summary: 'An exact source project ID is required before this source can be activated.',
+    })
+    expect(update.statusCode).toBe(409)
+    expect(update.json()).toMatchObject({ error: 'connector_source_migration_required' })
+  })
+
+  it('returns legacy Azure Monitor audit snapshots as migration-required without losing metadata', async () => {
+    const sourceId = 'legacy-azure-monitor-audit'
+    const repository = new InMemoryConnectorSourceRepository({
+      persistedSources: [legacyAzureMonitorSource(sourceId)],
+      persistedAudits: [legacyAzureMonitorAudit(sourceId)],
+    })
+    authenticate('Administrator')
+    const app = await makeApp(repository)
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/connector-sources/${sourceId}/audit`,
+      headers: headers(),
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      items: [
+        {
+          id: 'legacy-audit-create',
+          actor: { type: 'user', id: 'administrator-object-id' },
+          occurredAt: '2026-09-04T00:00:00.000Z',
+          before: null,
+          after: {
+            sourceId,
+            version: 1,
+            etag: 'legacy-etag',
+            enabled: false,
+            migration: {
+              status: 'migration-required',
+              active: false,
+              reason: 'missing-source-project-id',
+            },
+          },
+        },
+      ],
+    })
+  })
+
   it('requires JWT authentication, exact Administrator RBAC, and the explicit write gate', async () => {
     const repository = new InMemoryConnectorSourceRepository()
     const app = await makeApp(repository)
@@ -459,6 +605,57 @@ describe('connector source API contracts', () => {
       expect(response.statusCode).toBe(400)
       expect(response.body).not.toContain('must-not-be-accepted')
     }
+  })
+
+  it('rejects overlong Foundry project segments before create or update persistence', async () => {
+    const repository = new InMemoryConnectorSourceRepository()
+    authenticate('Administrator')
+    const app = await makeApp(repository)
+    const overlongEndpoint = 'https://safe.services.ai.azure.com/api/projects/' + 'p'.repeat(201)
+
+    const rejectedCreate = await app.inject({
+      method: 'POST',
+      url: '/api/connector-sources',
+      headers: headers({ 'idempotency-key': 'reject-overlong-create' }),
+      payload: {
+        ...createBody,
+        configuration: {
+          type: 'foundry',
+          projectEndpoint: overlongEndpoint,
+        },
+      },
+    })
+
+    expect(rejectedCreate.statusCode).toBe(400)
+    expect(await repository.findById(defaultEstate, createBody.sourceId)).toBeNull()
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/connector-sources',
+      headers: headers({ 'idempotency-key': 'create-for-overlong-update' }),
+      payload: createBody,
+    })
+    const source = created.json<{ source: ConnectorSourceDefinition }>().source
+    const rejectedUpdate = await app.inject({
+      method: 'PATCH',
+      url: `/api/connector-sources/${createBody.sourceId}`,
+      headers: headers({
+        'idempotency-key': 'reject-overlong-update',
+        'if-match': `"${source.etag}"`,
+      }),
+      payload: {
+        configuration: {
+          type: 'foundry',
+          projectEndpoint: overlongEndpoint,
+        },
+      },
+    })
+
+    expect(rejectedUpdate.statusCode).toBe(400)
+    expect(await repository.findById(defaultEstate, createBody.sourceId)).toMatchObject({
+      version: 1,
+      configuration: createBody.configuration,
+    })
   })
 
   it('requires strong ETags and does not allow a reused key to change a mutation', async () => {

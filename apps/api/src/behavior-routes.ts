@@ -7,6 +7,7 @@ import { analyzeDrift } from '@agent-sentinel/behavior-engine'
 import { computeBaseline } from '@agent-sentinel/behavior-engine'
 import { MOCK_BEHAVIOR_WINDOWS } from '@agent-sentinel/mock-connector'
 import {
+  recomputeRuntimeOtelQuality,
   runtimeObservationWindowsSchema,
   validateRuntimeTelemetryProvenance,
   withoutSyntheticObservations,
@@ -60,7 +61,7 @@ export function registerBehaviorRoutes(app: FastifyInstance, opts: BehaviorRoute
         if (opts.runtimeTelemetryConnector !== undefined) {
           try {
             const resolvedRequest = await opts.resolveTelemetryRequest?.(agentId, estate)
-            if (opts.resolveTelemetryRequest !== undefined && resolvedRequest === undefined) {
+            if (resolvedRequest === undefined) {
               const result: DriftAnalysisResult = driftAnalysisResultSchema.parse({
                 analysisId: unavailableAnalysisId('unavailable', agentId),
                 tenantId,
@@ -76,19 +77,15 @@ export function registerBehaviorRoutes(app: FastifyInstance, opts: BehaviorRoute
               })
               return reply.status(200).send(result)
             }
-            const telemetryRequest = resolvedRequest ?? {
-              estateId: estate.id,
-              estateEnvironment: estate.environment,
-              tenantId,
-              agentId,
-            }
-            const windows = withoutSyntheticObservations(
-              validateRuntimeTelemetryProvenance(
-                telemetryRequest,
-                runtimeObservationWindowsSchema.parse(
-                  await opts.runtimeTelemetryConnector.readObservationWindows({
-                    ...telemetryRequest,
-                  }),
+            const windows = recomputeRuntimeOtelQuality(
+              withoutSyntheticObservations(
+                validateRuntimeTelemetryProvenance(
+                  resolvedRequest,
+                  runtimeObservationWindowsSchema.parse(
+                    await opts.runtimeTelemetryConnector.readObservationWindows({
+                      ...resolvedRequest,
+                    }),
+                  ),
                 ),
               ),
             )

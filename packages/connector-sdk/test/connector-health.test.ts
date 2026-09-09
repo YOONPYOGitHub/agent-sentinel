@@ -46,6 +46,18 @@ function measurement(overrides: Record<string, number> = {}) {
 }
 
 describe('connector health diagnostics schema', () => {
+  it('preserves an exact source-set fingerprint on reports and persisted measurements', () => {
+    const sourceSetFingerprint = 'a'.repeat(64)
+    const input = measurement()
+    Object.assign(input, { sourceSetFingerprint })
+    Object.assign(input.health, { sourceSetFingerprint })
+
+    const parsed = connectorHealthMeasurementSchema.parse(input)
+
+    expect(parsed.sourceSetFingerprint).toBe(sourceSetFingerprint)
+    expect(parsed.health.sourceSetFingerprint).toBe(sourceSetFingerprint)
+  })
+
   it('preserves typed data state and exact source provenance', () => {
     const input = measurement()
     Object.assign(input.health.sources[0], {

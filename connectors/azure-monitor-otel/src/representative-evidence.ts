@@ -1,12 +1,14 @@
 import { createHash } from 'node:crypto'
 
 import {
+  agentCorrelationsSchema,
   observationWindowSchema,
   otelAggregationSchema,
   otelEvidenceClaimSchema,
   otelEvidenceClassificationSchema,
   otelSamplingSchema,
   representativeOtelEvidenceSchema,
+  sourceProjectIdSchema,
   type ObservationWindow,
   type OtelEvidenceCaveat,
   type OtelEvidenceClaim,
@@ -28,11 +30,13 @@ const signalSchema = z.enum(['trace', 'span', 'metric'])
 
 export const representativeOtelWindowBindingSchema = z
   .strictObject({
+    snapshotGeneratedAt: z.iso.datetime(),
     estateId: boundedIdentifierSchema,
     estateTenantId: boundedIdentifierSchema,
     estateEnvironment: boundedIdentifierSchema,
     sourceConnectorId: boundedIdentifierSchema,
     sourceTenantId: boundedIdentifierSchema,
+    sourceProjectId: sourceProjectIdSchema,
     sourceEnvironment: boundedIdentifierSchema,
     providerResourceId: boundedIdentifierSchema,
     agentId: boundedIdentifierSchema,
@@ -61,26 +65,44 @@ export const representativeOtelWindowBindingSchema = z
   })
 export type RepresentativeOtelWindowBinding = z.infer<typeof representativeOtelWindowBindingSchema>
 
-export const representativeOtelInputRecordSchema = z.strictObject({
-  providerRecordId: boundedIdentifierSchema,
-  estateId: optionalIdentifierSchema,
-  estateTenantId: optionalIdentifierSchema,
-  estateEnvironment: optionalIdentifierSchema,
-  sourceConnectorId: optionalIdentifierSchema,
-  sourceTenantId: optionalIdentifierSchema,
-  sourceEnvironment: optionalIdentifierSchema,
-  providerResourceId: optionalIdentifierSchema,
-  sourceAgentId: optionalIdentifierSchema,
-  traceId: z.string().max(64).nullable().optional(),
-  spanId: z.string().max(32).nullable().optional(),
-  signal: z.string().trim().min(1).max(50),
-  observedAt: z.string().trim().min(1).max(100),
-  classification: otelEvidenceClassificationSchema,
-  sampling: otelSamplingSchema,
-  aggregation: otelAggregationSchema,
-  partial: z.boolean(),
-  claim: otelEvidenceClaimSchema,
-})
+export const representativeOtelInputRecordSchema = z
+  .strictObject({
+    providerRecordId: boundedIdentifierSchema,
+    observationId: boundedIdentifierSchema.optional(),
+    observationFingerprint: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
+    snapshotGeneratedAt: z.iso.datetime().nullable().optional(),
+    estateId: optionalIdentifierSchema,
+    estateTenantId: optionalIdentifierSchema,
+    estateEnvironment: optionalIdentifierSchema,
+    sourceConnectorId: optionalIdentifierSchema,
+    sourceTenantId: optionalIdentifierSchema,
+    sourceProjectId: sourceProjectIdSchema.nullable().optional(),
+    sourceEnvironment: optionalIdentifierSchema,
+    providerResourceId: optionalIdentifierSchema,
+    sourceAgentId: optionalIdentifierSchema,
+    traceId: z.string().max(64).nullable().optional(),
+    spanId: z.string().max(32).nullable().optional(),
+    signal: z.string().trim().min(1).max(50),
+    observedAt: z.string().trim().min(1).max(100),
+    classification: otelEvidenceClassificationSchema,
+    sampling: otelSamplingSchema,
+    aggregation: otelAggregationSchema,
+    correlations: agentCorrelationsSchema.optional(),
+    toolCallNames: z.array(boundedIdentifierSchema).max(50).optional(),
+    partial: z.boolean(),
+    claim: otelEvidenceClaimSchema,
+  })
+  .superRefine((record, context) => {
+    if ((record.observationId === undefined) !== (record.observationFingerprint === undefined)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Observation ID and fingerprint must be supplied together.',
+      })
+    }
+  })
 export type RepresentativeOtelInputRecord = z.infer<typeof representativeOtelInputRecordSchema>
 
 export const representativeOtelPageSchema = z.strictObject({
@@ -91,13 +113,36 @@ export const representativeOtelPageSchema = z.strictObject({
 })
 export type RepresentativeOtelPage = z.infer<typeof representativeOtelPageSchema>
 
+export const representativeOtelLiveReadinessSchema = z.enum([
+  'live-ready',
+  'synthetic-only',
+  'insufficient-data',
+])
+export type RepresentativeOtelLiveReadiness = z.infer<typeof representativeOtelLiveReadinessSchema>
+
 export interface RepresentativeOtelWindowNormalization {
   evidenceId: string
   status: OtelWindowQuality['status']
+  liveReadiness: RepresentativeOtelLiveReadiness
   caveats: OtelEvidenceCaveat[]
   evidence: RepresentativeOtelEvidence[]
   window: ObservationWindow
 }
+
+export interface RepresentativeOtelInputDiagnostics {
+  recordsReceivedOffset?: number
+  duplicatesRemovedOffset?: number
+  caveats?: readonly OtelEvidenceCaveat[]
+}
+
+const representativeOtelInputDiagnosticsSchema = z.strictObject({
+  recordsReceivedOffset: z.number().int().min(0).max(MAX_REPRESENTATIVE_OTEL_RECORDS).default(0),
+  duplicatesRemovedOffset: z.number().int().min(0).max(MAX_REPRESENTATIVE_OTEL_RECORDS).default(0),
+  caveats: z
+    .array(z.enum(['duplicate-record', 'conflicting-duplicate']))
+    .max(2)
+    .default([]),
+})
 
 const compareCodeUnits = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0
@@ -115,11 +160,13 @@ function hasExactBoundary(
   binding: RepresentativeOtelWindowBinding,
 ): boolean {
   for (const [field, expected] of [
+    ['snapshotGeneratedAt', binding.snapshotGeneratedAt],
     ['estateId', binding.estateId],
     ['estateTenantId', binding.estateTenantId],
     ['estateEnvironment', binding.estateEnvironment],
     ['sourceConnectorId', binding.sourceConnectorId],
     ['sourceTenantId', binding.sourceTenantId],
+    ['sourceProjectId', binding.sourceProjectId],
     ['sourceEnvironment', binding.sourceEnvironment],
     ['providerResourceId', binding.providerResourceId],
     ['sourceAgentId', binding.sourceAgentId],
@@ -216,11 +263,26 @@ function aggregateObservations(
       supportedClaims.map((item) =>
         JSON.stringify({
           provenance: item.provenance,
+          correlations: item.correlations,
+          toolCallNames: item.toolCallNames,
           partial: item.partial,
         }),
       ),
     )
     if (exactProvenance.size !== 1) {
+      addCaveat(caveats, 'invalid-record')
+      continue
+    }
+    const observationIds = new Set(
+      supportedClaims.flatMap((item) =>
+        item.observationId === undefined ? [] : [item.observationId],
+      ),
+    )
+    if (
+      observationIds.size > 1 ||
+      (observationIds.size === 1 &&
+        supportedClaims.some((item) => item.observationId === undefined))
+    ) {
       addCaveat(caveats, 'invalid-record')
       continue
     }
@@ -271,7 +333,7 @@ function aggregateObservations(
       cost.id,
     ]
     observations.push({
-      id: normalizedId('invocation', key),
+      id: observationIds.size === 1 ? [...observationIds][0]! : normalizedId('invocation', key),
       tenantId: binding.estateTenantId,
       agentId: binding.agentId,
       environment: binding.sourceEnvironment,
@@ -285,8 +347,13 @@ function aggregateObservations(
       ...(error.claim.value && error.claim.errorCode !== undefined
         ? { errorCode: error.claim.errorCode }
         : {}),
-      correlations: [{ kind: 'correlation-id', value: traceId }],
-      toolCallNames: [],
+      correlations: agentCorrelationsSchema.parse([
+        ...(invocation.correlations ?? []),
+        ...(invocation.correlations?.some((correlation) => correlation.kind === 'correlation-id')
+          ? []
+          : [{ kind: 'correlation-id' as const, value: traceId }]),
+      ]),
+      toolCallNames: invocation.toolCallNames ?? [],
       synthetic: provenance.classification === 'synthetic',
       otelProvenance: {
         ...provenance,
@@ -340,20 +407,24 @@ function pageCaveats(
 export function normalizeRepresentativeOtelEvidence(
   pagesInput: readonly unknown[],
   bindingInput: z.input<typeof representativeOtelWindowBindingSchema>,
+  diagnosticsInput: RepresentativeOtelInputDiagnostics = {},
 ): RepresentativeOtelWindowNormalization {
   const binding = representativeOtelWindowBindingSchema.parse(bindingInput)
+  const diagnostics = representativeOtelInputDiagnosticsSchema.parse(diagnosticsInput)
   const pages = z
     .array(representativeOtelPageSchema)
     .max(MAX_REPRESENTATIVE_OTEL_PAGES)
     .parse(pagesInput)
-  const recordsReceived = pages.reduce((total, page) => total + page.records.length, 0)
+  const recordsReceived =
+    pages.reduce((total, page) => total + page.records.length, 0) +
+    diagnostics.recordsReceivedOffset
   if (recordsReceived > MAX_REPRESENTATIVE_OTEL_RECORDS) {
     throw new Error(
       `Representative OpenTelemetry evidence exceeds ${MAX_REPRESENTATIVE_OTEL_RECORDS} records.`,
     )
   }
 
-  const caveats = new Set<OtelEvidenceCaveat>()
+  const caveats = new Set<OtelEvidenceCaveat>(diagnostics.caveats)
   pageCaveats(pages, caveats)
   if (recordsReceived === 0) addCaveat(caveats, 'empty')
 
@@ -361,11 +432,17 @@ export function normalizeRepresentativeOtelEvidence(
   const endMs = new Date(binding.windowEnd).getTime()
   const queriedAtMs = new Date(binding.queriedAt).getTime()
   const freshnessMs = binding.maximumFreshnessHours * 60 * 60 * 1000
+  if (queriedAtMs - endMs > freshnessMs) addCaveat(caveats, 'stale')
   const recordsByProviderId = new Map<
     string,
     Array<{ canonical: string; record: RepresentativeOtelInputRecord }>
   >()
-  let duplicatesRemoved = 0
+  const candidateRecords: Array<{
+    canonical: string
+    record: RepresentativeOtelInputRecord
+  }> = []
+  const observationFingerprints = new Map<string, Set<string>>()
+  let duplicatesRemoved = diagnostics.duplicatesRemovedOffset
   const evidence: RepresentativeOtelEvidence[] = []
 
   for (const page of [...pages].sort((left, right) => left.pageNumber - right.pageNumber)) {
@@ -384,10 +461,32 @@ export function normalizeRepresentativeOtelEvidence(
         continue
       }
       const canonicalRecord = JSON.stringify(record)
-      const group = recordsByProviderId.get(record.providerRecordId) ?? []
-      group.push({ canonical: canonicalRecord, record })
-      recordsByProviderId.set(record.providerRecordId, group)
+      candidateRecords.push({ canonical: canonicalRecord, record })
+      if (record.observationId !== undefined && record.observationFingerprint !== undefined) {
+        const fingerprints = observationFingerprints.get(record.observationId) ?? new Set<string>()
+        fingerprints.add(record.observationFingerprint)
+        observationFingerprints.set(record.observationId, fingerprints)
+      }
     }
+  }
+
+  const conflictingObservationIds = new Set(
+    [...observationFingerprints.entries()]
+      .filter(([, fingerprints]) => fingerprints.size > 1)
+      .map(([observationId]) => observationId),
+  )
+  for (const item of candidateRecords) {
+    if (
+      item.record.observationId !== undefined &&
+      conflictingObservationIds.has(item.record.observationId)
+    ) {
+      duplicatesRemoved += 1
+      addCaveat(caveats, 'conflicting-duplicate')
+      continue
+    }
+    const group = recordsByProviderId.get(item.record.providerRecordId) ?? []
+    group.push(item)
+    recordsByProviderId.set(item.record.providerRecordId, group)
   }
 
   const records: Array<{ canonical: string; record: RepresentativeOtelInputRecord }> = []
@@ -434,20 +533,23 @@ export function normalizeRepresentativeOtelEvidence(
     const observedAtMs = Date.parse(record.observedAt)
     if (!Number.isFinite(observedAtMs) || observedAtMs < startMs || observedAtMs > endMs) {
       addCaveat(caveats, observedAtMs > queriedAtMs ? 'future-timestamp' : 'invalid-record')
-    } else if (queriedAtMs - observedAtMs > freshnessMs) {
+    } else if (endMs - observedAtMs > freshnessMs) {
       addCaveat(caveats, 'stale')
     }
 
     const normalized = representativeOtelEvidenceSchema.safeParse({
       id: normalizedId('record', canonicalRecord),
       providerRecordId: record.providerRecordId,
+      ...(record.observationId === undefined ? {} : { observationId: record.observationId }),
       signal,
       provenance: {
+        snapshotGeneratedAt: binding.snapshotGeneratedAt,
         estateId: binding.estateId,
         estateTenantId: binding.estateTenantId,
         estateEnvironment: binding.estateEnvironment,
         sourceConnectorId: binding.sourceConnectorId,
         sourceTenantId: binding.sourceTenantId,
+        sourceProjectId: binding.sourceProjectId,
         sourceEnvironment: binding.sourceEnvironment,
         provider: 'azure-monitor-otel',
         providerResourceId: record.providerResourceId ?? undefined,
@@ -459,6 +561,8 @@ export function normalizeRepresentativeOtelEvidence(
         sampling: record.sampling,
         aggregation: record.aggregation,
       },
+      ...(record.correlations === undefined ? {} : { correlations: record.correlations }),
+      ...(record.toolCallNames === undefined ? {} : { toolCallNames: record.toolCallNames }),
       claim: record.claim,
       partial: record.partial,
     })
@@ -500,19 +604,44 @@ export function normalizeRepresentativeOtelEvidence(
     observations,
     otelQuality: quality,
   })
+  const evidenceBinding: Omit<RepresentativeOtelWindowBinding, 'queriedAt'> = {
+    snapshotGeneratedAt: binding.snapshotGeneratedAt,
+    estateId: binding.estateId,
+    estateTenantId: binding.estateTenantId,
+    estateEnvironment: binding.estateEnvironment,
+    sourceConnectorId: binding.sourceConnectorId,
+    sourceTenantId: binding.sourceTenantId,
+    sourceProjectId: binding.sourceProjectId,
+    sourceEnvironment: binding.sourceEnvironment,
+    providerResourceId: binding.providerResourceId,
+    agentId: binding.agentId,
+    sourceAgentId: binding.sourceAgentId,
+    windowId: binding.windowId,
+    windowStart: binding.windowStart,
+    windowEnd: binding.windowEnd,
+    maximumFreshnessHours: binding.maximumFreshnessHours,
+  }
   const evidenceId = normalizedId(
     'evidence',
     JSON.stringify({
-      binding,
+      binding: evidenceBinding,
       quality,
       evidence: evidence.map((item) => item.id),
       observations: observations.map((item) => item.id),
     }),
   )
+  const liveReadiness = representativeOtelLiveReadinessSchema.parse(
+    status === 'available' && classification === 'live' && observations.length > 0
+      ? 'live-ready'
+      : status === 'available' && classification === 'synthetic' && observations.length > 0
+        ? 'synthetic-only'
+        : 'insufficient-data',
+  )
 
   return {
     evidenceId,
     status,
+    liveReadiness,
     caveats: sortedCaveats,
     evidence,
     window,

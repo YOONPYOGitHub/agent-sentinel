@@ -37,9 +37,11 @@ The replacement environment has live bounded provider reads from Foundry,
 Entra, Defender for Cloud Apps, Purview, Azure Resource Graph, the Teams
 organization catalog, and Azure Monitor OTel. The discovered portfolio is still
 only six purpose-built synthetic validation agents, not production customer
-agents. Power Platform lacks supported unattended inventory authorization,
-Agent 365 is deferred, and authenticated manifest ingestion remains
-write-gated. Empty Defender or Teams results do not prove broader coverage. See
+agents. Power Platform lacks supported unattended inventory authorization. Agent 365
+provider access is verified for a bounded 306-package result, while deployment
+of the persisted-source runtime remains unvalidated and the package total is
+not an agent total. Authenticated manifest ingestion remains write-gated. Empty
+Defender or Teams results do not prove broader coverage. See
 [docs/roadmap.md](docs/roadmap.md).
 
 ---
@@ -88,7 +90,8 @@ flowchart LR
     subgraph Sources["Evidence sources"]
         FDRY["Microsoft Foundry<br/>(live read; synthetic validation agents)"]
         LIVE["Entra · Defender · Purview · Teams catalog<br/>Azure Resource Graph · Azure Monitor/OTel<br/>(live bounded reads; explicit gaps)"]
-        BLOCKED["Agent 365 · Power Platform<br/>(implemented; external activation blocked)"]
+        BLOCKED["Power Platform<br/>(implemented; external activation blocked)"]
+        A365["Agent 365<br/>(provider read verified; deployment validation pending)"]
     end
 
     subgraph Ingest["Ingestion"]
@@ -116,6 +119,7 @@ flowchart LR
 
     FDRY --> JOBS
     LIVE --> JOBS
+    A365 -.deployment pending.-> JOBS
     BLOCKED -.not active.-> JOBS
     JOBS --> POLICY --> COSMOS
     JOBS --> COSMOS
@@ -193,7 +197,7 @@ Verified baseline on 2026-08-23:
 | Terra live validation                      | **Live provider execution over synthetic probes** | `pnpm foundry:validate`; never run by CI and never establishes production-agent evidence             |
 | Advisory narratives (public Azure edge)    | **Mock**                                          | Deterministic mock provider until corporate Entra and WAF activation                                 |
 | Advisory narratives (grounded model path)  | **Live when configured**                          | GPT-5.6 Terra, advisory explanation only; deterministic core stays authoritative                     |
-| Agent 365 connector                        | **Implemented, licensing-blocked**                | Read-only Graph package catalog; product licensing and authorization remain pending                  |
+| Agent 365 connector                        | **Provider read verified; deployment pending**    | Read-only Graph package catalog; 306 packages observed, classified without treating all as agents    |
 | Azure Monitor OTel                         | **Connected, insufficient data**                  | Query path is live; baseline and observed populations remain below the analysis threshold            |
 | Entra identity enrichment                  | **Connected inventory; no exact join**            | Service-principal inventory is live, but agents expose no exact identity ID, so `RUNS_AS` is absent  |
 | Defender, Purview, and Teams catalog       | **Connected, bounded reads**                      | Defender and Teams are valid-empty; Purview definitions do not prove usage or agent attribution      |

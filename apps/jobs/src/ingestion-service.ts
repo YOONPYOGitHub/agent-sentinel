@@ -6,6 +6,13 @@ import type {
   ConnectorHealthRepository,
   ManifestIngestionRecord,
   ManifestIngestionRepository,
+  RuntimeTelemetryConnector,
+} from '@agent-sentinel/connector-sdk'
+import {
+  projectRuntimeEvidence,
+  runtimeObservationWindowsSchema,
+  runtimeTelemetryRequestForAgent,
+  validateRuntimeTelemetryProvenance,
 } from '@agent-sentinel/connector-sdk'
 import { ADAPTER_SOURCE_ID, mergeManifestSnapshots } from '@agent-sentinel/manifest-connector'
 import type {
@@ -15,6 +22,10 @@ import type {
   ExposureFindingRepository,
   SnapshotRepository,
 } from '@agent-sentinel/domain'
+import {
+  createLiveGraphTraversalContextForSnapshot,
+  trustedMockGraphTraversalContext,
+} from '@agent-sentinel/graph-engine'
 import { evaluateAllExposurePolicies } from '@agent-sentinel/policy-engine'
 
 export interface IngestionServiceOptions {
@@ -25,6 +36,7 @@ export interface IngestionServiceOptions {
   correlationIdFactory?: () => string
   manifestIngestions?: ManifestIngestionRepository
   connectorHealthRepository?: ConnectorHealthRepository
+  runtimeTelemetryConnector?: RuntimeTelemetryConnector
 }
 
 export interface Logger {
@@ -126,12 +138,44 @@ export class IngestionService {
         }
       }
     }
+    let runtimeTelemetryDegraded = false
+    if (this.options.runtimeTelemetryConnector !== undefined) {
+      for (const agent of snapshot.nodes.filter((node) => node.kind === 'agent')) {
+        const request = runtimeTelemetryRequestForAgent(snapshot, agent, this.options.estate)
+        if (request === undefined) continue
+        try {
+          const windows = validateRuntimeTelemetryProvenance(
+            request,
+            runtimeObservationWindowsSchema.parse(
+              await this.options.runtimeTelemetryConnector.readObservationWindows(request),
+            ),
+          )
+          const projection = projectRuntimeEvidence(snapshot, windows, request)
+          snapshot = projection.snapshot
+          if (projection.dataState.state !== 'complete') runtimeTelemetryDegraded = true
+        } catch {
+          runtimeTelemetryDegraded = true
+          logger.warn('ingestion.runtime-evidence.degraded', {
+            correlationId,
+            agentId: agent.id,
+            reason: 'query-or-provenance-failed',
+          })
+        }
+      }
+    }
     const outcome =
-      connectorDegraded || manifestIngestion.status === 'degraded'
+      connectorDegraded || manifestIngestion.status === 'degraded' || runtimeTelemetryDegraded
         ? 'partially-succeeded'
         : 'succeeded'
     const snapshotId = snapshotIdFor(snapshot)
-    const evaluated = evaluateAllExposurePolicies(snapshot)
+    const traversalContext =
+      this.options.sourceMode === 'mock'
+        ? trustedMockGraphTraversalContext
+        : createLiveGraphTraversalContextForSnapshot(snapshot, {
+            estate: this.options.estate,
+            ...(this.options.clock === undefined ? {} : { clock: this.options.clock }),
+          })
+    const evaluated = evaluateAllExposurePolicies(snapshot, traversalContext)
     const nodeById = new Map(snapshot.nodes.map((node) => [node.id, node]))
     const findings: ExposureFinding[] = evaluated.map((finding) => {
       const sourceMode =
@@ -245,6 +289,9 @@ export class IngestionService {
       tenantId: this.options.estate.tenantId,
       environment: this.options.estate.environment,
       connectorId: this.connector.descriptor.id,
+      ...(connectorHealth.sourceSetFingerprint === undefined
+        ? {}
+        : { sourceSetFingerprint: connectorHealth.sourceSetFingerprint }),
       measuredAt,
       health: connectorHealth,
     })

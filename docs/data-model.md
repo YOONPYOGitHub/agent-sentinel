@@ -37,6 +37,36 @@ Represents a point-in-time view of an agent estate.
 
 - `id`, `from`, `to`, `relationship` (TRIGGERS|RUNS_AS|CAN_READ|CAN_CALL|CAN_EXFILTRATE_TO|PROTECTED_BY)
 - `evidenceIds`, `active`, `removable`
+- Exact Entra `RUNS_AS` edges additionally persist `runsAsBinding`, containing
+  the complete Foundry agent and Entra identity endpoint authorities plus the
+  exact GUID identifier and match kind. Object-ID and Agent Identity bindings
+  must equal the evidence-backed service-principal object authority.
+  Application-ID-only matches fail closed until a distinct application-ID
+  authority contract is available; an application ID is never compared with a
+  service-principal object ID. Each endpoint `evidenceIds` array must contain
+  exactly one matching registered authority record, and the edge must cite
+  those exact two endpoint records. Simulated edge-state variants must retain
+  the exact registered `runsAsBinding`. Live authority indexing rejects
+  duplicate node, edge, or evidence IDs, identifier ambiguity within the same
+  identifier-kind and exact estate/source/tenant/environment boundary,
+  unattached authority citations, and stale, synthetic, malformed, or
+  generation/release-mismatched evidence.
+
+### EvidenceAuthority
+
+Authoritative Foundry and Entra evidence may carry a strict typed authority:
+`estateId`, globally scoped `sourceId` (`foundry:<id>` or `entra:<id>`),
+source `tenantId` and `environment`, provider, exact provider source object
+(Foundry project or Entra inventory tenant), exact provider object (agent or
+service principal), `snapshotGeneratedAt`, and `sourceRelease`. The same values
+are copied into node metadata so persisted graph traversal can verify both
+endpoints without display-name, owner, or source-ID fallback.
+The request or ingestion boundary supplies `EstateContext` independently of the
+candidate snapshot. Source authority is validated against its registered exact
+source and endpoint metadata rather than requiring its tenant to equal the
+estate tenant, so explicitly registered cross-tenant and custom-estate sources
+remain valid. The authority index is built once and reused for policy, path,
+blast-radius, and simulation analysis.
 
 ### Finding
 
@@ -105,6 +135,18 @@ provider or synthesize success. Deployment JSON remains the connector runtime
 source and is not activated from these dormant records. Existing
 `*_SOURCES_JSON` definitions are projected into API reads as immutable
 deployment-origin records without being copied into mutable persistence.
+
+Azure Monitor source writes require an explicit `sourceProjectId`. Legacy
+persisted Azure Monitor records that predate that field are decoded through a
+read-only compatibility model. If exactly one deployment-origin source matches
+the full estate, tenant, environment, source ID, workspace, and remaining
+configuration, its authoritative project ID hydrates the read model. Otherwise
+the record is returned disabled with `migration-required` status, no prior
+passing test state, and no mutation controls. Repository listing does not guess
+a project ID or fail merely because the legacy field is absent. New source
+configuration, runtime provenance/state, connector input, and web form
+validation share one trimmed `sourceProjectId` boundary with a maximum length
+of 200 characters.
 
 ### PostgreSQL (pg-as-260814)
 
@@ -303,7 +345,7 @@ Labels every result with its provenance. `mock-synthetic` is never present in li
 
 ### RuntimeObservation
 
-One sampled invocation. Fields: `id`, `tenantId`, `agentId`, `environment`, `source`, `observedAt` (ISO 8601), `latencyMs` (integer ≥ 0), `inputTokens` (integer ≥ 0), `outputTokens` (integer ≥ 0), `costUsd` (number ≥ 0, optional), `success` (boolean), `toolCallNames` (bounded string array ≤ 50), and optional `correlations` (at most one each of `agent-run-id`, `correlation-id`, and `agent-version`). No raw prompts or unbounded payloads.
+One sampled invocation. Fields: `id`, `tenantId`, `agentId`, `environment`, `source`, `observedAt` (ISO 8601), `latencyMs` (integer ≥ 0), `inputTokens` (integer ≥ 0), `outputTokens` (integer ≥ 0), `costUsd` (number ≥ 0, optional), `success` (boolean), `toolCallNames` (bounded string array ≤ 50), and optional `correlations` (at most one each of `agent-run-id`, `correlation-id`, and `agent-version`). Correlation arrays are canonicalized in that fixed kind order; duplicate kinds are rejected. No raw prompts or unbounded payloads.
 
 ### ObservationWindow
 
@@ -375,7 +417,9 @@ An analysis-ready invocation requires one compatible trace invocation claim,
 span latency and error claims, and raw metric claims for input tokens, output
 tokens, and measured USD cost. It is projected into `RuntimeObservation` with
 structured `otelProvenance`; the backing `Evidence` retains up to 500 exact
-invocation records and the full bounded quality summary.
+invocation records and the full bounded quality summary. A supplied
+`correlation-id` is preserved exactly; the trace ID is used as its fallback only
+when that correlation kind is absent.
 
 `OtelWindowQuality.status` is `available`, `unknown`, or `degraded`. Empty input
 is `unknown`. Invalid or missing IDs, sampling, unknown sampling, partial
@@ -386,13 +430,13 @@ quality, so these conditions cannot become a healthy or successful result.
 Synthetic records remain synthetic after normalization and are removed from
 live behavior analysis.
 
-| Bound                              | Limit  |
-| ---------------------------------- | ------ |
-| Provider pages                     | 20     |
-| Records per page                   | 500    |
-| Records per normalization          | 10,000 |
-| Projected invocations per window   | 500    |
-| Evidence records per invocation    | 6      |
+| Bound                            | Limit  |
+| -------------------------------- | ------ |
+| Provider pages                   | 20     |
+| Records per page                 | 500    |
+| Records per normalization        | 10,000 |
+| Projected invocations per window | 500    |
+| Evidence records per invocation  | 6      |
 
 ---
 

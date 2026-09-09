@@ -16,11 +16,13 @@ interface EditablePage {
 }
 
 const binding = {
+  snapshotGeneratedAt: '2026-09-06T06:00:00.000Z',
   estateId: 'estate-a',
   estateTenantId: 'tenant-a',
   estateEnvironment: 'portfolio',
   sourceConnectorId: 'source-a',
   sourceTenantId: 'tenant-a',
+  sourceProjectId: 'project-a',
   sourceEnvironment: 'production',
   providerResourceId:
     '/subscriptions/00000000-0000-4000-8000-000000000000/resourceGroups/rg-demo/providers/Microsoft.Insights/components/app-demo',
@@ -48,10 +50,30 @@ function nestedRecord(record: Record<string, unknown>, field: string): Record<st
 }
 
 describe('representative OpenTelemetry evidence normalization', () => {
+  it('requires exact snapshot-generation provenance for every representative claim', async () => {
+    const pages = await fixture()
+    for (const page of pages) {
+      for (const record of page.records) {
+        record.snapshotGeneratedAt = '2026-09-06T06:00:00.000Z'
+      }
+    }
+
+    const result = normalizeRepresentativeOtelEvidence(pages, {
+      ...binding,
+      snapshotGeneratedAt: '2026-09-06T06:00:00.000Z',
+    })
+
+    expect(result.status).toBe('available')
+    expect(result.window.observations[0]?.otelProvenance?.snapshotGeneratedAt).toBe(
+      '2026-09-06T06:00:00.000Z',
+    )
+  })
+
   it('normalizes complete trace, span, and metric claims with exact provenance', async () => {
     const result = normalizeRepresentativeOtelEvidence(await fixture(), binding)
 
     expect(result.status).toBe('available')
+    expect(result.liveReadiness).toBe('live-ready')
     expect(result.caveats).toEqual([])
     expect(result.evidence).toHaveLength(6)
     expect(result.window.otelQuality).toEqual({
@@ -84,6 +106,7 @@ describe('representative OpenTelemetry evidence normalization', () => {
       estateEnvironment: 'portfolio',
       sourceConnectorId: 'source-a',
       sourceTenantId: 'tenant-a',
+      sourceProjectId: 'project-a',
       sourceEnvironment: 'production',
       providerResourceId: binding.providerResourceId,
       providerAgentId: 'provider-agent-a',
@@ -95,6 +118,127 @@ describe('representative OpenTelemetry evidence normalization', () => {
       partial: false,
     })
     expect(result.window.observations[0]?.otelProvenance?.evidenceIds).toHaveLength(6)
+  })
+
+  it('binds enriched invocation identity and ordered tools into normalized evidence IDs', async () => {
+    const firstPages = await fixture()
+    for (const page of firstPages) {
+      for (const record of page.records) {
+        record.correlations = [
+          { kind: 'agent-run-id', value: 'run-a' },
+          { kind: 'correlation-id', value: 'correlation-a' },
+          { kind: 'agent-version', value: '17' },
+        ]
+        record.toolCallNames = ['knowledge_search', 'answer']
+      }
+    }
+    const secondPages = structuredClone(firstPages)
+    for (const page of secondPages) {
+      for (const record of page.records) {
+        record.correlations = [
+          { kind: 'agent-run-id', value: 'run-b' },
+          { kind: 'correlation-id', value: 'correlation-b' },
+          { kind: 'agent-version', value: '18' },
+        ]
+        record.toolCallNames = ['answer', 'knowledge_search']
+      }
+    }
+
+    const first = normalizeRepresentativeOtelEvidence(firstPages, binding)
+    const second = normalizeRepresentativeOtelEvidence(secondPages, binding)
+
+    expect(first.window.observations[0]).toMatchObject({
+      correlations: [
+        { kind: 'agent-run-id', value: 'run-a' },
+        { kind: 'correlation-id', value: 'correlation-a' },
+        { kind: 'agent-version', value: '17' },
+      ],
+      toolCallNames: ['knowledge_search', 'answer'],
+    })
+    expect(second.window.observations[0]).toMatchObject({
+      correlations: [
+        { kind: 'agent-run-id', value: 'run-b' },
+        { kind: 'correlation-id', value: 'correlation-b' },
+        { kind: 'agent-version', value: '18' },
+      ],
+      toolCallNames: ['answer', 'knowledge_search'],
+    })
+    expect(second.evidenceId).not.toBe(first.evidenceId)
+  })
+
+  it('canonicalizes reordered equivalent correlation sets across claims', async () => {
+    const pages = await fixture()
+    for (const [index, record] of pages.flatMap((page) => page.records).entries()) {
+      const correlations = [
+        { kind: 'agent-run-id', value: 'run-a' },
+        { kind: 'correlation-id', value: 'correlation-a' },
+        { kind: 'agent-version', value: '17' },
+      ]
+      record.correlations =
+        index % 2 === 0 ? correlations : [correlations[2], correlations[0], correlations[1]]
+    }
+
+    const result = normalizeRepresentativeOtelEvidence(pages, binding)
+    const reordered = normalizeRepresentativeOtelEvidence(
+      [...pages].reverse().map((page) => ({
+        ...page,
+        records: [...page.records].reverse(),
+      })),
+      binding,
+    )
+
+    expect(result.status).toBe('available')
+    expect(result.window.observations[0]?.correlations).toEqual([
+      { kind: 'agent-run-id', value: 'run-a' },
+      { kind: 'correlation-id', value: 'correlation-a' },
+      { kind: 'agent-version', value: '17' },
+    ])
+    expect(reordered).toEqual(result)
+  })
+
+  it('adds the trace correlation when another correlation kind is already present', async () => {
+    const pages = await fixture()
+    for (const record of pages.flatMap((page) => page.records)) {
+      record.correlations = [
+        { kind: 'agent-version', value: '17' },
+        { kind: 'agent-run-id', value: 'run-a' },
+      ]
+    }
+
+    const result = normalizeRepresentativeOtelEvidence(pages, binding)
+
+    expect(result.status).toBe('available')
+    expect(result.window.observations[0]?.correlations).toEqual([
+      { kind: 'agent-run-id', value: 'run-a' },
+      { kind: 'correlation-id', value: '11111111111111111111111111111111' },
+      { kind: 'agent-version', value: '17' },
+    ])
+  })
+
+  it('fails closed when claims disagree on enriched invocation identity', async () => {
+    const pages = await fixture()
+    for (const page of pages) {
+      for (const record of page.records) {
+        record.correlations = [
+          { kind: 'agent-run-id', value: 'run-a' },
+          { kind: 'correlation-id', value: 'correlation-a' },
+          { kind: 'agent-version', value: '17' },
+        ]
+        record.toolCallNames = ['knowledge_search', 'answer']
+      }
+    }
+    pages[0]!.records[0]!.correlations = [
+      { kind: 'agent-run-id', value: 'run-b' },
+      { kind: 'correlation-id', value: 'correlation-a' },
+      { kind: 'agent-version', value: '17' },
+    ]
+
+    const result = normalizeRepresentativeOtelEvidence(pages, binding)
+
+    expect(result.status).toBe('degraded')
+    expect(result.caveats).toContain('invalid-record')
+    expect(result.evidence).toHaveLength(6)
+    expect(result.window.observations).toEqual([])
   })
 
   it('derives failure only from an exact error span claim', async () => {
@@ -152,6 +296,7 @@ describe('representative OpenTelemetry evidence normalization', () => {
       ['estateEnvironment', 'other-estate'],
       ['sourceConnectorId', 'source-b'],
       ['sourceTenantId', 'tenant-b'],
+      ['sourceProjectId', 'project-b'],
       ['sourceEnvironment', 'staging'],
       ['providerResourceId', '/subscriptions/other/resource'],
       ['sourceAgentId', 'provider-agent-b'],
@@ -174,6 +319,7 @@ describe('representative OpenTelemetry evidence normalization', () => {
       'estateEnvironment',
       'sourceConnectorId',
       'sourceTenantId',
+      'sourceProjectId',
       'sourceEnvironment',
       'providerResourceId',
       'sourceAgentId',
@@ -313,11 +459,13 @@ describe('representative OpenTelemetry evidence normalization', () => {
   it('marks empty, stale, and incomplete pages unknown or degraded instead of available', async () => {
     const empty = normalizeRepresentativeOtelEvidence([{ pageNumber: 1, records: [] }], binding)
     expect(empty.status).toBe('unknown')
+    expect(empty.liveReadiness).toBe('insufficient-data')
     expect(empty.caveats).toEqual(['empty'])
     expect(empty.window.observations).toEqual([])
 
     const stale = normalizeRepresentativeOtelEvidence(await fixture(), {
       ...binding,
+      queriedAt: '2026-09-06T07:01:00.000Z',
       maximumFreshnessHours: 1,
     })
     expect(stale.status).toBe('degraded')
@@ -334,6 +482,48 @@ describe('representative OpenTelemetry evidence normalization', () => {
     const incomplete = normalizeRepresentativeOtelEvidence(incompletePages, binding)
     expect(incomplete.status).toBe('degraded')
     expect(incomplete.caveats).toContain('incomplete-pagination')
+  })
+
+  it('accepts a default 168-hour baseline whose window ended within the freshness limit', async () => {
+    const pages = await fixture()
+    for (const page of pages) {
+      for (const record of page.records) {
+        record.observedAt = '2026-09-01T06:00:00.000Z'
+      }
+    }
+
+    const result = normalizeRepresentativeOtelEvidence(pages, {
+      ...binding,
+      windowStart: '2026-09-01T06:00:00.000Z',
+      windowEnd: '2026-09-08T06:00:00.000Z',
+      queriedAt: '2026-09-09T06:00:00.000Z',
+      maximumFreshnessHours: 168,
+    })
+
+    expect(result.status).toBe('available')
+    expect(result.caveats).not.toContain('stale')
+    expect(result.liveReadiness).toBe('live-ready')
+  })
+
+  it('rejects observations older than the freshness limit relative to their window end', async () => {
+    const pages = await fixture()
+    for (const page of pages) {
+      for (const record of page.records) {
+        record.observedAt = '2026-09-01T05:59:59.999Z'
+      }
+    }
+
+    const result = normalizeRepresentativeOtelEvidence(pages, {
+      ...binding,
+      windowStart: '2026-09-01T05:00:00.000Z',
+      windowEnd: '2026-09-08T06:00:00.000Z',
+      queriedAt: '2026-09-09T06:00:00.000Z',
+      maximumFreshnessHours: 168,
+    })
+
+    expect(result.status).toBe('degraded')
+    expect(result.caveats).toContain('stale')
+    expect(result.liveReadiness).toBe('insufficient-data')
   })
 
   it('detects self-looping and replayed continuation tokens across the full chain', async () => {
@@ -402,6 +592,7 @@ describe('representative OpenTelemetry evidence normalization', () => {
     const result = normalizeRepresentativeOtelEvidence(pages, binding)
 
     expect(result.status).toBe('available')
+    expect(result.liveReadiness).toBe('synthetic-only')
     expect(result.window.otelQuality?.classification).toBe('synthetic')
     expect(result.window.observations[0]?.synthetic).toBe(true)
     expect(result.evidence.every((item) => item.provenance.classification === 'synthetic')).toBe(

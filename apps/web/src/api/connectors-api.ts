@@ -5,10 +5,12 @@ import {
   connectorSourceConfigurationSchema,
   connectorSourceDefinitionSchema,
   connectorSourceIdSchema,
+  connectorSourceReadModelSchema,
   connectorTypeSchema,
   type ConnectorCredentialMetadata,
   type ConnectorSourceConfiguration,
   type ConnectorSourceDefinition,
+  type ConnectorSourceReadModel,
 } from '@agent-sentinel/domain'
 
 export const connectorLifecycleStateSchema = z.enum([
@@ -53,8 +55,24 @@ const connectorSourceHealthSchema = z.object({
   enabled: z.boolean(),
   configured: z.boolean(),
   readiness: z.enum(['ready', 'degraded', 'unavailable', 'disabled', 'authorization-required']),
+  dataState: z
+    .enum(['complete', 'partial', 'stale', 'unsupported', 'empty', 'failed', 'cancelled'])
+    .optional(),
+  pages: z.number().int().min(0).optional(),
+  records: z.number().int().min(0).optional(),
   checkedAt: z.iso.datetime().optional(),
   reason: z.string().optional(),
+  provenance: z
+    .object({
+      estateTenantId: z.string().min(1),
+      estateEnvironment: z.string().min(1),
+      sourceConnectorId: z.string().min(1),
+      sourceTenantId: z.string().min(1),
+      sourceEnvironment: z.string().min(1),
+      provider: z.string().min(1),
+      providerObjectId: z.string().min(1),
+    })
+    .optional(),
 })
 
 const connectorsCollectionSchema = z.object({
@@ -71,6 +89,10 @@ const connectorsCollectionSchema = z.object({
     .object({
       overall: z.enum(['ready', 'degraded', 'unavailable']),
       partial: z.boolean(),
+      sourceSetFingerprint: z
+        .string()
+        .regex(/^[0-9a-f]{64}$/)
+        .optional(),
       sources: z.array(connectorSourceHealthSchema),
     })
     .optional(),
@@ -88,7 +110,7 @@ const connectorSourceMutationPolicySchema = z.strictObject({
 })
 
 const connectorSourcePageSchema = z.strictObject({
-  items: z.array(connectorSourceDefinitionSchema),
+  items: z.array(connectorSourceReadModelSchema),
   page: z.strictObject({
     limit: z.number().int().min(1).max(100),
     nextCursor: connectorSourceIdSchema.nullable(),
@@ -231,10 +253,10 @@ export const connectorSourcesApi = {
     )
   },
 
-  get(sourceId: string): Promise<ConnectorSourceDefinition> {
+  get(sourceId: string): Promise<ConnectorSourceReadModel> {
     return connectorSourceRequest(
       `/api/connector-sources/${encodeURIComponent(connectorSourceIdSchema.parse(sourceId))}`,
-      connectorSourceDefinitionSchema,
+      connectorSourceReadModelSchema,
     )
   },
 

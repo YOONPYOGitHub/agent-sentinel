@@ -1,12 +1,142 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { buildConnector } from '../src/connector-factory.js'
+import type {
+  ConnectorSourceDefinition,
+  ConnectorSourceRepository,
+  EstateContext,
+} from '@agent-sentinel/domain'
+import type { OperationAwareAgentConnector } from '@agent-sentinel/connector-sdk'
+import { resolveAgent365Runtime } from '@agent-sentinel/connector-runtime'
+
+import {
+  buildConnector,
+  buildConnectorForEstate,
+  buildRuntimeTelemetryConnector,
+  validateJobsStartupConfiguration,
+} from '../src/connector-factory.js'
+
+const runtimeEstate: EstateContext = {
+  id: 'estate-a',
+  tenantId: '11111111-1111-4111-8111-111111111111',
+  environment: 'validation',
+}
+
+function agent365RuntimeSource(): ConnectorSourceDefinition {
+  return {
+    estateId: runtimeEstate.id,
+    tenantId: runtimeEstate.tenantId,
+    environment: runtimeEstate.environment,
+    sourceId: 'agent365-live',
+    connectorType: 'agent365',
+    displayName: 'Live Agent 365',
+    enabled: true,
+    origin: 'user',
+    configuration: {
+      type: 'agent365',
+      graphBaseUrl: 'https://graph.microsoft.com',
+      limits: {
+        maxPages: 3,
+        maxItems: 500,
+        requestTimeoutMs: 5_000,
+        maxRetries: 1,
+        maxRetryAfterMs: 1_000,
+        maxResponseBytes: 50_000,
+      },
+    },
+    credential: {
+      mode: 'managed-identity',
+      managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+    },
+    testStatus: { status: 'not-tested' },
+    version: 1,
+    etag: 'etag-agent365-live',
+    createdBy: { type: 'service-principal', id: 'configuration-api' },
+    updatedBy: { type: 'service-principal', id: 'configuration-api' },
+    createdAt: '2026-09-09T00:00:00.000Z',
+    updatedAt: '2026-09-09T00:00:00.000Z',
+  }
+}
+
+function runtimeRepository(
+  values: readonly ConnectorSourceDefinition[],
+): ConnectorSourceRepository {
+  return {
+    create: () => Promise.reject(new Error('not used')),
+    findById: () => Promise.resolve(null),
+    list: (_estate, limit = 100, cursor) =>
+      Promise.resolve(
+        values
+          .filter((value) => cursor === undefined || value.sourceId > cursor)
+          .toSorted((left, right) => left.sourceId.localeCompare(right.sourceId))
+          .slice(0, limit),
+      ),
+    update: () => Promise.reject(new Error('not used')),
+    delete: () => Promise.reject(new Error('not used')),
+    listAudit: () => Promise.resolve([]),
+  }
+}
 
 describe('jobs connector selection', () => {
+  it('fails startup validation for invalid enabled Agent 365 deployment configuration', () => {
+    expect(() =>
+      validateJobsStartupConfiguration('foundry', runtimeEstate, {
+        AGENT365_CONNECTOR_ENABLED: 'true',
+        AGENT365_SOURCES_JSON: ' ',
+        AGENT365_TENANT_ID: ' ',
+        AGENT365_ENVIRONMENT: ' ',
+      }),
+    ).toThrow(
+      'AGENT365_TENANT_ID and AGENT365_ENVIRONMENT are required when no source JSON is supplied.',
+    )
+  })
+
+  it('does not validate inactive Agent 365 deployment configuration in mock startup mode', () => {
+    expect(() =>
+      validateJobsStartupConfiguration('mock', runtimeEstate, {
+        AGENT365_CONNECTOR_ENABLED: 'true',
+      }),
+    ).not.toThrow()
+  })
+
   it('keeps mock mode independent of Entra configuration', () => {
     expect(buildConnector('mock', { ENTRA_CONNECTOR_ENABLED: 'true' }).descriptor.id).toBe(
       'mock-agent-estate',
     )
+    expect(buildRuntimeTelemetryConnector('mock', {})).toBeUndefined()
+  })
+
+  it('wires Azure Monitor runtime evidence for the jobs ingestion path', () => {
+    const connector = buildRuntimeTelemetryConnector(
+      'foundry',
+      {
+        AZURE_MONITOR_WORKSPACE_ID: '11111111-1111-4111-8111-111111111111',
+        AZURE_MONITOR_TENANT_ID: '22222222-2222-4222-8222-222222222222',
+        AZURE_MONITOR_ENVIRONMENT: 'production',
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/project-a',
+      },
+      { getToken: () => Promise.resolve(null) },
+    )
+
+    expect(connector?.id).toBe('azure-monitor-otel')
+  })
+
+  it('rejects an overlong Foundry project before constructing connector credentials', () => {
+    const credentialFactory = vi.fn(() => ({ getToken: () => Promise.resolve(null) }))
+
+    expect(() =>
+      buildConnector(
+        'foundry',
+        {
+          FOUNDRY_PROJECT_ENDPOINT: `https://example.services.ai.azure.com/api/projects/${'p'.repeat(
+            201,
+          )}`,
+          FOUNDRY_TENANT_ID: '11111111-1111-4111-8111-111111111111',
+          FOUNDRY_ENVIRONMENT: 'validation',
+        },
+        { credentialFactory },
+      ),
+    ).toThrow()
+    expect(credentialFactory).not.toHaveBeenCalled()
   })
 
   it('wires optional Entra enrichment around Foundry discovery', () => {
@@ -63,7 +193,16 @@ describe('jobs connector selection', () => {
         ]),
       },
       {
-        credentialFactory: () => ({ getToken: () => Promise.resolve(null) }),
+        credentialFactory: () => ({
+          getToken: (_scopes, options) =>
+            new Promise((_resolve, reject) => {
+              options?.abortSignal?.addEventListener(
+                'abort',
+                () => reject(new DOMException('aborted', 'AbortError')),
+                { once: true },
+              )
+            }),
+        }),
       },
     )
 
@@ -125,6 +264,223 @@ describe('jobs connector selection', () => {
       'power-platform:primary',
       'agent365:primary',
     ])
+  })
+
+  it('activates persisted enabled Agent 365 sources for the exact jobs estate', async () => {
+    const connector = await buildConnectorForEstate(
+      runtimeEstate,
+      runtimeRepository([agent365RuntimeSource()]),
+      {
+        AGENT_SENTINEL_CONNECTOR: 'foundry',
+        AGENT_SENTINEL_TENANT_ID: runtimeEstate.tenantId,
+        AGENT_SENTINEL_ENVIRONMENT: runtimeEstate.environment,
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+        FOUNDRY_TENANT_ID: runtimeEstate.tenantId,
+        FOUNDRY_ENVIRONMENT: runtimeEstate.environment,
+        AGENT365_CONNECTOR_ENABLED: 'false',
+      },
+      {
+        credentialFactory: () => ({ getToken: () => Promise.resolve(null) }),
+        agent365CredentialFactory: () => ({ getToken: () => Promise.resolve(null) }),
+        agent365Client: {
+          fetcher: () => Promise.resolve(Response.json({ value: [] })),
+        },
+      },
+    )
+
+    expect(connector.getConnectorHealth?.().sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'agent365:agent365-live',
+          configured: true,
+          readiness: 'degraded',
+        }),
+      ]),
+    )
+  })
+
+  it('rejects an enabled Agent 365 jobs deployment without a source boundary', async () => {
+    await expect(
+      buildConnectorForEstate(
+        runtimeEstate,
+        runtimeRepository([]),
+        {
+          AGENT_SENTINEL_CONNECTOR: 'foundry',
+          FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+          FOUNDRY_TENANT_ID: runtimeEstate.tenantId,
+          FOUNDRY_ENVIRONMENT: runtimeEstate.environment,
+          AGENT365_CONNECTOR_ENABLED: 'true',
+          AGENT365_SOURCES_JSON: ' ',
+          AGENT365_TENANT_ID: ' ',
+          AGENT365_ENVIRONMENT: ' ',
+        },
+        {
+          credentialFactory: () => ({ getToken: () => Promise.resolve(null) }),
+        },
+      ),
+    ).rejects.toThrow(
+      'AGENT365_TENANT_ID and AGENT365_ENVIRONMENT are required when no source JSON is supplied.',
+    )
+  })
+
+  it('reports an enabled Agent 365 jobs deployment without explicit UAMI as inactive', async () => {
+    const connector = await buildConnectorForEstate(
+      runtimeEstate,
+      runtimeRepository([]),
+      {
+        AGENT_SENTINEL_CONNECTOR: 'foundry',
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+        FOUNDRY_TENANT_ID: runtimeEstate.tenantId,
+        FOUNDRY_ENVIRONMENT: runtimeEstate.environment,
+        AGENT365_CONNECTOR_ENABLED: 'true',
+        AGENT365_TENANT_ID: runtimeEstate.tenantId,
+        AGENT365_ENVIRONMENT: runtimeEstate.environment,
+      },
+      {
+        credentialFactory: () => ({ getToken: () => Promise.resolve(null) }),
+      },
+    )
+
+    expect(connector.getConnectorHealth?.().partial).toBe(true)
+    expect(
+      connector
+        .getConnectorHealth?.()
+        .sources.find((source) => source.id === 'agent365:agent365-primary'),
+    ).toMatchObject({
+      enabled: true,
+      configured: false,
+      readiness: 'authorization-required',
+      dataState: 'unsupported',
+      reason: 'dedicated-workload-identity-required',
+    })
+  })
+
+  it('passes the exact zero-binding Agent 365 runtime in the estate jobs factory', async () => {
+    const fallbackRuntime = await resolveAgent365Runtime(
+      runtimeRepository([agent365RuntimeSource()]),
+      runtimeEstate,
+    )
+    const connector = await buildConnectorForEstate(
+      runtimeEstate,
+      runtimeRepository([]),
+      {
+        AGENT_SENTINEL_CONNECTOR: 'foundry',
+        AGENT_SENTINEL_TENANT_ID: runtimeEstate.tenantId,
+        AGENT_SENTINEL_ENVIRONMENT: runtimeEstate.environment,
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+        FOUNDRY_TENANT_ID: runtimeEstate.tenantId,
+        FOUNDRY_ENVIRONMENT: runtimeEstate.environment,
+      },
+      {
+        credentialFactory: () => ({ getToken: () => Promise.resolve(null) }),
+        agent365Runtime: fallbackRuntime,
+      },
+    )
+
+    expect(
+      connector
+        .getConnectorHealth?.()
+        .sources.filter((source) => source.id.startsWith('agent365:')),
+    ).toEqual([])
+  })
+
+  it('does not reactivate an out-of-estate Agent 365 deployment in the estate jobs factory', async () => {
+    const connector = await buildConnectorForEstate(
+      runtimeEstate,
+      runtimeRepository([]),
+      {
+        AGENT_SENTINEL_CONNECTOR: 'foundry',
+        AGENT_SENTINEL_TENANT_ID: runtimeEstate.tenantId,
+        AGENT_SENTINEL_ENVIRONMENT: runtimeEstate.environment,
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+        FOUNDRY_TENANT_ID: runtimeEstate.tenantId,
+        FOUNDRY_ENVIRONMENT: runtimeEstate.environment,
+        AGENT365_CONNECTOR_ENABLED: 'true',
+        AGENT365_SOURCES_JSON: JSON.stringify([
+          {
+            id: 'other-estate',
+            name: 'Other estate Agent 365',
+            tenantId: '22222222-2222-4222-8222-222222222222',
+            environment: 'production',
+            credential: {
+              mode: 'managed-identity',
+              managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+            },
+          },
+        ]),
+      },
+      {
+        credentialFactory: () => ({ getToken: () => Promise.resolve(null) }),
+      },
+    )
+
+    expect(
+      connector
+        .getConnectorHealth?.()
+        .sources.filter((source) => source.id.startsWith('agent365:')),
+    ).toEqual([])
+  })
+
+  it('preserves deployment Agent 365 duration through jobs runtime resolution', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('aborted', 'AbortError')),
+            { once: true },
+          )
+        }),
+    )
+    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url')
+    const token = `${encode({ alg: 'none' })}.${encode({ tid: runtimeEstate.tenantId })}.signature`
+    const connector = await buildConnectorForEstate(
+      runtimeEstate,
+      runtimeRepository([]),
+      {
+        AGENT_SENTINEL_CONNECTOR: 'foundry',
+        AGENT_SENTINEL_TENANT_ID: runtimeEstate.tenantId,
+        AGENT_SENTINEL_ENVIRONMENT: runtimeEstate.environment,
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+        FOUNDRY_TENANT_ID: runtimeEstate.tenantId,
+        FOUNDRY_ENVIRONMENT: runtimeEstate.environment,
+        AGENT365_CONNECTOR_ENABLED: 'true',
+        AGENT365_TENANT_ID: runtimeEstate.tenantId,
+        AGENT365_ENVIRONMENT: runtimeEstate.environment,
+        AGENT365_MANAGED_IDENTITY_CLIENT_ID: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+        AGENT365_MAX_CONCURRENCY: '1',
+        AGENT365_MAX_DURATION_MS: '100',
+      },
+      {
+        credentialFactory: () => ({ getToken: () => Promise.resolve(null) }),
+        agent365CredentialFactory: () => ({
+          getToken: () =>
+            Promise.resolve({
+              token,
+              expiresOnTimestamp: Date.now() + 60_000,
+            }),
+        }),
+        agent365Client: { fetcher },
+      },
+    )
+    const external = new AbortController()
+    const fallback = setTimeout(() => external.abort(), 500)
+
+    await (connector as OperationAwareAgentConnector).testConnection({
+      signal: external.signal,
+    })
+    clearTimeout(fallback)
+
+    expect(fetcher).toHaveBeenCalledOnce()
+    expect(
+      connector
+        .getConnectorHealth?.()
+        .sources.find((source) => source.id === 'agent365:agent365-primary'),
+    ).toMatchObject({
+      readiness: 'unavailable',
+      dataState: 'cancelled',
+      reason: 'duration-exceeded',
+    })
   })
 
   it('wires Defender for Cloud Apps after optional Agent 365', () => {

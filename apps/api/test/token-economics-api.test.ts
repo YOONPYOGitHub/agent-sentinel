@@ -27,9 +27,11 @@ function makeStubRepositories(): {
         owner: 'Runtime Platform',
         evidenceIds: ['evidence-1'],
         metadata: {
+          sourceOfTruth: 'true',
           businessUnit: 'Engineering',
           sourceConnectorId: 'primary',
           sourceTenantId: 'tenant-demo',
+          sourceProjectId: 'test',
           sourceEnvironment: 'production',
           sourceObjectId: 'live-agent',
         },
@@ -46,6 +48,16 @@ function makeStubRepositories(): {
         confidence: 1,
         evidenceTypes: ['declared_configuration' as const],
         summary: 'Declared configuration.',
+        metadata: {
+          sourceOfTruth: 'true',
+          estateTenantId: 'tenant-demo',
+          estateEnvironment: 'validation',
+          sourceConnectorId: 'primary',
+          sourceTenantId: 'tenant-demo',
+          sourceProjectId: 'test',
+          sourceEnvironment: 'production',
+          sourceObjectId: 'live-agent',
+        },
       },
     ],
   }
@@ -301,12 +313,14 @@ describe('token economics API - foundry mode', () => {
     })
 
     expect(readObservationWindows).toHaveBeenCalledWith({
+      snapshotGeneratedAt: '2026-08-28T00:00:00.000Z',
       estateId: 'default',
       estateEnvironment: 'validation',
       tenantId: 'tenant-demo',
       agentId: 'live-agent',
       sourceConnectorId: 'primary',
       sourceTenantId: 'tenant-demo',
+      sourceProjectId: 'test',
       sourceAgentId: 'live-agent',
       sourceEnvironment: 'production',
     })
@@ -348,7 +362,7 @@ describe('token economics API - foundry mode', () => {
     await app.close()
   })
 
-  it('does not attribute measured cost to a non-authoritative manifest owner', async () => {
+  it('does not query or attribute measured cost to a non-authoritative manifest agent', async () => {
     const repositories = makeStubRepositories()
     const snapshot = await repositories.snapshotRepository.findLatest({
       id: 'default',
@@ -374,11 +388,48 @@ describe('token economics API - foundry mode', () => {
     })
     const result = tokenEconomicsReportSchema.parse(response.json())
 
-    expect(result.status).toBe('ready')
+    expect(result.status).toBe('unavailable')
     expect(result.attribution).toEqual({
       status: 'unknown',
       reason: 'non-authoritative-agent',
     })
+    await app.close()
+  })
+
+  it('does not query configured telemetry when no snapshot resolver is available', async () => {
+    const fixture = createRuntimeTelemetryFixture()
+    const acquireCredential = vi.fn(() => Promise.resolve())
+    const readObservationWindows = vi.fn(
+      async (...args: Parameters<typeof fixture.readObservationWindows>) => {
+        await acquireCredential()
+        return fixture.readObservationWindows(...args)
+      },
+    )
+    const { exposureRepository } = makeStubRepositories()
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: { id: fixture.id, readObservationWindows },
+        exposureRepository,
+      },
+    )
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/token-economics/agents/live-agent',
+    })
+    const result = tokenEconomicsReportSchema.parse(response.json())
+
+    expect(result.status).toBe('unavailable')
+    expect(result.unavailableReason).toContain('No exact runtime telemetry source binding')
+    expect(result.attribution).toEqual({
+      status: 'unknown',
+      reason: 'source-snapshot-unavailable',
+    })
+    expect(readObservationWindows).not.toHaveBeenCalled()
+    expect(acquireCredential).not.toHaveBeenCalled()
     await app.close()
   })
 

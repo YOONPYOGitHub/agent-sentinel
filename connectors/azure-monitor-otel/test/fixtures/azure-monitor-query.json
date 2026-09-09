@@ -21,7 +21,8 @@
         { "name": "Synthetic", "type": "bool" },
         { "name": "TraceId", "type": "string" },
         { "name": "SpanId", "type": "string" },
-        { "name": "ItemCount", "type": "long" }
+        { "name": "ItemCount", "type": "long" },
+        { "name": "SourceProjectId", "type": "string" }
       ],
       "rows": [
         [
@@ -43,7 +44,8 @@
           false,
           null,
           null,
-          null
+          null,
+          "project-a"
         ],
         [
           "fixture-baseline-2",
@@ -64,7 +66,8 @@
           true,
           null,
           null,
-          null
+          null,
+          "project-a"
         ],
         [
           "fixture-observed-1",
@@ -85,7 +88,8 @@
           false,
           null,
           null,
-          null
+          null,
+          "project-a"
         ],
         [
           "fixture-observed-2",
@@ -106,7 +110,8 @@
           false,
           null,
           null,
-          null
+          null,
+          "project-a"
         ]
       ]
     }

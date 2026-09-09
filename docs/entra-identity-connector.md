@@ -11,11 +11,35 @@ or supplies configuration for the other.
 The mandatory path uses Microsoft Graph v1.0
 `GET /servicePrincipals` with an explicit field projection. It creates distinct
 identity nodes and authoritative evidence. It never correlates by display name:
-a `RUNS_AS` edge is emitted only when source agent metadata has exactly one
-matching Entra service-principal object ID or application/client ID. Agent
-Identity object IDs are eligible only when the separately enabled preview read
-confirms that classification. Names, aliases, owners, tags, descriptions, and
-fuzzy text are never correlation keys.
+a `RUNS_AS` edge is emitted only when an explicit `ENTRA_RUNS_AS_BINDINGS_JSON`
+entry exactly binds the estate, globally scoped Foundry and Entra source IDs,
+tenant, source environments, providers, Foundry project ID, and Entra inventory
+tenant. Foundry and Entra source tenants may differ when both endpoints match
+their independently registered exact source metadata in the same estate. The
+Foundry agent must then expose a complete, non-conflicting exact
+service-principal object ID. Agent Identity object IDs are eligible only when
+the separately enabled preview read confirms that classification.
+Application/client-ID-only matches remain unmatched until the connector emits a
+distinct application-ID authority; they never compare an application ID with a
+service-principal object ID. Names, aliases, owners, tags, descriptions, shared
+`primary` IDs, and fuzzy text are never correlation keys.
+
+Each endpoint must attach exactly one matching authoritative evidence record
+whose typed authority matches node metadata for estate, source, tenant,
+environment, provider, source object, provider object, source release, and
+source snapshot generation. The edge must cite those exact two endpoint
+records, and edge-state simulations must retain the exact registered
+`runsAsBinding`. Duplicate node or evidence IDs are rejected before Entra
+composition indexes them. Correlation GUID ownership is keyed by identifier
+kind and the exact estate/source/tenant/environment boundary, allowing
+legitimate reuse across boundaries while rejecting ambiguity within one
+boundary. Unattached or multiple matching authority records and stale,
+synthetic, malformed, unregistered, cross-estate, or cross-project evidence
+cannot traverse `RUNS_AS`. A source tenant may differ from the estate tenant;
+live request and ingestion boundaries resolve the estate independently and
+validate source authority against registered source and endpoint metadata.
+Microsoft Agent 365 package `appId` values remain catalog metadata and never
+establish an Entra principal identity.
 
 Optional stable capabilities are separately gated:
 
@@ -83,12 +107,16 @@ stable v1.0 inventory and exact `RUNS_AS` correlations. A successful zero-row
 probe or inventory remains insufficient and non-ready. There is no mock
 fallback.
 
-For multiple Foundry tenant/project sources, set `ENTRA_SOURCES_JSON`. Every
-entry uses the same `id`, tenant, and source environment as its matching
-`FOUNDRY_SOURCES_JSON` entry. Identity nodes and evidence are namespaced per
-source, and correlation considers only Foundry agents with that exact source
-ID, tenant, and environment. Missing source authorization remains
-`authorization-required`; it is never substituted with another tenant.
+For multiple Foundry tenant/project sources, set `ENTRA_SOURCES_JSON` for each
+directory inventory and `ENTRA_RUNS_AS_BINDINGS_JSON` for the explicit
+many-project-to-one-inventory relationships. Entra source IDs are independent
+from Foundry source IDs. One estate-scoped Entra inventory is queried once and
+may be bound to multiple Foundry projects only when every binding names the
+complete exact same-tenant source boundary. Identity nodes and evidence are
+namespaced by the globally scoped `entra:<id>` identity; Foundry nodes use
+`foundry:<id>`. Missing bindings remain unattributed and make identity coverage
+partial; missing source authorization remains `authorization-required` and is
+never substituted with another tenant or inventory.
 Per-source health also retains a typed data state: `complete` for a non-empty
 bounded inventory, `partial` when optional evidence is degraded, `empty` for a
 successful zero-record inventory, `unsupported` for a disabled or unmatched
@@ -112,11 +140,12 @@ Next, obtain tenant-admin consent for `Application.Read.All`, configure the
 tenant/environment values, then enable and validate bounded v1.0 inventory.
 Separately review `AgentIdentity.Read.All` before enabling beta enrichment.
 
-The current replacement-tenant baseline is 6 authoritative Foundry agents, 335
-Entra identity nodes, and 0 `RUNS_AS` edges. Both the historical and replacement
-Foundry validation agents expose null instance identity and null Agent Identity
-blueprint reference, so zero exact matches is expected. `AUTH_MODE=disabled` is
-a separate corporate sign-in state and does not affect this inventory result.
-After this code is deployed, the integration owner must confirm diagnostics
-report 6 considered, 6 unmatched, 0 ambiguous, 0 exact matches, and 0 emitted
-edges, with owner, app-role, and preview coverage all `disabled`.
+The last replacement-tenant observation recorded 6 authoritative Foundry
+agents, 335 Entra identity nodes, and 0 `RUNS_AS` edges. It predates this exact
+binding contract and is not validation of it. Both the historical and
+replacement Foundry validation agents exposed null instance identity and null
+Agent Identity blueprint reference, so no current principal attribution can be
+claimed. `AUTH_MODE=disabled` is a separate corporate sign-in state and does not
+affect inventory. After deployment, the integration owner must supply reviewed
+explicit bindings and fresh replacement-tenant evidence before validating any
+considered, unmatched, ambiguous, exact-match, or emitted-edge count.

@@ -1,7 +1,7 @@
 import { AzureMonitorOtelConfigurationError } from '@agent-sentinel/azure-monitor-otel-connector'
+import { buildDeploymentConnectorSources } from '@agent-sentinel/connector-runtime'
 import { describe, expect, it } from 'vitest'
 
-import { buildDeploymentConnectorSources } from '../src/deployment-connector-sources.js'
 import { buildEstateRegistry } from '../src/estate-config.js'
 
 const estate = {
@@ -28,6 +28,7 @@ const configuredEnvironment = {
       name: 'Production telemetry',
       workspaceId: '11111111-1111-4111-8111-111111111111',
       tenantId: estate.tenantId,
+      sourceProjectId: 'primary',
       environment: estate.environment,
       maxResponseBytes: 8_192,
     },
@@ -35,6 +36,146 @@ const configuredEnvironment = {
 }
 
 describe('deployment Azure Monitor OTel source projection', () => {
+  it('projects immutable Agent 365 sources with exact workload identity and limits', () => {
+    const [source] = buildDeploymentConnectorSources(
+      {
+        AGENT365_CONNECTOR_ENABLED: 'true',
+        AGENT365_SOURCES_JSON: JSON.stringify([
+          {
+            id: 'live',
+            name: 'Live Agent 365',
+            tenantId: entraEstate.tenantId,
+            environment: entraEstate.environment,
+            credential: {
+              mode: 'managed-identity',
+              managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+            },
+            limits: {
+              maxPages: 4,
+              maxItems: 600,
+              requestTimeoutMs: 6_000,
+              maxRetries: 1,
+              maxRetryAfterMs: 2_000,
+              maxResponseBytes: 60_000,
+            },
+          },
+        ]),
+        AGENT365_MAX_CONCURRENCY: '1',
+        AGENT365_MAX_DURATION_MS: '5000',
+      },
+      entraRegistry,
+      'live',
+    )
+
+    expect(source).toMatchObject({
+      sourceId: 'agent365-live',
+      connectorType: 'agent365',
+      enabled: true,
+      origin: 'deployment',
+      credential: {
+        mode: 'managed-identity',
+        managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+      },
+      configuration: {
+        type: 'agent365',
+        graphBaseUrl: 'https://graph.microsoft.com',
+        aggregation: {
+          maxConcurrency: 1,
+          maxDurationMs: 5_000,
+        },
+        limits: {
+          maxPages: 4,
+          maxItems: 600,
+          requestTimeoutMs: 6_000,
+          maxRetries: 1,
+          maxRetryAfterMs: 2_000,
+          maxResponseBytes: 60_000,
+        },
+      },
+    })
+  })
+
+  it('rejects ambient AZURE_CLIENT_ID as Agent 365 federation metadata', () => {
+    expect(() =>
+      buildDeploymentConnectorSources(
+        {
+          AZURE_CLIENT_ID: '11111111-1111-4111-8111-111111111111',
+          AGENT365_CONNECTOR_ENABLED: 'true',
+          AGENT365_SOURCES_JSON: JSON.stringify([
+            {
+              id: 'federated',
+              name: 'Federated Agent 365',
+              tenantId: entraEstate.tenantId,
+              environment: entraEstate.environment,
+              credential: {
+                mode: 'federated-app',
+                clientId: '22222222-2222-4222-8222-222222222222',
+              },
+            },
+          ]),
+        },
+        entraRegistry,
+        'live',
+      ),
+    ).toThrow('managedIdentityClientId')
+  })
+
+  it('projects legacy Agent 365 deployment ownership without ambient identity activation', () => {
+    const [projected] = buildDeploymentConnectorSources(
+      {
+        AZURE_CLIENT_ID: '11111111-1111-4111-8111-111111111111',
+        AGENT365_CONNECTOR_ENABLED: 'true',
+        AGENT365_TENANT_ID: entraEstate.tenantId,
+        AGENT365_ENVIRONMENT: entraEstate.environment,
+      },
+      entraRegistry,
+      'live',
+    )
+
+    expect(projected).toMatchObject({
+      sourceId: 'agent365-primary',
+      connectorType: 'agent365',
+      enabled: true,
+      origin: 'deployment',
+      credential: { mode: 'default' },
+    })
+  })
+
+  it('projects legacy Agent 365 deployment with its explicit managed identity', () => {
+    const [projected] = buildDeploymentConnectorSources(
+      {
+        AGENT365_CONNECTOR_ENABLED: 'true',
+        AGENT365_TENANT_ID: entraEstate.tenantId,
+        AGENT365_ENVIRONMENT: entraEstate.environment,
+        AGENT365_MANAGED_IDENTITY_CLIENT_ID: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+      },
+      entraRegistry,
+      'live',
+    )
+
+    expect(projected?.credential).toEqual({
+      mode: 'managed-identity',
+      managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+    })
+  })
+
+  it('rejects enabled Agent 365 deployment without a source boundary', () => {
+    expect(() =>
+      buildDeploymentConnectorSources(
+        {
+          AGENT365_CONNECTOR_ENABLED: 'true',
+          AGENT365_SOURCES_JSON: ' ',
+          AGENT365_TENANT_ID: ' ',
+          AGENT365_ENVIRONMENT: ' ',
+        },
+        entraRegistry,
+        'live',
+      ),
+    ).toThrow(
+      'AGENT365_TENANT_ID and AGENT365_ENVIRONMENT are required when no source JSON is supplied.',
+    )
+  })
+
   it('namespaces identical configured IDs by connector type', () => {
     const sources = buildDeploymentConnectorSources(
       {
@@ -76,6 +217,7 @@ describe('deployment Azure Monitor OTel source projection', () => {
       configuration: {
         type: 'azure-monitor-otel',
         workspaceId: '11111111-1111-4111-8111-111111111111',
+        sourceProjectId: 'primary',
         maxResponseBytes: 8_192,
       },
     })
@@ -150,6 +292,7 @@ describe('deployment Azure Monitor OTel source projection', () => {
         AZURE_MONITOR_WORKSPACE_ID: '11111111-1111-4111-8111-111111111111',
         AZURE_MONITOR_TENANT_ID: estate.tenantId,
         AZURE_MONITOR_ENVIRONMENT: estate.environment,
+        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/primary',
         AZURE_MONITOR_BASELINE_WINDOW_HOURS: '48',
         AZURE_MONITOR_OBSERVED_WINDOW_HOURS: '12',
         AZURE_MONITOR_REQUEST_TIMEOUT_MS: '20000',
@@ -172,6 +315,7 @@ describe('deployment Azure Monitor OTel source projection', () => {
       configuration: {
         type: 'azure-monitor-otel',
         workspaceId: '11111111-1111-4111-8111-111111111111',
+        sourceProjectId: 'primary',
         baselineWindowHours: 48,
         observedWindowHours: 12,
         requestTimeoutMs: 20_000,

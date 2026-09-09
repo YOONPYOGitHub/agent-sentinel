@@ -1,4 +1,8 @@
-import { estateContextSchema, observationWindowSchema } from '@agent-sentinel/domain'
+import {
+  estateContextSchema,
+  observationWindowSchema,
+  sourceProjectIdSchema,
+} from '@agent-sentinel/domain'
 import type {
   BusinessOutcomeEvidenceBundle,
   EstateContext,
@@ -6,6 +10,7 @@ import type {
   Evidence,
   OutcomeCorrelation,
   Remediation,
+  SourceProjectId,
 } from '@agent-sentinel/domain'
 import { z } from 'zod'
 
@@ -94,7 +99,15 @@ export interface ConnectorSourceHealth {
 export interface ConnectorHealthReport {
   readonly overall: 'ready' | 'degraded' | 'unavailable'
   readonly partial: boolean
+  readonly sourceSetFingerprint?: string
   readonly sources: readonly ConnectorSourceHealth[]
+}
+
+export function composeConnectorHealthReport(
+  baseHealth: ConnectorHealthReport | undefined,
+  composedHealth: ConnectorHealthReport,
+): ConnectorHealthReport {
+  return baseHealth === undefined ? composedHealth : { ...baseHealth, ...composedHealth }
 }
 
 const connectorCapabilityCoverageSchema = z.strictObject({
@@ -160,6 +173,10 @@ const exactIdentityCorrelationDiagnosticsSchema = z
 export const connectorHealthReportSchema = z.strictObject({
   overall: z.enum(['ready', 'degraded', 'unavailable']),
   partial: z.boolean(),
+  sourceSetFingerprint: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
   sources: z.array(
     z.strictObject({
       id: z.string().min(1).max(200),
@@ -186,6 +203,7 @@ export interface ConnectorHealthMeasurement {
   readonly tenantId: string
   readonly environment: string
   readonly connectorId: string
+  readonly sourceSetFingerprint?: string
   readonly measuredAt: string
   readonly health: ConnectorHealthReport
 }
@@ -198,11 +216,27 @@ export const connectorHealthMeasurementSchema = estateContextSchema
       .min(1)
       .max(200)
       .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+    sourceSetFingerprint: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
     measuredAt: z.iso.datetime(),
     health: connectorHealthReportSchema,
   })
   .omit({ id: true })
   .strict()
+  .superRefine((measurement, context) => {
+    if (
+      measurement.sourceSetFingerprint !== undefined &&
+      measurement.health.sourceSetFingerprint !== measurement.sourceSetFingerprint
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['health', 'sourceSetFingerprint'],
+        message: 'Connector health source-set fingerprints must match.',
+      })
+    }
+  })
 
 export interface ConnectorHealthMeasurementIdentity {
   readonly estateId: string
@@ -265,12 +299,14 @@ export type OperationAwareAgentConnector = Omit<AgentConnector, 'testConnection'
 }
 
 export interface RuntimeTelemetryRequest {
+  snapshotGeneratedAt?: string
   tenantId: string
   agentId: string
   estateId?: string
   estateEnvironment?: string
   sourceConnectorId?: string
   sourceTenantId?: string
+  sourceProjectId?: SourceProjectId
   sourceAgentId?: string
   sourceEnvironment?: string
 }
@@ -280,11 +316,13 @@ const liveObservationWindowSchema = observationWindowSchema.extend({
 })
 
 const runtimeTelemetrySourceProvenanceSchema = z.strictObject({
+  snapshotGeneratedAt: z.iso.datetime(),
   estateId: z.string().min(1).max(200),
   estateTenantId: z.string().min(1).max(200),
   estateEnvironment: z.string().min(1).max(200),
   sourceConnectorId: z.string().min(1).max(200),
   sourceTenantId: z.string().min(1).max(200),
+  sourceProjectId: sourceProjectIdSchema,
   sourceEnvironment: z.string().min(1).max(200),
   provider: z.literal('azure-monitor-otel'),
   providerResourceId: z.string().min(1).max(500),
@@ -298,6 +336,12 @@ export const runtimeObservationWindowsSchema = z
     baselineEvidenceId: z.string().min(1).max(200),
     observedEvidenceId: z.string().min(1).max(200),
     queriedAt: z.iso.datetime(),
+    maximumFreshnessHours: z
+      .number()
+      .int()
+      .min(1)
+      .max(24 * 31)
+      .optional(),
     provenance: runtimeTelemetrySourceProvenanceSchema.optional(),
   })
   .superRefine((windows, context) => {
@@ -372,10 +416,12 @@ export interface BusinessOutcomeConnector {
 
 export {
   projectRuntimeEvidence,
+  recomputeRuntimeOtelQuality,
   runtimeTelemetryRequestForAgent,
   validateRuntimeTelemetryProvenance,
   withoutSyntheticObservations,
   type RuntimeEvidenceProjection,
+  type RuntimeEvidenceProjectionAuthority,
 } from './runtime-evidence.js'
 
 // ─── Connector Catalog Model ─────────────────────────────────────────────────

@@ -28,11 +28,13 @@ function window(
           toolCallNames: [],
           synthetic: false,
           otelProvenance: {
+            snapshotGeneratedAt: '2026-09-06T00:00:00.000Z',
             estateId: 'estate-a',
             estateTenantId: 'tenant-a',
             estateEnvironment: 'portfolio',
             sourceConnectorId: 'source-a',
             sourceTenantId: 'tenant-a',
+            sourceProjectId: 'project-a',
             sourceEnvironment: 'production',
             provider: 'azure-monitor-otel' as const,
             providerResourceId: '/subscriptions/example/resource',
@@ -107,6 +109,19 @@ describe('OpenTelemetry quality analysis gates', () => {
     expect(economics.status).toBe('unavailable')
     expect(economics.measuredCostUsd).toBeUndefined()
     expect(economics.coverage).toBeUndefined()
+  })
+
+  it('does not upgrade connector-degraded quality without an explicit freshness recomputation', () => {
+    const degraded = window('baseline', 'available')
+    degraded.otelQuality = {
+      ...degraded.otelQuality!,
+      status: 'degraded',
+      caveats: [],
+    }
+
+    expect(() => computeBaseline(degraded, 'degraded-evidence')).toThrow(
+      'Unknown or degraded OpenTelemetry evidence must explain its caveats.',
+    )
   })
 
   it('keeps empty representative evidence insufficient instead of ready', () => {

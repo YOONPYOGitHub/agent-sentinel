@@ -5,7 +5,11 @@ import type {
   Finding,
   RiskFactors,
 } from '@agent-sentinel/domain'
-import { calculateBlastRadius, findAttackPaths } from '@agent-sentinel/graph-engine'
+import {
+  calculateBlastRadius,
+  findAttackPaths,
+  type GraphTraversalContext,
+} from '@agent-sentinel/graph-engine'
 
 export const uncontrolledEgressPolicy = {
   id: 'AS-POL-004',
@@ -26,7 +30,10 @@ const defaultFactors: RiskFactors = {
   compensatingControlDiscount: 0.05,
 }
 
-export function evaluateUncontrolledEgress(snapshot: EstateSnapshot): Finding[] {
+export function evaluateUncontrolledEgress(
+  snapshot: EstateSnapshot,
+  traversalContext: GraphTraversalContext,
+): Finding[] {
   const sourceNodeIds = snapshot.nodes
     .filter((node) => node.kind === 'input' && node.trust === 'untrusted')
     .map((node) => node.id)
@@ -34,11 +41,15 @@ export function evaluateUncontrolledEgress(snapshot: EstateSnapshot): Finding[] 
     .filter((node) => node.kind === 'mcp' && node.trust === 'untrusted')
     .map((node) => node.id)
 
-  const paths = findAttackPaths(snapshot, {
-    sourceNodeIds,
-    targetNodeIds,
-    factors: defaultFactors,
-  })
+  const paths = findAttackPaths(
+    snapshot,
+    {
+      sourceNodeIds,
+      targetNodeIds,
+      factors: defaultFactors,
+    },
+    traversalContext,
+  )
 
   return paths.map((path, index) => ({
     id: `finding-uncontrolled-egress-${index + 1}`,
@@ -111,6 +122,7 @@ const MUTATION_TOOLS = new Set([
 
 interface ExposureBuildInput {
   snapshot: EstateSnapshot
+  traversalContext: GraphTraversalContext
   context: AgentToolContext
   matchingEdges: EstateSnapshot['edges']
   policyId: string
@@ -143,7 +155,7 @@ function buildExposureFinding(input: ExposureBuildInput): ExposureFinding {
       evidenceTypes.add(evidenceType)
     }
   }
-  const blastRadius = calculateBlastRadius(snapshot, context.agentId)
+  const blastRadius = calculateBlastRadius(snapshot, context.agentId, input.traversalContext)
   return {
     id: `exposure-${input.policyId.toLowerCase()}-${context.agentId}`,
     policyId: input.policyId,
@@ -185,7 +197,10 @@ export const unapprovedExternalTransferPolicy = {
   riskScore: 91,
 }
 
-export function evaluateUnapprovedExternalTransfer(snapshot: EstateSnapshot): ExposureFinding[] {
+export function evaluateUnapprovedExternalTransfer(
+  snapshot: EstateSnapshot,
+  traversalContext: GraphTraversalContext,
+): ExposureFinding[] {
   const findings: ExposureFinding[] = []
   for (const context of collectAgentContexts(snapshot)) {
     if (context.approvalRequired) continue
@@ -197,6 +212,7 @@ export function evaluateUnapprovedExternalTransfer(snapshot: EstateSnapshot): Ex
     findings.push(
       buildExposureFinding({
         snapshot,
+        traversalContext,
         context,
         matchingEdges: matching,
         policyId: unapprovedExternalTransferPolicy.id,
@@ -223,7 +239,10 @@ export const overprivilegedEmployeeLookupPolicy = {
   riskScore: 76,
 }
 
-export function evaluateOverprivilegedEmployeeLookup(snapshot: EstateSnapshot): ExposureFinding[] {
+export function evaluateOverprivilegedEmployeeLookup(
+  snapshot: EstateSnapshot,
+  traversalContext: GraphTraversalContext,
+): ExposureFinding[] {
   const findings: ExposureFinding[] = []
   for (const context of collectAgentContexts(snapshot)) {
     if (context.approvalRequired) continue
@@ -244,6 +263,7 @@ export function evaluateOverprivilegedEmployeeLookup(snapshot: EstateSnapshot): 
     findings.push(
       buildExposureFinding({
         snapshot,
+        traversalContext,
         context,
         matchingEdges: finalMatches,
         policyId: overprivilegedEmployeeLookupPolicy.id,
@@ -276,7 +296,10 @@ export const exposurePolicyCatalog = [
   unapprovedMutationPolicy,
 ] as const
 
-export function evaluateUnapprovedMutation(snapshot: EstateSnapshot): ExposureFinding[] {
+export function evaluateUnapprovedMutation(
+  snapshot: EstateSnapshot,
+  traversalContext: GraphTraversalContext,
+): ExposureFinding[] {
   const findings: ExposureFinding[] = []
   for (const context of collectAgentContexts(snapshot)) {
     if (context.approvalRequired) continue
@@ -288,6 +311,7 @@ export function evaluateUnapprovedMutation(snapshot: EstateSnapshot): ExposureFi
     findings.push(
       buildExposureFinding({
         snapshot,
+        traversalContext,
         context,
         matchingEdges: matching,
         policyId: unapprovedMutationPolicy.id,
@@ -305,10 +329,13 @@ export function evaluateUnapprovedMutation(snapshot: EstateSnapshot): ExposureFi
   return findings
 }
 
-export function evaluateAllExposurePolicies(snapshot: EstateSnapshot): ExposureFinding[] {
+export function evaluateAllExposurePolicies(
+  snapshot: EstateSnapshot,
+  traversalContext: GraphTraversalContext,
+): ExposureFinding[] {
   return [
-    ...evaluateUnapprovedExternalTransfer(snapshot),
-    ...evaluateOverprivilegedEmployeeLookup(snapshot),
-    ...evaluateUnapprovedMutation(snapshot),
+    ...evaluateUnapprovedExternalTransfer(snapshot, traversalContext),
+    ...evaluateOverprivilegedEmployeeLookup(snapshot, traversalContext),
+    ...evaluateUnapprovedMutation(snapshot, traversalContext),
   ]
 }

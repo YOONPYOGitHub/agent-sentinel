@@ -1,11 +1,15 @@
 import { z } from 'zod'
 
 import { evidenceSchema, evidenceTypeSchema } from './evidence.js'
+import { runsAsBindingSchema } from './evidence-authority.js'
+import { sourceProjectIdSchema } from './source-project.js'
 
 export { estateContextSchema, estateIdSchema } from './estate.js'
 export type { EstateContext } from './estate.js'
 
 export {
+  AGENT365_MAX_RETRY_AFTER_MS,
+  agent365AggregationSchema,
   connectorTypeSchema,
   connectorSourceConfigurationSchema,
   connectorSourceIdSchema,
@@ -15,8 +19,15 @@ export {
   connectorSourceCreateInputSchema,
   connectorSourceUpdateInputSchema,
   connectorSourceDefinitionSchema,
+  connectorSourceMigrationSchema,
+  connectorSourceMigrationRequiredSchema,
+  connectorSourceReadModelSchema,
+  hydratePersistedConnectorSourceDefinition,
+  isConnectorSourceMigrationRequired,
   connectorSourceMutationContextSchema,
   connectorSourceAuditRecordSchema,
+  connectorSourceAuditReadModelSchema,
+  hydratePersistedConnectorSourceAuditRecord,
 } from './connector-source.js'
 export type {
   ConnectorType,
@@ -27,15 +38,29 @@ export type {
   ConnectorSourceCreateInput,
   ConnectorSourceUpdateInput,
   ConnectorSourceDefinition,
+  ConnectorSourceMigration,
+  ConnectorSourceMigrationRequired,
+  ConnectorSourceReadModel,
   ConnectorSourceMutationContext,
   ConnectorSourceAuditRecord,
+  ConnectorSourceAuditReadModel,
 } from './connector-source.js'
 
-export { agentCorrelationKindSchema, agentCorrelationSchema } from './correlation.js'
+export {
+  agentCorrelationKindSchema,
+  agentCorrelationSchema,
+  agentCorrelationsSchema,
+} from './correlation.js'
 export type { AgentCorrelationKind, AgentCorrelation } from './correlation.js'
+
+export { SOURCE_PROJECT_ID_MAX_LENGTH, sourceProjectIdSchema } from './source-project.js'
+export type { SourceProjectId } from './source-project.js'
 
 export { evidenceSchema, evidenceTypeSchema } from './evidence.js'
 export type { Evidence, EvidenceType } from './evidence.js'
+
+export { evidenceAuthoritySchema, runsAsBindingSchema } from './evidence-authority.js'
+export type { EvidenceAuthority, RunsAsBinding } from './evidence-authority.js'
 
 export {
   otelEvidenceStatusSchema,
@@ -114,6 +139,7 @@ export const graphEdgeSchema = z.object({
   evidenceIds: z.array(z.string().min(1)).min(1),
   active: z.boolean(),
   removable: z.boolean().default(false),
+  runsAsBinding: runsAsBindingSchema.optional(),
 })
 
 export type GraphEdge = z.infer<typeof graphEdgeSchema>
@@ -369,6 +395,7 @@ export const agentSentinelStateSchema = z.object({
             snapshotGeneratedAt: z.iso.datetime(),
             sourceConnectorId: z.string().min(1).max(200),
             sourceTenantId: z.string().min(1).max(200),
+            sourceProjectId: sourceProjectIdSchema,
             sourceEnvironment: z.string().min(1).max(200),
             sourceAgentId: z.string().min(1).max(200),
             agentId: z.string().min(1).max(200),
@@ -672,6 +699,7 @@ export type {
   ObservationSource,
   RuntimeObservation,
   ObservationWindow,
+  RuntimeOtelFreshnessContext,
   RuntimeOtelQualityAssessment,
   AnalysisStatus,
   DistributionStats,

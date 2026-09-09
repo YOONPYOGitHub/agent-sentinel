@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
@@ -178,8 +178,7 @@ describe('ConnectorsPage', () => {
 
   it('renders all catalog connector cards', async () => {
     renderPage()
-    await screen.findByRole('heading', { name: 'Data connectors' })
-    expect(screen.getByRole('article', { name: 'Azure AI Foundry' })).toBeInTheDocument()
+    expect(await screen.findByRole('article', { name: 'Azure AI Foundry' })).toBeInTheDocument()
     expect(screen.getByRole('article', { name: 'Microsoft Agent 365' })).toBeInTheDocument()
     expect(
       screen.getByRole('article', { name: 'Microsoft Entra Agent ID & Entitlements' }),
@@ -188,27 +187,151 @@ describe('ConnectorsPage', () => {
 
   it('Azure AI Foundry shows available-to-configure in mock mode', async () => {
     renderPage()
-    await screen.findByRole('heading', { name: 'Data connectors' })
-    const foundryCard = screen.getByRole('article', { name: 'Azure AI Foundry' })
+    const foundryCard = await screen.findByRole('article', { name: 'Azure AI Foundry' })
     expect(foundryCard).toHaveTextContent('Available to configure')
   })
 
   it('Azure AI Foundry shows Connected in foundry mode', async () => {
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue(foundryCollection)
     renderPage()
-    await screen.findByRole('heading', { name: 'Data connectors' })
-    const foundryCard = screen.getByRole('article', { name: 'Azure AI Foundry' })
+    const foundryCard = await screen.findByRole('article', { name: 'Azure AI Foundry' })
     expect(foundryCard).toHaveTextContent('Connected')
   })
 
   it('shows degraded aggregate state and each Foundry source health', async () => {
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue(degradedFoundryCollection)
     renderPage()
-    await screen.findByRole('heading', { name: 'Data connectors' })
-    expect(screen.getByText('Degraded · partial')).toBeVisible()
+    expect(await screen.findByText('Degraded · partial')).toBeVisible()
     expect(screen.getByText('Project A')).toBeVisible()
     expect(screen.getByText('Project B')).toBeVisible()
     expect(screen.getByText('unavailable · authentication-or-access')).toBeVisible()
+  })
+
+  it.each([
+    {
+      name: 'configuration conflict',
+      source: {
+        readiness: 'degraded' as const,
+        configured: false,
+        dataState: 'unsupported' as const,
+        reason: 'duplicate-tenant-boundary',
+      },
+      copy: 'A duplicate tenant boundary is inactive because deployment configuration owns it.',
+      badge: 'Configuration conflict',
+    },
+    {
+      name: 'authorization required',
+      source: {
+        readiness: 'authorization-required' as const,
+        configured: false,
+        dataState: 'unsupported' as const,
+        reason: 'dedicated-workload-identity-required',
+      },
+      copy: 'Authorization is required before one or more configured sources can collect data.',
+      badge: 'Authorization required',
+    },
+    {
+      name: 'failed collection',
+      source: {
+        readiness: 'unavailable' as const,
+        configured: true,
+        dataState: 'failed' as const,
+        reason: 'request-failed',
+      },
+      copy: 'The latest connector collection failed; complete snapshots are not promoted.',
+      badge: 'Collection failed',
+    },
+    {
+      name: 'stale evidence',
+      source: {
+        readiness: 'degraded' as const,
+        configured: true,
+        dataState: 'stale' as const,
+        reason: 'measurement-expired',
+      },
+      copy: 'Connector evidence is stale and cannot establish current readiness.',
+      badge: 'Stale evidence',
+    },
+    {
+      name: 'valid empty response',
+      source: {
+        readiness: 'ready' as const,
+        configured: true,
+        dataState: 'empty' as const,
+        reason: 'empty',
+      },
+      copy: 'Connected sources returned a valid empty result for the latest observation.',
+      badge: 'Valid empty result',
+    },
+  ])('renders distinct active banner copy for $name', async ({ source, copy, badge }) => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue({
+      ...degradedFoundryCollection,
+      health: {
+        overall: 'degraded',
+        partial: true,
+        sources: [
+          {
+            id: 'agent365:tenant-a',
+            name: 'Agent 365 Tenant A',
+            role: 'discovery',
+            enabled: true,
+            ...source,
+          },
+        ],
+      },
+    })
+
+    renderPage()
+
+    expect(await screen.findByText(copy)).toBeVisible()
+    expect(
+      within(screen.getByRole('region', { name: 'Active connection status' })).getByText(badge),
+    ).toBeVisible()
+  })
+
+  it('renders typed Agent 365 measurement counts, checked time, and provenance', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue({
+      ...degradedFoundryCollection,
+      health: {
+        overall: 'degraded',
+        partial: true,
+        sourceSetFingerprint: 'a'.repeat(64),
+        sources: [
+          {
+            id: 'agent365:current',
+            name: 'Current Agent 365',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'degraded',
+            dataState: 'stale',
+            pages: 2,
+            records: 25,
+            checkedAt: '2026-09-09T00:00:00.000Z',
+            reason: 'source-set-changed',
+            provenance: {
+              estateTenantId: 'tenant-a',
+              estateEnvironment: 'production',
+              sourceConnectorId: 'current',
+              sourceTenantId: 'tenant-a',
+              sourceEnvironment: 'production',
+              provider: 'microsoft-graph-agent365-package-catalog',
+              providerObjectId: '/v1.0/copilot/admin/catalog/packages',
+            },
+          },
+        ],
+      },
+    })
+    renderPage()
+
+    await screen.findByRole('heading', { name: 'Data connectors' })
+    expect(screen.getByText('Data stale · 2 pages · 25 records')).toBeVisible()
+    expect(screen.getByText('Checked 2026-09-09T00:00:00.000Z')).toBeVisible()
+    expect(
+      screen.getByText(
+        'Source current · microsoft-graph-agent365-package-catalog · /v1.0/copilot/admin/catalog/packages',
+      ),
+    ).toBeVisible()
   })
 
   it('Agent 365 shows authorization required, not connected', async () => {

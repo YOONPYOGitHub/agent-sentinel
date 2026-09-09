@@ -14,11 +14,14 @@ import {
   assertEstateSnapshot,
   evidenceSchema,
   evidenceTypeSchema,
+  estateIdSchema,
+  sourceProjectIdSchema,
   type EstateSnapshot,
   type Evidence,
   type GraphEdge,
   type GraphNode,
   type Remediation,
+  type SourceProjectId,
 } from '@agent-sentinel/domain'
 import type { TokenCredential } from '@azure/core-auth'
 import {
@@ -135,8 +138,23 @@ export function sanitizeFoundryProjectEndpoint(endpoint: string): string {
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`
 }
 
+export function foundrySourceProjectId(endpoint: string): SourceProjectId {
+  const sanitizedEndpoint = foundryProjectEndpointSchema.parse(endpoint)
+  return sourceProjectIdSchema.parse(new URL(sanitizedEndpoint).pathname.split('/').at(-1))
+}
+
+const foundryProjectEndpointSchema = z
+  .string()
+  .url()
+  .transform(sanitizeFoundryProjectEndpoint)
+  .refine(
+    (endpoint) =>
+      sourceProjectIdSchema.safeParse(new URL(endpoint).pathname.split('/').at(-1)).success,
+    'Azure AI Foundry project ID must be between 1 and 200 characters.',
+  )
+
 export const foundryConnectorConfigSchema = z.strictObject({
-  projectEndpoint: z.string().url().transform(sanitizeFoundryProjectEndpoint),
+  projectEndpoint: foundryProjectEndpointSchema,
   tenantId: z.string().min(1),
   environment: z.string().min(1),
 })
@@ -164,6 +182,7 @@ export type FoundrySourceConfig = z.infer<typeof foundrySourceConfigSchema>
 
 export const foundryPortfolioConfigSchema = z
   .strictObject({
+    estateId: estateIdSchema.default('default'),
     estateTenantId: z.string().trim().min(1),
     estateEnvironment: z.string().trim().min(1),
     sources: z.array(foundrySourceConfigSchema).min(1).max(50),
@@ -244,6 +263,7 @@ export function parseFoundryPortfolioConfig(
       environment: requiredEnvironment(environment, 'FOUNDRY_ENVIRONMENT'),
     })
     return foundryPortfolioConfigSchema.parse({
+      estateId: environment['AGENT_SENTINEL_ESTATE_ID']?.trim() || 'default',
       estateTenantId: environment['AGENT_SENTINEL_TENANT_ID']?.trim() || tenantId,
       estateEnvironment: environment['AGENT_SENTINEL_ENVIRONMENT']?.trim() || source.environment,
       sources: [source],
@@ -257,6 +277,7 @@ export function parseFoundryPortfolioConfig(
     throw new Error('FOUNDRY_SOURCES_JSON must be valid JSON.')
   }
   return foundryPortfolioConfigSchema.parse({
+    estateId: environment['AGENT_SENTINEL_ESTATE_ID']?.trim() || 'default',
     estateTenantId: requiredEnvironment(environment, 'AGENT_SENTINEL_TENANT_ID'),
     estateEnvironment:
       environment['AGENT_SENTINEL_ENVIRONMENT']?.trim() ||
@@ -745,9 +766,31 @@ const identityMetadataKeys = [
   'clientId',
 ] as const
 
+const runtimeEligibilityMarkerKeys = [
+  'syntheticOnly',
+  'isSynthetic',
+  'synthetic',
+  'testOnly',
+  'isTest',
+  'test',
+  'sourceMode',
+  'classification',
+] as const
+
 function explicitIdentityMetadata(metadata: Record<string, string>): Record<string, string> {
   return Object.fromEntries(
     identityMetadataKeys.flatMap((key) => {
+      const value = metadata[key]
+      return value !== undefined ? [[key, value]] : []
+    }),
+  )
+}
+
+function explicitRuntimeEligibilityMarkers(
+  metadata: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    runtimeEligibilityMarkerKeys.flatMap((key) => {
       const value = metadata[key]
       return value !== undefined ? [[key, value]] : []
     }),
@@ -775,6 +818,7 @@ export function mapAgentToSnapshot(
     const agentId = `foundry-agent-${agent.id}`
     const evidenceId = `foundry-evidence-${agent.id}`
     const metadata = agent.metadata ?? {}
+    const runtimeEligibilityMarkers = explicitRuntimeEligibilityMarkers(metadata)
     const trustResult = evaluateTrust(agent, config, composition, generatedAt)
     nodes.push({
       id: agentId,
@@ -787,6 +831,7 @@ export function mapAgentToSnapshot(
       evidenceIds: [evidenceId, ...trustResult.evidenceIds],
       metadata: {
         platform: 'Azure AI Foundry Agent Service',
+        sourceOfTruth: 'true',
         version: agent.version ?? metadata.version ?? '',
         modelDeployment: agent.model ?? '',
         lifecycle: metadata.lifecycle ?? 'active',
@@ -813,6 +858,7 @@ export function mapAgentToSnapshot(
         ...(metadata.businessUnit !== undefined ? { businessUnit: metadata.businessUnit } : {}),
         apiVersion,
         ...explicitIdentityMetadata(metadata),
+        ...runtimeEligibilityMarkers,
       },
     })
     for (const tool of agent.tools ?? []) {
@@ -850,6 +896,14 @@ export function mapAgentToSnapshot(
       confidence: 1,
       evidenceTypes: ['declared_configuration'],
       summary: `Declared configuration for ${agent.name ?? agent.id}; this is not observed runtime behavior.`,
+      metadata: {
+        sourceOfTruth: 'true',
+        sourceConnectorId: composition.sourceId,
+        sourceTenantId: config.tenantId,
+        sourceEnvironment: config.environment,
+        sourceObjectId: agent.id,
+        ...runtimeEligibilityMarkers,
+      },
     })
     evidence.push(...trustResult.evidence)
   }
@@ -1312,10 +1366,6 @@ interface FoundrySourceState {
   reason: FoundryDiscoveryFailureReason | undefined
 }
 
-function sourceProjectId(endpoint: string): string {
-  return new URL(endpoint).pathname.split('/').at(-1) ?? 'unknown'
-}
-
 function sourceScopedId(sourceId: string, id: string): string {
   return sourceId === 'primary' ? id : `foundry-source-${sourceId}--${id}`
 }
@@ -1323,9 +1373,12 @@ function sourceScopedId(sourceId: string, id: string): string {
 function scopeFoundrySnapshot(
   snapshot: EstateSnapshot,
   source: FoundrySourceConfig,
+  estateId: string,
   estateTenantId: string,
   estateEnvironment: string,
 ): EstateSnapshot {
+  const projectId = foundrySourceProjectId(source.projectEndpoint)
+  const scopedSourceId = `foundry:${source.id}`
   const nodeIds = new Map(
     snapshot.nodes.map((node) => [node.id, sourceScopedId(source.id, node.id)]),
   )
@@ -1342,14 +1395,25 @@ function scopeFoundrySnapshot(
       evidenceIds: node.evidenceIds.map((id) => evidenceIds.get(id) ?? id),
       metadata: {
         ...node.metadata,
+        sourceOfTruth: 'true',
+        estateId,
+        sourceId: scopedSourceId,
+        estateTenantId,
+        estateEnvironment,
         sourceConnectorId: source.id,
         sourceConnectorName: source.name,
         sourceTenantId: source.tenantId,
-        sourceProjectId: sourceProjectId(source.projectEndpoint),
+        sourceProjectId: projectId,
         sourceEnvironment: source.environment,
+        provider: FOUNDRY_PROVIDER,
+        providerObjectId: node.id.startsWith('foundry-agent-')
+          ? node.id.slice('foundry-agent-'.length)
+          : node.id,
         sourceObjectId: node.id.startsWith('foundry-agent-')
           ? node.id.slice('foundry-agent-'.length)
           : node.id,
+        snapshotGeneratedAt: snapshot.generatedAt,
+        sourceRelease: FOUNDRY_API_VERSION,
       },
     })),
     edges: snapshot.edges.map((edge) => ({
@@ -1359,20 +1423,51 @@ function scopeFoundrySnapshot(
       to: nodeIds.get(edge.to) ?? edge.to,
       evidenceIds: edge.evidenceIds.map((id) => evidenceIds.get(id) ?? id),
     })),
-    evidence: snapshot.evidence.map((item) => ({
-      ...item,
-      id: evidenceIds.get(item.id)!,
-      source: `${item.source} · ${source.name}`,
-      sourceObjectId: `${source.id}:${item.sourceObjectId}`,
-      metadata: {
-        ...item.metadata,
-        sourceConnectorId: source.id,
-        sourceConnectorName: source.name,
-        sourceTenantId: source.tenantId,
-        sourceProjectId: sourceProjectId(source.projectEndpoint),
-        sourceEnvironment: source.environment,
-      },
-    })),
+    evidence: snapshot.evidence.map((item) => {
+      const inventoryEvidence = item.id.startsWith('foundry-evidence-')
+      return {
+        ...item,
+        id: evidenceIds.get(item.id)!,
+        source: `${item.source} · ${source.name}`,
+        sourceObjectId: `${source.id}:${item.sourceObjectId}`,
+        ...(inventoryEvidence
+          ? {
+              authority: {
+                estateId,
+                sourceId: scopedSourceId,
+                tenantId: source.tenantId,
+                environment: source.environment,
+                provider: FOUNDRY_PROVIDER,
+                sourceObjectId: projectId,
+                providerObjectId: item.sourceObjectId,
+                snapshotGeneratedAt: snapshot.generatedAt,
+                sourceRelease: FOUNDRY_API_VERSION,
+              },
+            }
+          : {}),
+        metadata: {
+          ...item.metadata,
+          estateId,
+          sourceId: scopedSourceId,
+          estateTenantId,
+          estateEnvironment,
+          sourceConnectorId: source.id,
+          sourceConnectorName: source.name,
+          sourceTenantId: source.tenantId,
+          sourceProjectId: projectId,
+          sourceEnvironment: source.environment,
+          sourceObjectId: item.sourceObjectId,
+          ...(inventoryEvidence
+            ? {
+                provider: FOUNDRY_PROVIDER,
+                providerObjectId: item.sourceObjectId,
+                snapshotGeneratedAt: snapshot.generatedAt,
+                sourceRelease: FOUNDRY_API_VERSION,
+              }
+            : {}),
+        },
+      }
+    }),
   })
 }
 
@@ -1424,7 +1519,7 @@ export class MultiFoundryConnector implements AgentConnector {
   private evidenceById = new Map<string, Evidence>()
 
   constructor(
-    configInput: FoundryPortfolioConfig,
+    configInput: z.input<typeof foundryPortfolioConfigSchema>,
     credentialFactory: FoundryCredentialFactory = createFoundrySourceCredential,
     trustAssessments: readonly FoundryTrustAssessment[] = [],
     options: FoundryConnectorOptions = {},
@@ -1568,6 +1663,7 @@ export class MultiFoundryConnector implements AgentConnector {
           scopeFoundrySnapshot(
             outcome.value,
             source.config,
+            this.config.estateId,
             this.config.estateTenantId,
             this.config.estateEnvironment,
           ),
@@ -1609,7 +1705,7 @@ export class MultiFoundryConnector implements AgentConnector {
       sourceTenantId: source.tenantId,
       sourceEnvironment: source.environment,
       provider: FOUNDRY_PROVIDER,
-      providerObjectId: sourceProjectId(source.projectEndpoint),
+      providerObjectId: foundrySourceProjectId(source.projectEndpoint),
     }
   }
 

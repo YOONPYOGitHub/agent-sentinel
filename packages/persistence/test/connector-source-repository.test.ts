@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type {
+  ConnectorSourceAuditRecord,
   ConnectorSourceCreateInput,
   ConnectorSourceDefinition,
   ConnectorSourceMutationContext,
@@ -8,6 +9,7 @@ import type {
   ConnectorSourceWriteResult,
   EstateContext,
 } from '@agent-sentinel/domain'
+import { connectorSourceReadModelSchema } from '@agent-sentinel/domain'
 
 import { CosmosConnectorSourceRepository, InMemoryConnectorSourceRepository } from '../src/index.js'
 import { FakeCosmosStore } from './fake-cosmos.js'
@@ -76,6 +78,44 @@ function requireSource(result: ConnectorSourceWriteResult): ConnectorSourceDefin
     throw new Error('Expected an applied connector source result.')
   }
   return result.source
+}
+
+function azureMonitorSource(
+  estate: EstateContext,
+  overrides: Partial<ConnectorSourceCreateInput> = {},
+): ConnectorSourceCreateInput {
+  return source(estate, {
+    sourceId: 'azure-monitor-primary',
+    connectorType: 'azure-monitor-otel',
+    displayName: 'Azure Monitor runtime telemetry',
+    configuration: {
+      type: 'azure-monitor-otel',
+      workspaceId: '00000000-0000-0000-0000-000000000020',
+      sourceProjectId: 'project-a',
+      logsBaseUrl: 'https://api.loganalytics.io',
+      baselineWindowHours: 168,
+      observedWindowHours: 24,
+      requestTimeoutMs: 15_000,
+      maxResponseBytes: 4_194_304,
+    },
+    ...overrides,
+  })
+}
+
+function withoutSourceProjectId(sourceValue: ConnectorSourceDefinition): unknown {
+  const value = structuredClone(sourceValue)
+  if (value.configuration.type !== 'azure-monitor-otel') {
+    throw new Error('Expected an Azure Monitor source fixture.')
+  }
+  delete (value.configuration as Partial<typeof value.configuration>).sourceProjectId
+  return value
+}
+
+function withoutAuditSourceProjectIds(auditValue: ConnectorSourceAuditRecord): unknown {
+  const value = structuredClone(auditValue)
+  if (value.before !== null) value.before = withoutSourceProjectId(value.before) as never
+  if (value.after !== null) value.after = withoutSourceProjectId(value.after) as never
+  return value
 }
 
 function rejectedError(result: PromiseSettledResult<ConnectorSourceWriteResult>): Error {
@@ -587,6 +627,247 @@ describe.each(factories)('%s connector source repository', (_name, createReposit
       Promise.resolve().then(() => repository.listAudit(ESTATE_A, 'shared-source', 0)),
     ).rejects.toThrow('positive integer')
   })
+})
+
+describe('legacy Azure Monitor connector source hydration', () => {
+  it('hydrates in-memory legacy audit snapshots without changing audit metadata', async () => {
+    const before = {
+      ...azureMonitorSource(ESTATE_A),
+      displayName: 'Legacy Azure Monitor source',
+      version: 1,
+      etag: 'legacy-etag-1',
+      createdBy: { type: 'user', id: 'creator@example.test' } as const,
+      updatedBy: { type: 'user', id: 'creator@example.test' } as const,
+      createdAt: '2026-09-04T00:00:00.000Z',
+      updatedAt: '2026-09-04T00:00:00.000Z',
+    } satisfies ConnectorSourceDefinition
+    const after = {
+      ...before,
+      displayName: 'Renamed legacy Azure Monitor source',
+      version: 2,
+      etag: 'legacy-etag-2',
+      updatedBy: { type: 'service-principal', id: 'migration-worker' } as const,
+      updatedAt: '2026-09-04T00:01:00.000Z',
+    } satisfies ConnectorSourceDefinition
+    const audit = {
+      id: 'legacy-audit-update',
+      estateId: ESTATE_A.id,
+      tenantId: ESTATE_A.tenantId,
+      environment: ESTATE_A.environment,
+      sourceId: after.sourceId,
+      operation: 'update',
+      actor: after.updatedBy,
+      occurredAt: after.updatedAt,
+      idempotencyKey: 'legacy-update',
+      before,
+      after,
+    } satisfies ConnectorSourceAuditRecord
+    const repository = new InMemoryConnectorSourceRepository({
+      persistedSources: [withoutSourceProjectId(after)],
+      persistedAudits: [withoutAuditSourceProjectIds(audit)],
+    })
+
+    const [listed] = await repository.listAudit(ESTATE_A, after.sourceId)
+
+    expect(listed).toMatchObject({
+      id: audit.id,
+      actor: audit.actor,
+      occurredAt: audit.occurredAt,
+      idempotencyKey: audit.idempotencyKey,
+      before: {
+        displayName: before.displayName,
+        version: before.version,
+        etag: before.etag,
+        migration: { status: 'migration-required' },
+      },
+      after: {
+        displayName: after.displayName,
+        version: after.version,
+        etag: after.etag,
+        migration: { status: 'migration-required' },
+      },
+    })
+    expect(listed?.before?.configuration).not.toHaveProperty('sourceProjectId')
+    expect(listed?.after?.configuration).not.toHaveProperty('sourceProjectId')
+  })
+
+  it('keeps in-memory listing safe and migration-required without an exact binding', async () => {
+    const current = {
+      ...azureMonitorSource(ESTATE_A),
+      version: 1,
+      etag: 'legacy-etag',
+      createdBy: { type: 'user', id: 'administrator@example.test' } as const,
+      updatedBy: { type: 'user', id: 'administrator@example.test' } as const,
+      createdAt: '2026-09-04T00:00:00.000Z',
+      updatedAt: '2026-09-04T00:00:00.000Z',
+    } satisfies ConnectorSourceDefinition
+    const repository = new InMemoryConnectorSourceRepository({
+      persistedSources: [withoutSourceProjectId(current)],
+    })
+
+    const listed = await repository.list(ESTATE_A)
+
+    expect(listed).toHaveLength(1)
+    expect(connectorSourceReadModelSchema.parse(listed[0])).toMatchObject({
+      sourceId: 'azure-monitor-primary',
+      enabled: false,
+      migration: {
+        status: 'migration-required',
+        active: false,
+        reason: 'missing-source-project-id',
+      },
+    })
+  })
+
+  it('keeps Cosmos listing safe and migration-required without an exact binding', async () => {
+    const store = new FakeCosmosStore()
+    const repository = new CosmosConnectorSourceRepository(store.client)
+    await repository.create(ESTATE_A, azureMonitorSource(ESTATE_A), mutation('legacy-cosmos'))
+    store.mutate(
+      (document) => document.documentType === 'connector-source',
+      (document) => {
+        const sourceValue = document.source as ConnectorSourceDefinition
+        document.source = withoutSourceProjectId(sourceValue)
+      },
+    )
+
+    const listed = await repository.list(ESTATE_A)
+
+    expect(listed).toHaveLength(1)
+    expect(connectorSourceReadModelSchema.parse(listed[0])).toMatchObject({
+      sourceId: 'azure-monitor-primary',
+      enabled: false,
+      migration: { status: 'migration-required' },
+    })
+  })
+
+  it('hydrates Cosmos legacy audit listing and idempotent replay without mutating history', async () => {
+    const store = new FakeCosmosStore()
+    const repository = new CosmosConnectorSourceRepository(store.client)
+    const operation = mutation('legacy-audit-cosmos')
+    const created = await repository.create(ESTATE_A, azureMonitorSource(ESTATE_A), operation)
+    expect(created.status).toBe('applied')
+    store.mutate(
+      (document) => document.documentType === 'connector-source-audit',
+      (document) => {
+        document.audit = withoutAuditSourceProjectIds(document.audit as ConnectorSourceAuditRecord)
+      },
+    )
+    const persistedBeforeRead = store.snapshot()
+
+    const [listed] = await repository.listAudit(ESTATE_A, 'azure-monitor-primary')
+    const replayed = await repository.create(ESTATE_A, azureMonitorSource(ESTATE_A), operation)
+
+    expect(listed).toMatchObject({
+      id: operation.auditId,
+      actor: operation.actor,
+      occurredAt: operation.occurredAt,
+      idempotencyKey: operation.idempotencyKey,
+      before: null,
+      after: {
+        version: 1,
+        etag: requireSource(created).etag,
+        migration: { status: 'migration-required' },
+      },
+    })
+    expect(replayed).toMatchObject({
+      status: 'idempotent',
+      source: { migration: { status: 'migration-required' } },
+      audit: {
+        id: operation.auditId,
+        actor: operation.actor,
+        occurredAt: operation.occurredAt,
+        after: { migration: { status: 'migration-required' } },
+      },
+    })
+    expect(store.snapshot()).toEqual(persistedBeforeRead)
+  })
+
+  it.each(['in-memory', 'Cosmos'] as const)(
+    'hydrates %s legacy records only from the exact authoritative deployment source',
+    async (kind) => {
+      const authoritativeInput = azureMonitorSource(ESTATE_A, {
+        origin: 'deployment',
+        enabled: true,
+      })
+      const authoritative = {
+        ...authoritativeInput,
+        version: 1,
+        etag: 'deployment-etag',
+        createdBy: { type: 'deployment', id: 'deployment-json' } as const,
+        updatedBy: { type: 'deployment', id: 'deployment-json' } as const,
+        createdAt: '1970-01-01T00:00:00.000Z',
+        updatedAt: '1970-01-01T00:00:00.000Z',
+      } satisfies ConnectorSourceDefinition
+      const legacyCurrent = {
+        ...azureMonitorSource(ESTATE_A),
+        version: 1,
+        etag: 'legacy-etag',
+        createdBy: { type: 'user', id: 'administrator@example.test' } as const,
+        updatedBy: { type: 'user', id: 'administrator@example.test' } as const,
+        createdAt: '2026-09-04T00:00:00.000Z',
+        updatedAt: '2026-09-04T00:00:00.000Z',
+      } satisfies ConnectorSourceDefinition
+      const legacyAudit = {
+        id: 'legacy-authoritative-audit',
+        estateId: ESTATE_A.id,
+        tenantId: ESTATE_A.tenantId,
+        environment: ESTATE_A.environment,
+        sourceId: legacyCurrent.sourceId,
+        operation: 'create',
+        actor: legacyCurrent.createdBy,
+        occurredAt: legacyCurrent.createdAt,
+        idempotencyKey: 'legacy-authoritative-create',
+        before: null,
+        after: legacyCurrent,
+      } satisfies ConnectorSourceAuditRecord
+      if (kind === 'in-memory') {
+        const repository = new InMemoryConnectorSourceRepository({
+          persistedSources: [withoutSourceProjectId(legacyCurrent)],
+          persistedAudits: [withoutAuditSourceProjectIds(legacyAudit)],
+          authoritativeSources: [authoritative],
+        })
+        await expect(repository.list(ESTATE_A)).resolves.toMatchObject([
+          { configuration: { sourceProjectId: 'project-a' } },
+        ])
+        await expect(repository.listAudit(ESTATE_A, legacyCurrent.sourceId)).resolves.toMatchObject(
+          [{ after: { configuration: { sourceProjectId: 'project-a' } } }],
+        )
+        return
+      }
+
+      const store = new FakeCosmosStore()
+      const repository = new CosmosConnectorSourceRepository(store.client, {
+        authoritativeSources: [authoritative],
+      })
+      await repository.create(
+        ESTATE_A,
+        azureMonitorSource(ESTATE_A),
+        mutation('bound-legacy-cosmos'),
+      )
+      store.mutate(
+        (document) =>
+          document.documentType === 'connector-source' ||
+          document.documentType === 'connector-source-audit',
+        (document) => {
+          if (document.documentType === 'connector-source') {
+            const sourceValue = document.source as ConnectorSourceDefinition
+            document.source = withoutSourceProjectId(sourceValue)
+          } else {
+            document.audit = withoutAuditSourceProjectIds(
+              document.audit as ConnectorSourceAuditRecord,
+            )
+          }
+        },
+      )
+      await expect(repository.list(ESTATE_A)).resolves.toMatchObject([
+        { configuration: { sourceProjectId: 'project-a' } },
+      ])
+      await expect(repository.listAudit(ESTATE_A, legacyCurrent.sourceId)).resolves.toMatchObject([
+        { after: { configuration: { sourceProjectId: 'project-a' } } },
+      ])
+    },
+  )
 })
 
 describe('Cosmos connector source documents', () => {

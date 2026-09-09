@@ -13,7 +13,13 @@ import type {
   ConnectorCredentialMetadata,
   ConnectorSourceConfiguration,
   ConnectorSourceDefinition,
+  ConnectorSourceReadModel,
   ConnectorType,
+} from '@agent-sentinel/domain'
+import {
+  AGENT365_MAX_RETRY_AFTER_MS,
+  SOURCE_PROJECT_ID_MAX_LENGTH,
+  isConnectorSourceMigrationRequired,
 } from '@agent-sentinel/domain'
 
 import {
@@ -59,6 +65,7 @@ interface SourceFormState {
   subscriptions: string
   managementBaseUrl: string
   workspaceId: string
+  sourceProjectId: string
   logsBaseUrl: string
   baselineWindowHours: string
   observedWindowHours: string
@@ -72,6 +79,8 @@ interface SourceFormState {
   maxRetries: string
   maxRetryAfterMs: string
   maxResponseBytes: string
+  maxConcurrency: string
+  maxDurationMs: string
   credentialMode: CredentialMode
   managedIdentityClientId: string
   clientId: string
@@ -93,6 +102,7 @@ const defaultForm: SourceFormState = {
   subscriptions: '',
   managementBaseUrl: 'https://management.azure.com',
   workspaceId: '',
+  sourceProjectId: '',
   logsBaseUrl: 'https://api.loganalytics.io',
   baselineWindowHours: '168',
   observedWindowHours: '24',
@@ -106,6 +116,8 @@ const defaultForm: SourceFormState = {
   maxRetries: '2',
   maxRetryAfterMs: '30000',
   maxResponseBytes: '2000000',
+  maxConcurrency: '2',
+  maxDurationMs: '60000',
   credentialMode: 'default',
   managedIdentityClientId: '',
   clientId: '',
@@ -152,7 +164,15 @@ function configuration(form: SourceFormState): ConnectorSourceConfiguration {
         limits: limits(form),
       }
     case 'agent365':
-      return { type: 'agent365', graphBaseUrl: form.graphBaseUrl, limits: limits(form) }
+      return {
+        type: 'agent365',
+        graphBaseUrl: form.graphBaseUrl,
+        limits: limits(form),
+        aggregation: {
+          maxConcurrency: numeric(form.maxConcurrency),
+          maxDurationMs: numeric(form.maxDurationMs),
+        },
+      }
     case 'defender-cloud-apps':
       return {
         type: 'defender-cloud-apps',
@@ -182,6 +202,7 @@ function configuration(form: SourceFormState): ConnectorSourceConfiguration {
       return {
         type: 'azure-monitor-otel',
         workspaceId: form.workspaceId,
+        sourceProjectId: form.sourceProjectId,
         logsBaseUrl: form.logsBaseUrl,
         baselineWindowHours: numeric(form.baselineWindowHours),
         observedWindowHours: numeric(form.observedWindowHours),
@@ -267,6 +288,7 @@ function formForSource(source: ConnectorSourceDefinition): SourceFormState {
       break
     case 'azure-monitor-otel':
       form.workspaceId = value.workspaceId
+      form.sourceProjectId = value.sourceProjectId
       form.logsBaseUrl = value.logsBaseUrl
       form.baselineWindowHours = String(value.baselineWindowHours)
       form.observedWindowHours = String(value.observedWindowHours)
@@ -277,6 +299,11 @@ function formForSource(source: ConnectorSourceDefinition): SourceFormState {
       form.manifestId = value.manifestId
       break
     case 'agent365':
+      if (value.aggregation !== undefined) {
+        form.maxConcurrency = String(value.aggregation.maxConcurrency)
+        form.maxDurationMs = String(value.aggregation.maxDurationMs)
+      }
+      break
     case 'purview':
     case 'teams-distribution':
       break
@@ -321,9 +348,9 @@ function retainMutationKey(error: unknown): boolean {
 }
 
 function mergeSourcePages(
-  current: readonly ConnectorSourceDefinition[],
-  incoming: readonly ConnectorSourceDefinition[],
-): ConnectorSourceDefinition[] {
+  current: readonly ConnectorSourceReadModel[],
+  incoming: readonly ConnectorSourceReadModel[],
+): ConnectorSourceReadModel[] {
   const merged = [...current]
   const indexBySourceId = new Map(current.map((source, index) => [source.sourceId, index] as const))
   for (const source of incoming) {
@@ -338,9 +365,7 @@ function mergeSourcePages(
   return merged
 }
 
-function statusLabel(
-  status: ConnectorSourceDefinition['testStatus']['status'] | 'unknown',
-): string {
+function statusLabel(status: ConnectorSourceReadModel['testStatus']['status'] | 'unknown'): string {
   return status
     .split('-')
     .map((part) => part[0]?.toUpperCase() + part.slice(1))
@@ -451,7 +476,7 @@ function LimitsFields({
           label="Maximum retry-after (ms)"
           value={form.maxRetryAfterMs}
           min={0}
-          max={120000}
+          max={form.connectorType === 'agent365' ? AGENT365_MAX_RETRY_AFTER_MS : 120_000}
           onChange={(value) => setField('maxRetryAfterMs', value)}
         />
         <NumberField
@@ -702,6 +727,26 @@ function SourceForm({
                 </label>
               </div>
             ) : null}
+            {type === 'agent365' ? (
+              <>
+                <NumberField
+                  id="source-max-concurrency"
+                  label="Maximum concurrent sources"
+                  value={form.maxConcurrency}
+                  min={1}
+                  max={10}
+                  onChange={(value) => setField('maxConcurrency', value)}
+                />
+                <NumberField
+                  id="source-max-duration"
+                  label="Maximum operation duration (ms)"
+                  value={form.maxDurationMs}
+                  min={100}
+                  max={300000}
+                  onChange={(value) => setField('maxDurationMs', value)}
+                />
+              </>
+            ) : null}
             {type === 'azure-resource-graph' ? (
               <>
                 <label className="connector-source-field connector-source-field--wide">
@@ -731,6 +776,15 @@ function SourceForm({
                     required
                     value={form.workspaceId}
                     onChange={(event) => setField('workspaceId', event.currentTarget.value)}
+                  />
+                </label>
+                <label className="connector-source-field">
+                  <span>Source project ID</span>
+                  <input
+                    required
+                    maxLength={SOURCE_PROJECT_ID_MAX_LENGTH}
+                    value={form.sourceProjectId}
+                    onChange={(event) => setField('sourceProjectId', event.currentTarget.value)}
                   />
                 </label>
                 <label className="connector-source-field">
@@ -880,7 +934,7 @@ function ConnectorSourceCard({
   onDelete,
   onCancelDelete,
 }: {
-  source: ConnectorSourceDefinition
+  source: ConnectorSourceReadModel
   canConfigure: boolean
   busy: boolean
   onEdit: () => void
@@ -893,6 +947,7 @@ function ConnectorSourceCard({
   const [testError, setTestError] = useState<string>()
   const [testing, setTesting] = useState(false)
   const deploymentManaged = source.origin === 'deployment'
+  const migrationRequired = isConnectorSourceMigrationRequired(source)
   const sourceStatus = source.testStatus.status
   const sourceEvidenceBasis =
     source.testStatus.status === 'not-tested' ? null : source.testStatus.evidenceBasis
@@ -924,6 +979,11 @@ function ConnectorSourceCard({
           <Badge appearance="outline">
             {deploymentManaged ? 'Deployment managed' : 'User managed'}
           </Badge>
+          {migrationRequired ? (
+            <Badge appearance="tint" color="warning">
+              Migration required
+            </Badge>
+          ) : null}
           {stale ? (
             <Badge appearance="tint" color="warning">
               Stale
@@ -953,16 +1013,23 @@ function ConnectorSourceCard({
           <dd>{evidenceBasisLabel(sourceEvidenceBasis)}</dd>
         </div>
       </dl>
+      {migrationRequired ? (
+        <div className="connector-source-test-result" role="status">
+          Add the exact authoritative source project ID before activating this connector.
+        </div>
+      ) : null}
       <div className="connector-source-card__actions">
-        <Button
-          appearance="secondary"
-          icon={<PlugConnectedRegular />}
-          disabled={testing}
-          onClick={() => void checkTestEvidence()}
-        >
-          {testing ? 'Checking...' : 'Check test evidence'}
-        </Button>
-        {!deploymentManaged && canConfigure ? (
+        {!migrationRequired ? (
+          <Button
+            appearance="secondary"
+            icon={<PlugConnectedRegular />}
+            disabled={testing}
+            onClick={() => void checkTestEvidence()}
+          >
+            {testing ? 'Checking...' : 'Check test evidence'}
+          </Button>
+        ) : null}
+        {!migrationRequired && !deploymentManaged && canConfigure ? (
           <>
             <Button
               appearance="secondary"
@@ -1308,8 +1375,8 @@ export function ConnectorSourceManager() {
             Connector source configuration
           </h2>
           <p>
-            Estate-scoped, non-secret source definitions. Runtime activation remains controlled by
-            deployment configuration.
+            Estate-scoped, non-secret source definitions. Enabled Agent 365 sources activate
+            persisted live discovery; deployment-defined boundaries remain immutable.
           </p>
         </div>
         <div className="connector-source-section-header__actions">
@@ -1384,9 +1451,17 @@ export function ConnectorSourceManager() {
                 source={source}
                 canConfigure={canConfigure}
                 busy={busySourceId === source.sourceId}
-                onEdit={() => openEditor(source)}
-                onToggle={() => updateEnabled(source)}
-                onDelete={() => remove(source)}
+                onEdit={() => {
+                  if (!isConnectorSourceMigrationRequired(source)) openEditor(source)
+                }}
+                onToggle={() =>
+                  isConnectorSourceMigrationRequired(source)
+                    ? Promise.resolve()
+                    : updateEnabled(source)
+                }
+                onDelete={() =>
+                  isConnectorSourceMigrationRequired(source) ? Promise.resolve() : remove(source)
+                }
                 onCancelDelete={() => clearMutationSlot('delete', source.sourceId)}
               />
             ))}

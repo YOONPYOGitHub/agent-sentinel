@@ -33,25 +33,154 @@ export interface RuntimeEvidenceProjection {
   }
 }
 
-export function runtimeTelemetryRequestForAgent(
+export type RuntimeEvidenceProjectionAuthority = RuntimeTelemetryRequest | EstateContext
+
+interface AuthoritativeRuntimeAgentBinding {
+  sourceConnectorId: string
+  sourceTenantId: string
+  sourceProjectId: string
+  sourceAgentId: string
+  sourceEnvironment: string
+}
+
+function hasSyntheticOrTestMarker(metadata: Readonly<Record<string, string>>): boolean {
+  return Object.entries(metadata).some(([key, value]) => {
+    const normalizedValue = value.trim().toLowerCase()
+    const markerValues = [
+      'true',
+      '1',
+      'yes',
+      'synthetic',
+      'test',
+      'tested',
+      'testing',
+      'fixture',
+      'mock',
+    ]
+    return (
+      (/(synthetic|test|fixture|mock)/i.test(key) && markerValues.includes(normalizedValue)) ||
+      (/(mode|classification)$/i.test(key) &&
+        ['synthetic', 'test', 'tested', 'testing', 'fixture', 'mock'].includes(normalizedValue))
+    )
+  })
+}
+
+function hasNonAuthoritativeSignals(evidence: Evidence): boolean {
+  const metadata = evidence.metadata ?? {}
+  return (
+    metadata['sourceOfTruth'] === 'false' ||
+    metadata['isNonAuthoritative'] === 'true' ||
+    hasSyntheticOrTestMarker(metadata) ||
+    evidence.evidenceTypes.includes('synthetic_validation') ||
+    evidence.evidenceTypes.includes('unknown')
+  )
+}
+
+function optionalBoundaryMatches(
+  metadata: Readonly<Record<string, string>>,
+  key: string,
+  expected: string,
+): boolean {
+  return metadata[key] === undefined || metadata[key] === expected
+}
+
+function authoritativeRuntimeAgentBinding(
   snapshot: EstateSnapshot,
   agent: GraphNode,
   estate?: EstateContext,
-): RuntimeTelemetryRequest | undefined {
-  if (agent.kind !== 'agent') return undefined
+): AuthoritativeRuntimeAgentBinding | undefined {
+  if (
+    agent.kind !== 'agent' ||
+    agent.metadata['sourceOfTruth'] !== 'true' ||
+    agent.metadata['isNonAuthoritative'] === 'true' ||
+    hasSyntheticOrTestMarker(agent.metadata) ||
+    (estate !== undefined &&
+      (estate.tenantId !== snapshot.tenantId || estate.environment !== snapshot.environment))
+  ) {
+    return undefined
+  }
   const sourceConnectorId = agent.metadata['sourceConnectorId']
   const sourceTenantId = agent.metadata['sourceTenantId']
+  const sourceProjectId = agent.metadata['sourceProjectId']
   const sourceAgentId = agent.metadata['sourceObjectId']
   const sourceEnvironment = agent.metadata['sourceEnvironment']
   if (
     sourceConnectorId === undefined ||
     sourceTenantId === undefined ||
+    sourceProjectId === undefined ||
     sourceAgentId === undefined ||
-    sourceEnvironment === undefined
+    sourceEnvironment === undefined ||
+    agent.environment !== sourceEnvironment ||
+    (agent.metadata['providerAgentId'] !== undefined &&
+      agent.metadata['providerAgentId'] !== sourceAgentId)
   ) {
     return undefined
   }
+  const evidenceById = new Map(snapshot.evidence.map((evidence) => [evidence.id, evidence]))
+  const citedEvidence = agent.evidenceIds.map((evidenceId) => evidenceById.get(evidenceId))
+  if (citedEvidence.length === 0 || citedEvidence.some((evidence) => evidence === undefined)) {
+    return undefined
+  }
+  const resolvedEvidence = citedEvidence.filter(
+    (evidence): evidence is Evidence => evidence !== undefined,
+  )
+  const declaredEvidence = resolvedEvidence.filter((evidence) =>
+    evidence.evidenceTypes.includes('declared_configuration'),
+  )
+  if (
+    declaredEvidence.length === 0 ||
+    declaredEvidence.some((evidence) => {
+      const metadata = evidence.metadata ?? {}
+      return (
+        hasNonAuthoritativeSignals(evidence) ||
+        !optionalBoundaryMatches(metadata, 'estateTenantId', snapshot.tenantId) ||
+        !optionalBoundaryMatches(metadata, 'estateEnvironment', snapshot.environment) ||
+        !optionalBoundaryMatches(metadata, 'sourceConnectorId', sourceConnectorId) ||
+        !optionalBoundaryMatches(metadata, 'sourceTenantId', sourceTenantId) ||
+        !optionalBoundaryMatches(metadata, 'sourceProjectId', sourceProjectId) ||
+        !optionalBoundaryMatches(metadata, 'sourceEnvironment', sourceEnvironment) ||
+        !optionalBoundaryMatches(metadata, 'providerAgentId', sourceAgentId) ||
+        !optionalBoundaryMatches(metadata, 'trustSubjectAgentId', sourceAgentId)
+      )
+    })
+  ) {
+    return undefined
+  }
+  const authoritativeEvidence = declaredEvidence.some((evidence) => {
+    const metadata = evidence?.metadata
+    return (
+      evidence.evidenceTypes.length === 1 &&
+      evidence.evidenceTypes[0] === 'declared_configuration' &&
+      metadata?.['sourceOfTruth'] === 'true' &&
+      metadata['estateTenantId'] === snapshot.tenantId &&
+      metadata['estateEnvironment'] === snapshot.environment &&
+      metadata['sourceConnectorId'] === sourceConnectorId &&
+      metadata['sourceTenantId'] === sourceTenantId &&
+      metadata['sourceProjectId'] === sourceProjectId &&
+      metadata['sourceEnvironment'] === sourceEnvironment &&
+      metadata['sourceObjectId'] === sourceAgentId
+    )
+  })
+  return authoritativeEvidence
+    ? {
+        sourceConnectorId,
+        sourceTenantId,
+        sourceProjectId,
+        sourceAgentId,
+        sourceEnvironment,
+      }
+    : undefined
+}
+
+export function runtimeTelemetryRequestForAgent(
+  snapshot: EstateSnapshot,
+  agent: GraphNode,
+  estate?: EstateContext,
+): RuntimeTelemetryRequest | undefined {
+  const binding = authoritativeRuntimeAgentBinding(snapshot, agent, estate)
+  if (binding === undefined) return undefined
   return {
+    snapshotGeneratedAt: snapshot.generatedAt,
     ...(estate === undefined
       ? {}
       : {
@@ -60,10 +189,7 @@ export function runtimeTelemetryRequestForAgent(
         }),
     tenantId: snapshot.tenantId,
     agentId: agent.id,
-    sourceConnectorId,
-    sourceTenantId,
-    sourceAgentId,
-    sourceEnvironment,
+    ...binding,
   }
 }
 
@@ -75,8 +201,12 @@ export function validateRuntimeTelemetryProvenance(
   if (request.estateId === undefined || request.estateEnvironment === undefined) {
     throw new Error('Runtime telemetry requests require exact estate identity.')
   }
+  if (request.snapshotGeneratedAt === undefined) {
+    throw new Error('Runtime telemetry requests require exact snapshot generation.')
+  }
   const sourceConnectorId = request.sourceConnectorId
   const sourceTenantId = request.sourceTenantId ?? request.tenantId
+  const sourceProjectId = request.sourceProjectId
   const sourceEnvironment = request.sourceEnvironment ?? windows.observed.environment
   const sourceAgentId = request.sourceAgentId ?? request.agentId
   const provenance = windows.provenance
@@ -88,11 +218,14 @@ export function validateRuntimeTelemetryProvenance(
     windows.baseline.environment !== sourceEnvironment ||
     windows.observed.environment !== sourceEnvironment ||
     provenance === undefined ||
+    provenance.snapshotGeneratedAt !== request.snapshotGeneratedAt ||
     provenance.estateId !== request.estateId ||
     provenance.estateTenantId !== request.tenantId ||
     provenance.estateEnvironment !== request.estateEnvironment ||
     (sourceConnectorId !== undefined && provenance.sourceConnectorId !== sourceConnectorId) ||
     provenance.sourceTenantId !== sourceTenantId ||
+    sourceProjectId === undefined ||
+    provenance.sourceProjectId !== sourceProjectId ||
     provenance.sourceEnvironment !== sourceEnvironment ||
     provenance.providerAgentId !== sourceAgentId
   ) {
@@ -104,6 +237,7 @@ export function validateRuntimeTelemetryProvenance(
       const expectedClassification = observation.synthetic ? 'synthetic' : 'live'
       if (
         !nested.success ||
+        nested.data.snapshotGeneratedAt !== provenance.snapshotGeneratedAt ||
         observation.tenantId !== request.tenantId ||
         observation.agentId !== request.agentId ||
         observation.environment !== sourceEnvironment ||
@@ -112,6 +246,7 @@ export function validateRuntimeTelemetryProvenance(
         nested.data.estateEnvironment !== provenance.estateEnvironment ||
         nested.data.sourceConnectorId !== provenance.sourceConnectorId ||
         nested.data.sourceTenantId !== provenance.sourceTenantId ||
+        nested.data.sourceProjectId !== provenance.sourceProjectId ||
         nested.data.sourceEnvironment !== provenance.sourceEnvironment ||
         nested.data.provider !== provenance.provider ||
         nested.data.providerResourceId !== provenance.providerResourceId ||
@@ -124,6 +259,129 @@ export function validateRuntimeTelemetryProvenance(
     }
   }
   return windows
+}
+
+function isRuntimeTelemetryRequest(
+  authority: RuntimeEvidenceProjectionAuthority,
+): authority is RuntimeTelemetryRequest {
+  return 'agentId' in authority
+}
+
+function authoritativeProjectionAgentForRequest(
+  snapshot: EstateSnapshot,
+  request: RuntimeTelemetryRequest,
+): GraphNode {
+  if (
+    request.snapshotGeneratedAt !== snapshot.generatedAt ||
+    request.estateId === undefined ||
+    request.estateEnvironment === undefined ||
+    request.tenantId !== snapshot.tenantId
+  ) {
+    throw new Error(
+      'Runtime evidence projection requires the exact authoritative telemetry request.',
+    )
+  }
+  const agents = snapshot.nodes.filter(
+    (node) => node.kind === 'agent' && node.id === request.agentId,
+  )
+  if (agents.length !== 1) {
+    throw new Error('Runtime evidence projection requires the selected authoritative agent.')
+  }
+  const agent = agents[0]!
+  const binding = authoritativeRuntimeAgentBinding(snapshot, agent, {
+    id: request.estateId,
+    tenantId: request.tenantId,
+    environment: request.estateEnvironment,
+  })
+  if (
+    binding === undefined ||
+    request.sourceConnectorId !== binding.sourceConnectorId ||
+    request.sourceTenantId !== binding.sourceTenantId ||
+    request.sourceProjectId !== binding.sourceProjectId ||
+    request.sourceAgentId !== binding.sourceAgentId ||
+    request.sourceEnvironment !== binding.sourceEnvironment
+  ) {
+    throw new Error(
+      'Runtime evidence projection requires the exact authoritative telemetry request.',
+    )
+  }
+  return agent
+}
+
+function authoritativeProjectionAgentForEstate(
+  snapshot: EstateSnapshot,
+  windows: RuntimeObservationWindows,
+  estate: EstateContext,
+): GraphNode {
+  const provenance = windows.provenance
+  if (
+    estate.tenantId !== snapshot.tenantId ||
+    estate.environment !== snapshot.environment ||
+    provenance === undefined ||
+    provenance.estateId !== estate.id ||
+    provenance.estateTenantId !== estate.tenantId ||
+    provenance.estateEnvironment !== estate.environment
+  ) {
+    throw new Error('Runtime evidence projection requires the exact trusted EstateContext.')
+  }
+  const selectedAgents = snapshot.nodes.filter(
+    (node) => node.kind === 'agent' && node.id === windows.observed.agentId,
+  )
+  if (
+    selectedAgents.length === 1 &&
+    authoritativeRuntimeAgentBinding(snapshot, selectedAgents[0]!, estate) === undefined
+  ) {
+    throw new Error('Runtime telemetry requires exact authoritative discovered agent evidence.')
+  }
+  const agents = snapshot.nodes.filter((node) => {
+    const binding = authoritativeRuntimeAgentBinding(snapshot, node, estate)
+    return (
+      binding !== undefined &&
+      binding.sourceConnectorId === provenance.sourceConnectorId &&
+      binding.sourceTenantId === provenance.sourceTenantId &&
+      binding.sourceProjectId === provenance.sourceProjectId &&
+      binding.sourceAgentId === provenance.providerAgentId &&
+      binding.sourceEnvironment === provenance.sourceEnvironment
+    )
+  })
+  if (agents.length !== 1) {
+    throw new Error('Runtime evidence projection requires the selected authoritative agent.')
+  }
+  return agents[0]!
+}
+
+function authoritativeProjectionAgent(
+  snapshot: EstateSnapshot,
+  windows: RuntimeObservationWindows,
+  authority: RuntimeEvidenceProjectionAuthority,
+): GraphNode {
+  const agent = isRuntimeTelemetryRequest(authority)
+    ? authoritativeProjectionAgentForRequest(snapshot, authority)
+    : authoritativeProjectionAgentForEstate(snapshot, windows, authority)
+  const aggregateAgentIds = [
+    windows.baseline.agentId,
+    windows.observed.agentId,
+    ...windows.baseline.observations.map((observation) => observation.agentId),
+    ...windows.observed.observations.map((observation) => observation.agentId),
+  ]
+  if (aggregateAgentIds.some((agentId) => agentId !== agent.id)) {
+    throw new Error('Runtime evidence projection requires the selected authoritative agent.')
+  }
+  if (
+    windows.provenance !== undefined &&
+    (isRuntimeTelemetryRequest(authority)
+      ? windows.provenance.estateId !== authority.estateId ||
+        windows.provenance.estateTenantId !== authority.tenantId ||
+        windows.provenance.estateEnvironment !== authority.estateEnvironment
+      : windows.provenance.estateId !== authority.id ||
+        windows.provenance.estateTenantId !== authority.tenantId ||
+        windows.provenance.estateEnvironment !== authority.environment)
+  ) {
+    throw new Error(
+      'Runtime evidence projection requires the exact authoritative telemetry request.',
+    )
+  }
+  return agent
 }
 
 export function withoutSyntheticObservations(
@@ -167,7 +425,17 @@ function appendEvidenceId(ids: string[], id: string): string[] {
   return ids.includes(id) ? ids : [...ids, id]
 }
 
-function runtimeOtelEvidenceItem(observation: RuntimeObservation): RuntimeOtelEvidenceItem {
+function correlationValue(
+  observation: RuntimeObservation,
+  kind: 'agent-run-id' | 'correlation-id' | 'agent-version',
+): string | undefined {
+  return observation.correlations?.find((correlation) => correlation.kind === kind)?.value
+}
+
+function runtimeOtelEvidenceItem(
+  observation: RuntimeObservation,
+  matchedToolCallNames: ReadonlySet<string>,
+): RuntimeOtelEvidenceItem {
   if (
     observation.otelProvenance === undefined ||
     observation.latencyMs === undefined ||
@@ -179,15 +447,22 @@ function runtimeOtelEvidenceItem(observation: RuntimeObservation): RuntimeOtelEv
       'Normalized OpenTelemetry evidence requires exact invocation, latency, error, token, and cost claims.',
     )
   }
+  const agentRunId = correlationValue(observation, 'agent-run-id')
+  const correlationId = correlationValue(observation, 'correlation-id')
+  const agentVersion = correlationValue(observation, 'agent-version')
   return {
     id: observation.id,
     observedAt: observation.observedAt,
+    ...(agentRunId === undefined ? {} : { agentRunId }),
+    ...(correlationId === undefined ? {} : { correlationId }),
+    ...(agentVersion === undefined ? {} : { agentVersion }),
     latencyMs: observation.latencyMs,
     inputTokens: observation.inputTokens,
     outputTokens: observation.outputTokens,
     costUsd: observation.costUsd,
     success: observation.success,
     ...(observation.errorCode !== undefined ? { errorCode: observation.errorCode } : {}),
+    toolCallNames: observation.toolCallNames.filter((name) => matchedToolCallNames.has(name)),
     provenance: observation.otelProvenance,
   }
 }
@@ -199,6 +474,7 @@ function evidenceForWindow(
   kind: 'baseline' | 'observed',
   synthetic: boolean,
   agentName: string,
+  matchedToolCallNames: ReadonlySet<string>,
   unmatchedToolCallNames: string[],
 ): Evidence {
   const qualityStatus = window.otelQuality?.status ?? 'available'
@@ -249,7 +525,9 @@ function evidenceForWindow(
       ? {
           otel: {
             quality: window.otelQuality,
-            invocations: observations.map(runtimeOtelEvidenceItem),
+            invocations: observations.map((observation) =>
+              runtimeOtelEvidenceItem(observation, matchedToolCallNames),
+            ),
           },
         }
       : {}),
@@ -317,21 +595,21 @@ function hasExactOtelProvenance(
   agent: GraphNode,
   window: ObservationWindow,
   observation: RuntimeObservation,
-  sharedEstateId: string | undefined,
-  sharedProviderResourceId: string | undefined,
+  expectedProvenance: RuntimeObservationWindows['provenance'],
 ): boolean {
   const sourceConnectorId = agent.metadata['sourceConnectorId']
   const sourceTenantId = agent.metadata['sourceTenantId']
+  const sourceProjectId = agent.metadata['sourceProjectId']
   const sourceAgentId = agent.metadata['sourceObjectId']
   const sourceEnvironment = agent.metadata['sourceEnvironment'] ?? agent.environment
   const provenance = observation.otelProvenance
   if (
     provenance === undefined ||
+    expectedProvenance === undefined ||
     sourceConnectorId === undefined ||
     sourceTenantId === undefined ||
-    sourceAgentId === undefined ||
-    sharedEstateId === undefined ||
-    sharedProviderResourceId === undefined
+    sourceProjectId === undefined ||
+    sourceAgentId === undefined
   ) {
     return false
   }
@@ -341,19 +619,30 @@ function hasExactOtelProvenance(
     observation.agentId === window.agentId &&
     observation.environment === window.environment &&
     observation.source === window.source &&
-    provenance.estateId === sharedEstateId &&
+    provenance.estateId === expectedProvenance.estateId &&
+    provenance.snapshotGeneratedAt === snapshot.generatedAt &&
+    provenance.snapshotGeneratedAt === expectedProvenance.snapshotGeneratedAt &&
     provenance.estateTenantId === observation.tenantId &&
     provenance.estateTenantId === snapshot.tenantId &&
     provenance.estateEnvironment === snapshot.environment &&
     provenance.sourceConnectorId === sourceConnectorId &&
     provenance.sourceTenantId === sourceTenantId &&
+    provenance.sourceProjectId === sourceProjectId &&
     provenance.sourceEnvironment === observation.environment &&
     provenance.sourceEnvironment === sourceEnvironment &&
     provenance.provider === observation.source &&
-    provenance.providerResourceId === sharedProviderResourceId &&
+    provenance.providerResourceId === expectedProvenance.providerResourceId &&
     provenance.providerAgentId === sourceAgentId &&
     provenance.observedAt === observation.observedAt &&
-    provenance.classification === expectedClassification
+    provenance.classification === expectedClassification &&
+    provenance.estateTenantId === expectedProvenance.estateTenantId &&
+    provenance.estateEnvironment === expectedProvenance.estateEnvironment &&
+    provenance.sourceConnectorId === expectedProvenance.sourceConnectorId &&
+    provenance.sourceTenantId === expectedProvenance.sourceTenantId &&
+    provenance.sourceProjectId === expectedProvenance.sourceProjectId &&
+    provenance.sourceEnvironment === expectedProvenance.sourceEnvironment &&
+    provenance.provider === expectedProvenance.provider &&
+    provenance.providerAgentId === expectedProvenance.providerAgentId
   )
 }
 
@@ -362,30 +651,56 @@ function enforceExactOtelProvenance(
   agent: GraphNode,
   windows: RuntimeObservationWindows,
 ): RuntimeObservationWindows {
-  const provenance = [windows.baseline, windows.observed].flatMap((window) =>
-    window.otelQuality === undefined
-      ? []
-      : window.observations.flatMap((observation) =>
-          observation.otelProvenance === undefined ? [] : [observation.otelProvenance],
-        ),
+  const sourceConnectorId = agent.metadata['sourceConnectorId']
+  const sourceTenantId = agent.metadata['sourceTenantId']
+  const sourceProjectId = agent.metadata['sourceProjectId']
+  const sourceAgentId = agent.metadata['sourceObjectId']
+  const sourceEnvironment = agent.metadata['sourceEnvironment'] ?? agent.environment
+  const provenance = windows.provenance
+  const nestedProvenance = [windows.baseline, windows.observed].flatMap((window) =>
+    window.observations.flatMap((observation) =>
+      observation.otelProvenance === undefined ? [] : [observation.otelProvenance],
+    ),
   )
-  const estateIds = new Set(provenance.map((item) => item.estateId))
-  const providerResourceIds = new Set(provenance.map((item) => item.providerResourceId))
-  const sharedEstateId = estateIds.size === 1 ? [...estateIds][0] : undefined
-  const sharedProviderResourceId =
-    providerResourceIds.size === 1 ? [...providerResourceIds][0] : undefined
+  const nestedBoundaryMatches =
+    provenance !== undefined &&
+    nestedProvenance.every(
+      (nested) =>
+        nested.snapshotGeneratedAt === provenance.snapshotGeneratedAt &&
+        nested.estateId === provenance.estateId &&
+        nested.estateTenantId === provenance.estateTenantId &&
+        nested.estateEnvironment === provenance.estateEnvironment &&
+        nested.sourceConnectorId === provenance.sourceConnectorId &&
+        nested.sourceTenantId === provenance.sourceTenantId &&
+        nested.sourceProjectId === provenance.sourceProjectId &&
+        nested.sourceEnvironment === provenance.sourceEnvironment &&
+        nested.provider === provenance.provider &&
+        nested.providerResourceId === provenance.providerResourceId &&
+        nested.providerAgentId === provenance.providerAgentId,
+    )
+  const expectedProvenance =
+    provenance !== undefined &&
+    nestedBoundaryMatches &&
+    sourceConnectorId !== undefined &&
+    sourceTenantId !== undefined &&
+    sourceProjectId !== undefined &&
+    sourceAgentId !== undefined &&
+    provenance.snapshotGeneratedAt === snapshot.generatedAt &&
+    provenance.estateTenantId === snapshot.tenantId &&
+    provenance.estateEnvironment === snapshot.environment &&
+    provenance.sourceConnectorId === sourceConnectorId &&
+    provenance.sourceTenantId === sourceTenantId &&
+    provenance.sourceProjectId === sourceProjectId &&
+    provenance.sourceEnvironment === sourceEnvironment &&
+    provenance.provider === 'azure-monitor-otel' &&
+    provenance.providerAgentId === sourceAgentId
+      ? provenance
+      : undefined
 
   const exactWindow = (window: ObservationWindow): ObservationWindow => {
     if (window.otelQuality === undefined) return window
     const observations = window.observations.filter((observation) =>
-      hasExactOtelProvenance(
-        snapshot,
-        agent,
-        window,
-        observation,
-        sharedEstateId,
-        sharedProviderResourceId,
-      ),
+      hasExactOtelProvenance(snapshot, agent, window, observation, expectedProvenance),
     )
     return observations.length === window.observations.length &&
       (observations.length > 0 || window.otelQuality.status !== 'available')
@@ -400,9 +715,14 @@ function enforceExactOtelProvenance(
   })
 }
 
-function enforceAssessedOtelQuality(windows: RuntimeObservationWindows): RuntimeObservationWindows {
+export function recomputeRuntimeOtelQuality(
+  windows: RuntimeObservationWindows,
+): RuntimeObservationWindows {
   const assessedWindow = (window: ObservationWindow): ObservationWindow => {
-    const assessment = assessRuntimeOtelQuality(window)
+    const assessment = assessRuntimeOtelQuality(window, {
+      queriedAt: windows.queriedAt,
+      maximumFreshnessHours: windows.maximumFreshnessHours ?? Number.NaN,
+    })
     const validObservationIds = new Set(assessment.validObservationIds)
     return {
       ...window,
@@ -467,16 +787,11 @@ function exactToolMatches(
 export function projectRuntimeEvidence(
   snapshotInput: EstateSnapshot,
   windowsInput: RuntimeObservationWindows,
+  authority: RuntimeEvidenceProjectionAuthority,
 ): RuntimeEvidenceProjection {
   const snapshot = estateSnapshotSchema.parse(structuredClone(snapshotInput))
   let windows = runtimeObservationWindowsSchema.parse(removeMalformedOtelObservations(windowsInput))
-  const agents = snapshot.nodes.filter(
-    (node) => node.kind === 'agent' && node.id === windows.observed.agentId,
-  )
-  if (agents.length !== 1) {
-    throw new Error('Runtime telemetry must match exactly one existing agent node.')
-  }
-  const agent = agents[0]!
+  const agent = authoritativeProjectionAgent(snapshot, windows, authority)
   const expectedEnvironment = agent.metadata['sourceEnvironment'] ?? agent.environment
   if (
     windows.observed.tenantId !== snapshot.tenantId ||
@@ -485,7 +800,7 @@ export function projectRuntimeEvidence(
     throw new Error('Runtime telemetry does not match the estate tenant and agent environment.')
   }
   windows = enforceExactOtelProvenance(snapshot, agent, windows)
-  windows = enforceAssessedOtelQuality(windows)
+  windows = recomputeRuntimeOtelQuality(windows)
   const unmatched = new Set<string>()
   let addedEvidenceCount = 0
   const projectedEvidenceIds: string[] = []
@@ -520,6 +835,7 @@ export function projectRuntimeEvidence(
         kind,
         synthetic,
         agent.name,
+        new Set(matches.keys()),
         [...toolNames].filter((name) => !matches.has(name)).sort(),
       )
       const existing = snapshot.evidence.find((item) => item.id === id)

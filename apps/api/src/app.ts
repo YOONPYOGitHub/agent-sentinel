@@ -16,6 +16,7 @@ import type {
 } from '@agent-sentinel/connector-sdk'
 
 import type {
+  ConnectorSourceDefinition,
   EstateContext,
   ConnectorSourceRepository,
   ExposureFindingRepository,
@@ -33,6 +34,13 @@ import {
   InMemoryConnectorSourceRepository,
 } from '@agent-sentinel/persistence'
 import { MockBusinessOutcomeConnector } from '@agent-sentinel/mock-connector'
+import {
+  buildDeploymentConnectorSources,
+  DeploymentConnectorSourceRepository,
+  reconcileAgent365PersistedHealth,
+  resolveAgent365Runtime,
+  synthesizeAgent365UnmeasuredHealth,
+} from '@agent-sentinel/connector-runtime'
 
 import {
   buildAuthConfig,
@@ -42,7 +50,10 @@ import {
   type AuthConfig,
 } from './auth.js'
 import { createAdvisoryService, type AdvisoryService } from './advisory-service.js'
-import { createConfiguredConnector } from './connector-factory.js'
+import {
+  createConfiguredConnector,
+  createConfiguredConnectorForEstate,
+} from './connector-factory.js'
 import {
   DemoService,
   NotFoundError,
@@ -67,10 +78,6 @@ import { authorizedEstates, createEstateMiddleware } from './estate-auth.js'
 import { requireEstateContext } from './estate-auth.js'
 import { buildEstateRegistry, type EstateRegistry } from './estate-config.js'
 import { registerConnectorSourceRoutes } from './connector-source-routes.js'
-import {
-  buildDeploymentConnectorSources,
-  DeploymentConnectorSourceRepository,
-} from './deployment-connector-sources.js'
 
 const localApprovalSchema = z.object({
   approvedBy: z.string().trim().min(2).max(100),
@@ -82,14 +89,18 @@ const authenticatedApprovalSchema = z.object({
   reason: z.string().trim().min(10).max(500),
 })
 
-function configuredService(
+async function configuredService(
   estate: EstateContext,
   snapshotRepository?: SnapshotRepository,
   persistedReadModelRequired = false,
   runtimeTelemetryConnector?: RuntimeTelemetryConnector,
   manifestIngestionRepository?: ManifestIngestionRepository,
-): DemoService {
-  const configured = createConfiguredConnector()
+  connectorSourceRepository?: ConnectorSourceRepository,
+): Promise<DemoService> {
+  const configured =
+    persistedReadModelRequired && connectorSourceRepository !== undefined
+      ? await createConfiguredConnectorForEstate(estate, connectorSourceRepository)
+      : createConfiguredConnector(process.env, { estate })
   if (
     (configured.tenantId !== undefined && configured.tenantId !== estate.tenantId) ||
     (configured.environment !== undefined && configured.environment !== estate.environment)
@@ -102,10 +113,10 @@ function configuredService(
     configured.environment !== undefined
       ? {
           snapshotRepository,
-          estate,
         }
       : undefined
   return new DemoService(
+    estate,
     configured.connector,
     configured.mode,
     configured.projectEndpoint,
@@ -174,7 +185,10 @@ function defaultWriteEnabled(mode: 'mock' | 'live', authConfig: AuthConfig): boo
   return enabled
 }
 
-export function buildLiveRepositories(clientOverride?: CosmosClient): {
+export function buildLiveRepositories(
+  clientOverride?: CosmosClient,
+  authoritativeSources: readonly ConnectorSourceDefinition[] = [],
+): {
   connectorSourceRepository: ConnectorSourceRepository
   exposureRepository: ExposureFindingRepository
   snapshotRepository: SnapshotRepository
@@ -199,6 +213,7 @@ export function buildLiveRepositories(clientOverride?: CosmosClient): {
     connectorSourceRepository: new CosmosConnectorSourceRepository(client, {
       databaseId,
       containerId: process.env['COSMOS_CONNECTOR_SOURCES_CONTAINER']?.trim() || 'connector-sources',
+      authoritativeSources,
     }),
     exposureRepository: new CosmosExposureFindingRepository(client, databaseId),
     snapshotRepository: new CosmosSnapshotRepository(client, databaseId),
@@ -232,6 +247,7 @@ export interface CreateAppOptions {
   businessOutcomeConnector?: BusinessOutcomeConnector | null
   estateRegistry?: EstateRegistry
   connectorSourceClock?: () => Date
+  connectorHealthClock?: () => Date
 }
 
 export async function createApp(
@@ -285,11 +301,16 @@ export async function createApp(
         (resolvedDataMode === 'mock' ? new MockBusinessOutcomeConnector() : undefined))
   const exposureMode: 'mock' | 'foundry' = resolvedDataMode === 'live' ? 'foundry' : 'mock'
   const writeEnabled = defaultWriteEnabled(resolvedDataMode, authConfig)
+  const deploymentConnectorSources = buildDeploymentConnectorSources(
+    process.env,
+    estateRegistry,
+    resolvedDataMode,
+  )
   const liveRepositories =
     resolvedDataMode === 'live' &&
     options.exposureRepository === undefined &&
     options.snapshotRepository === undefined
-      ? buildLiveRepositories()
+      ? buildLiveRepositories(undefined, deploymentConnectorSources)
       : undefined
   const exposureRepository = options.exposureRepository ?? liveRepositories?.exposureRepository
   const snapshotRepository = options.snapshotRepository ?? liveRepositories?.snapshotRepository
@@ -310,11 +331,6 @@ export async function createApp(
     options.connectorSourceRepository ??
     liveRepositories?.connectorSourceRepository ??
     (resolvedDataMode === 'mock' ? new InMemoryConnectorSourceRepository() : undefined)
-  const deploymentConnectorSources = buildDeploymentConnectorSources(
-    process.env,
-    estateRegistry,
-    resolvedDataMode,
-  )
   const connectorSourceRepository =
     persistedConnectorSourceRepository === undefined || deploymentConnectorSources.length === 0
       ? persistedConnectorSourceRepository
@@ -324,12 +340,13 @@ export async function createApp(
         )
   const defaultService =
     service === undefined
-      ? configuredService(
+      ? await configuredService(
           defaultEstate,
           resolvedDataMode === 'live' ? snapshotRepository : undefined,
           resolvedDataMode === 'live',
           runtimeTelemetryConnector,
           manifestIngestionRepository,
+          persistedConnectorSourceRepository,
         )
       : undefined
   const resolvedService = service ?? defaultService
@@ -339,13 +356,14 @@ export async function createApp(
   const stateService =
     resolvedDataMode === 'live'
       ? (defaultService ??
-        configuredService(
+        (await configuredService(
           defaultEstate,
           snapshotRepository,
           true,
           runtimeTelemetryConnector,
           manifestIngestionRepository,
-        ))
+          persistedConnectorSourceRepository,
+        )))
       : resolvedService
 
   // Live mode: forbid non-GET writes to /api/demo/* to keep production read-only.
@@ -449,17 +467,27 @@ export async function createApp(
       resolvedDataMode === 'live'
         ? await connectorHealthRepository?.findLatest(estate, status.connectorId)
         : undefined
+    const currentAgent365Runtime =
+      resolvedDataMode === 'live' && connectorSourceRepository !== undefined
+        ? await resolveAgent365Runtime(connectorSourceRepository, estate)
+        : undefined
     const connectorHealth =
       resolvedDataMode === 'live'
-        ? persistedHealth?.health
+        ? persistedHealth === undefined || persistedHealth === null
+          ? currentAgent365Runtime !== undefined && currentAgent365Runtime.bindings.length > 0
+            ? synthesizeAgent365UnmeasuredHealth(currentAgent365Runtime)
+            : undefined
+          : reconcileAgent365PersistedHealth(
+              persistedHealth,
+              currentAgent365Runtime?.bindings ?? [],
+              options.connectorHealthClock?.() ?? new Date(),
+            )
         : isDefaultEstate
           ? resolvedService.getConnectorHealth()
           : undefined
     const connectionOk =
       resolvedDataMode === 'live'
-        ? persistedHealth !== undefined &&
-          persistedHealth !== null &&
-          persistedHealth.health.overall !== 'unavailable'
+        ? connectorHealth !== undefined && connectorHealth.overall !== 'unavailable'
         : isDefaultEstate
           ? (await resolvedService.testConnectorConnection()).ok
           : false

@@ -3,7 +3,8 @@ import { writeFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { DefaultAzureCredential } from '@azure/identity'
 import { shutdownAzureMonitor, useAzureMonitor } from '@azure/monitor-opentelemetry'
-import { SpanKind, SpanStatusCode, trace, type Span } from '@opentelemetry/api'
+import { SpanKind, SpanStatusCode, trace, type Attributes, type Span } from '@opentelemetry/api'
+import { foundrySourceProjectId } from '@agent-sentinel/foundry-connector'
 import { foundryManifest, type AgentDefinition } from '@agent-sentinel/scenarios'
 import { z } from 'zod'
 
@@ -100,6 +101,10 @@ export class FoundryResponseClient {
     return this.retries
   }
 
+  get projectEndpoint(): string {
+    return this.endpoint
+  }
+
   async post(body: unknown): Promise<ResponseBody> {
     const token = await this.credential.getToken(tokenScope)
     if (token === null) throw new Error('Azure credential returned no Foundry token.')
@@ -150,6 +155,25 @@ export class FoundryResponseClient {
   }
 }
 
+interface SyntheticSpanAttributeInput {
+  endpoint: string
+  tenantId: string
+  agentId: string
+  environment: string
+  observationId: string
+}
+
+export function syntheticSpanAttributes(input: SyntheticSpanAttributeInput): Attributes {
+  return {
+    'agent.sentinel.tenant_id': input.tenantId,
+    'gen_ai.agent.id': input.agentId,
+    'deployment.environment.name': input.environment,
+    'agent.sentinel.source_project_id': foundrySourceProjectId(input.endpoint),
+    'agent.sentinel.observation_id': input.observationId,
+    'agent.sentinel.synthetic': true,
+  }
+}
+
 export function responseText(response: ResponseBody): string {
   return [
     response.output_text,
@@ -178,13 +202,13 @@ export async function invoke(
     'agent.synthetic.validation',
     {
       kind: SpanKind.SERVER,
-      attributes: {
-        'agent.sentinel.tenant_id': requiredEnvironment('FOUNDRY_TENANT_ID'),
-        'gen_ai.agent.id': agentId,
-        'deployment.environment.name': requiredEnvironment('FOUNDRY_ENVIRONMENT'),
-        'agent.sentinel.observation_id': randomUUID(),
-        'agent.sentinel.synthetic': true,
-      },
+      attributes: syntheticSpanAttributes({
+        endpoint: client.projectEndpoint,
+        tenantId: requiredEnvironment('FOUNDRY_TENANT_ID'),
+        agentId,
+        environment: requiredEnvironment('FOUNDRY_ENVIRONMENT'),
+        observationId: randomUUID(),
+      }),
     },
     async (span) => {
       const agentReference = { type: 'agent_reference', name: agentId }
