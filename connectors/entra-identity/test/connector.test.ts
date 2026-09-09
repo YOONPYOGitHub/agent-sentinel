@@ -2032,6 +2032,50 @@ describe('composite enrichment connector', () => {
       ).toThrow()
     })
 
+    it('canonicalizes binding tenant GUIDs and rejects malformed Entra source object IDs', () => {
+      const parsed = parseEntraRunsAsBindings({
+        ENTRA_RUNS_AS_BINDINGS_JSON: JSON.stringify([
+          {
+            estateId: 'estate-a',
+            foundry: {
+              sourceId: 'foundry:project-a',
+              tenantId: tenantA.toUpperCase(),
+              environment: 'production',
+              provider: 'azure-ai-foundry-agent-service',
+              sourceObjectId: 'project-a',
+            },
+            entra: {
+              sourceId: 'entra:directory-a',
+              tenantId: tenantA.toUpperCase(),
+              environment: 'directory',
+              provider: 'microsoft-entra',
+              sourceObjectId: tenantA.toUpperCase(),
+            },
+          },
+        ]),
+      })
+
+      expect(parsed).toMatchObject([
+        {
+          foundry: { tenantId: tenantA },
+          entra: { tenantId: tenantA, sourceObjectId: tenantA },
+        },
+      ])
+      expect(() =>
+        parseEntraRunsAsBindings({
+          ENTRA_RUNS_AS_BINDINGS_JSON: JSON.stringify([
+            {
+              ...parsed[0],
+              entra: {
+                ...parsed[0]!.entra,
+                sourceObjectId: 'not-a-guid',
+              },
+            },
+          ]),
+        }),
+      ).toThrow()
+    })
+
     it('registers an exact cross-tenant binding against both configured source boundaries', () => {
       expect(
         () =>

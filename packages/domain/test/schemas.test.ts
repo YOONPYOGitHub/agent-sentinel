@@ -139,6 +139,48 @@ describe('estateSnapshotSchema', () => {
     ).toBe(true)
   })
 
+  it('canonicalizes Entra authority GUID casing and rejects malformed tenant boundaries', () => {
+    const tenantId = '99999999-9999-4999-8999-999999999999'
+    const providerObjectId = 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA'
+    const parsed = evidenceSchema.parse({
+      id: 'entra-evidence',
+      source: 'Microsoft Entra',
+      sourceObjectId: `directory-a:${providerObjectId}`,
+      observedAt: '2026-09-09T00:00:00.000Z',
+      freshness: 'live',
+      confidence: 1,
+      evidenceTypes: ['declared_configuration'],
+      summary: 'Authoritative Entra identity.',
+      authority: {
+        estateId: 'estate-a',
+        sourceId: 'entra:directory-a',
+        tenantId: tenantId.toUpperCase(),
+        environment: 'directory',
+        provider: 'microsoft-entra',
+        sourceObjectId: tenantId.toUpperCase(),
+        providerObjectId,
+        snapshotGeneratedAt: '2026-09-09T00:00:00.000Z',
+        sourceRelease: 'v1.0',
+      },
+    })
+
+    expect(parsed.authority).toMatchObject({
+      tenantId,
+      sourceObjectId: tenantId,
+      providerObjectId: providerObjectId.toLowerCase(),
+    })
+    expect(
+      evidenceSchema.safeParse({
+        ...parsed,
+        authority: {
+          ...parsed.authority,
+          tenantId: 'not-a-guid',
+          sourceObjectId: 'not-a-guid',
+        },
+      }).success,
+    ).toBe(false)
+  })
+
   it('preserves a complete exact RUNS_AS binding on the edge', () => {
     const generatedAt = '2026-09-09T00:00:00.000Z'
     const result = estateSnapshotSchema.parse({

@@ -116,6 +116,38 @@ function legacyRuntimeSnapshot(exactProjectContext = true): unknown {
   }
 }
 
+function legacyEmptyRuntimeSnapshot(): unknown {
+  const snapshot = legacyRuntimeSnapshot() as {
+    evidence: Array<{
+      otel?: {
+        quality: {
+          status: string
+          classification: string
+          caveats: string[]
+          recordsReceived: number
+          recordsAccepted: number
+          duplicatesRemoved: number
+          pagesProcessed: number
+        }
+        invocations: unknown[]
+      }
+    }>
+  }
+  const runtime = snapshot.evidence[1]?.otel
+  if (runtime === undefined) throw new Error('Expected legacy runtime evidence.')
+  runtime.quality = {
+    status: 'unknown',
+    classification: 'unknown',
+    caveats: ['empty'],
+    recordsReceived: 0,
+    recordsAccepted: 0,
+    duplicatesRemoved: 0,
+    pagesProcessed: 1,
+  }
+  runtime.invocations = []
+  return snapshot
+}
+
 describe('snapshot persistence compatibility', () => {
   it('keeps current in-memory and Cosmos writes strict', async () => {
     const malformed = legacyRuntimeSnapshot() as EstateSnapshot
@@ -201,5 +233,56 @@ describe('snapshot persistence compatibility', () => {
       },
     })
     expect(snapshot?.evidence[1]).not.toHaveProperty('otel')
+  })
+
+  it('selects version-1 migration before current parsing for empty invocation evidence', async () => {
+    const store = new FakeCosmosStore()
+    await store.client
+      .database('agent-sentinel-db')
+      .container('snapshots')
+      .items.upsert({
+        id: `snapshot:${estate.id}:${estate.tenantId}-${estate.environment}-2026-09-09T00:00:00.000Z`,
+        documentType: 'estate-snapshot',
+        estateId: estate.id,
+        tenantId: estate.tenantId,
+        environment: estate.environment,
+        snapshotId: `${estate.tenantId}-${estate.environment}-2026-09-09T00:00:00.000Z`,
+        generatedAt: '2026-09-09T00:00:00.000Z',
+        snapshotSchemaVersion: 1,
+        snapshot: legacyEmptyRuntimeSnapshot(),
+      })
+
+    const snapshot = await new CosmosSnapshotRepository(store.client).findLatest(estate)
+
+    expect(snapshot?.evidence[1]).toMatchObject({
+      confidence: 0,
+      evidenceTypes: ['unknown'],
+      metadata: {
+        isNonAuthoritative: 'true',
+        migrationStatus: 'migration-required',
+        migrationReason: 'legacy-runtime-evidence-missing-exact-source-context',
+      },
+    })
+    expect(snapshot?.evidence[1]).not.toHaveProperty('otel')
+  })
+
+  it('retains schema-version-2 empty invocation evidence as a strict current snapshot', async () => {
+    const store = new FakeCosmosStore()
+    const current = legacyEmptyRuntimeSnapshot() as EstateSnapshot
+    await new CosmosSnapshotRepository(store.client).save(estate, current)
+
+    const snapshot = await new CosmosSnapshotRepository(store.client).findLatest(estate)
+
+    expect(snapshot?.evidence[1]).toMatchObject({
+      confidence: 1,
+      evidenceTypes: ['observed_runtime'],
+      otel: {
+        quality: {
+          status: 'unknown',
+          caveats: ['empty'],
+        },
+        invocations: [],
+      },
+    })
   })
 })

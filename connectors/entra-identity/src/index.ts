@@ -74,6 +74,11 @@ const entraSourceCredentialSchema = z.discriminatedUnion('mode', [
   }),
 ])
 
+const entraGuidSchema = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+  .transform((value) => value.toLowerCase())
+
 export const entraSourceConfigSchema = entraIdentityConnectorConfigSchema.extend({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/),
   name: z.string().trim().min(1).max(100),
@@ -83,7 +88,7 @@ export type EntraSourceConfig = z.infer<typeof entraSourceConfigSchema>
 
 const runsAsSourceEndpointSchema = z.strictObject({
   sourceId: z.string().min(3).max(200),
-  tenantId: z.string().trim().min(1).max(128),
+  tenantId: entraGuidSchema,
   environment: z.string().trim().min(1).max(128),
   sourceObjectId: z.string().trim().min(1).max(500),
 })
@@ -97,6 +102,7 @@ export const entraFoundryRunsAsBindingSchema = z.strictObject({
   entra: runsAsSourceEndpointSchema.extend({
     sourceId: z.string().regex(/^entra:[A-Za-z0-9][A-Za-z0-9._:-]*$/),
     provider: z.literal('microsoft-entra'),
+    sourceObjectId: entraGuidSchema,
   }),
 })
 

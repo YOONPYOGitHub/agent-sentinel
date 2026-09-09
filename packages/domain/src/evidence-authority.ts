@@ -11,6 +11,7 @@ const scopedSourceIdSchema = z
 const azureGuidSchema = z
   .string()
   .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+  .transform((value) => value.toLowerCase())
 
 export const evidenceAuthoritySchema = z
   .strictObject({
@@ -36,7 +37,9 @@ export const evidenceAuthoritySchema = z
     }
     if (
       authority.provider === 'microsoft-entra' &&
-      !azureGuidSchema.safeParse(authority.providerObjectId).success
+      (!azureGuidSchema.safeParse(authority.tenantId).success ||
+        !azureGuidSchema.safeParse(authority.sourceObjectId).success ||
+        !azureGuidSchema.safeParse(authority.providerObjectId).success)
     ) {
       context.addIssue({
         code: 'custom',
@@ -44,6 +47,16 @@ export const evidenceAuthoritySchema = z
       })
     }
   })
+  .transform((authority) =>
+    authority.provider === 'microsoft-entra'
+      ? {
+          ...authority,
+          tenantId: authority.tenantId.toLowerCase(),
+          sourceObjectId: authority.sourceObjectId.toLowerCase(),
+          providerObjectId: authority.providerObjectId.toLowerCase(),
+        }
+      : authority,
+  )
 
 export type EvidenceAuthority = z.infer<typeof evidenceAuthoritySchema>
 

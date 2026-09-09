@@ -126,4 +126,32 @@ describe('shift-left manifest scanning', () => {
     expect(environment.errors[0]?.path).toBe('environmentId')
     expect(environment.errors[0]?.message).toContain('does not match')
   })
+
+  it('returns typed validation errors for generated evidence namespace collisions', () => {
+    const raw = fixture() as ManifestEnvelope
+    const agent = raw.agents[0]
+    if (agent === undefined) throw new Error('Expected a manifest agent fixture.')
+    const collision = {
+      ...raw,
+      evidence: [
+        ...raw.evidence,
+        {
+          id: `declared::${agent.id}`,
+          subjectId: agent.id,
+          evidenceType: 'declared_configuration',
+          confidence: 0.4,
+          observedAt: raw.producedAt,
+          claims: {},
+        },
+      ],
+    }
+
+    expect(() => scanManifest(collision, scope)).not.toThrow()
+    const result = scanManifest(collision, scope)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors).toHaveLength(1)
+    expect(result.errors[0]?.path).toMatch(/^evidence\.\d+\.id$/)
+    expect(result.errors[0]?.message).toContain('collides with generated evidence')
+  })
 })

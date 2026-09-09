@@ -112,6 +112,7 @@ Boundaries that hold by construction:
 - **No egress.** Any path containing `://` or a leading `//` is rejected before I/O, so the adapter cannot be steered into an SSRF fetch.
 - **No action.** `ManifestConnector` implements discovery and evidence only. It has no `execute()`, and a manifest declaring `supportsActions: 'execute'` is rejected.
 - **No authority.** Provenance is pinned to `sourceOfTruth: false` and `isNonAuthoritative: true`. Declared claims are capped at confidence 0.7 (default 0.4) and only rise when the manifest declares deep runtime telemetry.
+- **Disjoint evidence IDs.** Acceptance reserves `declared::<entity-id>` for generated baseline evidence and returns typed validation issues when operator evidence collides with that namespace.
 - **Estate-scoped.** The envelope and every entity environment must match server-controlled estate tenant/environment values. The authenticated token tenant establishes caller identity and may differ from the Azure estate tenant.
 - **Availability isolation.** Manifest repository or composition failure degrades only the optional source; jobs still persists the authoritative Foundry snapshot.
 

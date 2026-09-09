@@ -4,11 +4,14 @@ import type {
   AgentConnector,
   ConnectorHealthReport,
   ConnectorHealthRepository,
+  LiveAggregationLimits,
   ManifestIngestionRecord,
   ManifestIngestionRepository,
+  RuntimeObservationWindows,
   RuntimeTelemetryConnector,
 } from '@agent-sentinel/connector-sdk'
 import {
+  aggregateLiveSources,
   projectRuntimeEvidence,
   runtimeObservationWindowsSchema,
   runtimeTelemetryRequestForAgent,
@@ -37,6 +40,9 @@ export interface IngestionServiceOptions {
   manifestIngestions?: ManifestIngestionRepository
   connectorHealthRepository?: ConnectorHealthRepository
   runtimeTelemetryConnector?: RuntimeTelemetryConnector
+  runtimeTelemetryLimits?: Partial<
+    Pick<LiveAggregationLimits, 'maxSources' | 'maxConcurrency' | 'maxDurationMs'>
+  >
 }
 
 export interface Logger {
@@ -69,6 +75,41 @@ export const defaultLogger: Logger = {
     console.log(JSON.stringify({ level: 'warn', msg: message, ...(extra ?? {}) })),
   error: (message, extra) =>
     console.error(JSON.stringify({ level: 'error', msg: message, ...(extra ?? {}) })),
+}
+
+export const JOBS_RUNTIME_TELEMETRY_LIMITS: LiveAggregationLimits = {
+  maxSources: 1_000,
+  maxConcurrency: 4,
+  maxDurationMs: 60_000,
+  maxPagesPerSource: 1,
+  maxRecordsPerSource: 10_000,
+}
+
+function jobsRuntimeTelemetryLimits(
+  overrides: IngestionServiceOptions['runtimeTelemetryLimits'],
+): LiveAggregationLimits {
+  return {
+    ...JOBS_RUNTIME_TELEMETRY_LIMITS,
+    ...(overrides?.maxSources === undefined
+      ? {}
+      : { maxSources: Math.min(overrides.maxSources, JOBS_RUNTIME_TELEMETRY_LIMITS.maxSources) }),
+    ...(overrides?.maxConcurrency === undefined
+      ? {}
+      : {
+          maxConcurrency: Math.min(
+            overrides.maxConcurrency,
+            JOBS_RUNTIME_TELEMETRY_LIMITS.maxConcurrency,
+          ),
+        }),
+    ...(overrides?.maxDurationMs === undefined
+      ? {}
+      : {
+          maxDurationMs: Math.min(
+            overrides.maxDurationMs,
+            JOBS_RUNTIME_TELEMETRY_LIMITS.maxDurationMs,
+          ),
+        }),
+  }
 }
 
 function snapshotIdFor(snapshot: EstateSnapshot): string {
@@ -140,25 +181,83 @@ export class IngestionService {
     }
     let runtimeTelemetryDegraded = false
     if (this.options.runtimeTelemetryConnector !== undefined) {
-      for (const agent of snapshot.nodes.filter((node) => node.kind === 'agent')) {
-        const request = runtimeTelemetryRequestForAgent(snapshot, agent, this.options.estate)
-        if (request === undefined) continue
+      const limits = jobsRuntimeTelemetryLimits(this.options.runtimeTelemetryLimits)
+      const eligible = snapshot.nodes
+        .filter((node) => node.kind === 'agent')
+        .flatMap((agent) => {
+          const request = runtimeTelemetryRequestForAgent(snapshot, agent, this.options.estate)
+          return request === undefined ? [] : [{ id: agent.id, agent, request }]
+        })
+      const selected = eligible.slice(0, limits.maxSources)
+      for (const { agent } of eligible.slice(limits.maxSources)) {
+        runtimeTelemetryDegraded = true
+        logger.warn('ingestion.runtime-evidence.degraded', {
+          correlationId,
+          agentId: agent.id,
+          reason: 'source-limit-exceeded',
+        })
+      }
+      const aggregation =
+        selected.length === 0
+          ? undefined
+          : await aggregateLiveSources<(typeof selected)[number], RuntimeObservationWindows>({
+              sources: selected,
+              limits,
+              execute: async (source, context) => {
+                const windows = validateRuntimeTelemetryProvenance(
+                  source.request,
+                  runtimeObservationWindowsSchema.parse(
+                    await this.options.runtimeTelemetryConnector!.readObservationWindows(
+                      source.request,
+                      { signal: context.signal },
+                    ),
+                  ),
+                )
+                const observations = [
+                  ...windows.baseline.observations,
+                  ...windows.observed.observations,
+                ]
+                return {
+                  state: observations.length === 0 ? ('empty' as const) : ('complete' as const),
+                  value: windows,
+                  pages: 1,
+                  records: observations.length,
+                  evidenceIds:
+                    observations.length === 0
+                      ? []
+                      : [windows.baselineEvidenceId, windows.observedEvidenceId],
+                  ...(observations.length === 0 ? { reason: 'empty' } : {}),
+                }
+              },
+              failureReason: () => 'query-or-provenance-failed',
+            })
+      for (const outcome of aggregation?.outcomes ?? []) {
+        const { agent, request } = outcome.source
+        if (
+          outcome.state === 'failed' ||
+          outcome.state === 'cancelled' ||
+          outcome.value === undefined
+        ) {
+          runtimeTelemetryDegraded = true
+          logger.warn('ingestion.runtime-evidence.degraded', {
+            correlationId,
+            agentId: agent.id,
+            reason: outcome.reason ?? 'query-or-provenance-failed',
+          })
+          continue
+        }
         try {
-          const windows = validateRuntimeTelemetryProvenance(
-            request,
-            runtimeObservationWindowsSchema.parse(
-              await this.options.runtimeTelemetryConnector.readObservationWindows(request),
-            ),
-          )
-          const projection = projectRuntimeEvidence(snapshot, windows, request)
+          const projection = projectRuntimeEvidence(snapshot, outcome.value, request)
           snapshot = projection.snapshot
-          if (projection.dataState.state !== 'complete') runtimeTelemetryDegraded = true
+          if (outcome.state !== 'complete' || projection.dataState.state !== 'complete') {
+            runtimeTelemetryDegraded = true
+          }
         } catch {
           runtimeTelemetryDegraded = true
           logger.warn('ingestion.runtime-evidence.degraded', {
             correlationId,
             agentId: agent.id,
-            reason: 'query-or-provenance-failed',
+            reason: 'projection-failed',
           })
         }
       }

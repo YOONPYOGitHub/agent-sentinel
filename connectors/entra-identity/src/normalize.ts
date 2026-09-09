@@ -278,14 +278,22 @@ export interface EntraFoundryRunsAsBinding {
 }
 
 function sameAuthority(left: EvidenceAuthority, right: EvidenceAuthority): boolean {
+  const sameSourceObjectId =
+    left.provider === 'microsoft-entra'
+      ? left.sourceObjectId.toLowerCase() === right.sourceObjectId.toLowerCase()
+      : left.sourceObjectId === right.sourceObjectId
+  const sameProviderObjectId =
+    left.provider === 'microsoft-entra'
+      ? left.providerObjectId.toLowerCase() === right.providerObjectId.toLowerCase()
+      : left.providerObjectId === right.providerObjectId
   return (
     left.estateId === right.estateId &&
     left.sourceId === right.sourceId &&
     left.tenantId.toLowerCase() === right.tenantId.toLowerCase() &&
     left.environment === right.environment &&
     left.provider === right.provider &&
-    left.sourceObjectId === right.sourceObjectId &&
-    left.providerObjectId === right.providerObjectId &&
+    sameSourceObjectId &&
+    sameProviderObjectId &&
     left.snapshotGeneratedAt === right.snapshotGeneratedAt &&
     left.sourceRelease === right.sourceRelease
   )
@@ -305,8 +313,9 @@ function exactAuthorityEvidence(
     node.metadata['sourceEnvironment'] !== endpoint.environment ||
     node.metadata['provider'] !== endpoint.provider ||
     (endpoint.provider === 'azure-ai-foundry-agent-service'
-      ? node.metadata['sourceProjectId']
-      : node.metadata['sourceInventoryObjectId']) !== endpoint.sourceObjectId
+      ? node.metadata['sourceProjectId'] !== endpoint.sourceObjectId
+      : node.metadata['sourceInventoryObjectId']?.toLowerCase() !==
+        endpoint.sourceObjectId.toLowerCase())
   ) {
     return []
   }

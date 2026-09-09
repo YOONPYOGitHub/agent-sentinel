@@ -367,6 +367,23 @@ describe('referential integrity', () => {
     ).toContain('Duplicate evidence id ev-1')
   })
 
+  it('rejects operator evidence IDs that collide with generated declared evidence', () => {
+    expect(
+      errorText(
+        withPatch((manifest) => {
+          manifest['evidence'] = [
+            {
+              id: 'declared::agent-a',
+              subjectId: 'agent-a',
+              evidenceType: 'declared_configuration',
+              observedAt: '2026-08-20T08:55:00.000Z',
+            },
+          ]
+        }),
+      ),
+    ).toContain('collides with generated evidence for agent-a')
+  })
+
   it('rejects dangling edge endpoints', () => {
     const message = errorText(
       withPatch((manifest) => {

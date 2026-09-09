@@ -174,6 +174,73 @@ describe('graph engine', () => {
     ).toHaveLength(1)
   })
 
+  it('traverses RUNS_AS when Entra tenant and object GUID casing differs across boundaries', () => {
+    const liveSnapshot = exactLiveSnapshot()
+    const entraTenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const principalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    liveSnapshot.nodes[0] = {
+      ...liveSnapshot.nodes[0]!,
+      metadata: {
+        ...liveSnapshot.nodes[0]!.metadata,
+        servicePrincipalId: principalId,
+      },
+    }
+    liveSnapshot.nodes[1] = {
+      ...liveSnapshot.nodes[1]!,
+      metadata: {
+        ...liveSnapshot.nodes[1]!.metadata,
+        sourceTenantId: entraTenantId,
+        sourceInventoryObjectId: entraTenantId,
+        providerObjectId: principalId,
+        directoryObjectId: principalId,
+      },
+    }
+    liveSnapshot.evidence[1] = {
+      ...liveSnapshot.evidence[1]!,
+      sourceObjectId: `directory-a:${principalId}`,
+      authority: {
+        ...liveSnapshot.evidence[1]!.authority!,
+        tenantId: entraTenantId,
+        sourceObjectId: entraTenantId,
+        providerObjectId: principalId,
+      },
+    }
+    const binding = liveSnapshot.edges[0]?.runsAsBinding
+    const identityAuthority = liveSnapshot.evidence[1]?.authority
+    if (binding === undefined || identityAuthority === undefined) {
+      throw new Error('Expected exact RUNS_AS binding and identity authority.')
+    }
+    liveSnapshot.edges[0] = {
+      ...liveSnapshot.edges[0]!,
+      runsAsBinding: {
+        ...binding,
+        identity: {
+          ...identityAuthority,
+          tenantId: entraTenantId.toUpperCase(),
+          sourceObjectId: entraTenantId.toUpperCase(),
+          providerObjectId: principalId.toUpperCase(),
+        },
+        identifier: {
+          ...binding.identifier,
+          value: principalId.toUpperCase(),
+        },
+      },
+    }
+    const context = createLiveGraphTraversalContextForSnapshot(liveSnapshot, {
+      estate,
+      clock: () => new Date('2026-09-09T00:05:00.000Z'),
+      maxEvidenceAgeMs: 15 * 60 * 1_000,
+    })
+
+    expect(
+      findAttackPaths(
+        liveSnapshot,
+        { sourceNodeIds: ['agent'], targetNodeIds: ['identity'], factors },
+        context,
+      ),
+    ).toHaveLength(1)
+  })
+
   it('rejects an application binding without application-ID-specific identity authority', () => {
     const liveSnapshot = exactLiveSnapshot()
     const applicationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'

@@ -3,6 +3,7 @@ import { z } from 'zod'
 const graphIdSchema = z
   .string()
   .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+  .transform((value) => value.toLowerCase())
 const boundedText = z.string().max(512)
 const nullableName = z.string().min(1).max(256).nullable().optional()
 

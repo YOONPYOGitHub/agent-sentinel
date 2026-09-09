@@ -137,6 +137,44 @@ function authorizeRuntimeAgent(
   }
 }
 
+function runtimeSnapshot(agentCount: number): EstateSnapshot {
+  const template = fullSnapshot()
+  const templateAgent = template.nodes.find((node) => node.kind === 'agent')
+  if (templateAgent === undefined) throw new Error('Expected an agent fixture.')
+  const templateEvidence = template.evidence.find((item) =>
+    templateAgent.evidenceIds.includes(item.id),
+  )
+  if (templateEvidence === undefined) throw new Error('Expected authoritative agent evidence.')
+  const snapshot: EstateSnapshot = {
+    tenantId: template.tenantId,
+    environment: template.environment,
+    generatedAt: template.generatedAt,
+    nodes: [],
+    edges: [],
+    evidence: [],
+  }
+  for (let index = 0; index < agentCount; index += 1) {
+    const agent = structuredClone(templateAgent)
+    const evidence = structuredClone(templateEvidence)
+    agent.id = `runtime-agent-${index}`
+    agent.name = `Runtime Agent ${index}`
+    agent.evidenceIds = [`runtime-agent-evidence-${index}`]
+    evidence.id = agent.evidenceIds[0]!
+    snapshot.nodes.push(agent)
+    snapshot.evidence.push(evidence)
+    authorizeRuntimeAgent(snapshot, agent, `provider-agent-${index}`)
+  }
+  return snapshot
+}
+
+async function waitUntil(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (predicate()) return
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  }
+  throw new Error('Timed out waiting for test condition.')
+}
+
 function emptyRuntimeWindows(
   request: RuntimeTelemetryRequest,
   quality: OtelWindowQuality,
@@ -1194,6 +1232,204 @@ describe('IngestionService', () => {
     expect(result).toMatchObject({ outcome: 'succeeded', persisted: true })
     expect(readObservationWindows).not.toHaveBeenCalled()
     expect(result.snapshot.evidence.some((item) => item.id === 'observed-evidence')).toBe(false)
+  })
+
+  it('bounds jobs runtime telemetry concurrency while retaining scheduled run ownership', async () => {
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const discovered = runtimeSnapshot(3)
+    const releases = new Map<string, () => void>()
+    const started: string[] = []
+    let active = 0
+    let maximumActive = 0
+    const service = new IngestionService(makeConnector(discovered), snapshots, exposures, {
+      estate: testEstate,
+      sourceMode: 'foundry',
+      runtimeTelemetryLimits: {
+        maxSources: 3,
+        maxConcurrency: 2,
+        maxDurationMs: 1_000,
+      },
+      runtimeTelemetryConnector: {
+        id: 'azure-monitor-otel',
+        async readObservationWindows(request) {
+          started.push(request.agentId)
+          active += 1
+          maximumActive = Math.max(maximumActive, active)
+          await new Promise<void>((resolve) => releases.set(request.agentId, resolve))
+          active -= 1
+          return emptyRuntimeWindows(request, {
+            status: 'unknown',
+            classification: 'unknown',
+            caveats: ['empty'],
+            recordsReceived: 0,
+            recordsAccepted: 0,
+            duplicatesRemoved: 0,
+            pagesProcessed: 1,
+          })
+        },
+      },
+    })
+
+    const run = service.run()
+    await waitUntil(() => started.length === 2)
+    expect(started).toEqual(['runtime-agent-0', 'runtime-agent-1'])
+    releases.get('runtime-agent-1')?.()
+    await waitUntil(() => started.length === 3)
+    expect(started).toEqual(['runtime-agent-0', 'runtime-agent-1', 'runtime-agent-2'])
+    releases.get('runtime-agent-0')?.()
+    releases.get('runtime-agent-2')?.()
+
+    await expect(run).resolves.toMatchObject({ outcome: 'partially-succeeded', persisted: true })
+    expect(maximumActive).toBe(2)
+  })
+
+  it('caps eligible jobs runtime telemetry agents and diagnoses each omitted source', async () => {
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const warnings: Array<{ message: string; extra?: Record<string, unknown> }> = []
+    const readObservationWindows = vi.fn((request: RuntimeTelemetryRequest) =>
+      Promise.resolve(
+        emptyRuntimeWindows(request, {
+          status: 'unknown',
+          classification: 'unknown',
+          caveats: ['empty'],
+          recordsReceived: 0,
+          recordsAccepted: 0,
+          duplicatesRemoved: 0,
+          pagesProcessed: 1,
+        }),
+      ),
+    )
+    const service = new IngestionService(makeConnector(runtimeSnapshot(3)), snapshots, exposures, {
+      estate: testEstate,
+      sourceMode: 'foundry',
+      logger: {
+        info: vi.fn(),
+        warn: (message, extra) => warnings.push({ message, extra }),
+        error: vi.fn(),
+      },
+      runtimeTelemetryLimits: {
+        maxSources: 2,
+        maxConcurrency: 2,
+        maxDurationMs: 1_000,
+      },
+      runtimeTelemetryConnector: {
+        id: 'azure-monitor-otel',
+        readObservationWindows,
+      },
+    })
+
+    await expect(service.run()).resolves.toMatchObject({
+      outcome: 'partially-succeeded',
+      persisted: true,
+    })
+    expect(readObservationWindows).toHaveBeenCalledTimes(2)
+    expect(readObservationWindows.mock.calls.map(([request]) => request.agentId)).toEqual([
+      'runtime-agent-0',
+      'runtime-agent-1',
+    ])
+    expect(warnings).toContainEqual({
+      message: 'ingestion.runtime-evidence.degraded',
+      extra: expect.objectContaining({
+        agentId: 'runtime-agent-2',
+        reason: 'source-limit-exceeded',
+      }),
+    })
+  })
+
+  it('applies one jobs telemetry deadline and keeps ownership until started work settles', async () => {
+    vi.useFakeTimers()
+    try {
+      const snapshots = new InMemorySnapshotRepository()
+      const exposures = new InMemoryExposureFindingRepository()
+      const warnings: Array<{ message: string; extra?: Record<string, unknown> }> = []
+      const started: string[] = []
+      let deadlineObserved = false
+      let settleProvider!: () => void
+      const service = new IngestionService(
+        makeConnector(runtimeSnapshot(2)),
+        snapshots,
+        exposures,
+        {
+          estate: testEstate,
+          sourceMode: 'foundry',
+          logger: {
+            info: vi.fn(),
+            warn: (message, extra) => warnings.push({ message, extra }),
+            error: vi.fn(),
+          },
+          runtimeTelemetryLimits: {
+            maxSources: 2,
+            maxConcurrency: 1,
+            maxDurationMs: 10,
+          },
+          runtimeTelemetryConnector: {
+            id: 'azure-monitor-otel',
+            async readObservationWindows(request, options) {
+              started.push(request.agentId)
+              options?.signal?.addEventListener(
+                'abort',
+                () => {
+                  deadlineObserved = true
+                },
+                { once: true },
+              )
+              await new Promise<void>((resolve) => {
+                settleProvider = resolve
+              })
+              return emptyRuntimeWindows(request, {
+                status: 'unknown',
+                classification: 'unknown',
+                caveats: ['empty'],
+                recordsReceived: 0,
+                recordsAccepted: 0,
+                duplicatesRemoved: 0,
+                pagesProcessed: 1,
+              })
+            },
+          },
+        },
+      )
+      let runSettled = false
+      const run = service.run()
+      void run.finally(() => {
+        runSettled = true
+      })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(started).toEqual(['runtime-agent-0'])
+      await vi.advanceTimersByTimeAsync(10)
+      expect(deadlineObserved).toBe(true)
+      expect(runSettled).toBe(false)
+      expect(started).toEqual(['runtime-agent-0'])
+
+      settleProvider()
+      await expect(run).resolves.toMatchObject({
+        outcome: 'partially-succeeded',
+        persisted: true,
+      })
+      expect(warnings).toEqual(
+        expect.arrayContaining([
+          {
+            message: 'ingestion.runtime-evidence.degraded',
+            extra: expect.objectContaining({
+              agentId: 'runtime-agent-0',
+              reason: 'duration-exceeded',
+            }),
+          },
+          {
+            message: 'ingestion.runtime-evidence.degraded',
+            extra: expect.objectContaining({
+              agentId: 'runtime-agent-1',
+              reason: 'duration-exceeded',
+            }),
+          },
+        ]),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('merges latest non-authoritative manifests and preserves finding provenance', async () => {

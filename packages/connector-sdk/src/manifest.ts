@@ -398,6 +398,9 @@ export const manifestEnvelopeSchema = envelopeShape.superRefine((envelope, conte
   }
 
   const seenEvidence = new Set<string>()
+  const generatedEvidenceIds = new Set(
+    [...declared.keys()].map((entityId) => `declared::${entityId}`),
+  )
   for (const [index, evidence] of envelope.evidence.entries()) {
     // Rule: evidence identifiers are unique.
     if (seenEvidence.has(evidence.id)) {
@@ -408,6 +411,15 @@ export const manifestEnvelopeSchema = envelopeShape.superRefine((envelope, conte
       })
     }
     seenEvidence.add(evidence.id)
+
+    if (generatedEvidenceIds.has(evidence.id)) {
+      const generatedEntityId = evidence.id.slice('declared::'.length)
+      context.addIssue({
+        code: 'custom',
+        message: `Operator evidence id ${evidence.id} collides with generated evidence for ${generatedEntityId}.`,
+        path: ['evidence', index, 'id'],
+      })
+    }
 
     // Rule: evidence subjects reference a declared entity.
     if (!declared.has(evidence.subjectId)) {

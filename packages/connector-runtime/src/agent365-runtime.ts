@@ -146,7 +146,37 @@ export function reconcileAgent365PersistedHealth(
         : undefined
   if (reason === undefined) return measurement.health
 
-  const sources = measurement.health.sources.map((source) => staleAgent365Source(source, reason))
+  const bindingByHealthId = new Map(
+    bindings.map((binding) => [`agent365:${binding.sourceId}`, binding]),
+  )
+  const sources = measurement.health.sources.map((source) => {
+    const binding = bindingByHealthId.get(source.id)
+    if (binding === undefined) return staleAgent365Source(source, reason)
+    const status =
+      binding.activation.status === 'active'
+        ? {
+            enabled: true,
+            configured: true,
+            readiness: 'degraded' as const,
+            dataState: 'stale' as const,
+            reason,
+          }
+        : inactiveHealth(binding.activation.reason)
+    return {
+      ...source,
+      name: binding.displayName,
+      ...status,
+      provenance: {
+        estateTenantId: binding.tenantId,
+        estateEnvironment: binding.environment,
+        sourceConnectorId: binding.sourceId,
+        sourceTenantId: binding.tenantId,
+        sourceEnvironment: binding.environment,
+        provider: 'microsoft-graph-agent365-package-catalog' as const,
+        providerObjectId: AGENT365_PACKAGES_PATH,
+      },
+    }
+  })
   const existingIds = new Set(sources.map((source) => source.id))
   for (const binding of bindings) {
     const id = `agent365:${binding.sourceId}`

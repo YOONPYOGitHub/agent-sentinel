@@ -24,6 +24,12 @@ distinct application-ID authority; they never compare an application ID with a
 service-principal object ID. Names, aliases, owners, tags, descriptions, shared
 `primary` IDs, and fuzzy text are never correlation keys.
 
+Microsoft Entra tenant, inventory-source, principal, and binding GUIDs are
+validated as GUIDs and canonicalized to lowercase when parsed. Authority and
+graph comparisons remain case-insensitive at persisted boundaries, so casing
+differences cannot suppress an otherwise exact `RUNS_AS` match; malformed IDs
+still fail closed.
+
 Each endpoint must attach exactly one matching authoritative evidence record
 whose typed authority matches node metadata for estate, source, tenant,
 environment, provider, source object, provider object, source release, and

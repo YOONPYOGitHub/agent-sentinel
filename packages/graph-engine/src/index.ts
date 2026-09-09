@@ -67,14 +67,22 @@ interface TraversalSnapshotIndex {
 }
 
 function sameAuthority(left: EvidenceAuthority, right: EvidenceAuthority): boolean {
+  const sameSourceObjectId =
+    left.provider === 'microsoft-entra'
+      ? left.sourceObjectId.toLowerCase() === right.sourceObjectId.toLowerCase()
+      : left.sourceObjectId === right.sourceObjectId
+  const sameProviderObjectId =
+    left.provider === 'microsoft-entra'
+      ? left.providerObjectId.toLowerCase() === right.providerObjectId.toLowerCase()
+      : left.providerObjectId === right.providerObjectId
   return (
     left.estateId === right.estateId &&
     left.sourceId === right.sourceId &&
     left.tenantId.toLowerCase() === right.tenantId.toLowerCase() &&
     left.environment === right.environment &&
     left.provider === right.provider &&
-    left.sourceObjectId === right.sourceObjectId &&
-    left.providerObjectId === right.providerObjectId &&
+    sameSourceObjectId &&
+    sameProviderObjectId &&
     left.snapshotGeneratedAt === right.snapshotGeneratedAt &&
     left.sourceRelease === right.sourceRelease
   )
@@ -258,12 +266,16 @@ function nodeMatchesAuthority(node: GraphNode, authority: EvidenceAuthority): bo
     node.metadata['sourceTenantId']?.toLowerCase() === authority.tenantId.toLowerCase() &&
     node.metadata['sourceEnvironment'] === authority.environment &&
     node.metadata['provider'] === authority.provider &&
-    node.metadata['providerObjectId'] === authority.providerObjectId &&
+    (authority.provider === 'microsoft-entra'
+      ? node.metadata['providerObjectId']?.toLowerCase() ===
+        authority.providerObjectId.toLowerCase()
+      : node.metadata['providerObjectId'] === authority.providerObjectId) &&
     node.metadata['snapshotGeneratedAt'] === authority.snapshotGeneratedAt &&
     node.metadata['sourceRelease'] === authority.sourceRelease &&
     (authority.provider === 'azure-ai-foundry-agent-service'
-      ? node.metadata['sourceProjectId']
-      : node.metadata['sourceInventoryObjectId']) === authority.sourceObjectId
+      ? node.metadata['sourceProjectId'] === authority.sourceObjectId
+      : node.metadata['sourceInventoryObjectId']?.toLowerCase() ===
+        authority.sourceObjectId.toLowerCase())
   )
 }
 
@@ -384,7 +396,7 @@ function sameRunsAsBinding(
     sameAuthority(left.agent, right.agent) &&
     sameAuthority(left.identity, right.identity) &&
     left.identifier.kind === right.identifier.kind &&
-    left.identifier.value === right.identifier.value
+    left.identifier.value.toLowerCase() === right.identifier.value.toLowerCase()
   )
 }
 

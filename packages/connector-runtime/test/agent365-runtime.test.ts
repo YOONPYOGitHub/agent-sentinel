@@ -849,4 +849,91 @@ describe('Agent 365 runtime source resolution', () => {
       ).toBe(true)
     },
   )
+
+  it.each([
+    {
+      name: 'enabled source becomes disabled',
+      measured: {
+        enabled: true,
+        configured: true,
+        readiness: 'ready' as const,
+        dataState: 'complete' as const,
+      },
+      activation: { status: 'inactive' as const, reason: 'source-disabled' as const },
+      expected: {
+        enabled: false,
+        configured: true,
+        readiness: 'disabled',
+        dataState: 'unsupported',
+        reason: 'source-disabled',
+      },
+    },
+    {
+      name: 'disabled source becomes enabled',
+      measured: {
+        enabled: false,
+        configured: true,
+        readiness: 'disabled' as const,
+        dataState: 'unsupported' as const,
+        reason: 'source-disabled',
+      },
+      activation: { status: 'active' as const },
+      expected: {
+        enabled: true,
+        configured: true,
+        readiness: 'degraded',
+        dataState: 'stale',
+        reason: 'source-set-changed',
+      },
+    },
+  ])('reconciles same-ID health when an $name', ({ measured, activation, expected }) => {
+    const binding = {
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      sourceId: 'agent365-transition',
+      displayName: 'Current Agent 365',
+      origin: 'user' as const,
+      sourceVersion: 3,
+      sourceEtag: 'etag-current',
+      activation,
+    }
+    const measurement: ConnectorHealthMeasurement = {
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      connectorId: 'base',
+      measuredAt: '2026-09-09T00:00:00.000Z',
+      sourceSetFingerprint: '0'.repeat(64),
+      health: {
+        overall: 'ready',
+        partial: false,
+        sourceSetFingerprint: '0'.repeat(64),
+        sources: [
+          {
+            id: 'agent365:agent365-transition',
+            name: 'Prior Agent 365',
+            role: 'discovery',
+            ...measured,
+            checkedAt: '2026-09-09T00:00:00.000Z',
+          },
+        ],
+      },
+    }
+
+    const health = reconcileAgent365PersistedHealth(
+      measurement,
+      [binding],
+      new Date('2026-09-09T00:05:00.000Z'),
+    )
+
+    expect(health.sources.filter((source) => source.id === 'agent365:agent365-transition')).toEqual(
+      [
+        expect.objectContaining({
+          name: 'Current Agent 365',
+          ...expected,
+        }),
+      ],
+    )
+  })
 })

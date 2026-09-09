@@ -38,7 +38,12 @@ export const evidenceSchema = z
     const sourceLocalId = evidence.authority.sourceId.slice(
       evidence.authority.sourceId.indexOf(':') + 1,
     )
-    if (evidence.sourceObjectId !== `${sourceLocalId}:${evidence.authority.providerObjectId}`) {
+    const expectedSourceObjectId = `${sourceLocalId}:${evidence.authority.providerObjectId}`
+    const matchesAuthority =
+      evidence.authority.provider === 'microsoft-entra'
+        ? evidence.sourceObjectId.toLowerCase() === expectedSourceObjectId.toLowerCase()
+        : evidence.sourceObjectId === expectedSourceObjectId
+    if (!matchesAuthority) {
       context.addIssue({
         code: 'custom',
         path: ['sourceObjectId'],

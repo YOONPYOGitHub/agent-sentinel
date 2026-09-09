@@ -68,12 +68,12 @@ function unwrapSnapshot(value: StoredSnapshot, estate: EstateContext): EstateSna
         `Unsupported persisted estate snapshot version: ${value.snapshotSchemaVersion}`,
       )
     }
-    return hydratePersistedEstateSnapshot(value.snapshot)
+    return hydratePersistedEstateSnapshot(value.snapshot, 1)
   }
   return estate.id === 'default' &&
     value.tenantId === estate.tenantId &&
     value.environment === estate.environment
-    ? hydratePersistedEstateSnapshot(value)
+    ? hydratePersistedEstateSnapshot(value, 1)
     : null
 }
 

@@ -298,10 +298,7 @@ function migrationRequiredLegacyRuntimeEvidence(
   })
 }
 
-export function hydratePersistedEstateSnapshot(value: unknown): EstateSnapshot {
-  const current = estateSnapshotSchema.safeParse(value)
-  if (current.success) return current.data
-
+function hydrateLegacyPersistedEstateSnapshot(value: unknown): EstateSnapshot {
   const legacy = legacyEstateSnapshotSchema.parse(value)
   const validEvidenceById = new Map<string, Evidence>()
   for (const candidate of legacy.evidence) {
@@ -309,39 +306,62 @@ export function hydratePersistedEstateSnapshot(value: unknown): EstateSnapshot {
     if (parsed.success) validEvidenceById.set(parsed.data.id, parsed.data)
   }
   const evidence = legacy.evidence.map((candidate) => {
-    const currentEvidence = evidenceSchema.safeParse(candidate)
-    if (currentEvidence.success) return currentEvidence.data
-    const runtimeEvidence = legacyRuntimeEvidenceSchema.parse(candidate)
-    const invocations = runtimeEvidence.otel.invocations.map((invocation) => {
-      const sourceProjectId = exactLegacyRuntimeProjectId(
-        legacy,
-        runtimeEvidence.id,
-        invocation.provenance,
-        validEvidenceById,
-      )
-      if (sourceProjectId === undefined) return undefined
-      return runtimeOtelEvidenceItemSchema.parse({
-        ...invocation,
-        toolCallNames: invocation.toolCallNames ?? [],
-        provenance: {
-          ...invocation.provenance,
-          sourceProjectId,
-          snapshotGeneratedAt: invocation.provenance.snapshotGeneratedAt ?? legacy.generatedAt,
+    if (typeof candidate === 'object' && candidate !== null && 'otel' in candidate) {
+      const runtimeEvidence = legacyRuntimeEvidenceSchema.parse(candidate)
+      if (runtimeEvidence.otel.invocations.length === 0) {
+        return migrationRequiredLegacyRuntimeEvidence(runtimeEvidence)
+      }
+      const invocations = runtimeEvidence.otel.invocations.map((invocation) => {
+        const sourceProjectId = exactLegacyRuntimeProjectId(
+          legacy,
+          runtimeEvidence.id,
+          invocation.provenance,
+          validEvidenceById,
+        )
+        if (sourceProjectId === undefined) return undefined
+        return runtimeOtelEvidenceItemSchema.parse({
+          ...invocation,
+          toolCallNames: invocation.toolCallNames ?? [],
+          provenance: {
+            ...invocation.provenance,
+            sourceProjectId,
+            snapshotGeneratedAt: invocation.provenance.snapshotGeneratedAt ?? legacy.generatedAt,
+          },
+        })
+      })
+      if (invocations.some((invocation) => invocation === undefined)) {
+        return migrationRequiredLegacyRuntimeEvidence(runtimeEvidence)
+      }
+      return evidenceSchema.parse({
+        ...runtimeEvidence,
+        otel: {
+          ...runtimeEvidence.otel,
+          invocations,
         },
       })
-    })
-    if (invocations.some((invocation) => invocation === undefined)) {
-      return migrationRequiredLegacyRuntimeEvidence(runtimeEvidence)
     }
-    return evidenceSchema.parse({
-      ...runtimeEvidence,
-      otel: {
-        ...runtimeEvidence.otel,
-        invocations,
-      },
-    })
+    const currentEvidence = evidenceSchema.safeParse(candidate)
+    if (currentEvidence.success) return currentEvidence.data
+    return evidenceSchema.parse(candidate)
   })
   return estateSnapshotSchema.parse({ ...legacy, evidence })
+}
+
+export function hydratePersistedEstateSnapshot(
+  value: unknown,
+  persistedSchemaVersion?: number,
+): EstateSnapshot {
+  if (persistedSchemaVersion === PERSISTED_ESTATE_SNAPSHOT_SCHEMA_VERSION) {
+    return estateSnapshotSchema.parse(value)
+  }
+  if (persistedSchemaVersion === 1) {
+    return hydrateLegacyPersistedEstateSnapshot(value)
+  }
+  if (persistedSchemaVersion !== undefined) {
+    throw new Error(`Unsupported persisted estate snapshot version: ${persistedSchemaVersion}`)
+  }
+  const current = estateSnapshotSchema.safeParse(value)
+  return current.success ? current.data : hydrateLegacyPersistedEstateSnapshot(value)
 }
 
 export const riskFactorsSchema = z.object({
