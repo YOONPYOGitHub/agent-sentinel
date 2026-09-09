@@ -3,9 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EstateContext, EstateSnapshot, SnapshotRepository } from '@agent-sentinel/domain'
 import { agentSentinelStateSchema } from '@agent-sentinel/domain'
 import {
+  computeManifestHash,
   type AgentConnector,
   ManifestIngestionSourceLimitError,
   MAX_MANIFEST_SOURCES,
+  manifestIngestionRecordSchema,
+  projectRuntimeEvidence,
   runtimeObservationWindowsSchema,
   runtimeTelemetryRequestForAgent,
 } from '@agent-sentinel/connector-sdk'
@@ -76,6 +79,166 @@ function authorizeRuntimeAgent(
     sourceEnvironment: snapshot.environment,
     sourceObjectId,
   }
+}
+
+function legacyRuntimeSnapshot(): EstateSnapshot {
+  const snapshot = {
+    tenantId: 'tenant-demo',
+    environment: 'validation',
+    generatedAt: '2026-09-09T00:00:00.000Z',
+    nodes: [
+      {
+        id: 'agent-a',
+        kind: 'agent',
+        name: 'Agent A',
+        description: 'Authoritative agent.',
+        environment: 'validation',
+        evidenceIds: ['declared-agent', 'runtime-observed'],
+        metadata: {
+          sourceOfTruth: 'true',
+          sourceConnectorId: 'primary',
+          sourceTenantId: 'tenant-demo',
+          sourceProjectId: 'validation',
+          sourceObjectId: 'provider-agent-a',
+          sourceEnvironment: 'validation',
+        },
+      },
+    ],
+    edges: [],
+    evidence: [
+      {
+        id: 'declared-agent',
+        source: 'Foundry',
+        sourceObjectId: 'provider-agent-a',
+        observedAt: '2026-09-09T00:00:00.000Z',
+        freshness: 'live',
+        confidence: 1,
+        evidenceTypes: ['declared_configuration'],
+        summary: 'Declared agent.',
+        metadata: {
+          sourceOfTruth: 'true',
+          estateTenantId: 'tenant-demo',
+          estateEnvironment: 'validation',
+          sourceConnectorId: 'primary',
+          sourceTenantId: 'tenant-demo',
+          sourceProjectId: 'validation',
+          sourceEnvironment: 'validation',
+          sourceObjectId: 'provider-agent-a',
+        },
+      },
+      {
+        id: 'runtime-observed',
+        source: 'Azure Monitor OpenTelemetry',
+        sourceObjectId: 'observed-window',
+        observedAt: '2026-09-08T12:00:00.000Z',
+        freshness: 'live',
+        confidence: 1,
+        evidenceTypes: ['observed_runtime'],
+        summary: 'One measured invocation.',
+        metadata: { sourceConnector: 'azure-monitor-otel', windowKind: 'observed' },
+        otel: {
+          quality: {
+            status: 'available',
+            classification: 'live',
+            caveats: [],
+            recordsReceived: 1,
+            recordsAccepted: 1,
+            duplicatesRemoved: 0,
+            pagesProcessed: 1,
+          },
+          invocations: [
+            {
+              id: 'invocation-a',
+              observedAt: '2026-09-08T12:00:00.000Z',
+              latencyMs: 42,
+              inputTokens: 10,
+              outputTokens: 5,
+              costUsd: 0.001,
+              success: true,
+              provenance: {
+                estateId: 'default',
+                estateTenantId: 'tenant-demo',
+                estateEnvironment: 'validation',
+                sourceConnectorId: 'primary',
+                sourceTenantId: 'tenant-demo',
+                sourceEnvironment: 'validation',
+                provider: 'azure-monitor-otel',
+                providerResourceId: '/subscriptions/example/resource',
+                providerAgentId: 'provider-agent-a',
+                traceId: '11111111111111111111111111111111',
+                spanId: 'aaaaaaaaaaaaaaaa',
+                observedAt: '2026-09-08T12:00:00.000Z',
+                classification: 'live',
+                sampling: { state: 'complete', rate: 1 },
+                aggregation: { kind: 'raw' },
+                partial: false,
+                evidenceIds: ['invocation', 'latency', 'error', 'input-tokens', 'output-tokens'],
+              },
+            },
+          ],
+        },
+      },
+    ],
+  }
+  return snapshot as EstateSnapshot
+}
+
+function runtimeManifestRecord(snapshot: EstateSnapshot, agent: EstateSnapshot['nodes'][number]) {
+  const sourceBinding = {
+    sourceConnectorId: agent.metadata['sourceConnectorId']!,
+    sourceTenantId: agent.metadata['sourceTenantId']!,
+    sourceObjectId: agent.metadata['sourceObjectId']!,
+    sourceEnvironment: agent.metadata['sourceEnvironment']!,
+  }
+  const envelope = {
+    schemaVersion: '1.0' as const,
+    manifestId: 'runtime-manifest',
+    tenantId: snapshot.tenantId,
+    environmentId: snapshot.environment,
+    producedAt: snapshot.generatedAt,
+    producer: { name: 'Runtime manifest producer' },
+    capabilities: {
+      supportsDiscovery: true,
+      evidenceDepth: 'deep' as const,
+      supportsRuntimeTelemetry: true,
+      supportsActions: 'none' as const,
+    },
+    agents: [{ id: sourceBinding.sourceObjectId, displayName: agent.name }],
+    tools: [],
+    identities: [],
+    dataSources: [],
+    mcpDependencies: [],
+    edges: [],
+    evidence: [
+      {
+        id: 'runtime-claim',
+        subjectId: sourceBinding.sourceObjectId,
+        evidenceType: 'runtime_observed' as const,
+        confidence: 0.8,
+        observedAt: snapshot.generatedAt,
+        sourceBinding,
+        claims: {},
+      },
+    ],
+    metadata: {},
+  }
+  return manifestIngestionRecordSchema.parse({
+    tenantId: snapshot.tenantId,
+    environmentId: snapshot.environment,
+    manifestId: envelope.manifestId,
+    manifestHash: computeManifestHash(envelope),
+    ingestedAt: snapshot.generatedAt,
+    ingestedBySubject: 'administrator',
+    envelope,
+    snapshot: {
+      tenantId: snapshot.tenantId,
+      environment: snapshot.environment,
+      generatedAt: snapshot.generatedAt,
+      nodes: [],
+      edges: [],
+      evidence: [],
+    },
+  })
 }
 
 afterEach(async () => {
@@ -168,6 +331,34 @@ describe('live product read model', () => {
       id: 'default',
       tenantId: snapshot.tenantId,
       environment: snapshot.environment,
+    })
+  })
+
+  it('hydrates a jobs-persisted legacy OTel invocation before serving the live snapshot', async () => {
+    const snapshot = legacyRuntimeSnapshot()
+    configureFoundryFor(snapshot)
+    const { repository } = snapshotRepository(snapshot)
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled' },
+      {
+        dataMode: 'live',
+        snapshotRepository: repository,
+        runtimeTelemetryConnector: null,
+      },
+    )
+    apps.push(app)
+
+    const response = await app.inject({ method: 'GET', url: '/api/demo/state' })
+    const state = agentSentinelStateSchema.parse(response.json())
+
+    expect(response.statusCode).toBe(200)
+    expect(state.snapshot.evidence[1]?.otel?.invocations[0]).toMatchObject({
+      toolCallNames: [],
+      provenance: {
+        sourceProjectId: 'validation',
+        snapshotGeneratedAt: snapshot.generatedAt,
+      },
     })
   })
 
@@ -764,6 +955,96 @@ describe('live product read model', () => {
       ],
     })
     expect(state.snapshot.evidence).toEqual(snapshot.evidence)
+  })
+
+  it('removes prior exact-source runtime evidence before manifest verification of an empty result', async () => {
+    const snapshot = await new MockAgentConnector().discover()
+    configureFoundryFor(snapshot)
+    const agent = snapshot.nodes.find((node) => node.kind === 'agent')
+    if (agent === undefined) throw new Error('Expected an agent fixture.')
+    authorizeRuntimeAgent(snapshot, agent)
+    const request = runtimeTelemetryRequestForAgent(snapshot, agent, {
+      id: 'default',
+      tenantId: snapshot.tenantId,
+      environment: snapshot.environment,
+    })
+    if (request === undefined) throw new Error('Expected a runtime request.')
+    const fixture = createRuntimeTelemetryFixture(snapshot.environment)
+    const prior = projectRuntimeEvidence(
+      snapshot,
+      await fixture.readObservationWindows(request),
+      request,
+    ).snapshot
+    const unrelated = structuredClone(
+      prior.evidence.find((evidence) => evidence.id === 'otel-observed-evidence')!,
+    )
+    unrelated.id = 'unrelated-runtime-evidence'
+    unrelated.metadata = {
+      ...unrelated.metadata,
+      sourceConnectorId: 'secondary',
+      sourceProjectId: 'other-project',
+      sourceAgentId: 'other-agent',
+    }
+    for (const invocation of unrelated.otel?.invocations ?? []) {
+      invocation.provenance.sourceConnectorId = 'secondary'
+      invocation.provenance.sourceProjectId = 'other-project'
+      invocation.provenance.providerAgentId = 'other-agent'
+    }
+    prior.evidence.push(unrelated)
+    const manifestIngestionRepository: ManifestIngestionRepository = {
+      save: vi.fn(),
+      listLatest: () => Promise.resolve([runtimeManifestRecord(prior, agent)]),
+    }
+    const { repository } = snapshotRepository(prior)
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled' },
+      {
+        dataMode: 'live',
+        snapshotRepository: repository,
+        manifestIngestionRepository,
+        runtimeTelemetryConnector: {
+          id: fixture.id,
+          async readObservationWindows(currentRequest, options) {
+            const windows = await fixture.readObservationWindows(currentRequest, options)
+            const emptyQuality = {
+              status: 'unknown' as const,
+              classification: 'unknown' as const,
+              caveats: ['empty'] as const,
+              recordsReceived: 0,
+              recordsAccepted: 0,
+              duplicatesRemoved: 0,
+              pagesProcessed: 1,
+            }
+            return runtimeObservationWindowsSchema.parse({
+              ...windows,
+              baseline: { ...windows.baseline, observations: [], otelQuality: emptyQuality },
+              observed: { ...windows.observed, observations: [], otelQuality: emptyQuality },
+            })
+          },
+        },
+      },
+    )
+    apps.push(app)
+
+    const response = await app.inject({ method: 'GET', url: '/api/demo/state' })
+    const state = agentSentinelStateSchema.parse(response.json())
+
+    expect(response.statusCode).toBe(200)
+    expect(
+      state.snapshot.evidence.filter((evidence) =>
+        ['otel-baseline-evidence', 'otel-observed-evidence'].includes(evidence.id),
+      ),
+    ).toEqual([])
+    expect(state.snapshot.evidence).toContainEqual(
+      expect.objectContaining({ id: 'unrelated-runtime-evidence' }),
+    )
+    expect(state.manifestRuntimeVerification?.claims).toEqual([
+      expect.objectContaining({
+        status: 'no-observation',
+        reason: 'no-non-synthetic-runtime-observation',
+      }),
+    ])
   })
 
   it('rejects wrong-estate runtime telemetry before projecting evidence', async () => {

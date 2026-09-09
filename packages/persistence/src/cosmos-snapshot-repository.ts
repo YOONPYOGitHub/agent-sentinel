@@ -1,6 +1,13 @@
 import type { Container, CosmosClient, SqlQuerySpec } from '@azure/cosmos'
 
-import type { EstateContext, EstateSnapshot, SnapshotRepository } from '@agent-sentinel/domain'
+import {
+  PERSISTED_ESTATE_SNAPSHOT_SCHEMA_VERSION,
+  estateSnapshotSchema,
+  hydratePersistedEstateSnapshot,
+  type EstateContext,
+  type EstateSnapshot,
+  type SnapshotRepository,
+} from '@agent-sentinel/domain'
 
 interface SnapshotDocument {
   id: string
@@ -10,12 +17,19 @@ interface SnapshotDocument {
   environment: string
   snapshotId: string
   generatedAt: string
-  snapshot: EstateSnapshot
+  snapshotSchemaVersion?: number
+  snapshot: unknown
 }
 
-interface LegacySnapshotDocument extends EstateSnapshot {
+interface LegacySnapshotDocument {
   id: string
   partitionKey?: string
+  tenantId: string
+  environment: string
+  generatedAt: string
+  nodes: unknown
+  edges: unknown
+  evidence: unknown
 }
 
 type StoredSnapshot = SnapshotDocument | LegacySnapshotDocument
@@ -39,16 +53,27 @@ function isSnapshotDocument(value: StoredSnapshot): value is SnapshotDocument {
 
 function unwrapSnapshot(value: StoredSnapshot, estate: EstateContext): EstateSnapshot | null {
   if (isSnapshotDocument(value)) {
-    return value.estateId === estate.id &&
-      value.tenantId === estate.tenantId &&
-      value.environment === estate.environment
-      ? value.snapshot
-      : null
+    if (
+      value.estateId !== estate.id ||
+      value.tenantId !== estate.tenantId ||
+      value.environment !== estate.environment
+    ) {
+      return null
+    }
+    if (value.snapshotSchemaVersion === PERSISTED_ESTATE_SNAPSHOT_SCHEMA_VERSION) {
+      return estateSnapshotSchema.parse(value.snapshot)
+    }
+    if (value.snapshotSchemaVersion !== undefined && value.snapshotSchemaVersion !== 1) {
+      throw new Error(
+        `Unsupported persisted estate snapshot version: ${value.snapshotSchemaVersion}`,
+      )
+    }
+    return hydratePersistedEstateSnapshot(value.snapshot)
   }
   return estate.id === 'default' &&
     value.tenantId === estate.tenantId &&
     value.environment === estate.environment
-    ? value
+    ? hydratePersistedEstateSnapshot(value)
     : null
 }
 
@@ -76,10 +101,11 @@ export class CosmosSnapshotRepository implements SnapshotRepository {
   }
 
   async save(estate: EstateContext, snapshot: EstateSnapshot): Promise<void> {
-    if (snapshot.tenantId !== estate.tenantId || snapshot.environment !== estate.environment) {
+    const validated = estateSnapshotSchema.parse(snapshot)
+    if (validated.tenantId !== estate.tenantId || validated.environment !== estate.environment) {
       throw new Error('Snapshot boundary does not match the target estate.')
     }
-    const snapshotId = logicalSnapshotId(snapshot)
+    const snapshotId = logicalSnapshotId(validated)
     await this.container.items.upsert<SnapshotDocument>({
       id: physicalSnapshotId(estate, snapshotId),
       documentType: 'estate-snapshot',
@@ -87,8 +113,9 @@ export class CosmosSnapshotRepository implements SnapshotRepository {
       tenantId: estate.tenantId,
       environment: estate.environment,
       snapshotId,
-      generatedAt: snapshot.generatedAt,
-      snapshot,
+      generatedAt: validated.generatedAt,
+      snapshotSchemaVersion: PERSISTED_ESTATE_SNAPSHOT_SCHEMA_VERSION,
+      snapshot: validated,
     })
   }
 

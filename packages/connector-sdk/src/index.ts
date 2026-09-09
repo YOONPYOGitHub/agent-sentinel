@@ -417,6 +417,7 @@ export interface BusinessOutcomeConnector {
 export {
   projectRuntimeEvidence,
   recomputeRuntimeOtelQuality,
+  removeRuntimeEvidenceForRequest,
   runtimeTelemetryRequestForAgent,
   validateRuntimeTelemetryProvenance,
   withoutSyntheticObservations,

@@ -392,13 +392,16 @@ function isRegisteredEdgeStateVariant(
   snapshot: EstateSnapshot,
   authority: LiveGraphAuthorityRegistry,
 ): boolean {
+  const candidateEdgeIds = new Set(snapshot.edges.map((edge) => edge.id))
   if (
     snapshot.tenantId.toLowerCase() !== authority.validatedSnapshot.tenantId.toLowerCase() ||
     snapshot.environment !== authority.validatedSnapshot.environment ||
     snapshot.generatedAt !== authority.validatedSnapshot.generatedAt ||
     snapshot.nodes !== authority.sourceNodes ||
     snapshot.evidence !== authority.sourceEvidence ||
-    snapshot.edges.length !== authority.validatedSnapshot.edges.length
+    candidateEdgeIds.size !== snapshot.edges.length ||
+    candidateEdgeIds.size !== authority.edgesById.size ||
+    [...authority.edgesById.keys()].some((edgeId) => !candidateEdgeIds.has(edgeId))
   ) {
     return false
   }

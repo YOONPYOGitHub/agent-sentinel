@@ -166,7 +166,7 @@ export function safeAgent365FailureReason(error: unknown): string {
 }
 
 function readinessForFailure(reason: string | undefined): ConnectorReadiness {
-  if (reason === 'authorization' || reason === 'license-required') {
+  if (reason === 'authentication' || reason === 'authorization' || reason === 'license-required') {
     return 'authorization-required'
   }
   return 'unavailable'
@@ -362,16 +362,17 @@ export class Agent365CompositionConnector implements OperationAwareAgentConnecto
           provenance: undefined,
         }
       } catch (error) {
+        const reason = safeAgent365FailureReason(error)
         return {
           id: source.id,
           source,
           connector: undefined,
-          readiness: 'unavailable' as const,
+          readiness: readinessForFailure(reason),
           dataState: 'failed' as const,
           pages: 0,
           records: 0,
           checkedAt: undefined,
-          reason: safeAgent365FailureReason(error),
+          reason,
           provenance: undefined,
         }
       }
@@ -509,6 +510,23 @@ export class Agent365CompositionConnector implements OperationAwareAgentConnecto
         connector: Agent365InventoryConnector
       } => state.connector !== undefined,
     )
+    if (executable.length === 0) {
+      const checkedAt = new Date().toISOString()
+      for (const state of this.sources) {
+        state.checkedAt = checkedAt
+        state.provenance = {
+          estateTenantId: base.tenantId,
+          estateEnvironment: base.environment,
+          sourceConnectorId: state.source.id,
+          sourceTenantId: state.source.tenantId,
+          sourceEnvironment: state.source.environment,
+          provider: 'microsoft-graph-agent365-package-catalog',
+          providerObjectId: AGENT365_PACKAGES_PATH,
+        }
+      }
+      this.evidenceById = new Map(base.evidence.map((item) => [item.id, item]))
+      return base
+    }
     const configuredMaxPages = Math.max(
       ...this.config.sources.map((source) => source.limits.maxPages),
     )

@@ -2,7 +2,7 @@ import type { CosmosClient, OperationInput, SqlQuerySpec } from '@azure/cosmos'
 
 type StoredDocument = Record<string, unknown> & {
   id: string
-  documentType: string
+  documentType?: string
   _etag: string
   tenantId?: string
   estateId?: string
@@ -92,7 +92,7 @@ export class FakeCosmosStore {
   }
 
   private partitionValue(document: StoredDocument): string | undefined {
-    return document.documentType.startsWith('connector-source')
+    return document.documentType?.startsWith('connector-source') === true
       ? document.estateId
       : (document.tenantId ?? document.estateId)
   }
@@ -204,6 +204,26 @@ export class FakeCosmosStore {
       (query.parameters ?? []).map((parameter) => [parameter.name, parameter.value]),
     )
     const documentType = parameters.get('@documentType')
+    if (query.query.includes('estate-snapshot')) {
+      const allowLegacy = parameters.get('@allowLegacy') === true
+      const estateId = parameters.get('@estateId')
+      const tenantId = parameters.get('@tenantId')
+      const environment = parameters.get('@environment')
+      const limit = Number.parseInt(query.query.match(/LIMIT (\d+)/)?.[1] ?? '100', 10)
+      return clone(
+        [...this.documents.values()]
+          .filter(
+            (document) =>
+              this.partitionValue(document) === partitionKey &&
+              document.tenantId === tenantId &&
+              document.environment === environment &&
+              ((document.documentType === 'estate-snapshot' && document.estateId === estateId) ||
+                (allowLegacy && document.documentType === undefined)),
+          )
+          .sort((left, right) => String(right.generatedAt).localeCompare(String(left.generatedAt)))
+          .slice(0, limit),
+      )
+    }
     let documents = [...this.documents.values()].filter(
       (document) =>
         this.partitionValue(document) === partitionKey && document.documentType === documentType,

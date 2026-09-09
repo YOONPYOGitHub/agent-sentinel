@@ -1,7 +1,12 @@
 import { z } from 'zod'
 
-import { evidenceSchema, evidenceTypeSchema } from './evidence.js'
+import { evidenceSchema, evidenceTypeSchema, type Evidence } from './evidence.js'
 import { runsAsBindingSchema } from './evidence-authority.js'
+import {
+  otelWindowQualitySchema,
+  runtimeOtelEvidenceItemSchema,
+  runtimeOtelProvenanceSchema,
+} from './otel-evidence.js'
 import { sourceProjectIdSchema } from './source-project.js'
 
 export { estateContextSchema, estateIdSchema } from './estate.js'
@@ -182,6 +187,162 @@ export const estateSnapshotSchema = z
   })
 
 export type EstateSnapshot = z.infer<typeof estateSnapshotSchema>
+
+export const PERSISTED_ESTATE_SNAPSHOT_SCHEMA_VERSION = 2
+
+const legacyRuntimeOtelProvenanceSchema = runtimeOtelProvenanceSchema.partial({
+  snapshotGeneratedAt: true,
+  sourceProjectId: true,
+})
+
+const legacyRuntimeOtelEvidenceItemSchema = z.strictObject({
+  ...runtimeOtelEvidenceItemSchema.shape,
+  toolCallNames: runtimeOtelEvidenceItemSchema.shape.toolCallNames.optional(),
+  provenance: legacyRuntimeOtelProvenanceSchema,
+})
+
+const legacyRuntimeEvidenceSchema = z.object({
+  ...evidenceSchema.shape,
+  otel: z.strictObject({
+    quality: otelWindowQualitySchema,
+    invocations: z.array(legacyRuntimeOtelEvidenceItemSchema).max(500),
+  }),
+})
+
+const legacyEstateSnapshotSchema = z.object({
+  tenantId: z.string().min(1),
+  environment: z.string().min(1),
+  generatedAt: z.iso.datetime(),
+  nodes: z.array(graphNodeSchema),
+  edges: z.array(graphEdgeSchema),
+  evidence: z.array(z.unknown()),
+})
+
+function exactLegacyRuntimeProjectId(
+  snapshot: z.infer<typeof legacyEstateSnapshotSchema>,
+  evidenceId: string,
+  provenance: z.infer<typeof legacyRuntimeOtelProvenanceSchema>,
+  validEvidenceById: ReadonlyMap<string, Evidence>,
+): string | undefined {
+  if (
+    provenance.estateTenantId !== snapshot.tenantId ||
+    provenance.estateEnvironment !== snapshot.environment ||
+    (provenance.snapshotGeneratedAt !== undefined &&
+      provenance.snapshotGeneratedAt !== snapshot.generatedAt)
+  ) {
+    return undefined
+  }
+  const projects = new Set(
+    snapshot.nodes.flatMap((node) => {
+      const sourceProjectId = sourceProjectIdSchema.safeParse(node.metadata['sourceProjectId'])
+      if (
+        node.kind !== 'agent' ||
+        !node.evidenceIds.includes(evidenceId) ||
+        node.metadata['sourceOfTruth'] !== 'true' ||
+        node.metadata['isNonAuthoritative'] === 'true' ||
+        node.metadata['sourceConnectorId'] !== provenance.sourceConnectorId ||
+        node.metadata['sourceTenantId'] !== provenance.sourceTenantId ||
+        node.metadata['sourceEnvironment'] !== provenance.sourceEnvironment ||
+        node.metadata['sourceObjectId'] !== provenance.providerAgentId ||
+        node.environment !== provenance.sourceEnvironment ||
+        !sourceProjectId.success
+      ) {
+        return []
+      }
+      const hasExactDeclaration = node.evidenceIds.some((declaredEvidenceId) => {
+        const declared = validEvidenceById.get(declaredEvidenceId)
+        const metadata = declared?.metadata
+        return (
+          declared?.evidenceTypes.length === 1 &&
+          declared.evidenceTypes[0] === 'declared_configuration' &&
+          metadata?.['sourceOfTruth'] === 'true' &&
+          metadata['estateTenantId'] === snapshot.tenantId &&
+          metadata['estateEnvironment'] === snapshot.environment &&
+          metadata['sourceConnectorId'] === provenance.sourceConnectorId &&
+          metadata['sourceTenantId'] === provenance.sourceTenantId &&
+          metadata['sourceProjectId'] === sourceProjectId.data &&
+          metadata['sourceEnvironment'] === provenance.sourceEnvironment &&
+          metadata['sourceObjectId'] === provenance.providerAgentId
+        )
+      })
+      return hasExactDeclaration ? [sourceProjectId.data] : []
+    }),
+  )
+  if (projects.size !== 1) return undefined
+  const [sourceProjectId] = projects
+  return provenance.sourceProjectId === undefined || provenance.sourceProjectId === sourceProjectId
+    ? sourceProjectId
+    : undefined
+}
+
+function migrationRequiredLegacyRuntimeEvidence(
+  evidence: z.infer<typeof legacyRuntimeEvidenceSchema>,
+): Evidence {
+  return evidenceSchema.parse({
+    id: evidence.id,
+    source: evidence.source,
+    sourceObjectId: evidence.sourceObjectId,
+    observedAt: evidence.observedAt,
+    freshness: evidence.freshness,
+    confidence: 0,
+    evidenceTypes: ['unknown'],
+    ...(evidence.uri === undefined ? {} : { uri: evidence.uri }),
+    summary: evidence.summary,
+    metadata: {
+      ...evidence.metadata,
+      sourceOfTruth: 'false',
+      isNonAuthoritative: 'true',
+      migrationStatus: 'migration-required',
+      migrationReason: 'legacy-runtime-evidence-missing-exact-source-context',
+    },
+  })
+}
+
+export function hydratePersistedEstateSnapshot(value: unknown): EstateSnapshot {
+  const current = estateSnapshotSchema.safeParse(value)
+  if (current.success) return current.data
+
+  const legacy = legacyEstateSnapshotSchema.parse(value)
+  const validEvidenceById = new Map<string, Evidence>()
+  for (const candidate of legacy.evidence) {
+    const parsed = evidenceSchema.safeParse(candidate)
+    if (parsed.success) validEvidenceById.set(parsed.data.id, parsed.data)
+  }
+  const evidence = legacy.evidence.map((candidate) => {
+    const currentEvidence = evidenceSchema.safeParse(candidate)
+    if (currentEvidence.success) return currentEvidence.data
+    const runtimeEvidence = legacyRuntimeEvidenceSchema.parse(candidate)
+    const invocations = runtimeEvidence.otel.invocations.map((invocation) => {
+      const sourceProjectId = exactLegacyRuntimeProjectId(
+        legacy,
+        runtimeEvidence.id,
+        invocation.provenance,
+        validEvidenceById,
+      )
+      if (sourceProjectId === undefined) return undefined
+      return runtimeOtelEvidenceItemSchema.parse({
+        ...invocation,
+        toolCallNames: invocation.toolCallNames ?? [],
+        provenance: {
+          ...invocation.provenance,
+          sourceProjectId,
+          snapshotGeneratedAt: invocation.provenance.snapshotGeneratedAt ?? legacy.generatedAt,
+        },
+      })
+    })
+    if (invocations.some((invocation) => invocation === undefined)) {
+      return migrationRequiredLegacyRuntimeEvidence(runtimeEvidence)
+    }
+    return evidenceSchema.parse({
+      ...runtimeEvidence,
+      otel: {
+        ...runtimeEvidence.otel,
+        invocations,
+      },
+    })
+  })
+  return estateSnapshotSchema.parse({ ...legacy, evidence })
+}
 
 export const riskFactorsSchema = z.object({
   reachability: z.number().min(0).max(1),

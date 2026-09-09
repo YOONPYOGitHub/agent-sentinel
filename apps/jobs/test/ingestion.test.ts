@@ -9,6 +9,7 @@ import type {
   RuntimeTelemetryRequest,
 } from '@agent-sentinel/connector-sdk'
 import {
+  projectRuntimeEvidence,
   runtimeObservationWindowsSchema,
   runtimeTelemetryRequestForAgent,
 } from '@agent-sentinel/connector-sdk'
@@ -1015,6 +1016,52 @@ describe('IngestionService', () => {
           evidence.otel?.quality.status === 'degraded',
       ),
     ).toBe(true)
+  })
+
+  it('replaces prior exact-source runtime evidence with the current empty result', async () => {
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const discovered = fullSnapshot()
+    const agent = discovered.nodes.find((node) => node.kind === 'agent')
+    if (agent === undefined) throw new Error('Expected an agent fixture.')
+    authorizeRuntimeAgent(discovered, agent)
+    const request = runtimeTelemetryRequestForAgent(discovered, agent, testEstate)
+    if (request === undefined) throw new Error('Expected a runtime telemetry request.')
+    const fixture = createRuntimeTelemetryFixture(testEstate.environment)
+    const prior = projectRuntimeEvidence(
+      discovered,
+      await fixture.readObservationWindows(request),
+      request,
+    ).snapshot
+    const service = new IngestionService(makeConnector(prior), snapshots, exposures, {
+      estate: testEstate,
+      sourceMode: 'foundry',
+      runtimeTelemetryConnector: {
+        id: fixture.id,
+        readObservationWindows(currentRequest) {
+          return Promise.resolve(
+            emptyRuntimeWindows(currentRequest, {
+              status: 'unknown',
+              classification: 'unknown',
+              caveats: ['empty'],
+              recordsReceived: 0,
+              recordsAccepted: 0,
+              duplicatesRemoved: 0,
+              pagesProcessed: 1,
+            }),
+          )
+        },
+      },
+    })
+
+    await service.run()
+
+    const persisted = await snapshots.findLatest(testEstate)
+    expect(
+      persisted?.evidence.filter((evidence) =>
+        ['otel-baseline-evidence', 'otel-observed-evidence'].includes(evidence.id),
+      ),
+    ).toEqual([])
   })
 
   it('refreshes API telemetry from a jobs-persisted snapshot with degraded projected evidence', async () => {

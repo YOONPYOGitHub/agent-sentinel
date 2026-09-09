@@ -882,7 +882,7 @@ describe('runtime evidence projection', () => {
     })
   })
 
-  it('treats persisted runtime correlation and matched tool fields as immutable evidence', () => {
+  it('replaces prior exact-source runtime correlation and matched tool fields', () => {
     const mutations: Array<(observation: RuntimeObservation) => void> = [
       (observation) => {
         observation.correlations![0]!.value = 'run-observed-real-other'
@@ -910,9 +910,17 @@ describe('runtime evidence projection', () => {
       const conflicting = structuredClone(normalized)
       mutate(conflicting.observed.observations[0]!)
 
-      expect(() => project(first.snapshot, conflicting)).toThrow(
-        'Runtime evidence ID collides with existing evidence: observed-evidence',
-      )
+      const replacement = project(first.snapshot, conflicting)
+      const observation = conflicting.observed.observations[0]!
+      expect(
+        replacement.snapshot.evidence.find((item) => item.id === 'observed-evidence')?.otel
+          ?.invocations[0],
+      ).toMatchObject({
+        agentRunId: observation.correlations![0]!.value,
+        correlationId: observation.correlations![1]!.value,
+        agentVersion: observation.correlations![2]!.value,
+        toolCallNames: observation.toolCallNames,
+      })
     }
   })
 

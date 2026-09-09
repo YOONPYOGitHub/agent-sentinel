@@ -4,6 +4,7 @@ import type { EstateSnapshot, Evidence } from '@agent-sentinel/domain'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  Agent365ConnectorError,
   Agent365CompositionConnector,
   createAgent365SourceCredential,
   createOptionalAgent365Connector,
@@ -166,7 +167,7 @@ describe('Agent365 composition', () => {
         expect.objectContaining({
           id: 'agent365:primary',
           enabled: true,
-          readiness: 'unavailable',
+          readiness: 'authorization-required',
           dataState: 'failed',
           reason: 'authentication',
         }),
@@ -245,6 +246,41 @@ describe('Agent365 composition', () => {
     await expect(connector.getEvidence(snapshot.evidence[1]!.id)).resolves.toMatchObject({
       sourceObjectId: 'tenant-a:P_shared',
     })
+  })
+
+  it('returns the base snapshot with authorization health when every source credential fails', async () => {
+    const config = parseAgent365Config({ AGENT365_SOURCES_JSON: JSON.stringify(sources) })
+    const connector = new Agent365CompositionConnector(baseConnector(), config, {
+      credentialFactory: () => {
+        throw new Agent365ConnectorError('authentication', 'credential unavailable')
+      },
+      clientFactory: () => ({
+        fetcher: vi.fn<typeof fetch>(),
+      }),
+    })
+
+    await expect(connector.discover()).resolves.toEqual(baseSnapshot)
+    const health = connector.getConnectorHealth()
+    expect(health).toMatchObject({
+      overall: 'degraded',
+      partial: true,
+    })
+    expect(health.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'agent365:tenant-a',
+          readiness: 'authorization-required',
+          dataState: 'failed',
+          reason: 'authentication',
+        }),
+        expect.objectContaining({
+          id: 'agent365:tenant-b',
+          readiness: 'authorization-required',
+          dataState: 'failed',
+          reason: 'authentication',
+        }),
+      ]),
+    )
   })
 
   it('keeps identical provider ids and names distinct across successful sources', async () => {

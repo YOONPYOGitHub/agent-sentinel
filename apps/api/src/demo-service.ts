@@ -1,6 +1,7 @@
 import {
   aggregateLiveSources,
   projectRuntimeEvidence,
+  removeRuntimeEvidenceForRequest,
   runtimeObservationWindowsSchema,
   runtimeTelemetryRequestForAgent,
   validateRuntimeTelemetryProvenance,
@@ -13,6 +14,7 @@ import {
 } from '@agent-sentinel/connector-sdk'
 import {
   assessRuntimeOtelQuality,
+  hydratePersistedEstateSnapshot,
   type AgentSentinelState,
   type EstateContext,
   type EstateSnapshot,
@@ -92,15 +94,19 @@ export class DemoService {
         'The persisted estate read model is not configured for this live deployment.',
       )
     }
-    const snapshot =
+    const candidateSnapshot =
       this.persistedReadModel === undefined
         ? await this.connector.discover()
         : await this.persistedReadModel.snapshotRepository.findLatest(this.estate)
-    if (snapshot === null) {
+    if (candidateSnapshot === null) {
       throw new ReadModelUnavailableError(
         'No persisted estate snapshot is available for the configured tenant and environment.',
       )
     }
+    const snapshot =
+      this.persistedReadModel === undefined
+        ? candidateSnapshot
+        : hydratePersistedEstateSnapshot(candidateSnapshot)
     if (
       this.connectorMode === 'foundry' &&
       (snapshot.tenantId.toLowerCase() !== this.estate.tenantId.toLowerCase() ||
@@ -308,6 +314,7 @@ export class DemoService {
         continue
       }
       const windows = outcome.value
+      projected = removeRuntimeEvidenceForRequest(projected, request)
       const observations = [...windows.baseline.observations, ...windows.observed.observations]
       const inputProviderResourceIds = [
         ...new Set([

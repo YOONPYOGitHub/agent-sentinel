@@ -476,6 +476,7 @@ function evidenceForWindow(
   agentName: string,
   matchedToolCallNames: ReadonlySet<string>,
   unmatchedToolCallNames: string[],
+  sourceProvenance: RuntimeObservationWindows['provenance'],
 ): Evidence {
   const qualityStatus = window.otelQuality?.status ?? 'available'
   const successCount = observations.filter((item) => item.success).length
@@ -520,6 +521,18 @@ function evidenceForWindow(
       recordsAccepted: String(window.otelQuality?.recordsAccepted ?? observations.length),
       duplicatesRemoved: String(window.otelQuality?.duplicatesRemoved ?? 0),
       unmatchedToolCallNames: JSON.stringify(unmatchedToolCallNames),
+      ...(sourceProvenance === undefined
+        ? {}
+        : {
+            estateId: sourceProvenance.estateId,
+            estateTenantId: sourceProvenance.estateTenantId,
+            estateEnvironment: sourceProvenance.estateEnvironment,
+            sourceConnectorId: sourceProvenance.sourceConnectorId,
+            sourceTenantId: sourceProvenance.sourceTenantId,
+            sourceProjectId: sourceProvenance.sourceProjectId,
+            sourceEnvironment: sourceProvenance.sourceEnvironment,
+            sourceAgentId: sourceProvenance.providerAgentId,
+          }),
     },
     ...(window.otelQuality !== undefined
       ? {
@@ -784,14 +797,84 @@ function exactToolMatches(
   return matches.length === 1 ? matches[0] : undefined
 }
 
+function exactRuntimeEvidenceBoundary(
+  evidence: Evidence,
+  request: RuntimeTelemetryRequest,
+): boolean {
+  if (
+    evidence.metadata?.['sourceConnector'] !== 'azure-monitor-otel' ||
+    request.estateId === undefined ||
+    request.estateEnvironment === undefined ||
+    request.sourceConnectorId === undefined ||
+    request.sourceTenantId === undefined ||
+    request.sourceProjectId === undefined ||
+    request.sourceAgentId === undefined ||
+    request.sourceEnvironment === undefined
+  ) {
+    return false
+  }
+  const metadata = evidence.metadata
+  const metadataMatches =
+    metadata['estateId'] === request.estateId &&
+    metadata['estateTenantId'] === request.tenantId &&
+    metadata['estateEnvironment'] === request.estateEnvironment &&
+    metadata['sourceConnectorId'] === request.sourceConnectorId &&
+    metadata['sourceTenantId'] === request.sourceTenantId &&
+    metadata['sourceProjectId'] === request.sourceProjectId &&
+    metadata['sourceEnvironment'] === request.sourceEnvironment &&
+    metadata['sourceAgentId'] === request.sourceAgentId
+  if (metadataMatches) return true
+
+  const invocations = evidence.otel?.invocations ?? []
+  return (
+    invocations.length > 0 &&
+    invocations.every(
+      (invocation) =>
+        invocation.provenance.estateId === request.estateId &&
+        invocation.provenance.estateTenantId === request.tenantId &&
+        invocation.provenance.estateEnvironment === request.estateEnvironment &&
+        invocation.provenance.sourceConnectorId === request.sourceConnectorId &&
+        invocation.provenance.sourceTenantId === request.sourceTenantId &&
+        invocation.provenance.sourceProjectId === request.sourceProjectId &&
+        invocation.provenance.sourceEnvironment === request.sourceEnvironment &&
+        invocation.provenance.providerAgentId === request.sourceAgentId,
+    )
+  )
+}
+
+export function removeRuntimeEvidenceForRequest(
+  snapshotInput: EstateSnapshot,
+  request: RuntimeTelemetryRequest,
+): EstateSnapshot {
+  const snapshot = estateSnapshotSchema.parse(structuredClone(snapshotInput))
+  const removedIds = new Set(
+    snapshot.evidence
+      .filter((evidence) => exactRuntimeEvidenceBoundary(evidence, request))
+      .map((evidence) => evidence.id),
+  )
+  if (removedIds.size === 0) return snapshot
+  snapshot.evidence = snapshot.evidence.filter((evidence) => !removedIds.has(evidence.id))
+  for (const node of snapshot.nodes) {
+    node.evidenceIds = node.evidenceIds.filter((evidenceId) => !removedIds.has(evidenceId))
+  }
+  for (const edge of snapshot.edges) {
+    edge.evidenceIds = edge.evidenceIds.filter((evidenceId) => !removedIds.has(evidenceId))
+  }
+  return estateSnapshotSchema.parse(snapshot)
+}
+
 export function projectRuntimeEvidence(
   snapshotInput: EstateSnapshot,
   windowsInput: RuntimeObservationWindows,
   authority: RuntimeEvidenceProjectionAuthority,
 ): RuntimeEvidenceProjection {
-  const snapshot = estateSnapshotSchema.parse(structuredClone(snapshotInput))
+  let snapshot = estateSnapshotSchema.parse(structuredClone(snapshotInput))
   let windows = runtimeObservationWindowsSchema.parse(removeMalformedOtelObservations(windowsInput))
-  const agent = authoritativeProjectionAgent(snapshot, windows, authority)
+  let agent = authoritativeProjectionAgent(snapshot, windows, authority)
+  if ('agentId' in authority) {
+    snapshot = removeRuntimeEvidenceForRequest(snapshot, authority)
+    agent = authoritativeProjectionAgent(snapshot, windows, authority)
+  }
   const expectedEnvironment = agent.metadata['sourceEnvironment'] ?? agent.environment
   if (
     windows.observed.tenantId !== snapshot.tenantId ||
@@ -837,6 +920,7 @@ export function projectRuntimeEvidence(
         agent.name,
         new Set(matches.keys()),
         [...toolNames].filter((name) => !matches.has(name)).sort(),
+        windows.provenance,
       )
       const existing = snapshot.evidence.find((item) => item.id === id)
       if (existing === undefined) {

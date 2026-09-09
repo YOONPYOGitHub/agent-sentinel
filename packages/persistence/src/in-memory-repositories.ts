@@ -9,6 +9,7 @@ import type {
   ValidationRun,
   ValidationRunRepository,
 } from '@agent-sentinel/domain'
+import { estateSnapshotSchema } from '@agent-sentinel/domain'
 
 type TenantFinding = Finding & { tenantId?: string }
 
@@ -19,14 +20,16 @@ export class InMemorySnapshotRepository implements SnapshotRepository {
   >()
 
   save(estate: EstateContext, snapshot: EstateSnapshot): Promise<void> {
-    if (snapshot.tenantId !== estate.tenantId || snapshot.environment !== estate.environment) {
-      return Promise.reject(new Error('Snapshot boundary does not match the target estate.'))
-    }
-    this.snapshots.set(
-      `${estate.id}\u0000${snapshot.tenantId}-${snapshot.environment}-${snapshot.generatedAt}`,
-      { estate: structuredClone(estate), snapshot: structuredClone(snapshot) },
-    )
-    return Promise.resolve()
+    return Promise.resolve().then(() => {
+      const validated = estateSnapshotSchema.parse(snapshot)
+      if (validated.tenantId !== estate.tenantId || validated.environment !== estate.environment) {
+        throw new Error('Snapshot boundary does not match the target estate.')
+      }
+      this.snapshots.set(
+        `${estate.id}\u0000${validated.tenantId}-${validated.environment}-${validated.generatedAt}`,
+        { estate: structuredClone(estate), snapshot: structuredClone(validated) },
+      )
+    })
   }
 
   findLatest(estate: EstateContext): Promise<EstateSnapshot | null> {

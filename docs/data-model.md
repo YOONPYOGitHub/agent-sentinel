@@ -421,6 +421,22 @@ invocation records and the full bounded quality summary. A supplied
 `correlation-id` is preserved exactly; the trace ID is used as its fallback only
 when that correlation kind is absent.
 
+Persisted estate snapshot writes use snapshot schema version 2 and remain strict.
+Read compatibility is limited to unversioned/version-1 snapshots whose runtime
+invocations predate required `sourceProjectId`, `snapshotGeneratedAt`, or
+`toolCallNames` fields. A read may hydrate the project and generation only when
+one authoritative agent and declared evidence record match the exact persisted
+estate, source, environment, and provider agent; missing tool names hydrate to
+an empty list. Without that exact context, the legacy runtime evidence is
+retained only as non-authoritative, `migration-required` unknown evidence with
+no usable OTel invocation payload.
+
+When a current telemetry result is received for an exact source and agent, prior
+projected runtime evidence for that same boundary is removed before the current
+empty, partial, stale, or complete result is applied. Evidence for other sources
+or agents is preserved, so manifest verification cannot reuse a stale
+observation after a current valid-empty result.
+
 `OtelWindowQuality.status` is `available`, `unknown`, or `degraded`. Empty input
 is `unknown`. Invalid or missing IDs, sampling, unknown sampling, partial
 records, stale/future timestamps, unsupported signals or claims, aggregated

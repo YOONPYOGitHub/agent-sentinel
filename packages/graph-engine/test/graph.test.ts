@@ -672,6 +672,76 @@ describe('graph engine', () => {
     expect(calculateBlastRadius(candidate, 'agent', context)).toEqual([])
   })
 
+  it('rejects a blast-radius edge-state variant that duplicates one edge and omits another', () => {
+    const registered = exactLiveSnapshot()
+    registered.nodes.push({
+      id: 'tool',
+      kind: 'tool',
+      name: 'Tool',
+      description: 'Unrelated tool.',
+      environment: 'production',
+      evidenceIds: ['foundry-evidence'],
+      metadata: {},
+    })
+    registered.edges.push({
+      id: 'can-call',
+      from: 'agent',
+      to: 'tool',
+      relationship: 'CAN_CALL',
+      evidenceIds: ['foundry-evidence'],
+      active: true,
+      removable: true,
+    })
+    const context = createLiveGraphTraversalContextForSnapshot(registered, {
+      estate,
+      clock: () => new Date('2026-09-09T00:05:00.000Z'),
+    })
+    const candidate = {
+      ...registered,
+      edges: [{ ...registered.edges[0]! }, { ...registered.edges[0]! }],
+    }
+
+    expect(calculateBlastRadius(candidate, 'agent', context)).toEqual([])
+  })
+
+  it('rejects an attack-path edge-state variant that duplicates one edge and omits another', () => {
+    const registered = exactLiveSnapshot()
+    registered.nodes.push({
+      id: 'tool',
+      kind: 'tool',
+      name: 'Tool',
+      description: 'Unrelated tool.',
+      environment: 'production',
+      evidenceIds: ['foundry-evidence'],
+      metadata: {},
+    })
+    registered.edges.push({
+      id: 'can-call',
+      from: 'agent',
+      to: 'tool',
+      relationship: 'CAN_CALL',
+      evidenceIds: ['foundry-evidence'],
+      active: true,
+      removable: true,
+    })
+    const context = createLiveGraphTraversalContextForSnapshot(registered, {
+      estate,
+      clock: () => new Date('2026-09-09T00:05:00.000Z'),
+    })
+    const candidate = {
+      ...registered,
+      edges: [{ ...registered.edges[0]! }, { ...registered.edges[0]! }],
+    }
+
+    expect(
+      findAttackPaths(
+        candidate,
+        { sourceNodeIds: ['agent'], targetNodeIds: ['identity'], factors },
+        context,
+      ),
+    ).toEqual([])
+  })
+
   it('reuses the registered snapshot index across live traversals', () => {
     const candidate = exactLiveSnapshot()
     const nodes = candidate.nodes
