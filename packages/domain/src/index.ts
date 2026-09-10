@@ -219,61 +219,101 @@ const legacyEstateSnapshotSchema = z.object({
   evidence: z.array(z.unknown()),
 })
 
-function exactRuntimeProjectId(
-  expectedEstateId: string,
+type RuntimeProjectAuthorityBinding = Pick<
+  z.infer<typeof legacyRuntimeOtelProvenanceSchema>,
+  'sourceConnectorId' | 'sourceTenantId' | 'sourceEnvironment' | 'providerAgentId'
+>
+
+type RuntimeProjectAuthorityIndex = ReadonlyMap<string, ReadonlyMap<string, ReadonlySet<string>>>
+
+function runtimeProjectAuthorityKey(binding: RuntimeProjectAuthorityBinding): string {
+  return JSON.stringify([
+    binding.sourceConnectorId,
+    binding.sourceTenantId,
+    binding.sourceEnvironment,
+    binding.providerAgentId,
+  ])
+}
+
+function createRuntimeProjectAuthorityIndex(
   snapshot: z.infer<typeof legacyEstateSnapshotSchema>,
-  evidenceId: string,
-  provenance: z.infer<typeof legacyRuntimeOtelProvenanceSchema>,
   validEvidenceById: ReadonlyMap<string, Evidence>,
-): string | undefined {
-  if (
-    provenance.estateId !== expectedEstateId ||
-    provenance.estateTenantId !== snapshot.tenantId ||
-    provenance.estateEnvironment !== snapshot.environment ||
-    (provenance.snapshotGeneratedAt !== undefined &&
-      provenance.snapshotGeneratedAt !== snapshot.generatedAt)
-  ) {
-    return undefined
-  }
-  const projects = new Set(
-    snapshot.nodes.flatMap((node) => {
-      const sourceProjectId = sourceProjectIdSchema.safeParse(node.metadata['sourceProjectId'])
+  runtimeEvidenceIds: ReadonlySet<string>,
+): RuntimeProjectAuthorityIndex {
+  const projectsByEvidence = new Map<string, Map<string, Set<string>>>()
+  for (const node of snapshot.nodes) {
+    const metadata = node.metadata
+    if (
+      node.kind !== 'agent' ||
+      metadata['sourceOfTruth'] !== 'true' ||
+      metadata['isNonAuthoritative'] === 'true' ||
+      metadata['sourceConnectorId'] === undefined ||
+      metadata['sourceTenantId'] === undefined ||
+      metadata['sourceEnvironment'] === undefined ||
+      metadata['sourceObjectId'] === undefined ||
+      node.environment !== metadata['sourceEnvironment']
+    ) {
+      continue
+    }
+    const sourceProjectId = sourceProjectIdSchema.safeParse(metadata['sourceProjectId'])
+    if (!sourceProjectId.success) continue
+
+    let hasExactDeclaration = false
+    const associatedRuntimeEvidenceIds: string[] = []
+    for (const evidenceId of node.evidenceIds) {
+      if (runtimeEvidenceIds.has(evidenceId)) associatedRuntimeEvidenceIds.push(evidenceId)
+      const declared = validEvidenceById.get(evidenceId)
+      const declaredMetadata = declared?.metadata
       if (
-        node.kind !== 'agent' ||
-        !node.evidenceIds.includes(evidenceId) ||
-        node.metadata['sourceOfTruth'] !== 'true' ||
-        node.metadata['isNonAuthoritative'] === 'true' ||
-        node.metadata['sourceConnectorId'] !== provenance.sourceConnectorId ||
-        node.metadata['sourceTenantId'] !== provenance.sourceTenantId ||
-        node.metadata['sourceEnvironment'] !== provenance.sourceEnvironment ||
-        node.metadata['sourceObjectId'] !== provenance.providerAgentId ||
-        node.environment !== provenance.sourceEnvironment ||
-        !sourceProjectId.success
+        declared?.evidenceTypes.length === 1 &&
+        declared.evidenceTypes[0] === 'declared_configuration' &&
+        declaredMetadata?.['sourceOfTruth'] === 'true' &&
+        declaredMetadata['estateTenantId'] === snapshot.tenantId &&
+        declaredMetadata['estateEnvironment'] === snapshot.environment &&
+        declaredMetadata['sourceConnectorId'] === metadata['sourceConnectorId'] &&
+        declaredMetadata['sourceTenantId'] === metadata['sourceTenantId'] &&
+        declaredMetadata['sourceProjectId'] === sourceProjectId.data &&
+        declaredMetadata['sourceEnvironment'] === metadata['sourceEnvironment'] &&
+        declaredMetadata['sourceObjectId'] === metadata['sourceObjectId']
       ) {
-        return []
+        hasExactDeclaration = true
       }
-      const hasExactDeclaration = node.evidenceIds.some((declaredEvidenceId) => {
-        const declared = validEvidenceById.get(declaredEvidenceId)
-        const metadata = declared?.metadata
-        return (
-          declared?.evidenceTypes.length === 1 &&
-          declared.evidenceTypes[0] === 'declared_configuration' &&
-          metadata?.['sourceOfTruth'] === 'true' &&
-          metadata['estateTenantId'] === snapshot.tenantId &&
-          metadata['estateEnvironment'] === snapshot.environment &&
-          metadata['sourceConnectorId'] === provenance.sourceConnectorId &&
-          metadata['sourceTenantId'] === provenance.sourceTenantId &&
-          metadata['sourceProjectId'] === sourceProjectId.data &&
-          metadata['sourceEnvironment'] === provenance.sourceEnvironment &&
-          metadata['sourceObjectId'] === provenance.providerAgentId
-        )
-      })
-      return hasExactDeclaration ? [sourceProjectId.data] : []
-    }),
-  )
-  if (projects.size !== 1) return undefined
+    }
+    if (!hasExactDeclaration) continue
+
+    const authorityKey = runtimeProjectAuthorityKey({
+      sourceConnectorId: metadata['sourceConnectorId'],
+      sourceTenantId: metadata['sourceTenantId'],
+      sourceEnvironment: metadata['sourceEnvironment'],
+      providerAgentId: metadata['sourceObjectId'],
+    })
+    for (const evidenceId of associatedRuntimeEvidenceIds) {
+      let projectsByAuthority = projectsByEvidence.get(evidenceId)
+      if (projectsByAuthority === undefined) {
+        projectsByAuthority = new Map()
+        projectsByEvidence.set(evidenceId, projectsByAuthority)
+      }
+      let projects = projectsByAuthority.get(authorityKey)
+      if (projects === undefined) {
+        projects = new Set()
+        projectsByAuthority.set(authorityKey, projects)
+      }
+      projects.add(sourceProjectId.data)
+    }
+  }
+  return projectsByEvidence
+}
+
+function exactRuntimeProjectId(
+  authorityIndex: RuntimeProjectAuthorityIndex,
+  evidenceId: string,
+  binding: RuntimeProjectAuthorityBinding,
+  claimedProjectId?: string,
+): string | undefined {
+  const projects = authorityIndex.get(evidenceId)?.get(runtimeProjectAuthorityKey(binding))
+  if (projects === undefined || projects.size !== 1) return undefined
   const [sourceProjectId] = projects
-  return provenance.sourceProjectId === undefined || provenance.sourceProjectId === sourceProjectId
+  return claimedProjectId === undefined || claimedProjectId === sourceProjectId
     ? sourceProjectId
     : undefined
 }
@@ -307,10 +347,25 @@ function hydrateLegacyPersistedEstateSnapshot(
 ): EstateSnapshot {
   const legacy = legacyEstateSnapshotSchema.parse(value)
   const validEvidenceById = new Map<string, Evidence>()
+  const runtimeEvidenceIds = new Set<string>()
   for (const candidate of legacy.evidence) {
     const parsed = evidenceSchema.safeParse(candidate)
     if (parsed.success) validEvidenceById.set(parsed.data.id, parsed.data)
+    if (
+      typeof candidate === 'object' &&
+      candidate !== null &&
+      'id' in candidate &&
+      typeof candidate.id === 'string' &&
+      'otel' in candidate
+    ) {
+      runtimeEvidenceIds.add(candidate.id)
+    }
   }
+  const authorityIndex = createRuntimeProjectAuthorityIndex(
+    legacy,
+    validEvidenceById,
+    runtimeEvidenceIds,
+  )
   const evidence = legacy.evidence.map((candidate) => {
     if (typeof candidate === 'object' && candidate !== null && 'otel' in candidate) {
       const runtimeEvidence = legacyRuntimeEvidenceSchema.parse(candidate)
@@ -318,13 +373,20 @@ function hydrateLegacyPersistedEstateSnapshot(
         return migrationRequiredLegacyRuntimeEvidence(runtimeEvidence)
       }
       const invocations = runtimeEvidence.otel.invocations.map((invocation) => {
-        const sourceProjectId = exactRuntimeProjectId(
-          expectedEstateId,
-          legacy,
-          runtimeEvidence.id,
-          invocation.provenance,
-          validEvidenceById,
-        )
+        const provenance = invocation.provenance
+        const sourceProjectId =
+          provenance.estateId === expectedEstateId &&
+          provenance.estateTenantId === legacy.tenantId &&
+          provenance.estateEnvironment === legacy.environment &&
+          (provenance.snapshotGeneratedAt === undefined ||
+            provenance.snapshotGeneratedAt === legacy.generatedAt)
+            ? exactRuntimeProjectId(
+                authorityIndex,
+                runtimeEvidence.id,
+                provenance,
+                provenance.sourceProjectId,
+              )
+            : undefined
         if (sourceProjectId === undefined) return undefined
         return runtimeOtelEvidenceItemSchema.parse({
           ...invocation,
@@ -383,22 +445,54 @@ export function assertPersistableEstateSnapshot(
     throw new Error('Snapshot boundary does not match the target estate.')
   }
   const evidenceById = new Map(snapshot.evidence.map((evidence) => [evidence.id, evidence]))
+  const runtimeEvidenceIds = new Set(
+    snapshot.evidence.flatMap((evidence) => (evidence.otel === undefined ? [] : [evidence.id])),
+  )
+  const authorityIndex = createRuntimeProjectAuthorityIndex(
+    snapshot,
+    evidenceById,
+    runtimeEvidenceIds,
+  )
   for (const evidence of snapshot.evidence) {
-    for (const invocation of evidence.otel?.invocations ?? []) {
+    const invocations = evidence.otel?.invocations ?? []
+    if (invocations.length === 0) continue
+    const metadata = evidence.metadata
+    const sourceConnectorId = metadata?.['sourceConnectorId']
+    const sourceTenantId = metadata?.['sourceTenantId']
+    const claimedSourceProjectId = metadata?.['sourceProjectId']
+    const sourceEnvironment = metadata?.['sourceEnvironment']
+    const sourceAgentId = metadata?.['sourceAgentId']
+    const sourceProjectId =
+      metadata?.['sourceConnector'] === 'azure-monitor-otel' &&
+      metadata['estateId'] === estate.id &&
+      metadata['estateTenantId'] === estate.tenantId &&
+      metadata['estateEnvironment'] === estate.environment &&
+      sourceConnectorId !== undefined &&
+      sourceTenantId !== undefined &&
+      claimedSourceProjectId !== undefined &&
+      sourceEnvironment !== undefined &&
+      sourceAgentId !== undefined
+        ? exactRuntimeProjectId(
+            authorityIndex,
+            evidence.id,
+            {
+              sourceConnectorId,
+              sourceTenantId,
+              sourceEnvironment,
+              providerAgentId: sourceAgentId,
+            },
+            claimedSourceProjectId,
+          )
+        : undefined
+    for (const invocation of invocations) {
       const provenance = invocation.provenance
-      const metadata = evidence.metadata
       const sourceBindingMatches =
-        metadata?.['sourceConnector'] === 'azure-monitor-otel' &&
-        metadata['estateId'] === estate.id &&
-        metadata['estateTenantId'] === estate.tenantId &&
-        metadata['estateEnvironment'] === estate.environment &&
-        metadata['sourceConnectorId'] === provenance.sourceConnectorId &&
-        metadata['sourceTenantId'] === provenance.sourceTenantId &&
-        metadata['sourceProjectId'] === provenance.sourceProjectId &&
-        metadata['sourceEnvironment'] === provenance.sourceEnvironment &&
-        metadata['sourceAgentId'] === provenance.providerAgentId &&
-        exactRuntimeProjectId(estate.id, snapshot, evidence.id, provenance, evidenceById) ===
-          provenance.sourceProjectId
+        sourceProjectId !== undefined &&
+        sourceConnectorId === provenance.sourceConnectorId &&
+        sourceTenantId === provenance.sourceTenantId &&
+        sourceProjectId === provenance.sourceProjectId &&
+        sourceEnvironment === provenance.sourceEnvironment &&
+        sourceAgentId === provenance.providerAgentId
       if (
         provenance.estateId !== estate.id ||
         provenance.estateTenantId !== estate.tenantId ||
