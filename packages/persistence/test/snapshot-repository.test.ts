@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type {
   EstateSnapshot,
+  Evidence,
   RuntimeOtelProvenance,
   SnapshotRepository,
 } from '@agent-sentinel/domain'
@@ -174,10 +175,20 @@ function currentRuntimeSnapshot(): EstateSnapshot {
     estateId: estate.id,
     estateTenantId: estate.tenantId,
     estateEnvironment: estate.environment,
+    sourceId: 'foundry:primary',
+    provider: 'azure-ai-foundry-agent-service',
+    providerObjectId: 'provider-agent-a',
+    snapshotGeneratedAt: snapshot.generatedAt,
+    sourceRelease: 'v1',
   }
   declared.metadata = {
     ...declared.metadata,
     estateId: estate.id,
+    sourceId: 'foundry:primary',
+    provider: 'azure-ai-foundry-agent-service',
+    providerObjectId: 'provider-agent-a',
+    snapshotGeneratedAt: snapshot.generatedAt,
+    sourceRelease: 'v1',
   }
   runtime.metadata = {
     ...runtime.metadata,
@@ -409,6 +420,124 @@ describe.each(repositoryFactories)(
 
     it.each([
       [
+        'explicit non-authority',
+        (evidence: Evidence) => {
+          evidence.metadata = {
+            ...evidence.metadata,
+            sourceOfTruth: 'false',
+            isNonAuthoritative: 'true',
+          }
+        },
+      ],
+      [
+        'synthetic declaration',
+        (evidence: Evidence) => {
+          evidence.evidenceTypes = ['declared_configuration', 'synthetic_validation']
+        },
+      ],
+      [
+        'test declaration',
+        (evidence: Evidence) => {
+          evidence.metadata = { ...evidence.metadata, testOnly: 'true' }
+        },
+      ],
+      [
+        'estate ID',
+        (evidence: Evidence) => {
+          evidence.metadata = { ...evidence.metadata, estateId: 'other-estate' }
+        },
+      ],
+      [
+        'estate tenant',
+        (evidence: Evidence) => {
+          evidence.metadata = { ...evidence.metadata, estateTenantId: 'other-tenant' }
+        },
+      ],
+      [
+        'estate environment',
+        (evidence: Evidence) => {
+          evidence.metadata = { ...evidence.metadata, estateEnvironment: 'other-estate' }
+        },
+      ],
+      [
+        'source ID',
+        (evidence: Evidence) => {
+          evidence.metadata = { ...evidence.metadata, sourceId: 'foundry:other' }
+        },
+      ],
+      [
+        'source connector',
+        (evidence: Evidence) => {
+          evidence.metadata = { ...evidence.metadata, sourceConnectorId: 'other-source' }
+        },
+      ],
+      [
+        'source tenant',
+        (evidence: Evidence) => {
+          evidence.metadata = { ...evidence.metadata, sourceTenantId: 'other-source-tenant' }
+        },
+      ],
+      [
+        'source environment',
+        (evidence: Evidence) => {
+          evidence.metadata = {
+            ...evidence.metadata,
+            sourceEnvironment: 'other-source-environment',
+          }
+        },
+      ],
+      [
+        'source project',
+        (evidence: Evidence) => {
+          evidence.metadata = { ...evidence.metadata, sourceProjectId: 'other-project' }
+        },
+      ],
+      [
+        'provider',
+        (evidence: Evidence) => {
+          evidence.metadata = { ...evidence.metadata, provider: 'other-provider' }
+        },
+      ],
+      [
+        'provider object',
+        (evidence: Evidence) => {
+          evidence.metadata = { ...evidence.metadata, providerObjectId: 'other-agent' }
+        },
+      ],
+      [
+        'source object',
+        (evidence: Evidence) => {
+          evidence.metadata = { ...evidence.metadata, sourceObjectId: 'other-agent' }
+        },
+      ],
+      [
+        'snapshot generation',
+        (evidence: Evidence) => {
+          evidence.metadata = {
+            ...evidence.metadata,
+            snapshotGeneratedAt: '2026-09-10T00:00:00.000Z',
+          }
+        },
+      ],
+    ])(
+      'rejects mixed authoritative and conflicting %s evidence',
+      async (_label, mutateEvidence) => {
+        const repository = create()
+        const snapshot = currentRuntimeSnapshot()
+        const conflicting = structuredClone(snapshot.evidence[0]!)
+        conflicting.id = 'conflicting-declaration'
+        mutateEvidence(conflicting)
+        snapshot.evidence.push(conflicting)
+        snapshot.nodes[0]!.evidenceIds.push(conflicting.id)
+
+        await expect(repository.save(estate, snapshot)).rejects.toThrow(
+          'OpenTelemetry invocation provenance',
+        )
+      },
+    )
+
+    it.each([
+      [
         'estate ID',
         (provenance: RuntimeOtelProvenance) => {
           provenance.estateId = 'other-estate'
@@ -478,3 +607,59 @@ describe.each(repositoryFactories)(
     })
   },
 )
+
+describe('Cosmos version-2 snapshot read validation', () => {
+  it.each([
+    [
+      'estate',
+      (provenance: RuntimeOtelProvenance) => {
+        provenance.estateId = 'other-estate'
+      },
+    ],
+    [
+      'source',
+      (provenance: RuntimeOtelProvenance) => {
+        provenance.sourceConnectorId = 'other-source'
+      },
+    ],
+    [
+      'project',
+      (provenance: RuntimeOtelProvenance) => {
+        provenance.sourceProjectId = 'other-project'
+      },
+    ],
+    [
+      'generation',
+      (provenance: RuntimeOtelProvenance) => {
+        provenance.snapshotGeneratedAt = '2026-09-10T00:00:00.000Z'
+      },
+    ],
+    [
+      'observation',
+      (provenance: RuntimeOtelProvenance) => {
+        provenance.observedAt = '2026-09-08T13:00:00.000Z'
+      },
+    ],
+  ])('rejects cross-%s provenance from findById, findLatest, and list', async (_label, mutate) => {
+    const store = new FakeCosmosStore()
+    const repository = new CosmosSnapshotRepository(store.client)
+    const snapshot = currentRuntimeSnapshot()
+    await repository.save(estate, snapshot)
+    store.mutate(
+      (document) => document.documentType === 'estate-snapshot',
+      (document) => {
+        const persisted = document['snapshot'] as EstateSnapshot
+        mutate(invocationProvenance(persisted))
+      },
+    )
+    const snapshotId = `${snapshot.tenantId}-${snapshot.environment}-${snapshot.generatedAt}`
+
+    await expect(repository.findById(snapshotId, estate)).rejects.toThrow(
+      'OpenTelemetry invocation provenance',
+    )
+    await expect(repository.findLatest(estate)).rejects.toThrow(
+      'OpenTelemetry invocation provenance',
+    )
+    await expect(repository.list(estate)).rejects.toThrow('OpenTelemetry invocation provenance')
+  })
+})

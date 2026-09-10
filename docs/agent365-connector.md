@@ -155,3 +155,8 @@ discovery. Any enabled source that is not complete makes health partial while
 preserving the base snapshot and successful additions; jobs refuse
 persistence/reconciliation of partial authoritative snapshots. Disabled mode
 returns the exact base connector object.
+
+Persisted health reconciliation first expires every enabled connector source
+when the measurement is stale. It then applies Agent 365 source-set fingerprint
+changes only to `agent365:` sources, so an Agent 365 mismatch cannot leave an
+expired non-Agent365 source ready.

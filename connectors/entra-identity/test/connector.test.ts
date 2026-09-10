@@ -29,6 +29,15 @@ import {
 import { enrichAggregateSnapshotWithExactEntraBindingsAndDiagnostics } from '../src/normalize.js'
 
 const tenantId = '99999999-9999-4999-8999-999999999999'
+function tokenForTenant(
+  tokenTenantId: string = tenantId,
+  payload: Record<string, unknown> = {},
+  signature = 'signature',
+): string {
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url')
+  return `${encode({ alg: 'none' })}.${encode({ tid: tokenTenantId, ...payload })}.${signature}`
+}
+
 const config = {
   tenantId,
   environment: 'validation',
@@ -71,10 +80,14 @@ function enrichSnapshotWithEntraAndDiagnostics(base: EstateSnapshot, identities:
 }
 
 class Credential implements TokenCredential {
-  constructor(private readonly token = 'super-secret-token') {}
+  constructor(private readonly token = tokenForTenant()) {}
   getToken(): Promise<AccessToken> {
     return Promise.resolve({ token: this.token, expiresOnTimestamp: Date.now() + 60_000 })
   }
+}
+
+function credentialForTenant(source: { tenantId: string }): TokenCredential {
+  return new Credential(tokenForTenant(source.tenantId))
 }
 
 function fixture(name: string): unknown {
@@ -367,6 +380,37 @@ describe('Microsoft Graph client contracts', () => {
     ).rejects.toThrow('page limit')
   })
 
+  it.each([
+    ['a missing tid claim', tokenForTenant('', { tid: undefined })],
+    ['a malformed JWT', 'not-a-jwt'],
+    ['a malformed tid claim', tokenForTenant('not-a-guid')],
+    ['a different tenant', tokenForTenant('88888888-8888-4888-8888-888888888888')],
+  ])('rejects %s before issuing a Graph request', async (_label, token) => {
+    const fetcher = vi.fn<typeof fetch>()
+    const client = new EntraGraphClient(config, new Credential(token), { fetcher })
+
+    await expect(client.listServicePrincipals()).rejects.toMatchObject({
+      code: 'authentication',
+    })
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('accepts the configured tenant GUID case-insensitively', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response('service-principals-page-2.json'))
+    const client = new EntraGraphClient(
+      config,
+      new Credential(tokenForTenant(tenantId.toUpperCase())),
+      {
+        fetcher,
+      },
+    )
+
+    await expect(client.listServicePrincipals()).resolves.toHaveLength(1)
+    expect(fetcher).toHaveBeenCalledOnce()
+  })
+
   it('rejects next links on another host or resource path', async () => {
     for (const nextLink of [
       'https://evil.example/v1.0/servicePrincipals',
@@ -453,7 +497,10 @@ describe('Microsoft Graph client contracts', () => {
       {
         getToken: (_scopes, options) => {
           if (options?.abortSignal !== undefined) credentialSignals.push(options.abortSignal)
-          return Promise.resolve({ token: 'token', expiresOnTimestamp: Date.now() + 60_000 })
+          return Promise.resolve({
+            token: tokenForTenant(),
+            expiresOnTimestamp: Date.now() + 60_000,
+          })
         },
       },
       {
@@ -528,13 +575,17 @@ describe('Microsoft Graph client contracts', () => {
 
   it('sanitizes Graph and credential errors without leaking tokens', async () => {
     const secret = 'super-secret-token'
-    const connector = new EntraIdentityConnector(config, new Credential(secret), {
-      fetcher: vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(
-          Response.json({ error: { message: `denied ${secret}` } }, { status: 403 }),
-        ),
-    })
+    const connector = new EntraIdentityConnector(
+      config,
+      new Credential(tokenForTenant(tenantId, {}, secret)),
+      {
+        fetcher: vi
+          .fn<typeof fetch>()
+          .mockResolvedValue(
+            Response.json({ error: { message: `denied ${secret}` } }, { status: 403 }),
+          ),
+      },
+    )
 
     const result = await connector.testConnection()
     expect(result.ok).toBe(false)
@@ -1533,7 +1584,7 @@ describe('composite enrichment connector', () => {
           new MultiEntraEnrichmentConnector(connectorForSnapshot(aggregateBase()), [], {
             enabled: false,
             expectedSources: [],
-            credentialFactory: () => new Credential(),
+            credentialFactory: credentialForTenant,
           }),
       ).toThrow('at least one')
     })
@@ -1561,7 +1612,7 @@ describe('composite enrichment connector', () => {
       const connector = new MultiEntraEnrichmentConnector(base, [], {
         enabled: false,
         expectedSources,
-        credentialFactory: () => new Credential(),
+        credentialFactory: credentialForTenant,
       })
 
       const health = connector.getConnectorHealth()
@@ -1597,7 +1648,7 @@ describe('composite enrichment connector', () => {
       const connector = new MultiEntraEnrichmentConnector(base, expected.map(sourceConfig), {
         enabled: true,
         expectedSources: expected,
-        credentialFactory: () => new Credential(),
+        credentialFactory: credentialForTenant,
         clientFactory: () => ({
           fetcher: vi.fn<typeof fetch>().mockResolvedValue(
             Response.json({
@@ -1638,7 +1689,7 @@ describe('composite enrichment connector', () => {
           enabled: true,
           expectedSources: expected,
           bindings: bindingsFor(expected),
-          credentialFactory: () => new Credential(),
+          credentialFactory: credentialForTenant,
           clientFactory: () => ({
             fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json({ value: [] })),
           }),
@@ -1665,7 +1716,7 @@ describe('composite enrichment connector', () => {
           enabled: true,
           expectedSources: expected,
           aggregation: { maxRecordsPerSource: 1 },
-          credentialFactory: () => new Credential(),
+          credentialFactory: credentialForTenant,
           clientFactory: () => ({
             fetcher: vi.fn<typeof fetch>().mockResolvedValue(
               Response.json({
@@ -1724,7 +1775,7 @@ describe('composite enrichment connector', () => {
           enabled: true,
           expectedSources: expected,
           bindings: bindingsFor(expected),
-          credentialFactory: () => new Credential(),
+          credentialFactory: credentialForTenant,
           clientFactory: () => ({
             fetcher: vi
               .fn<typeof fetch>()
@@ -1776,7 +1827,7 @@ describe('composite enrichment connector', () => {
           enabled: true,
           expectedSources: expected,
           bindings: bindingsFor(expected),
-          credentialFactory: () => new Credential(),
+          credentialFactory: credentialForTenant,
           clientFactory: () => ({
             fetcher: vi
               .fn<typeof fetch>()
@@ -1863,7 +1914,7 @@ describe('composite enrichment connector', () => {
           expectedSources: expected,
           bindings: bindingsFor(expected),
           aggregation: { maxPagesPerSource: 2 },
-          credentialFactory: () => new Credential(),
+          credentialFactory: credentialForTenant,
           clientFactory: () => ({ fetcher }),
         },
       )
@@ -1893,7 +1944,7 @@ describe('composite enrichment connector', () => {
           enabled: true,
           expectedSources: expected,
           aggregation: { maxRecordsPerSource: 1 },
-          credentialFactory: () => new Credential(),
+          credentialFactory: credentialForTenant,
           clientFactory: () => ({
             fetcher: vi.fn<typeof fetch>().mockResolvedValue(
               Response.json({
@@ -2120,7 +2171,7 @@ describe('composite enrichment connector', () => {
                   },
                 },
               ],
-              credentialFactory: () => new Credential(),
+              credentialFactory: credentialForTenant,
             },
           ),
       ).not.toThrow()
@@ -2272,7 +2323,7 @@ describe('composite enrichment connector', () => {
               sourceObjectId: tenantA,
             },
           })),
-          credentialFactory: () => new Credential(),
+          credentialFactory: credentialForTenant,
           clientFactory: () => ({ fetcher }),
         },
       )
@@ -2326,7 +2377,7 @@ describe('composite enrichment connector', () => {
                   },
                 },
               ],
-              credentialFactory: () => new Credential(),
+              credentialFactory: credentialForTenant,
             },
           ),
       ).toThrow(/binding/i)
@@ -2345,7 +2396,7 @@ describe('composite enrichment connector', () => {
                   estateId: 'estate-b',
                 },
               ],
-              credentialFactory: () => new Credential(),
+              credentialFactory: credentialForTenant,
             },
           ),
       ).toThrow(/estate/i)
@@ -2359,7 +2410,7 @@ describe('composite enrichment connector', () => {
         {
           enabled: true,
           expectedSources: [expectedSources[0]!],
-          credentialFactory: () => new Credential(),
+          credentialFactory: credentialForTenant,
           clientFactory: () => ({
             fetcher: vi.fn<typeof fetch>().mockResolvedValue(
               Response.json({
@@ -2406,7 +2457,7 @@ describe('composite enrichment connector', () => {
           enabled: true,
           expectedSources,
           bindings: bindingsFor(expectedSources),
-          credentialFactory: () => new Credential(),
+          credentialFactory: credentialForTenant,
           clientFactory: () => ({
             fetcher: vi
               .fn<typeof fetch>()
@@ -2451,7 +2502,7 @@ describe('composite enrichment connector', () => {
             maxConcurrency: 1,
             maxDurationMs: 1_000,
           },
-          credentialFactory: () => new Credential(),
+          credentialFactory: credentialForTenant,
           clientFactory: (source) => ({
             fetcher: vi.fn<typeof fetch>(async () => {
               active += 1
@@ -2508,7 +2559,7 @@ describe('composite enrichment connector', () => {
         {
           enabled: false,
           expectedSources,
-          credentialFactory: () => new Credential(),
+          credentialFactory: credentialForTenant,
         },
       )
 
@@ -2527,7 +2578,7 @@ describe('composite enrichment connector', () => {
           enabled: true,
           expectedSources,
           bindings: bindingsFor(expectedSources),
-          credentialFactory: () => new Credential(),
+          credentialFactory: credentialForTenant,
           clientFactory: (source) => ({
             fetcher: vi.fn<typeof fetch>().mockResolvedValue(
               Response.json({
@@ -2578,7 +2629,7 @@ describe('composite enrichment connector', () => {
           enabled: true,
           expectedSources,
           bindings: bindingsFor([expectedSources[0]!]),
-          credentialFactory: () => new Credential(),
+          credentialFactory: credentialForTenant,
           clientFactory: () => ({
             fetcher: vi.fn<typeof fetch>().mockResolvedValue(
               Response.json({
@@ -2628,7 +2679,7 @@ describe('composite enrichment connector', () => {
         {
           enabled: true,
           expectedSources: expected,
-          credentialFactory: () => new Credential(),
+          credentialFactory: credentialForTenant,
           clientFactory: () => ({
             fetcher: vi
               .fn<typeof fetch>()
@@ -2672,7 +2723,7 @@ describe('composite enrichment connector', () => {
         {
           enabled: true,
           expectedSources: expected,
-          credentialFactory: () => new Credential(),
+          credentialFactory: credentialForTenant,
           clientFactory: () => ({
             fetcher: vi
               .fn<typeof fetch>()

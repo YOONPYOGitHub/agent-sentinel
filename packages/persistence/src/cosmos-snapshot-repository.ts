@@ -3,7 +3,6 @@ import type { Container, CosmosClient, SqlQuerySpec } from '@azure/cosmos'
 import {
   PERSISTED_ESTATE_SNAPSHOT_SCHEMA_VERSION,
   assertPersistableEstateSnapshot,
-  estateSnapshotSchema,
   hydratePersistedEstateSnapshot,
   type EstateContext,
   type EstateSnapshot,
@@ -62,7 +61,7 @@ function unwrapSnapshot(value: StoredSnapshot, estate: EstateContext): EstateSna
       return null
     }
     if (value.snapshotSchemaVersion === PERSISTED_ESTATE_SNAPSHOT_SCHEMA_VERSION) {
-      return estateSnapshotSchema.parse(value.snapshot)
+      return assertPersistableEstateSnapshot(estate, value.snapshot)
     }
     if (value.snapshotSchemaVersion !== undefined && value.snapshotSchemaVersion !== 1) {
       throw new Error(

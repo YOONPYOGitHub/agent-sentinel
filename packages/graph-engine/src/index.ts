@@ -9,7 +9,7 @@ import type {
   RiskFactors,
   RunsAsBinding,
 } from '@agent-sentinel/domain'
-import { assertEstateSnapshot } from '@agent-sentinel/domain'
+import { assertEstateSnapshot, hasSyntheticOrTestMarker } from '@agent-sentinel/domain'
 
 export interface AttackPathQuery {
   sourceNodeIds: string[]
@@ -95,9 +95,13 @@ function validLiveEvidence(
   maxEvidenceAgeMs: number,
 ): evidence is Evidence & { authority: EvidenceAuthority } {
   const authority = evidence.authority
+  const metadata = evidence.metadata ?? {}
   if (
     authority === undefined ||
     authority.estateId !== estate.id ||
+    metadata['sourceOfTruth'] === 'false' ||
+    metadata['isNonAuthoritative'] === 'true' ||
+    hasSyntheticOrTestMarker(metadata) ||
     evidence.freshness === 'stale' ||
     evidence.confidence < 0.8 ||
     evidence.evidenceTypes.includes('synthetic_validation') ||
@@ -261,6 +265,8 @@ function assertTraversalContext(context: GraphTraversalContext): void {
 function nodeMatchesAuthority(node: GraphNode, authority: EvidenceAuthority): boolean {
   return (
     node.metadata['sourceOfTruth'] === 'true' &&
+    node.metadata['isNonAuthoritative'] !== 'true' &&
+    !hasSyntheticOrTestMarker(node.metadata) &&
     node.metadata['estateId'] === authority.estateId &&
     node.metadata['sourceId'] === authority.sourceId &&
     node.metadata['sourceTenantId']?.toLowerCase() === authority.tenantId.toLowerCase() &&

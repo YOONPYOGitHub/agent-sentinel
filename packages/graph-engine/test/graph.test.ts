@@ -174,6 +174,70 @@ describe('graph engine', () => {
     ).toHaveLength(1)
   })
 
+  it.each([
+    {
+      name: 'sourceOfTruth=false on endpoint evidence',
+      mutate: (snapshot: EstateSnapshot) => {
+        snapshot.evidence[0] = {
+          ...snapshot.evidence[0]!,
+          metadata: { ...snapshot.evidence[0]!.metadata, sourceOfTruth: 'false' },
+        }
+      },
+    },
+    {
+      name: 'isNonAuthoritative=true on endpoint evidence',
+      mutate: (snapshot: EstateSnapshot) => {
+        snapshot.evidence[0] = {
+          ...snapshot.evidence[0]!,
+          metadata: { ...snapshot.evidence[0]!.metadata, isNonAuthoritative: 'true' },
+        }
+      },
+    },
+    {
+      name: 'a test marker on endpoint evidence',
+      mutate: (snapshot: EstateSnapshot) => {
+        snapshot.evidence[0] = {
+          ...snapshot.evidence[0]!,
+          metadata: { ...snapshot.evidence[0]!.metadata, testOnly: 'true' },
+        }
+      },
+    },
+    {
+      name: 'sourceOfTruth=false on an endpoint node',
+      mutate: (snapshot: EstateSnapshot) => {
+        snapshot.nodes[0]!.metadata.sourceOfTruth = 'false'
+      },
+    },
+    {
+      name: 'isNonAuthoritative=true on an endpoint node',
+      mutate: (snapshot: EstateSnapshot) => {
+        snapshot.nodes[0]!.metadata.isNonAuthoritative = 'true'
+      },
+    },
+    {
+      name: 'a synthetic marker on an endpoint node',
+      mutate: (snapshot: EstateSnapshot) => {
+        snapshot.nodes[0]!.metadata.syntheticOnly = 'true'
+      },
+    },
+  ])('does not register live RUNS_AS authority with $name', ({ mutate }) => {
+    const liveSnapshot = exactLiveSnapshot()
+    mutate(liveSnapshot)
+    const context = createLiveGraphTraversalContextForSnapshot(liveSnapshot, {
+      estate,
+      clock: () => new Date('2026-09-09T00:05:00.000Z'),
+      maxEvidenceAgeMs: 15 * 60 * 1_000,
+    })
+
+    expect(
+      findAttackPaths(
+        liveSnapshot,
+        { sourceNodeIds: ['agent'], targetNodeIds: ['identity'], factors },
+        context,
+      ),
+    ).toHaveLength(0)
+  })
+
   it('traverses RUNS_AS when Entra tenant and object GUID casing differs across boundaries', () => {
     const liveSnapshot = exactLiveSnapshot()
     const entraTenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'

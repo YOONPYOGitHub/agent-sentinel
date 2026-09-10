@@ -30,6 +30,11 @@ graph comparisons remain case-insensitive at persisted boundaries, so casing
 differences cannot suppress an otherwise exact `RUNS_AS` match; malformed IDs
 still fail closed.
 
+Before any Microsoft Graph request, the client decodes the access-token payload
+and requires a valid GUID `tid` claim that canonically matches the configured
+source tenant. Missing, malformed, or cross-tenant tokens fail as authentication
+errors without issuing the request.
+
 Each endpoint must attach exactly one matching authoritative evidence record
 whose typed authority matches node metadata for estate, source, tenant,
 environment, provider, source object, provider object, source release, and

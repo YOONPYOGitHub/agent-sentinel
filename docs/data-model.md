@@ -49,7 +49,8 @@ Represents a point-in-time view of an agent estate.
   the exact registered `runsAsBinding`. Live authority indexing rejects
   duplicate node, edge, or evidence IDs, identifier ambiguity within the same
   identifier-kind and exact estate/source/tenant/environment boundary,
-  unattached authority citations, and stale, synthetic, malformed, or
+  unattached authority citations, explicit non-authority or synthetic/test
+  markers on either endpoint nodes or evidence, and stale, malformed, or
   generation/release-mismatched evidence.
 
 ### EvidenceAuthority
@@ -428,12 +429,17 @@ invocation records and the full bounded quality summary. A supplied
 when that correlation kind is absent.
 
 Persisted estate snapshot writes use snapshot schema version 2 and remain strict.
-Both Cosmos and in-memory writes run the same contextual validator after schema
-parsing. Every nested OTel invocation must match the target estate ID, tenant,
-and environment; the snapshot `generatedAt`; its invocation observation time;
-the runtime evidence source metadata; and one exact authoritative agent plus
-declared-configuration source binding. Structurally valid cross-estate,
-cross-generation, or cross-source provenance is rejected before persistence.
+Both Cosmos and in-memory writes, plus Cosmos version-2 reads, run the same
+contextual validator after schema parsing. Every nested OTel invocation must
+match the target estate ID, tenant, and environment; the snapshot `generatedAt`;
+its invocation observation time; the runtime evidence source metadata; and one
+exact authoritative agent plus declared-configuration source binding. Every
+cited declared-configuration record must remain authoritative, non-synthetic,
+and consistent with the exact estate, source, tenant, environment, project,
+provider, object, and generation boundaries; one good declaration cannot mask a
+contradictory cited declaration. Structurally valid cross-estate,
+cross-generation, or cross-source provenance is rejected before persistence or
+version-2 retrieval.
 Persisted schema version selects the read path before current-schema parsing:
 version 2 is parsed strictly, while unversioned/version-1 snapshots use the
 legacy migrator. Legacy runtime invocations may hydrate missing

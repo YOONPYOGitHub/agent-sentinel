@@ -850,6 +850,80 @@ describe('Agent 365 runtime source resolution', () => {
     },
   )
 
+  it('expires every enabled source before applying Agent365 source-set mismatch', () => {
+    const measuredAt = '2026-09-07T00:00:00.000Z'
+    const binding = {
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      sourceId: 'agent365-current',
+      displayName: 'Current Agent 365',
+      origin: 'user' as const,
+      sourceVersion: 3,
+      sourceEtag: 'etag-current',
+      activation: { status: 'active' as const },
+    }
+    const measurement: ConnectorHealthMeasurement = {
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      connectorId: 'base',
+      measuredAt,
+      sourceSetFingerprint: '0'.repeat(64),
+      health: {
+        overall: 'ready',
+        partial: false,
+        sourceSetFingerprint: '0'.repeat(64),
+        sources: [
+          {
+            id: 'foundry:primary',
+            name: 'Foundry',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+            dataState: 'complete',
+            checkedAt: measuredAt,
+          },
+          {
+            id: 'agent365:old',
+            name: 'Old Agent 365',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+            dataState: 'complete',
+            checkedAt: measuredAt,
+          },
+        ],
+      },
+    }
+
+    const health = reconcileAgent365PersistedHealth(
+      measurement,
+      [binding],
+      new Date('2026-09-09T00:00:00.001Z'),
+    )
+
+    expect(health.sources.find((source) => source.id === 'foundry:primary')).toMatchObject({
+      readiness: 'degraded',
+      dataState: 'stale',
+      reason: 'measurement-expired',
+    })
+    expect(health.sources.find((source) => source.id === 'agent365:old')).toMatchObject({
+      readiness: 'degraded',
+      dataState: 'stale',
+      reason: 'source-set-changed',
+    })
+    expect(
+      health.sources.find((source) => source.id === 'agent365:agent365-current'),
+    ).toMatchObject({
+      readiness: 'degraded',
+      dataState: 'stale',
+      reason: 'source-set-changed',
+    })
+  })
+
   it.each([
     {
       name: 'enabled source becomes disabled',

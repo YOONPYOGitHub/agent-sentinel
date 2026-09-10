@@ -191,6 +191,189 @@ export type EstateSnapshot = z.infer<typeof estateSnapshotSchema>
 
 export const PERSISTED_ESTATE_SNAPSHOT_SCHEMA_VERSION = 2
 
+export interface AuthoritativeRuntimeAgentBinding {
+  sourceConnectorId: string
+  sourceTenantId: string
+  sourceProjectId: string
+  sourceAgentId: string
+  sourceEnvironment: string
+}
+
+export function hasSyntheticOrTestMarker(metadata: Readonly<Record<string, string>>): boolean {
+  return Object.entries(metadata).some(([key, value]) => {
+    const normalizedValue = value.trim().toLowerCase()
+    const markerValues = [
+      'true',
+      '1',
+      'yes',
+      'synthetic',
+      'test',
+      'tested',
+      'testing',
+      'fixture',
+      'mock',
+    ]
+    return (
+      (/(synthetic|test|fixture|mock)/i.test(key) && markerValues.includes(normalizedValue)) ||
+      (/(mode|classification)$/i.test(key) &&
+        ['synthetic', 'test', 'tested', 'testing', 'fixture', 'mock'].includes(normalizedValue))
+    )
+  })
+}
+
+function hasNonAuthoritativeSignals(evidence: Evidence): boolean {
+  const metadata = evidence.metadata ?? {}
+  return (
+    metadata['sourceOfTruth'] === 'false' ||
+    metadata['isNonAuthoritative'] === 'true' ||
+    hasSyntheticOrTestMarker(metadata) ||
+    evidence.evidenceTypes.includes('synthetic_validation') ||
+    evidence.evidenceTypes.includes('unknown')
+  )
+}
+
+function optionalBoundaryMatches(
+  metadata: Readonly<Record<string, string>>,
+  key: string,
+  expected: string | undefined,
+): boolean {
+  return metadata[key] === undefined || (expected !== undefined && metadata[key] === expected)
+}
+
+function evidenceMatchesRuntimeAgentBoundary(
+  evidence: Evidence,
+  snapshot: Pick<EstateSnapshot, 'tenantId' | 'environment' | 'generatedAt'>,
+  agent: GraphNode,
+  binding: AuthoritativeRuntimeAgentBinding,
+  expectedEstateId?: string,
+): boolean {
+  const metadata = evidence.metadata ?? {}
+  if (
+    hasNonAuthoritativeSignals(evidence) ||
+    !optionalBoundaryMatches(metadata, 'estateId', expectedEstateId) ||
+    !optionalBoundaryMatches(metadata, 'estateTenantId', snapshot.tenantId) ||
+    !optionalBoundaryMatches(metadata, 'estateEnvironment', snapshot.environment) ||
+    !optionalBoundaryMatches(metadata, 'sourceId', agent.metadata['sourceId']) ||
+    !optionalBoundaryMatches(metadata, 'sourceConnectorId', binding.sourceConnectorId) ||
+    !optionalBoundaryMatches(metadata, 'sourceTenantId', binding.sourceTenantId) ||
+    !optionalBoundaryMatches(metadata, 'sourceProjectId', binding.sourceProjectId) ||
+    !optionalBoundaryMatches(metadata, 'sourceEnvironment', binding.sourceEnvironment) ||
+    !optionalBoundaryMatches(metadata, 'provider', agent.metadata['provider']) ||
+    !optionalBoundaryMatches(metadata, 'sourceObjectId', binding.sourceAgentId) ||
+    !optionalBoundaryMatches(metadata, 'providerAgentId', binding.sourceAgentId) ||
+    !optionalBoundaryMatches(metadata, 'providerObjectId', binding.sourceAgentId) ||
+    !optionalBoundaryMatches(metadata, 'trustSubjectAgentId', binding.sourceAgentId) ||
+    !optionalBoundaryMatches(metadata, 'snapshotGeneratedAt', snapshot.generatedAt) ||
+    !optionalBoundaryMatches(metadata, 'sourceRelease', agent.metadata['sourceRelease'])
+  ) {
+    return false
+  }
+  const authority = evidence.authority
+  if (authority === undefined) return true
+  return (
+    expectedEstateId !== undefined &&
+    authority.estateId === expectedEstateId &&
+    authority.sourceId === agent.metadata['sourceId'] &&
+    authority.tenantId === binding.sourceTenantId &&
+    authority.environment === binding.sourceEnvironment &&
+    authority.provider === agent.metadata['provider'] &&
+    authority.sourceObjectId === binding.sourceProjectId &&
+    authority.providerObjectId === binding.sourceAgentId &&
+    authority.snapshotGeneratedAt === snapshot.generatedAt &&
+    authority.sourceRelease === agent.metadata['sourceRelease']
+  )
+}
+
+export function authoritativeRuntimeAgentBinding(
+  snapshot: {
+    tenantId: string
+    environment: string
+    generatedAt: string
+    evidence: readonly Evidence[]
+  },
+  agent: GraphNode,
+  estate?: EstateContext,
+): AuthoritativeRuntimeAgentBinding | undefined {
+  if (
+    agent.kind !== 'agent' ||
+    agent.metadata['sourceOfTruth'] !== 'true' ||
+    agent.metadata['isNonAuthoritative'] === 'true' ||
+    hasSyntheticOrTestMarker(agent.metadata) ||
+    (estate !== undefined &&
+      (estate.tenantId !== snapshot.tenantId || estate.environment !== snapshot.environment))
+  ) {
+    return undefined
+  }
+  const sourceConnectorId = agent.metadata['sourceConnectorId']
+  const sourceTenantId = agent.metadata['sourceTenantId']
+  const sourceProjectId = agent.metadata['sourceProjectId']
+  const sourceAgentId = agent.metadata['sourceObjectId']
+  const sourceEnvironment = agent.metadata['sourceEnvironment']
+  if (
+    sourceConnectorId === undefined ||
+    sourceTenantId === undefined ||
+    sourceProjectId === undefined ||
+    sourceAgentId === undefined ||
+    sourceEnvironment === undefined ||
+    agent.environment !== sourceEnvironment ||
+    (agent.metadata['providerAgentId'] !== undefined &&
+      agent.metadata['providerAgentId'] !== sourceAgentId)
+  ) {
+    return undefined
+  }
+  const binding = {
+    sourceConnectorId,
+    sourceTenantId,
+    sourceProjectId,
+    sourceAgentId,
+    sourceEnvironment,
+  }
+  const evidenceById = new Map<string, Evidence[]>()
+  for (const evidence of snapshot.evidence) {
+    const records = evidenceById.get(evidence.id) ?? []
+    records.push(evidence)
+    evidenceById.set(evidence.id, records)
+  }
+  if (
+    agent.evidenceIds.length === 0 ||
+    agent.evidenceIds.some((evidenceId) => !evidenceById.has(evidenceId))
+  ) {
+    return undefined
+  }
+  const citedEvidence = agent.evidenceIds.flatMap(
+    (evidenceId) => evidenceById.get(evidenceId) ?? [],
+  )
+  const declaredEvidence = citedEvidence.filter((evidence) =>
+    evidence.evidenceTypes.includes('declared_configuration'),
+  )
+  const expectedEstateId = estate?.id ?? agent.metadata['estateId']
+  if (
+    declaredEvidence.length === 0 ||
+    declaredEvidence.some(
+      (evidence) =>
+        !evidenceMatchesRuntimeAgentBoundary(evidence, snapshot, agent, binding, expectedEstateId),
+    )
+  ) {
+    return undefined
+  }
+  const authoritativeEvidence = declaredEvidence.some((evidence) => {
+    const metadata = evidence.metadata
+    return (
+      evidence.evidenceTypes.length === 1 &&
+      evidence.evidenceTypes[0] === 'declared_configuration' &&
+      metadata?.['sourceOfTruth'] === 'true' &&
+      metadata['estateTenantId'] === snapshot.tenantId &&
+      metadata['estateEnvironment'] === snapshot.environment &&
+      metadata['sourceConnectorId'] === sourceConnectorId &&
+      metadata['sourceTenantId'] === sourceTenantId &&
+      metadata['sourceProjectId'] === sourceProjectId &&
+      metadata['sourceEnvironment'] === sourceEnvironment &&
+      metadata['sourceObjectId'] === sourceAgentId
+    )
+  })
+  return authoritativeEvidence ? binding : undefined
+}
+
 const legacyRuntimeOtelProvenanceSchema = runtimeOtelProvenanceSchema.partial({
   snapshotGeneratedAt: true,
   sourceProjectId: true,
@@ -237,55 +420,32 @@ function runtimeProjectAuthorityKey(binding: RuntimeProjectAuthorityBinding): st
 
 function createRuntimeProjectAuthorityIndex(
   snapshot: z.infer<typeof legacyEstateSnapshotSchema>,
-  validEvidenceById: ReadonlyMap<string, Evidence>,
+  validEvidence: readonly Evidence[],
   runtimeEvidenceIds: ReadonlySet<string>,
+  estate: EstateContext,
 ): RuntimeProjectAuthorityIndex {
   const projectsByEvidence = new Map<string, Map<string, Set<string>>>()
+  const authoritySnapshot = {
+    tenantId: snapshot.tenantId,
+    environment: snapshot.environment,
+    generatedAt: snapshot.generatedAt,
+    evidence: validEvidence,
+  }
   for (const node of snapshot.nodes) {
-    const metadata = node.metadata
-    if (
-      node.kind !== 'agent' ||
-      metadata['sourceOfTruth'] !== 'true' ||
-      metadata['isNonAuthoritative'] === 'true' ||
-      metadata['sourceConnectorId'] === undefined ||
-      metadata['sourceTenantId'] === undefined ||
-      metadata['sourceEnvironment'] === undefined ||
-      metadata['sourceObjectId'] === undefined ||
-      node.environment !== metadata['sourceEnvironment']
-    ) {
-      continue
-    }
-    const sourceProjectId = sourceProjectIdSchema.safeParse(metadata['sourceProjectId'])
+    const binding = authoritativeRuntimeAgentBinding(authoritySnapshot, node, estate)
+    if (binding === undefined) continue
+    const sourceProjectId = sourceProjectIdSchema.safeParse(binding.sourceProjectId)
     if (!sourceProjectId.success) continue
-
-    let hasExactDeclaration = false
     const associatedRuntimeEvidenceIds: string[] = []
     for (const evidenceId of node.evidenceIds) {
       if (runtimeEvidenceIds.has(evidenceId)) associatedRuntimeEvidenceIds.push(evidenceId)
-      const declared = validEvidenceById.get(evidenceId)
-      const declaredMetadata = declared?.metadata
-      if (
-        declared?.evidenceTypes.length === 1 &&
-        declared.evidenceTypes[0] === 'declared_configuration' &&
-        declaredMetadata?.['sourceOfTruth'] === 'true' &&
-        declaredMetadata['estateTenantId'] === snapshot.tenantId &&
-        declaredMetadata['estateEnvironment'] === snapshot.environment &&
-        declaredMetadata['sourceConnectorId'] === metadata['sourceConnectorId'] &&
-        declaredMetadata['sourceTenantId'] === metadata['sourceTenantId'] &&
-        declaredMetadata['sourceProjectId'] === sourceProjectId.data &&
-        declaredMetadata['sourceEnvironment'] === metadata['sourceEnvironment'] &&
-        declaredMetadata['sourceObjectId'] === metadata['sourceObjectId']
-      ) {
-        hasExactDeclaration = true
-      }
     }
-    if (!hasExactDeclaration) continue
 
     const authorityKey = runtimeProjectAuthorityKey({
-      sourceConnectorId: metadata['sourceConnectorId'],
-      sourceTenantId: metadata['sourceTenantId'],
-      sourceEnvironment: metadata['sourceEnvironment'],
-      providerAgentId: metadata['sourceObjectId'],
+      sourceConnectorId: binding.sourceConnectorId,
+      sourceTenantId: binding.sourceTenantId,
+      sourceEnvironment: binding.sourceEnvironment,
+      providerAgentId: binding.sourceAgentId,
     })
     for (const evidenceId of associatedRuntimeEvidenceIds) {
       let projectsByAuthority = projectsByEvidence.get(evidenceId)
@@ -346,25 +506,37 @@ function hydrateLegacyPersistedEstateSnapshot(
   expectedEstateId: string,
 ): EstateSnapshot {
   const legacy = legacyEstateSnapshotSchema.parse(value)
-  const validEvidenceById = new Map<string, Evidence>()
+  const validEvidence: Evidence[] = []
   const runtimeEvidenceIds = new Set<string>()
   for (const candidate of legacy.evidence) {
     const parsed = evidenceSchema.safeParse(candidate)
-    if (parsed.success) validEvidenceById.set(parsed.data.id, parsed.data)
+    if (parsed.success) validEvidence.push(parsed.data)
     if (
       typeof candidate === 'object' &&
       candidate !== null &&
+      !Array.isArray(candidate) &&
       'id' in candidate &&
       typeof candidate.id === 'string' &&
       'otel' in candidate
     ) {
       runtimeEvidenceIds.add(candidate.id)
+      if (!parsed.success) {
+        const evidenceWithoutOtel = { ...candidate }
+        delete evidenceWithoutOtel['otel']
+        const baseEvidence = evidenceSchema.safeParse(evidenceWithoutOtel)
+        if (baseEvidence.success) validEvidence.push(baseEvidence.data)
+      }
     }
   }
   const authorityIndex = createRuntimeProjectAuthorityIndex(
     legacy,
-    validEvidenceById,
+    validEvidence,
     runtimeEvidenceIds,
+    {
+      id: expectedEstateId,
+      tenantId: legacy.tenantId,
+      environment: legacy.environment,
+    },
   )
   const evidence = legacy.evidence.map((candidate) => {
     if (typeof candidate === 'object' && candidate !== null && 'otel' in candidate) {
@@ -444,14 +616,14 @@ export function assertPersistableEstateSnapshot(
   if (snapshot.tenantId !== estate.tenantId || snapshot.environment !== estate.environment) {
     throw new Error('Snapshot boundary does not match the target estate.')
   }
-  const evidenceById = new Map(snapshot.evidence.map((evidence) => [evidence.id, evidence]))
   const runtimeEvidenceIds = new Set(
     snapshot.evidence.flatMap((evidence) => (evidence.otel === undefined ? [] : [evidence.id])),
   )
   const authorityIndex = createRuntimeProjectAuthorityIndex(
     snapshot,
-    evidenceById,
+    snapshot.evidence,
     runtimeEvidenceIds,
+    estate,
   )
   for (const evidence of snapshot.evidence) {
     const invocations = evidence.otel?.invocations ?? []

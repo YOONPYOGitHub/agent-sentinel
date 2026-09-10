@@ -138,20 +138,23 @@ export function reconcileAgent365PersistedHealth(
   const hasAgent365Measurement = measurement.health.sources.some((source) =>
     source.id.startsWith('agent365:'),
   )
-  const reason =
+  const sourceSetChanged =
     (hasAgent365Measurement || bindings.length > 0) && measuredFingerprint !== currentFingerprint
-      ? ('source-set-changed' as const)
-      : now.getTime() - Date.parse(measurement.measuredAt) > maxAgeMs
-        ? ('measurement-expired' as const)
-        : undefined
-  if (reason === undefined) return measurement.health
+  const measurementExpired = now.getTime() - Date.parse(measurement.measuredAt) > maxAgeMs
+  if (!sourceSetChanged && !measurementExpired) return measurement.health
 
   const bindingByHealthId = new Map(
     bindings.map((binding) => [`agent365:${binding.sourceId}`, binding]),
   )
   const sources = measurement.health.sources.map((source) => {
+    const expiredSource = measurementExpired
+      ? staleAgent365Source(source, 'measurement-expired')
+      : source
+    const reconciledSource = sourceSetChanged
+      ? staleAgent365Source(expiredSource, 'source-set-changed')
+      : expiredSource
     const binding = bindingByHealthId.get(source.id)
-    if (binding === undefined) return staleAgent365Source(source, reason)
+    if (binding === undefined) return reconciledSource
     const status =
       binding.activation.status === 'active'
         ? {
@@ -159,11 +162,13 @@ export function reconcileAgent365PersistedHealth(
             configured: true,
             readiness: 'degraded' as const,
             dataState: 'stale' as const,
-            reason,
+            reason: sourceSetChanged
+              ? ('source-set-changed' as const)
+              : ('measurement-expired' as const),
           }
         : inactiveHealth(binding.activation.reason)
     return {
-      ...source,
+      ...reconciledSource,
       name: binding.displayName,
       ...status,
       provenance: {
@@ -188,7 +193,9 @@ export function reconcileAgent365PersistedHealth(
             configured: true,
             readiness: 'degraded' as const,
             dataState: 'stale' as const,
-            reason,
+            reason: sourceSetChanged
+              ? ('source-set-changed' as const)
+              : ('measurement-expired' as const),
           }
         : inactiveHealth(binding.activation.reason)
     sources.push({
