@@ -135,6 +135,12 @@ provider or synthesize success. Deployment JSON remains the connector runtime
 source and is not activated from these dormant records. Existing
 `*_SOURCES_JSON` definitions are projected into API reads as immutable
 deployment-origin records without being copied into mutable persistence.
+Foundry portfolio deployment sources are owned by the portfolio
+`estateTenantId` and `estateEnvironment`, even when an individual project is in
+a different provider tenant or environment. The nested Foundry configuration
+retains that exact provider tenant, environment, project endpoint, and bounded
+project ID; emitted Foundry authority metadata retains the same provider
+boundary while the snapshot remains scoped to the portfolio estate.
 
 Azure Monitor source writes require an explicit `sourceProjectId`. Legacy
 persisted Azure Monitor records that predate that field are decoded through a
@@ -422,15 +428,22 @@ invocation records and the full bounded quality summary. A supplied
 when that correlation kind is absent.
 
 Persisted estate snapshot writes use snapshot schema version 2 and remain strict.
+Both Cosmos and in-memory writes run the same contextual validator after schema
+parsing. Every nested OTel invocation must match the target estate ID, tenant,
+and environment; the snapshot `generatedAt`; its invocation observation time;
+the runtime evidence source metadata; and one exact authoritative agent plus
+declared-configuration source binding. Structurally valid cross-estate,
+cross-generation, or cross-source provenance is rejected before persistence.
 Persisted schema version selects the read path before current-schema parsing:
 version 2 is parsed strictly, while unversioned/version-1 snapshots use the
 legacy migrator. Legacy runtime invocations may hydrate missing
 `sourceProjectId`, `snapshotGeneratedAt`, or `toolCallNames` only when one
-authoritative agent and declared evidence record match the exact persisted
-estate, source, environment, and provider agent; missing tool names hydrate to
-an empty list. Empty version-1 invocation evidence, or evidence without that
-exact context, is retained only as non-authoritative, `migration-required`
-unknown evidence with no usable OTel invocation payload.
+authoritative agent and declared evidence record match the expected estate ID
+and the exact persisted tenant, source, environment, and provider agent;
+missing tool names hydrate to an empty list. Empty version-1 invocation
+evidence, cross-estate provenance, or evidence without that exact context is
+retained only as non-authoritative, `migration-required` unknown evidence with
+no usable OTel invocation payload.
 
 When a current telemetry result is received for an exact source and agent, prior
 projected runtime evidence for that same boundary is removed before the current

@@ -2,6 +2,7 @@ import type { Container, CosmosClient, SqlQuerySpec } from '@azure/cosmos'
 
 import {
   PERSISTED_ESTATE_SNAPSHOT_SCHEMA_VERSION,
+  assertPersistableEstateSnapshot,
   estateSnapshotSchema,
   hydratePersistedEstateSnapshot,
   type EstateContext,
@@ -68,12 +69,12 @@ function unwrapSnapshot(value: StoredSnapshot, estate: EstateContext): EstateSna
         `Unsupported persisted estate snapshot version: ${value.snapshotSchemaVersion}`,
       )
     }
-    return hydratePersistedEstateSnapshot(value.snapshot, 1)
+    return hydratePersistedEstateSnapshot(value.snapshot, estate.id, 1)
   }
   return estate.id === 'default' &&
     value.tenantId === estate.tenantId &&
     value.environment === estate.environment
-    ? hydratePersistedEstateSnapshot(value, 1)
+    ? hydratePersistedEstateSnapshot(value, estate.id, 1)
     : null
 }
 
@@ -101,10 +102,7 @@ export class CosmosSnapshotRepository implements SnapshotRepository {
   }
 
   async save(estate: EstateContext, snapshot: EstateSnapshot): Promise<void> {
-    const validated = estateSnapshotSchema.parse(snapshot)
-    if (validated.tenantId !== estate.tenantId || validated.environment !== estate.environment) {
-      throw new Error('Snapshot boundary does not match the target estate.')
-    }
+    const validated = assertPersistableEstateSnapshot(estate, snapshot)
     const snapshotId = logicalSnapshotId(validated)
     await this.container.items.upsert<SnapshotDocument>({
       id: physicalSnapshotId(estate, snapshotId),

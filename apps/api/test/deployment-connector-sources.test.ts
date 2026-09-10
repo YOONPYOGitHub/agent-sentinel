@@ -202,6 +202,44 @@ describe('deployment Azure Monitor OTel source projection', () => {
     ])
   })
 
+  it('projects cross-tenant Foundry sources under the portfolio estate boundary', () => {
+    const [source] = buildDeploymentConnectorSources(
+      {
+        AGENT_SENTINEL_CONNECTOR: 'foundry',
+        AGENT_SENTINEL_TENANT_ID: estate.tenantId,
+        AGENT_SENTINEL_ENVIRONMENT: estate.environment,
+        FOUNDRY_ENVIRONMENT: estate.environment,
+        FOUNDRY_SOURCES_JSON: JSON.stringify([
+          {
+            id: 'external-project',
+            name: 'External Foundry project',
+            projectEndpoint: 'https://external.services.ai.azure.com/api/projects/provider-project',
+            tenantId: 'tenant-provider',
+            environment: 'provider-production',
+          },
+        ]),
+      },
+      registry,
+      'live',
+    )
+
+    expect(source).toMatchObject({
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      sourceId: 'foundry-external-project',
+      connectorType: 'foundry',
+      origin: 'deployment',
+      configuration: {
+        type: 'foundry',
+        projectEndpoint: 'https://external.services.ai.azure.com/api/projects/provider-project',
+        sourceTenantId: 'tenant-provider',
+        sourceEnvironment: 'provider-production',
+        sourceProjectId: 'provider-project',
+      },
+    })
+  })
+
   it('projects configured live JSON sources without release-flag gating', () => {
     const [source] = buildDeploymentConnectorSources(configuredEnvironment, registry, 'live')
 

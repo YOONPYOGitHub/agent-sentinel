@@ -166,11 +166,43 @@ export const connectorTypeSchema = z.enum([
 ])
 export type ConnectorType = z.infer<typeof connectorTypeSchema>
 
-export const connectorSourceConfigurationSchema = z.discriminatedUnion('type', [
-  z.strictObject({
+const foundryConnectorSourceConfigurationSchema = z
+  .strictObject({
     type: z.literal('foundry'),
     projectEndpoint: foundryProjectEndpointSchema,
-  }),
+    sourceTenantId: boundedIdentifierSchema.optional(),
+    sourceEnvironment: boundedEnvironmentSchema.optional(),
+    sourceProjectId: sourceProjectIdSchema.optional(),
+  })
+  .superRefine((configuration, context) => {
+    const retainedBoundary = [
+      configuration.sourceTenantId,
+      configuration.sourceEnvironment,
+      configuration.sourceProjectId,
+    ]
+    const retainedCount = retainedBoundary.filter((value) => value !== undefined).length
+    if (retainedCount > 0 && retainedCount < retainedBoundary.length) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Retained Foundry provider boundaries must include tenant, environment, and project.',
+      })
+    }
+    const endpointProjectId = new URL(configuration.projectEndpoint).pathname.split('/').at(-1)
+    if (
+      configuration.sourceProjectId !== undefined &&
+      configuration.sourceProjectId !== endpointProjectId
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['sourceProjectId'],
+        message: 'Retained Foundry sourceProjectId must match the project endpoint.',
+      })
+    }
+  })
+
+export const connectorSourceConfigurationSchema = z.discriminatedUnion('type', [
+  foundryConnectorSourceConfigurationSchema,
   z.strictObject({
     type: z.literal('entra-identity'),
     graphBaseUrl: exactHttpsOriginSchema(

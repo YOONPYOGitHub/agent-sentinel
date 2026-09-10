@@ -235,6 +235,47 @@ describe('connector source domain', () => {
     ).toBe(false)
   })
 
+  it('requires retained Foundry provider boundaries to be complete and endpoint-consistent', () => {
+    expect(
+      connectorSourceCreateInputSchema.parse({
+        ...CREATE_INPUT,
+        configuration: {
+          type: 'foundry',
+          projectEndpoint: 'https://example.services.ai.azure.com/api/projects/project-a',
+          sourceTenantId: 'tenant-provider',
+          sourceEnvironment: 'provider-production',
+          sourceProjectId: 'project-a',
+        },
+      }).configuration,
+    ).toMatchObject({
+      sourceTenantId: 'tenant-provider',
+      sourceEnvironment: 'provider-production',
+      sourceProjectId: 'project-a',
+    })
+    expect(
+      connectorSourceCreateInputSchema.safeParse({
+        ...CREATE_INPUT,
+        configuration: {
+          type: 'foundry',
+          projectEndpoint: 'https://example.services.ai.azure.com/api/projects/project-a',
+          sourceTenantId: 'tenant-provider',
+        },
+      }).success,
+    ).toBe(false)
+    expect(
+      connectorSourceCreateInputSchema.safeParse({
+        ...CREATE_INPUT,
+        configuration: {
+          type: 'foundry',
+          projectEndpoint: 'https://example.services.ai.azure.com/api/projects/project-a',
+          sourceTenantId: 'tenant-provider',
+          sourceEnvironment: 'provider-production',
+          sourceProjectId: 'other-project',
+        },
+      }).success,
+    ).toBe(false)
+  })
+
   it('marks a legacy Azure Monitor source inactive when no exact project binding exists', () => {
     const legacy = {
       ...DEFINITION,

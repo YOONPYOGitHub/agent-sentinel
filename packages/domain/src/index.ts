@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import type { EstateContext } from './estate.js'
 import { evidenceSchema, evidenceTypeSchema, type Evidence } from './evidence.js'
 import { runsAsBindingSchema } from './evidence-authority.js'
 import {
@@ -218,13 +219,15 @@ const legacyEstateSnapshotSchema = z.object({
   evidence: z.array(z.unknown()),
 })
 
-function exactLegacyRuntimeProjectId(
+function exactRuntimeProjectId(
+  expectedEstateId: string,
   snapshot: z.infer<typeof legacyEstateSnapshotSchema>,
   evidenceId: string,
   provenance: z.infer<typeof legacyRuntimeOtelProvenanceSchema>,
   validEvidenceById: ReadonlyMap<string, Evidence>,
 ): string | undefined {
   if (
+    provenance.estateId !== expectedEstateId ||
     provenance.estateTenantId !== snapshot.tenantId ||
     provenance.estateEnvironment !== snapshot.environment ||
     (provenance.snapshotGeneratedAt !== undefined &&
@@ -298,7 +301,10 @@ function migrationRequiredLegacyRuntimeEvidence(
   })
 }
 
-function hydrateLegacyPersistedEstateSnapshot(value: unknown): EstateSnapshot {
+function hydrateLegacyPersistedEstateSnapshot(
+  value: unknown,
+  expectedEstateId: string,
+): EstateSnapshot {
   const legacy = legacyEstateSnapshotSchema.parse(value)
   const validEvidenceById = new Map<string, Evidence>()
   for (const candidate of legacy.evidence) {
@@ -312,7 +318,8 @@ function hydrateLegacyPersistedEstateSnapshot(value: unknown): EstateSnapshot {
         return migrationRequiredLegacyRuntimeEvidence(runtimeEvidence)
       }
       const invocations = runtimeEvidence.otel.invocations.map((invocation) => {
-        const sourceProjectId = exactLegacyRuntimeProjectId(
+        const sourceProjectId = exactRuntimeProjectId(
+          expectedEstateId,
           legacy,
           runtimeEvidence.id,
           invocation.provenance,
@@ -349,19 +356,64 @@ function hydrateLegacyPersistedEstateSnapshot(value: unknown): EstateSnapshot {
 
 export function hydratePersistedEstateSnapshot(
   value: unknown,
+  expectedEstateId: string,
   persistedSchemaVersion?: number,
 ): EstateSnapshot {
   if (persistedSchemaVersion === PERSISTED_ESTATE_SNAPSHOT_SCHEMA_VERSION) {
     return estateSnapshotSchema.parse(value)
   }
   if (persistedSchemaVersion === 1) {
-    return hydrateLegacyPersistedEstateSnapshot(value)
+    return hydrateLegacyPersistedEstateSnapshot(value, expectedEstateId)
   }
   if (persistedSchemaVersion !== undefined) {
     throw new Error(`Unsupported persisted estate snapshot version: ${persistedSchemaVersion}`)
   }
   const current = estateSnapshotSchema.safeParse(value)
-  return current.success ? current.data : hydrateLegacyPersistedEstateSnapshot(value)
+  return current.success
+    ? current.data
+    : hydrateLegacyPersistedEstateSnapshot(value, expectedEstateId)
+}
+
+export function assertPersistableEstateSnapshot(
+  estate: EstateContext,
+  value: unknown,
+): EstateSnapshot {
+  const snapshot = estateSnapshotSchema.parse(value)
+  if (snapshot.tenantId !== estate.tenantId || snapshot.environment !== estate.environment) {
+    throw new Error('Snapshot boundary does not match the target estate.')
+  }
+  const evidenceById = new Map(snapshot.evidence.map((evidence) => [evidence.id, evidence]))
+  for (const evidence of snapshot.evidence) {
+    for (const invocation of evidence.otel?.invocations ?? []) {
+      const provenance = invocation.provenance
+      const metadata = evidence.metadata
+      const sourceBindingMatches =
+        metadata?.['sourceConnector'] === 'azure-monitor-otel' &&
+        metadata['estateId'] === estate.id &&
+        metadata['estateTenantId'] === estate.tenantId &&
+        metadata['estateEnvironment'] === estate.environment &&
+        metadata['sourceConnectorId'] === provenance.sourceConnectorId &&
+        metadata['sourceTenantId'] === provenance.sourceTenantId &&
+        metadata['sourceProjectId'] === provenance.sourceProjectId &&
+        metadata['sourceEnvironment'] === provenance.sourceEnvironment &&
+        metadata['sourceAgentId'] === provenance.providerAgentId &&
+        exactRuntimeProjectId(estate.id, snapshot, evidence.id, provenance, evidenceById) ===
+          provenance.sourceProjectId
+      if (
+        provenance.estateId !== estate.id ||
+        provenance.estateTenantId !== estate.tenantId ||
+        provenance.estateEnvironment !== estate.environment ||
+        provenance.snapshotGeneratedAt !== snapshot.generatedAt ||
+        provenance.observedAt !== invocation.observedAt ||
+        !sourceBindingMatches
+      ) {
+        throw new Error(
+          `OpenTelemetry invocation provenance does not match the target estate and snapshot source binding: ${evidence.id}/${invocation.id}`,
+        )
+      }
+    }
+  }
+  return snapshot
 }
 
 export const riskFactorsSchema = z.object({

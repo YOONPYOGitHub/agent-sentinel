@@ -1106,6 +1106,26 @@ describe('multi-Foundry connector', () => {
       snapshotGeneratedAt: sourceGeneratedAt,
       sourceRelease: FOUNDRY_API_VERSION,
     })
+    expect(snapshot.evidence[1]?.authority).toEqual({
+      estateId: 'estate-a',
+      sourceId: 'foundry:tenant-b-project',
+      tenantId: 'tenant-b',
+      environment: 'validation',
+      provider: 'azure-ai-foundry-agent-service',
+      sourceObjectId: 'project-b',
+      providerObjectId: 'a1',
+      snapshotGeneratedAt: snapshot.evidence[1]?.authority?.snapshotGeneratedAt,
+      sourceRelease: FOUNDRY_API_VERSION,
+    })
+    expect(snapshot.evidence[1]?.metadata).toMatchObject({
+      estateId: 'estate-a',
+      estateTenantId: 'estate',
+      estateEnvironment: 'portfolio',
+      sourceConnectorId: 'tenant-b-project',
+      sourceTenantId: 'tenant-b',
+      sourceProjectId: 'project-b',
+      sourceEnvironment: 'validation',
+    })
     expect(connector.getConnectorHealth()).toMatchObject({
       overall: 'ready',
       partial: false,

@@ -23,7 +23,10 @@ import {
   type EstateContext,
 } from '@agent-sentinel/domain'
 import { resolveEntraRuntimeActivation } from '@agent-sentinel/entra-identity-connector'
-import { parseFoundryPortfolioConfig } from '@agent-sentinel/foundry-connector'
+import {
+  foundrySourceProjectId,
+  parseFoundryPortfolioConfig,
+} from '@agent-sentinel/foundry-connector'
 import { parsePowerPlatformConfig } from '@agent-sentinel/power-platform-connector'
 import { parsePurviewConfig } from '@agent-sentinel/purview-connector'
 import { parseTeamsDistributionConfig } from '@agent-sentinel/teams-distribution-connector'
@@ -138,10 +141,12 @@ function projectSource(
   isEnabled: boolean,
   source: ProjectableSource,
   configuration: unknown,
+  estateBoundary: Pick<ProjectableSource, 'tenantId' | 'environment'> = source,
 ): ConnectorSourceDefinition | undefined {
   const estate = registry.estates.find(
     (candidate) =>
-      candidate.tenantId === source.tenantId && candidate.environment === source.environment,
+      candidate.tenantId === estateBoundary.tenantId &&
+      candidate.environment === estateBoundary.environment,
   )
   if (estate === undefined) return undefined
   const id = sourceId(type, source.id)
@@ -180,6 +185,7 @@ export function buildDeploymentConnectorSources(
     isEnabled: boolean,
     sources: readonly T[],
     configuration: (source: T) => unknown,
+    estateBoundary?: (source: T) => Pick<ProjectableSource, 'tenantId' | 'environment'>,
   ): void => {
     for (const source of sources) {
       const definition = projectSource(
@@ -189,6 +195,7 @@ export function buildDeploymentConnectorSources(
         isEnabled,
         source,
         configuration(source),
+        estateBoundary?.(source),
       )
       if (definition !== undefined) definitions.push(definition)
     }
@@ -200,7 +207,17 @@ export function buildDeploymentConnectorSources(
       'foundry',
       environment['AGENT_SENTINEL_CONNECTOR']?.trim() === 'foundry',
       config.sources,
-      (source) => ({ type: 'foundry', projectEndpoint: source.projectEndpoint }),
+      (source) => ({
+        type: 'foundry',
+        projectEndpoint: source.projectEndpoint,
+        sourceTenantId: source.tenantId,
+        sourceEnvironment: source.environment,
+        sourceProjectId: foundrySourceProjectId(source.projectEndpoint),
+      }),
+      () => ({
+        tenantId: config.estateTenantId,
+        environment: config.estateEnvironment,
+      }),
     )
   }
   const entraActivation = resolveEntraRuntimeActivation(environment, dataMode)

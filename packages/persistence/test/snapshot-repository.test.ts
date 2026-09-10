@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import type { EstateSnapshot } from '@agent-sentinel/domain'
+import type {
+  EstateSnapshot,
+  RuntimeOtelProvenance,
+  SnapshotRepository,
+} from '@agent-sentinel/domain'
 
 import { CosmosSnapshotRepository, InMemorySnapshotRepository } from '../src/index.js'
 import { FakeCosmosStore } from './fake-cosmos.js'
@@ -11,7 +15,10 @@ const estate = {
   environment: 'portfolio',
 }
 
-function legacyRuntimeSnapshot(exactProjectContext = true): unknown {
+function legacyRuntimeSnapshot(
+  exactProjectContext = true,
+  provenanceEstateId = estate.id,
+): unknown {
   const generatedAt = '2026-09-09T00:00:00.000Z'
   return {
     tenantId: estate.tenantId,
@@ -90,7 +97,7 @@ function legacyRuntimeSnapshot(exactProjectContext = true): unknown {
               costUsd: 0.001,
               success: true,
               provenance: {
-                estateId: estate.id,
+                estateId: provenanceEstateId,
                 estateTenantId: estate.tenantId,
                 estateEnvironment: estate.environment,
                 sourceConnectorId: 'primary',
@@ -147,6 +154,70 @@ function legacyEmptyRuntimeSnapshot(): unknown {
   runtime.invocations = []
   return snapshot
 }
+
+function currentRuntimeSnapshot(): EstateSnapshot {
+  const snapshot = legacyRuntimeSnapshot() as EstateSnapshot
+  const node = snapshot.nodes[0]
+  const declared = snapshot.evidence[0]
+  const runtime = snapshot.evidence[1]
+  const invocation = runtime?.otel?.invocations[0]
+  if (
+    node === undefined ||
+    declared === undefined ||
+    runtime === undefined ||
+    invocation === undefined
+  ) {
+    throw new Error('Expected one complete runtime snapshot fixture.')
+  }
+  node.metadata = {
+    ...node.metadata,
+    estateId: estate.id,
+    estateTenantId: estate.tenantId,
+    estateEnvironment: estate.environment,
+  }
+  declared.metadata = {
+    ...declared.metadata,
+    estateId: estate.id,
+  }
+  runtime.metadata = {
+    ...runtime.metadata,
+    estateId: estate.id,
+    estateTenantId: estate.tenantId,
+    estateEnvironment: estate.environment,
+    sourceConnectorId: 'primary',
+    sourceTenantId: estate.tenantId,
+    sourceProjectId: 'project-a',
+    sourceEnvironment: 'production',
+    sourceAgentId: 'provider-agent-a',
+  }
+  invocation.toolCallNames = []
+  invocation.provenance = {
+    ...invocation.provenance,
+    sourceProjectId: 'project-a',
+    snapshotGeneratedAt: snapshot.generatedAt,
+  }
+  return snapshot
+}
+
+function invocationProvenance(snapshot: EstateSnapshot): RuntimeOtelProvenance {
+  const provenance = snapshot.evidence[1]?.otel?.invocations[0]?.provenance
+  if (provenance === undefined) throw new Error('Expected runtime invocation provenance.')
+  return provenance
+}
+
+const repositoryFactories: ReadonlyArray<{
+  name: string
+  create: () => SnapshotRepository
+}> = [
+  {
+    name: 'in-memory',
+    create: () => new InMemorySnapshotRepository(),
+  },
+  {
+    name: 'Cosmos',
+    create: () => new CosmosSnapshotRepository(new FakeCosmosStore().client),
+  },
+]
 
 describe('snapshot persistence compatibility', () => {
   it('keeps current in-memory and Cosmos writes strict', async () => {
@@ -235,6 +306,43 @@ describe('snapshot persistence compatibility', () => {
     expect(snapshot?.evidence[1]).not.toHaveProperty('otel')
   })
 
+  it.each([
+    ['an explicit version-1 wrapper', 1],
+    ['an unversioned wrapper', undefined],
+  ])(
+    'marks legacy runtime evidence migration-required for cross-estate provenance in %s',
+    async (_label, snapshotSchemaVersion) => {
+      const store = new FakeCosmosStore()
+      await store.client
+        .database('agent-sentinel-db')
+        .container('snapshots')
+        .items.upsert({
+          id: `snapshot:${estate.id}:${estate.tenantId}-${estate.environment}-2026-09-09T00:00:00.000Z`,
+          documentType: 'estate-snapshot',
+          estateId: estate.id,
+          tenantId: estate.tenantId,
+          environment: estate.environment,
+          snapshotId: `${estate.tenantId}-${estate.environment}-2026-09-09T00:00:00.000Z`,
+          generatedAt: '2026-09-09T00:00:00.000Z',
+          ...(snapshotSchemaVersion === undefined ? {} : { snapshotSchemaVersion }),
+          snapshot: legacyRuntimeSnapshot(true, 'other-estate'),
+        })
+
+      const snapshot = await new CosmosSnapshotRepository(store.client).findLatest(estate)
+
+      expect(snapshot?.evidence[1]).toMatchObject({
+        confidence: 0,
+        evidenceTypes: ['unknown'],
+        metadata: {
+          isNonAuthoritative: 'true',
+          migrationStatus: 'migration-required',
+          migrationReason: 'legacy-runtime-evidence-missing-exact-source-context',
+        },
+      })
+      expect(snapshot?.evidence[1]).not.toHaveProperty('otel')
+    },
+  )
+
   it('selects version-1 migration before current parsing for empty invocation evidence', async () => {
     const store = new FakeCosmosStore()
     await store.client
@@ -286,3 +394,87 @@ describe('snapshot persistence compatibility', () => {
     })
   })
 })
+
+describe.each(repositoryFactories)(
+  '$name version-2 snapshot provenance validation',
+  ({ create }) => {
+    it('accepts an exact nested invocation provenance binding', async () => {
+      const repository = create()
+      const snapshot = currentRuntimeSnapshot()
+
+      await repository.save(estate, snapshot)
+
+      await expect(repository.findLatest(estate)).resolves.toEqual(snapshot)
+    })
+
+    it.each([
+      [
+        'estate ID',
+        (provenance: RuntimeOtelProvenance) => {
+          provenance.estateId = 'other-estate'
+        },
+      ],
+      [
+        'estate tenant',
+        (provenance: RuntimeOtelProvenance) => {
+          provenance.estateTenantId = 'other-tenant'
+        },
+      ],
+      [
+        'estate environment',
+        (provenance: RuntimeOtelProvenance) => {
+          provenance.estateEnvironment = 'other-environment'
+        },
+      ],
+      [
+        'snapshot generation',
+        (provenance: RuntimeOtelProvenance) => {
+          provenance.snapshotGeneratedAt = '2026-09-10T00:00:00.000Z'
+        },
+      ],
+      [
+        'source connector',
+        (provenance: RuntimeOtelProvenance) => {
+          provenance.sourceConnectorId = 'other-source'
+        },
+      ],
+      [
+        'source tenant',
+        (provenance: RuntimeOtelProvenance) => {
+          provenance.sourceTenantId = 'other-source-tenant'
+        },
+      ],
+      [
+        'source project',
+        (provenance: RuntimeOtelProvenance) => {
+          provenance.sourceProjectId = 'other-project'
+        },
+      ],
+      [
+        'source environment',
+        (provenance: RuntimeOtelProvenance) => {
+          provenance.sourceEnvironment = 'other-source-environment'
+        },
+      ],
+      [
+        'provider agent',
+        (provenance: RuntimeOtelProvenance) => {
+          provenance.providerAgentId = 'other-provider-agent'
+        },
+      ],
+      [
+        'invocation observation',
+        (provenance: RuntimeOtelProvenance) => {
+          provenance.observedAt = '2026-09-08T13:00:00.000Z'
+        },
+      ],
+    ])('rejects a nested invocation with mismatched %s', async (_label, mutate) => {
+      const snapshot = currentRuntimeSnapshot()
+      mutate(invocationProvenance(snapshot))
+
+      await expect(create().save(estate, snapshot)).rejects.toThrow(
+        'OpenTelemetry invocation provenance',
+      )
+    })
+  },
+)

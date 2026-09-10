@@ -106,7 +106,7 @@ export class DemoService {
     const snapshot =
       this.persistedReadModel === undefined
         ? candidateSnapshot
-        : hydratePersistedEstateSnapshot(candidateSnapshot)
+        : hydratePersistedEstateSnapshot(candidateSnapshot, this.estate.id)
     if (
       this.connectorMode === 'foundry' &&
       (snapshot.tenantId.toLowerCase() !== this.estate.tenantId.toLowerCase() ||
