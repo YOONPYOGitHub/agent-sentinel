@@ -11,6 +11,40 @@ export const evidenceTypeSchema = z.enum([
 ])
 export type EvidenceType = z.infer<typeof evidenceTypeSchema>
 
+export const evidenceSourceStatusSchema = z
+  .strictObject({
+    status: z.enum(['live', 'stale', 'unknown']),
+    sourceId: z.string().min(1).max(200),
+    readiness: z.enum(['ready', 'degraded', 'unavailable', 'disabled', 'authorization-required']),
+    dataState: z
+      .enum(['complete', 'partial', 'stale', 'unsupported', 'empty', 'failed', 'cancelled'])
+      .optional(),
+    checkedAt: z.iso.datetime().optional(),
+    reason: z.string().min(1).max(200).optional(),
+  })
+  .superRefine((status, context) => {
+    if (
+      status.status === 'live' &&
+      (status.readiness !== 'ready' || status.dataState !== 'complete')
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Live evidence source status requires ready and complete source health.',
+      })
+    }
+    if (
+      status.status !== 'live' &&
+      status.readiness === 'ready' &&
+      status.dataState === 'complete'
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Ready and complete source health must be represented as live.',
+      })
+    }
+  })
+export type EvidenceSourceStatus = z.infer<typeof evidenceSourceStatusSchema>
+
 export const evidenceSchema = z
   .object({
     id: z.string().min(1),
@@ -30,6 +64,7 @@ export const evidenceSchema = z
     uri: z.url().optional(),
     summary: z.string().min(1),
     metadata: z.record(z.string(), z.string()).optional(),
+    sourceStatus: evidenceSourceStatusSchema.optional(),
     authority: evidenceAuthoritySchema.optional(),
     otel: otelEvidenceDetailsSchema.optional(),
   })

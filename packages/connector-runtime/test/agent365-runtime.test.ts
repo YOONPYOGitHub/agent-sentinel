@@ -16,10 +16,13 @@ import {
   buildDeploymentConnectorSources,
   createAgent365RuntimeConnector,
   DeploymentConnectorSourceRepository,
+  Agent365HealthAwareSnapshotRepository,
+  projectAgent365SnapshotHealth,
   reconcileAgent365PersistedHealth,
   resolveAgent365Runtime,
 } from '../src/index.js'
 import type { ConnectorHealthMeasurement } from '@agent-sentinel/connector-sdk'
+import type { ConnectorHealthReport } from '@agent-sentinel/connector-sdk'
 
 const estate: EstateContext = {
   id: 'estate-a',
@@ -182,6 +185,84 @@ function baseConnector(): AgentConnector {
         },
       ],
     }),
+  }
+}
+
+function retainedAgent365Snapshot(sourceId = 'deployment'): EstateSnapshot {
+  const evidenceId = 'agent365-package-evidence'
+  return {
+    tenantId: estate.tenantId,
+    environment: estate.environment,
+    generatedAt: '2026-09-09T00:00:00.000Z',
+    nodes: [
+      {
+        id: 'agent365-package',
+        kind: 'agent',
+        name: 'Retained package',
+        description: 'Retained Agent 365 package evidence.',
+        environment: estate.environment,
+        evidenceIds: [evidenceId],
+        metadata: {
+          sourceConnector: 'agent365-package-catalog',
+          sourceConnectorId: sourceId,
+          sourceTenantId: estate.tenantId,
+          sourceEnvironment: estate.environment,
+          sourceProviderObjectId: 'P_1',
+        },
+      },
+    ],
+    edges: [],
+    evidence: [
+      {
+        id: evidenceId,
+        source: 'Microsoft Graph v1.0 Agent 365 package catalog',
+        sourceObjectId: `${sourceId}:P_1`,
+        observedAt: '2026-09-09T00:00:00.000Z',
+        freshness: 'live',
+        confidence: 1,
+        evidenceTypes: ['declared_configuration'],
+        summary: 'Retained Agent 365 package catalog record.',
+        metadata: {
+          sourceConnector: 'agent365-package-catalog',
+          sourceConnectorId: sourceId,
+          sourceTenantId: estate.tenantId,
+          sourceEnvironment: estate.environment,
+          sourceProviderObjectId: 'P_1',
+        },
+      },
+    ],
+  }
+}
+
+function agent365Health(
+  sourceId: string,
+  overrides: Partial<ConnectorHealthReport['sources'][number]> = {},
+): ConnectorHealthReport {
+  return {
+    overall: 'ready',
+    partial: false,
+    sources: [
+      {
+        id: `agent365:${sourceId}`,
+        name: 'Agent 365',
+        role: 'discovery',
+        enabled: true,
+        configured: true,
+        readiness: 'ready',
+        dataState: 'complete',
+        checkedAt: '2026-09-09T00:05:00.000Z',
+        provenance: {
+          estateTenantId: estate.tenantId,
+          estateEnvironment: estate.environment,
+          sourceConnectorId: sourceId,
+          sourceTenantId: estate.tenantId,
+          sourceEnvironment: estate.environment,
+          provider: 'microsoft-graph-agent365-package-catalog',
+          providerObjectId: '/v1.0/copilot/admin/catalog/packages',
+        },
+        ...overrides,
+      },
+    ],
   }
 }
 
@@ -350,11 +431,14 @@ describe('Agent 365 runtime source resolution', () => {
       'agent365-deployment',
       'agent365-user',
     ])
+    expect(resolved.bindings[0]).toMatchObject({
+      bindingSourceId: 'deployment',
+    })
     expect(resolved.bindings[1]?.activation).toEqual({
       status: 'inactive',
       reason: 'duplicate-tenant-boundary',
     })
-    expect(resolved.config?.sources.map((value) => value.id)).toEqual(['agent365-deployment'])
+    expect(resolved.config?.sources.map((value) => value.id)).toEqual(['deployment'])
   })
 
   it.each([
@@ -550,7 +634,7 @@ describe('Agent 365 runtime source resolution', () => {
     expect(connector.getConnectorHealth?.().sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: 'agent365:agent365-deployment',
+          id: 'agent365:deployment',
           enabled: true,
           configured: false,
           readiness: 'authorization-required',
@@ -558,6 +642,104 @@ describe('Agent 365 runtime source resolution', () => {
         }),
       ]),
     )
+  })
+
+  describe('Agent 365 retained snapshot health projection', () => {
+    it('keeps package evidence live only for an exact ready and complete source', () => {
+      const projected = projectAgent365SnapshotHealth(
+        retainedAgent365Snapshot(),
+        agent365Health('deployment'),
+      )
+
+      expect(projected.evidence[0]).toMatchObject({
+        freshness: 'live',
+        confidence: 1,
+        evidenceTypes: ['declared_configuration'],
+        sourceStatus: {
+          status: 'live',
+          sourceId: 'deployment',
+          readiness: 'ready',
+          dataState: 'complete',
+          checkedAt: '2026-09-09T00:05:00.000Z',
+        },
+      })
+    })
+
+    it('marks exact retained package evidence stale when the latest source is not complete and ready', () => {
+      const projected = projectAgent365SnapshotHealth(
+        retainedAgent365Snapshot(),
+        agent365Health('deployment', {
+          readiness: 'authorization-required',
+          dataState: 'failed',
+          reason: 'authorization',
+        }),
+      )
+
+      expect(projected.evidence[0]).toMatchObject({
+        freshness: 'stale',
+        confidence: 1,
+        evidenceTypes: ['declared_configuration', 'unknown'],
+        sourceStatus: {
+          status: 'stale',
+          sourceId: 'deployment',
+          readiness: 'authorization-required',
+          dataState: 'failed',
+          reason: 'authorization',
+        },
+      })
+    })
+
+    it('marks retained package evidence unknown when no exact current source health exists', () => {
+      const mismatched = agent365Health('other-source')
+      const projected = projectAgent365SnapshotHealth(retainedAgent365Snapshot(), mismatched)
+
+      expect(projected.evidence[0]).toMatchObject({
+        freshness: 'stale',
+        confidence: 0,
+        evidenceTypes: ['declared_configuration', 'unknown'],
+        sourceStatus: {
+          status: 'unknown',
+          sourceId: 'deployment',
+          readiness: 'unavailable',
+          reason: 'source-health-unavailable',
+        },
+      })
+    })
+
+    it('projects Agent 365 health through every snapshot repository read method', async () => {
+      const snapshot = retainedAgent365Snapshot()
+      const repository = new Agent365HealthAwareSnapshotRepository(
+        {
+          save: () => Promise.resolve(),
+          findLatest: () => Promise.resolve(snapshot),
+          findById: () => Promise.resolve(snapshot),
+          list: () => Promise.resolve([snapshot]),
+        },
+        () =>
+          Promise.resolve(
+            agent365Health('deployment', {
+              readiness: 'degraded',
+              dataState: 'partial',
+              reason: 'bounds',
+            }),
+          ),
+      )
+
+      const latest = await repository.findLatest(estate)
+      const byId = await repository.findById('snapshot-id', estate)
+      const listed = await repository.list(estate)
+
+      for (const projected of [latest, byId, listed[0]]) {
+        expect(projected?.evidence[0]).toMatchObject({
+          freshness: 'stale',
+          sourceStatus: {
+            status: 'stale',
+            dataState: 'partial',
+            reason: 'bounds',
+          },
+        })
+      }
+    })
   })
 
   it('marks an enabled legacy deployment without explicit UAMI as non-promotable', async () => {
@@ -585,9 +767,7 @@ describe('Agent 365 runtime source resolution', () => {
       partial: true,
     })
     expect(
-      connector
-        .getConnectorHealth?.()
-        .sources.find((source) => source.id === 'agent365:agent365-primary'),
+      connector.getConnectorHealth?.().sources.find((source) => source.id === 'agent365:primary'),
     ).toMatchObject({
       enabled: true,
       configured: false,
@@ -697,6 +877,7 @@ describe('Agent 365 runtime source resolution', () => {
         tenantId: first.tenantId,
         environment: first.environment,
         sourceId: first.sourceId,
+        bindingSourceId: first.sourceId,
         displayName: first.displayName,
         origin: first.origin,
         sourceVersion: first.version,
@@ -710,6 +891,7 @@ describe('Agent 365 runtime source resolution', () => {
         tenantId: first.tenantId,
         environment: first.environment,
         sourceId: first.sourceId,
+        bindingSourceId: first.sourceId,
         displayName: first.displayName,
         origin: first.origin,
         sourceVersion: first.version + 1,
@@ -723,6 +905,7 @@ describe('Agent 365 runtime source resolution', () => {
         tenantId: first.tenantId,
         environment: first.environment,
         sourceId: first.sourceId,
+        bindingSourceId: first.sourceId,
         displayName: first.displayName,
         origin: first.origin,
         sourceVersion: first.version,
@@ -734,6 +917,7 @@ describe('Agent 365 runtime source resolution', () => {
         tenantId: first.tenantId,
         environment: first.environment,
         sourceId: 'agent365-b',
+        bindingSourceId: 'agent365-b',
         displayName: 'Agent 365 B',
         origin: 'user',
         sourceVersion: 1,
@@ -769,6 +953,7 @@ describe('Agent 365 runtime source resolution', () => {
           tenantId: estate.tenantId,
           environment: estate.environment,
           sourceId: 'agent365-current',
+          bindingSourceId: 'agent365-current',
           displayName: 'Current Agent 365',
           origin: 'user' as const,
           sourceVersion: 3,
@@ -857,6 +1042,7 @@ describe('Agent 365 runtime source resolution', () => {
       tenantId: estate.tenantId,
       environment: estate.environment,
       sourceId: 'agent365-current',
+      bindingSourceId: 'agent365-current',
       displayName: 'Current Agent 365',
       origin: 'user' as const,
       sourceVersion: 3,
@@ -966,6 +1152,7 @@ describe('Agent 365 runtime source resolution', () => {
       tenantId: estate.tenantId,
       environment: estate.environment,
       sourceId: 'agent365-transition',
+      bindingSourceId: 'agent365-transition',
       displayName: 'Current Agent 365',
       origin: 'user' as const,
       sourceVersion: 3,

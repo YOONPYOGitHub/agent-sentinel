@@ -57,6 +57,22 @@ describe('connector source domain', () => {
     expect(connectorSourceDefinitionSchema.parse(DEFINITION)).toEqual(DEFINITION)
   })
 
+  it('accepts immutable deployment runtime identity and rejects it on user sources', () => {
+    const deployment = {
+      ...DEFINITION,
+      runtimeBinding: { bindingSourceId: 'primary' },
+    }
+
+    expect(connectorSourceDefinitionSchema.parse(deployment)).toEqual(deployment)
+    expect(() =>
+      connectorSourceDefinitionSchema.parse({
+        ...deployment,
+        origin: 'user',
+        createdBy: { type: 'user', id: 'admin@example.test' },
+      }),
+    ).toThrow('Deployment runtime bindings')
+  })
+
   it.each([
     { password: 'not-allowed' },
     { clientSecret: 'not-allowed' },
@@ -447,6 +463,31 @@ describe('connector source domain', () => {
         after: {
           ...DEFINITION,
           origin: 'user',
+          version: 2,
+          etag: 'source-etag-2',
+          updatedBy: { type: 'user', id: 'admin@example.test' },
+          updatedAt: '2026-09-04T00:01:00.000Z',
+        },
+      }),
+    ).toThrow('immutable fields')
+    expect(() =>
+      connectorSourceAuditRecordSchema.parse({
+        id: 'audit-runtime-binding-update',
+        estateId: DEFINITION.estateId,
+        tenantId: DEFINITION.tenantId,
+        environment: DEFINITION.environment,
+        sourceId: DEFINITION.sourceId,
+        operation: 'update',
+        actor: { type: 'user', id: 'admin@example.test' },
+        occurredAt: '2026-09-04T00:01:00.000Z',
+        idempotencyKey: 'key-runtime-binding-update',
+        before: {
+          ...DEFINITION,
+          runtimeBinding: { bindingSourceId: 'primary' },
+        },
+        after: {
+          ...DEFINITION,
+          runtimeBinding: { bindingSourceId: 'replacement' },
           version: 2,
           etag: 'source-etag-2',
           updatedBy: { type: 'user', id: 'admin@example.test' },

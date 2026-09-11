@@ -7,6 +7,10 @@ const azureGuidSchema = z
   .string()
   .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
 export const connectorSourceIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)
+export const connectorRuntimeBindingSchema = z.strictObject({
+  bindingSourceId: connectorSourceIdSchema,
+})
+export type ConnectorRuntimeBinding = z.infer<typeof connectorRuntimeBindingSchema>
 const boundedIdentifierSchema = z.string().trim().min(1).max(256)
 const boundedEnvironmentSchema = z.string().trim().min(1).max(128)
 const boundedSummarySchema = z.string().trim().min(1).max(500)
@@ -364,6 +368,7 @@ const connectorSourceCoreSchema = z
     origin: z.enum(['deployment', 'user']),
     configuration: connectorSourceConfigurationSchema,
     credential: connectorCredentialMetadataSchema,
+    runtimeBinding: connectorRuntimeBindingSchema.optional(),
     testStatus: connectorSourceTestStatusSchema,
   })
   .superRefine((source, context) => {
@@ -372,6 +377,13 @@ const connectorSourceCoreSchema = z
         code: 'custom',
         path: ['configuration', 'type'],
         message: 'Connector configuration must match connectorType.',
+      })
+    }
+    if (source.runtimeBinding !== undefined && source.origin !== 'deployment') {
+      context.addIssue({
+        code: 'custom',
+        path: ['runtimeBinding'],
+        message: 'Deployment runtime bindings are allowed only on deployment-origin sources.',
       })
     }
   })
@@ -623,6 +635,10 @@ function validateConnectorSourceAudit(
     })
   }
   if (audit.before !== null && audit.after !== null) {
+    const beforeRuntimeBinding =
+      'runtimeBinding' in audit.before ? audit.before.runtimeBinding : undefined
+    const afterRuntimeBinding =
+      'runtimeBinding' in audit.after ? audit.after.runtimeBinding : undefined
     const immutableFieldsMatch =
       audit.before.estateId === audit.after.estateId &&
       audit.before.tenantId === audit.after.tenantId &&
@@ -630,6 +646,7 @@ function validateConnectorSourceAudit(
       audit.before.sourceId === audit.after.sourceId &&
       audit.before.connectorType === audit.after.connectorType &&
       audit.before.origin === audit.after.origin &&
+      JSON.stringify(beforeRuntimeBinding) === JSON.stringify(afterRuntimeBinding) &&
       audit.before.createdAt === audit.after.createdAt &&
       audit.before.createdBy.type === audit.after.createdBy.type &&
       audit.before.createdBy.id === audit.after.createdBy.id

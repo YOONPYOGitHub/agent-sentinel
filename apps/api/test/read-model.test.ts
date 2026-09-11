@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { EstateContext, EstateSnapshot, SnapshotRepository } from '@agent-sentinel/domain'
+import type {
+  ConnectorSourceDefinition,
+  ConnectorSourceRepository,
+  EstateContext,
+  EstateSnapshot,
+  SnapshotRepository,
+} from '@agent-sentinel/domain'
 import { agentSentinelStateSchema } from '@agent-sentinel/domain'
 import {
   computeManifestHash,
@@ -14,6 +20,8 @@ import {
 } from '@agent-sentinel/connector-sdk'
 import type { ManifestIngestionRepository } from '@agent-sentinel/connector-sdk'
 import { MockAgentConnector } from '@agent-sentinel/mock-connector'
+import { resolveAgent365Runtime } from '@agent-sentinel/connector-runtime'
+import { InMemoryConnectorHealthRepository } from '@agent-sentinel/persistence'
 
 import { createApp } from '../src/app.js'
 import { DemoService } from '../src/demo-service.js'
@@ -250,6 +258,166 @@ afterEach(async () => {
 })
 
 describe('live product read model', () => {
+  it('joins current Agent 365 failure health into retained package state evidence', async () => {
+    const estate: EstateContext = {
+      id: 'default',
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      environment: 'production',
+    }
+    const snapshot: EstateSnapshot = {
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      generatedAt: '2026-09-09T00:00:00.000Z',
+      nodes: [
+        {
+          id: 'agent365-package',
+          kind: 'agent',
+          name: 'Retained Agent 365 package',
+          description: 'Retained authoritative package observation.',
+          environment: estate.environment,
+          evidenceIds: ['agent365-package-evidence'],
+          metadata: {
+            sourceConnector: 'agent365-package-catalog',
+            sourceConnectorId: 'deployment',
+            sourceTenantId: estate.tenantId,
+            sourceEnvironment: estate.environment,
+            sourceProviderObjectId: 'P_1',
+          },
+        },
+      ],
+      edges: [],
+      evidence: [
+        {
+          id: 'agent365-package-evidence',
+          source: 'Microsoft Graph v1.0 Agent 365 package catalog',
+          sourceObjectId: 'deployment:P_1',
+          observedAt: '2026-09-09T00:00:00.000Z',
+          freshness: 'live',
+          confidence: 1,
+          evidenceTypes: ['declared_configuration'],
+          summary: 'Retained authoritative Agent 365 package observation.',
+          metadata: {
+            sourceConnector: 'agent365-package-catalog',
+            sourceConnectorId: 'deployment',
+            sourceTenantId: estate.tenantId,
+            sourceEnvironment: estate.environment,
+            sourceProviderObjectId: 'P_1',
+          },
+        },
+      ],
+    }
+    configureFoundryFor(snapshot)
+    const source: ConnectorSourceDefinition = {
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      sourceId: 'agent365-deployment',
+      connectorType: 'agent365',
+      displayName: 'Deployment Agent 365',
+      enabled: true,
+      origin: 'deployment',
+      configuration: {
+        type: 'agent365',
+        graphBaseUrl: 'https://graph.microsoft.com',
+        limits: {
+          maxPages: 3,
+          maxItems: 500,
+          requestTimeoutMs: 5_000,
+          maxRetries: 1,
+          maxRetryAfterMs: 1_000,
+          maxResponseBytes: 50_000,
+        },
+      },
+      credential: {
+        mode: 'managed-identity',
+        managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+      },
+      runtimeBinding: { bindingSourceId: 'deployment' },
+      testStatus: { status: 'not-tested' },
+      version: 1,
+      etag: 'deployment-etag',
+      createdBy: { type: 'deployment', id: 'deployment-json' },
+      updatedBy: { type: 'deployment', id: 'deployment-json' },
+      createdAt: '1970-01-01T00:00:00.000Z',
+      updatedAt: '1970-01-01T00:00:00.000Z',
+    }
+    const sourceRepository: ConnectorSourceRepository = {
+      create: () => Promise.reject(new Error('not used')),
+      findById: () => Promise.resolve(source),
+      list: () => Promise.resolve([source]),
+      update: () => Promise.reject(new Error('not used')),
+      delete: () => Promise.reject(new Error('not used')),
+      listAudit: () => Promise.resolve([]),
+    }
+    const runtime = await resolveAgent365Runtime(sourceRepository, estate)
+    const healthRepository = new InMemoryConnectorHealthRepository()
+    await healthRepository.save(estate, {
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      connectorId: 'azure-ai-foundry-agent-service',
+      sourceSetFingerprint: runtime.sourceSetFingerprint,
+      measuredAt: '2026-09-09T00:05:00.000Z',
+      health: {
+        overall: 'degraded',
+        partial: true,
+        sourceSetFingerprint: runtime.sourceSetFingerprint,
+        sources: [
+          {
+            id: 'agent365:deployment',
+            name: 'Deployment Agent 365',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'authorization-required',
+            dataState: 'failed',
+            checkedAt: '2026-09-09T00:05:00.000Z',
+            reason: 'authorization',
+            provenance: {
+              estateTenantId: estate.tenantId,
+              estateEnvironment: estate.environment,
+              sourceConnectorId: 'deployment',
+              sourceTenantId: estate.tenantId,
+              sourceEnvironment: estate.environment,
+              provider: 'microsoft-graph-agent365-package-catalog',
+              providerObjectId: '/v1.0/copilot/admin/catalog/packages',
+            },
+          },
+        ],
+      },
+    })
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled' },
+      {
+        dataMode: 'live',
+        estateRegistry: buildEstateRegistry({}, estate),
+        snapshotRepository: snapshotRepository(snapshot).repository,
+        connectorSourceRepository: sourceRepository,
+        connectorHealthRepository: healthRepository,
+        runtimeTelemetryConnector: null,
+        connectorHealthClock: () => new Date('2026-09-09T00:05:01.000Z'),
+      },
+    )
+    apps.push(app)
+
+    const state = agentSentinelStateSchema.parse(
+      (await app.inject({ method: 'GET', url: '/api/demo/state' })).json(),
+    )
+
+    expect(state.snapshot.evidence[0]).toMatchObject({
+      freshness: 'stale',
+      evidenceTypes: ['declared_configuration', 'unknown'],
+      sourceStatus: {
+        status: 'stale',
+        sourceId: 'deployment',
+        readiness: 'authorization-required',
+        dataState: 'failed',
+        reason: 'authorization',
+      },
+    })
+  })
+
   it('uses an independently resolved custom estate for live authority checks', async () => {
     const configuredEstate: EstateContext = {
       id: 'custom-estate',

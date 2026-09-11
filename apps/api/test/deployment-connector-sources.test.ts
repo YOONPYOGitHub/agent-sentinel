@@ -69,6 +69,9 @@ describe('deployment Azure Monitor OTel source projection', () => {
 
     expect(source).toMatchObject({
       sourceId: 'agent365-live',
+      runtimeBinding: {
+        bindingSourceId: 'live',
+      },
       connectorType: 'agent365',
       enabled: true,
       origin: 'deployment',
@@ -134,6 +137,9 @@ describe('deployment Azure Monitor OTel source projection', () => {
 
     expect(projected).toMatchObject({
       sourceId: 'agent365-primary',
+      runtimeBinding: {
+        bindingSourceId: 'primary',
+      },
       connectorType: 'agent365',
       enabled: true,
       origin: 'deployment',

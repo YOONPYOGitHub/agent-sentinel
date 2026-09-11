@@ -161,6 +161,9 @@ function projectSource(
     origin: 'deployment' as const,
     configuration,
     credential: credentialMetadata(source.credential, environment),
+    runtimeBinding: {
+      bindingSourceId: source.id,
+    },
     testStatus: { status: 'not-tested' as const },
   }
   return connectorSourceDefinitionSchema.parse({

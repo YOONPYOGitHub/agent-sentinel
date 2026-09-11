@@ -40,6 +40,7 @@ export interface Agent365RuntimeBinding {
   readonly tenantId: string
   readonly environment: string
   readonly sourceId: string
+  readonly bindingSourceId: string
   readonly displayName: string
   readonly origin: 'deployment' | 'user'
   readonly sourceVersion: number
@@ -103,6 +104,7 @@ export function agent365SourceSetFingerprint(bindings: readonly Agent365RuntimeB
       tenantId: binding.tenantId,
       environment: binding.environment,
       sourceId: binding.sourceId,
+      bindingSourceId: binding.bindingSourceId,
       origin: binding.origin,
       sourceVersion: binding.sourceVersion,
       sourceEtag: binding.sourceEtag,
@@ -144,7 +146,7 @@ export function reconcileAgent365PersistedHealth(
   if (!sourceSetChanged && !measurementExpired) return measurement.health
 
   const bindingByHealthId = new Map(
-    bindings.map((binding) => [`agent365:${binding.sourceId}`, binding]),
+    bindings.map((binding) => [`agent365:${binding.bindingSourceId}`, binding]),
   )
   const sources = measurement.health.sources.map((source) => {
     const expiredSource = measurementExpired
@@ -184,7 +186,7 @@ export function reconcileAgent365PersistedHealth(
   })
   const existingIds = new Set(sources.map((source) => source.id))
   for (const binding of bindings) {
-    const id = `agent365:${binding.sourceId}`
+    const id = `agent365:${binding.bindingSourceId}`
     if (existingIds.has(id)) continue
     const status =
       binding.activation.status === 'active'
@@ -207,7 +209,7 @@ export function reconcileAgent365PersistedHealth(
       provenance: {
         estateTenantId: binding.tenantId,
         estateEnvironment: binding.environment,
-        sourceConnectorId: binding.sourceId,
+        sourceConnectorId: binding.bindingSourceId,
         sourceTenantId: binding.tenantId,
         sourceEnvironment: binding.environment,
         provider: 'microsoft-graph-agent365-package-catalog',
@@ -227,7 +229,7 @@ export function synthesizeAgent365UnmeasuredHealth(
   runtime: ResolvedAgent365Runtime,
 ): ConnectorHealthReport {
   const sources: ConnectorSourceHealth[] = runtime.bindings.map((binding) => ({
-    id: `agent365:${binding.sourceId}`,
+    id: `agent365:${binding.bindingSourceId}`,
     name: binding.displayName,
     role: 'discovery',
     ...(binding.activation.status === 'active'
@@ -241,7 +243,7 @@ export function synthesizeAgent365UnmeasuredHealth(
     provenance: {
       estateTenantId: binding.tenantId,
       estateEnvironment: binding.environment,
-      sourceConnectorId: binding.sourceId,
+      sourceConnectorId: binding.bindingSourceId,
       sourceTenantId: binding.tenantId,
       sourceEnvironment: binding.environment,
       provider: 'microsoft-graph-agent365-package-catalog',
@@ -309,14 +311,14 @@ class Agent365RuntimeConnector implements OperationAwareAgentConnector {
         } => binding.activation.status === 'inactive',
       )
       .map((binding) => ({
-        id: `agent365:${binding.sourceId}`,
+        id: `agent365:${binding.bindingSourceId}`,
         name: binding.displayName,
         role: 'discovery' as const,
         ...inactiveHealth(binding.activation.reason),
         provenance: {
           estateTenantId: binding.tenantId,
           estateEnvironment: binding.environment,
-          sourceConnectorId: binding.sourceId,
+          sourceConnectorId: binding.bindingSourceId,
           sourceTenantId: binding.tenantId,
           sourceEnvironment: binding.environment,
           provider: 'microsoft-graph-agent365-package-catalog',
@@ -378,7 +380,10 @@ function activationFor(source: ConnectorSourceDefinition): Agent365RuntimeBindin
   return { status: 'active' }
 }
 
-function sourceConfig(source: ConnectorSourceDefinition): Agent365SourceConfig {
+function sourceConfig(
+  source: ConnectorSourceDefinition,
+  bindingSourceId: string,
+): Agent365SourceConfig {
   if (source.configuration.type !== 'agent365') {
     throw new Error(`Connector source ${source.sourceId} is not an Agent 365 source.`)
   }
@@ -399,7 +404,7 @@ function sourceConfig(source: ConnectorSourceDefinition): Agent365SourceConfig {
     throw new Error(`Connector source ${source.sourceId} has no runtime workload identity.`)
   }
   return {
-    id: source.sourceId,
+    id: bindingSourceId,
     name: source.displayName,
     tenantId: source.tenantId,
     environment: source.environment,
@@ -491,6 +496,7 @@ export async function resolveAgent365Runtime(
     tenantId: source.tenantId,
     environment: source.environment,
     sourceId: source.sourceId,
+    bindingSourceId: source.runtimeBinding?.bindingSourceId ?? source.sourceId,
     displayName: source.displayName,
     origin: source.origin,
     sourceVersion: source.version,
@@ -504,7 +510,9 @@ export async function resolveAgent365Runtime(
       activation: { status: 'active' }
     } => value.activation.status === 'active',
   )
-  const activeSources = activeResolvedSources.map(({ source }) => sourceConfig(source))
+  const activeSources = activeResolvedSources.map(({ source }) =>
+    sourceConfig(source, source.runtimeBinding?.bindingSourceId ?? source.sourceId),
+  )
   const sourceSetFingerprint = agent365SourceSetFingerprint(bindings)
   if (activeSources.length === 0) {
     return { config: undefined, bindings, sourceSetFingerprint }

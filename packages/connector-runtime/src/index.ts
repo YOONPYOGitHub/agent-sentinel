@@ -4,6 +4,11 @@ export {
 } from './deployment-connector-sources.js'
 export type { ConnectorRuntimeEstateRegistry } from './deployment-connector-sources.js'
 export {
+  Agent365HealthAwareSnapshotRepository,
+  projectAgent365SnapshotHealth,
+  type Agent365HealthResolver,
+} from './agent365-snapshot-health.js'
+export {
   AGENT365_HEALTH_MAX_AGE_MS,
   agent365SourceSetFingerprint,
   createAgent365RuntimeConnector,
