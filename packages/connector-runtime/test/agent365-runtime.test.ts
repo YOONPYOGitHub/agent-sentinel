@@ -23,6 +23,7 @@ import {
 } from '../src/index.js'
 import type { ConnectorHealthMeasurement } from '@agent-sentinel/connector-sdk'
 import type { ConnectorHealthReport } from '@agent-sentinel/connector-sdk'
+import { computeSnapshotEvidenceDigest } from '@agent-sentinel/connector-sdk'
 
 const estate: EstateContext = {
   id: 'estate-a',
@@ -702,10 +703,11 @@ describe('Agent 365 runtime source resolution', () => {
 
   describe('Agent 365 retained snapshot health projection', () => {
     it('keeps package evidence live only for an exact ready and complete source', () => {
-      const projected = projectAgent365SnapshotHealth(
-        retainedAgent365Snapshot(),
-        agent365Health('deployment'),
-      )
+      const snapshot = retainedAgent365Snapshot()
+      const projected = projectAgent365SnapshotHealth(snapshot, agent365Health('deployment'), {
+        snapshotGeneratedAt: snapshot.generatedAt,
+        evidenceDigest: computeSnapshotEvidenceDigest(snapshot),
+      })
 
       expect(projected.evidence[0]).toMatchObject({
         freshness: 'live',
@@ -717,6 +719,42 @@ describe('Agent 365 runtime source resolution', () => {
           readiness: 'ready',
           dataState: 'complete',
           checkedAt: '2026-09-09T00:05:00.000Z',
+        },
+      })
+    })
+
+    it('does not promote retained package evidence from legacy unbound ready health', () => {
+      const projected = projectAgent365SnapshotHealth(
+        retainedAgent365Snapshot(),
+        agent365Health('deployment'),
+      )
+
+      expect(projected.evidence[0]).toMatchObject({
+        freshness: 'stale',
+        confidence: 0,
+        evidenceTypes: ['declared_configuration', 'unknown'],
+        sourceStatus: {
+          status: 'unknown',
+          sourceId: 'deployment',
+          readiness: 'unavailable',
+          reason: 'source-health-unbound',
+        },
+      })
+    })
+
+    it('does not promote retained package evidence from a different persisted snapshot', () => {
+      const snapshot = retainedAgent365Snapshot()
+      const projected = projectAgent365SnapshotHealth(snapshot, agent365Health('deployment'), {
+        snapshotGeneratedAt: snapshot.generatedAt,
+        evidenceDigest: 'f'.repeat(64),
+      })
+
+      expect(projected.evidence[0]).toMatchObject({
+        freshness: 'stale',
+        confidence: 0,
+        sourceStatus: {
+          status: 'unknown',
+          reason: 'source-health-snapshot-mismatch',
         },
       })
     })
@@ -772,13 +810,13 @@ describe('Agent 365 runtime source resolution', () => {
           list: () => Promise.resolve([snapshot]),
         },
         () =>
-          Promise.resolve(
-            agent365Health('deployment', {
-              readiness: 'degraded',
-              dataState: 'partial',
-              reason: 'bounds',
-            }),
-          ),
+          Promise.resolve({
+            health: agent365Health('deployment'),
+            snapshotBinding: {
+              snapshotGeneratedAt: snapshot.generatedAt,
+              evidenceDigest: computeSnapshotEvidenceDigest(snapshot),
+            },
+          }),
       )
 
       const latest = await repository.findLatest(estate)
@@ -787,11 +825,10 @@ describe('Agent 365 runtime source resolution', () => {
 
       for (const projected of [latest, byId, listed[0]]) {
         expect(projected?.evidence[0]).toMatchObject({
-          freshness: 'stale',
+          freshness: 'live',
           sourceStatus: {
-            status: 'stale',
-            dataState: 'partial',
-            reason: 'bounds',
+            status: 'live',
+            dataState: 'complete',
           },
         })
       }
@@ -1157,6 +1194,100 @@ describe('Agent 365 runtime source resolution', () => {
       },
     })
     expect(health.sources[0]?.provenance?.sourceConnectorId).not.toBe('agent365-primary')
+  })
+
+  it('normalizes changed deployment health from configuration sourceId to bindingSourceId', () => {
+    const measuredAt = '2026-09-09T00:00:00.000Z'
+    const binding = {
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      sourceId: 'agent365-primary',
+      bindingSourceId: 'primary',
+      displayName: 'Primary Agent 365',
+      origin: 'deployment' as const,
+      sourceVersion: 2,
+      sourceEtag: 'deployment-etag-v2',
+      activation: { status: 'active' as const },
+    }
+    const measurement: ConnectorHealthMeasurement = {
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      connectorId: 'base',
+      measuredAt,
+      sourceSetFingerprint: '0'.repeat(64),
+      health: {
+        overall: 'ready',
+        partial: false,
+        sourceSetFingerprint: '0'.repeat(64),
+        sources: [
+          {
+            id: 'agent365:agent365-primary',
+            name: 'Configuration source name',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+            dataState: 'complete',
+            checkedAt: measuredAt,
+            provenance: {
+              estateTenantId: estate.tenantId,
+              estateEnvironment: estate.environment,
+              sourceConnectorId: 'agent365-primary',
+              sourceTenantId: estate.tenantId,
+              sourceEnvironment: estate.environment,
+              provider: 'microsoft-graph-agent365-package-catalog',
+              providerObjectId: '/v1.0/copilot/admin/catalog/packages',
+            },
+          },
+        ],
+      },
+    }
+
+    const health = reconcileAgent365PersistedHealth(
+      measurement,
+      [binding],
+      new Date('2026-09-09T00:05:00.000Z'),
+    )
+
+    expect(health.sources.filter((source) => source.id.startsWith('agent365:'))).toEqual([
+      expect.objectContaining({
+        id: 'agent365:primary',
+        name: 'Primary Agent 365',
+        readiness: 'degraded',
+        dataState: 'stale',
+        reason: 'source-set-changed',
+        provenance: expect.objectContaining({
+          sourceConnectorId: 'primary',
+        }),
+      }),
+    ])
+
+    const currentFingerprint = agent365SourceSetFingerprint([binding])
+    const expired = reconcileAgent365PersistedHealth(
+      {
+        ...measurement,
+        measuredAt: '2026-09-07T00:00:00.000Z',
+        sourceSetFingerprint: currentFingerprint,
+        health: {
+          ...measurement.health,
+          sourceSetFingerprint: currentFingerprint,
+        },
+      },
+      [binding],
+      new Date('2026-09-09T00:00:00.001Z'),
+    )
+
+    expect(expired.sources.filter((source) => source.id.startsWith('agent365:'))).toEqual([
+      expect.objectContaining({
+        id: 'agent365:primary',
+        reason: 'measurement-expired',
+        provenance: expect.objectContaining({
+          sourceConnectorId: 'primary',
+        }),
+      }),
+    ])
   })
 
   it('expires every enabled source before applying Agent365 source-set mismatch', () => {

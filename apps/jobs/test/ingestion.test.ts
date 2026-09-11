@@ -3,12 +3,14 @@ import { describe, expect, it, vi } from 'vitest'
 import type {
   AgentConnector,
   ConnectorHealthReport,
+  ConnectorHealthRepository,
   ManifestIngestionRecord,
   ManifestIngestionRepository,
   RuntimeTelemetryConnector,
   RuntimeTelemetryRequest,
 } from '@agent-sentinel/connector-sdk'
 import {
+  computeSnapshotEvidenceDigest,
   projectRuntimeEvidence,
   runtimeObservationWindowsSchema,
   runtimeTelemetryRequestForAgent,
@@ -17,6 +19,7 @@ import {
   agentSentinelStateSchema,
   type EstateSnapshot,
   type OtelWindowQuality,
+  type SnapshotRepository,
 } from '@agent-sentinel/domain'
 import {
   FOUNDRY_API_VERSION,
@@ -452,6 +455,119 @@ describe('IngestionService', () => {
     expect(third.resolvedFindings.length).toBeGreaterThan(0)
   })
 
+  it('saves the final snapshot before binding successful health to its exact evidence', async () => {
+    const snapshot = fullSnapshot()
+    const health: ConnectorHealthReport = {
+      overall: 'ready',
+      partial: false,
+      sources: [
+        {
+          id: 'agent365:primary',
+          name: 'Agent 365',
+          role: 'discovery',
+          enabled: true,
+          configured: true,
+          readiness: 'ready',
+          dataState: 'complete',
+        },
+      ],
+    }
+    const snapshots = new InMemorySnapshotRepository()
+    const healthRepository = new InMemoryConnectorHealthRepository()
+    const order: string[] = []
+    const saveSnapshot = snapshots.save.bind(snapshots)
+    const saveHealth = healthRepository.save.bind(healthRepository)
+    vi.spyOn(snapshots, 'save').mockImplementation(async (estate, value) => {
+      order.push('snapshot')
+      await saveSnapshot(estate, value)
+    })
+    vi.spyOn(healthRepository, 'save').mockImplementation(async (estate, measurement) => {
+      order.push('health')
+      await saveHealth(estate, measurement)
+    })
+    const service = new IngestionService(
+      makeConnector(snapshot, health),
+      snapshots,
+      new InMemoryExposureFindingRepository(),
+      {
+        estate: testEstate,
+        sourceMode: 'foundry',
+        clock: () => new Date('2026-09-04T13:00:00.000Z'),
+        connectorHealthRepository: healthRepository,
+      },
+    )
+
+    const result = await service.run()
+    const persistedHealth = await healthRepository.findLatest(testEstate, 'fake')
+
+    expect(order).toEqual(['snapshot', 'health'])
+    expect(persistedHealth?.snapshotBinding).toEqual({
+      snapshotGeneratedAt: result.snapshot.generatedAt,
+      evidenceDigest: computeSnapshotEvidenceDigest(result.snapshot),
+    })
+  })
+
+  it('writes no bound health when final snapshot persistence fails', async () => {
+    const snapshot = fullSnapshot()
+    const snapshots: SnapshotRepository = {
+      save: () => Promise.reject(new Error('snapshot unavailable')),
+      findLatest: () => Promise.resolve(null),
+      findById: () => Promise.resolve(null),
+      list: () => Promise.resolve([]),
+    }
+    const saveHealth = vi.fn<ConnectorHealthRepository['save']>()
+    const healthRepository: ConnectorHealthRepository = {
+      save: saveHealth,
+      findLatest: () => Promise.resolve(null),
+    }
+    const service = new IngestionService(
+      makeConnector(snapshot, {
+        overall: 'ready',
+        partial: false,
+        sources: [],
+      }),
+      snapshots,
+      new InMemoryExposureFindingRepository(),
+      {
+        estate: testEstate,
+        sourceMode: 'foundry',
+        connectorHealthRepository: healthRepository,
+      },
+    )
+
+    await expect(service.run()).rejects.toThrow('snapshot unavailable')
+    expect(saveHealth).not.toHaveBeenCalled()
+  })
+
+  it('leaves a saved snapshot unpromoted and stops before findings when bound health fails', async () => {
+    const snapshot = fullSnapshot()
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const upsert = vi.spyOn(exposures, 'upsert')
+    const healthRepository: ConnectorHealthRepository = {
+      save: () => Promise.reject(new Error('health unavailable')),
+      findLatest: () => Promise.resolve(null),
+    }
+    const service = new IngestionService(
+      makeConnector(snapshot, {
+        overall: 'ready',
+        partial: false,
+        sources: [],
+      }),
+      snapshots,
+      exposures,
+      {
+        estate: testEstate,
+        sourceMode: 'foundry',
+        connectorHealthRepository: healthRepository,
+      },
+    )
+
+    await expect(service.run()).rejects.toThrow('health unavailable')
+    await expect(snapshots.findLatest(testEstate)).resolves.toEqual(snapshot)
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
   it('does not persist or reconcile a partial enrichment snapshot', async () => {
     const snapshots = new InMemorySnapshotRepository()
     const exposures = new InMemoryExposureFindingRepository()
@@ -633,6 +749,10 @@ describe('IngestionService', () => {
       environment: testEstate.environment,
       connectorId: 'fake',
       measuredAt: '2026-09-04T13:05:00.000Z',
+      snapshotBinding: {
+        snapshotGeneratedAt: result.snapshot.generatedAt,
+        evidenceDigest: computeSnapshotEvidenceDigest(result.snapshot),
+      },
       health,
     })
     expect(logger.warn).toHaveBeenCalledWith('ingestion.enrichment.degraded', {

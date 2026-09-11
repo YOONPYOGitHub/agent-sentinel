@@ -41,6 +41,11 @@ export type ConnectorReadiness =
 export type ConnectorCoverageStatus =
   'available' | 'disabled' | 'degraded' | 'authorization-required' | 'unavailable'
 
+export interface ConnectorHealthSnapshotBinding {
+  readonly snapshotGeneratedAt: string
+  readonly evidenceDigest: string
+}
+
 export interface ConnectorCapabilityCoverage {
   readonly status: ConnectorCoverageStatus
   readonly considered?: number
@@ -204,9 +209,15 @@ export interface ConnectorHealthMeasurement {
   readonly environment: string
   readonly connectorId: string
   readonly sourceSetFingerprint?: string
+  readonly snapshotBinding?: ConnectorHealthSnapshotBinding
   readonly measuredAt: string
   readonly health: ConnectorHealthReport
 }
+
+export const connectorHealthSnapshotBindingSchema = z.strictObject({
+  snapshotGeneratedAt: z.iso.datetime(),
+  evidenceDigest: z.string().regex(/^[0-9a-f]{64}$/),
+})
 
 export const connectorHealthMeasurementSchema = estateContextSchema
   .extend({
@@ -220,6 +231,7 @@ export const connectorHealthMeasurementSchema = estateContextSchema
       .string()
       .regex(/^[0-9a-f]{64}$/)
       .optional(),
+    snapshotBinding: connectorHealthSnapshotBindingSchema.optional(),
     measuredAt: z.iso.datetime(),
     health: connectorHealthReportSchema,
   })
@@ -483,6 +495,8 @@ export interface ConnectorsCollectionResponse {
   readonly catalog: readonly CatalogConnectorEntry[]
   readonly health?: ConnectorHealthReport
 }
+
+export { computeCanonicalSha256, computeSnapshotEvidenceDigest } from './canonical-hash.js'
 
 // ─── Universal Custom Manifest Adapter contract ──────────────────────────────
 

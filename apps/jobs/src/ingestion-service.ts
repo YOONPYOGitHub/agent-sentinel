@@ -12,6 +12,7 @@ import type {
 } from '@agent-sentinel/connector-sdk'
 import {
   aggregateLiveSources,
+  computeSnapshotEvidenceDigest,
   projectRuntimeEvidence,
   runtimeObservationWindowsSchema,
   runtimeTelemetryRequestForAgent,
@@ -133,7 +134,7 @@ export class IngestionService {
     try {
       discovered = await this.connector.discover()
     } catch (error) {
-      await this.persistConnectorHealth()
+      await this.persistConnectorHealth(this.connector.getConnectorHealth?.())
       throw error
     }
     if (discovered.tenantId !== this.options.estate.tenantId) {
@@ -144,7 +145,7 @@ export class IngestionService {
         'Discovered snapshot environment does not match the configured ingestion estate.',
       )
     }
-    const connectorHealth = await this.persistConnectorHealth()
+    const connectorHealth = this.connector.getConnectorHealth?.()
     const connectorDegraded = connectorHealth?.overall === 'degraded'
     const connectorPartial = connectorHealth?.partial === true
     let snapshot: EstateSnapshot = discovered
@@ -290,6 +291,7 @@ export class IngestionService {
     })
 
     if (connectorPartial) {
+      await this.persistConnectorHealth(connectorHealth)
       const sources = connectorHealth?.sources
         .filter((source) => source.readiness !== 'ready' && source.readiness !== 'disabled')
         .map((source) => ({
@@ -326,6 +328,7 @@ export class IngestionService {
 
     await this.snapshots.save(this.options.estate, snapshot)
     logger.info('ingestion.snapshot.saved', { correlationId, snapshotId })
+    await this.persistConnectorHealth(connectorHealth, snapshot)
     if (connectorDegraded) {
       const sources = connectorHealth?.sources
         .filter((source) => source.readiness !== 'ready' && source.readiness !== 'disabled')
@@ -377,8 +380,10 @@ export class IngestionService {
     }
   }
 
-  private async persistConnectorHealth(): Promise<ConnectorHealthReport | undefined> {
-    const connectorHealth = this.connector.getConnectorHealth?.()
+  private async persistConnectorHealth(
+    connectorHealth: ConnectorHealthReport | undefined,
+    snapshot?: EstateSnapshot,
+  ): Promise<ConnectorHealthReport | undefined> {
     if (connectorHealth === undefined || this.options.connectorHealthRepository === undefined) {
       return connectorHealth
     }
@@ -391,6 +396,14 @@ export class IngestionService {
       ...(connectorHealth.sourceSetFingerprint === undefined
         ? {}
         : { sourceSetFingerprint: connectorHealth.sourceSetFingerprint }),
+      ...(snapshot === undefined
+        ? {}
+        : {
+            snapshotBinding: {
+              snapshotGeneratedAt: snapshot.generatedAt,
+              evidenceDigest: computeSnapshotEvidenceDigest(snapshot),
+            },
+          }),
       measuredAt,
       health: connectorHealth,
     })

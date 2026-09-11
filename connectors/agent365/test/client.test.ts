@@ -511,6 +511,101 @@ describe('Agent365GraphClient', () => {
     await expect(result).rejects.toMatchObject({ code: 'cancelled' })
   })
 
+  it('does not await a never-settling response body cancel before retrying', async () => {
+    const neverSettlingBody = new ReadableStream({
+      pull() {
+        return undefined
+      },
+      cancel() {
+        return new Promise<void>(() => undefined)
+      },
+    })
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(neverSettlingBody, {
+          status: 429,
+          headers: { 'retry-after': '0' },
+        }),
+      )
+      .mockResolvedValueOnce(json({ value: [item] }))
+
+    await expect(
+      new Agent365GraphClient(limits, new TestCredential(), TENANT_ID, {
+        fetcher,
+        sleep: () => Promise.resolve(),
+      }).collect(),
+    ).resolves.toEqual([item])
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not await a never-settling body cancel when declared bytes exceed the limit', async () => {
+    const response = new Response(
+      new ReadableStream({
+        cancel() {
+          return new Promise<void>(() => undefined)
+        },
+      }),
+      { headers: { 'content-length': '20001' } },
+    )
+    const result = new Agent365GraphClient(limits, new TestCredential(), TENANT_ID, {
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(response),
+    }).collect()
+
+    await expect(
+      Promise.race([
+        result,
+        new Promise<'still-pending'>((resolve) => setTimeout(() => resolve('still-pending'), 25)),
+      ]),
+    ).rejects.toMatchObject({ code: 'bounds' })
+  })
+
+  it('races a never-settling body read with caller cancellation', async () => {
+    const controller = new AbortController()
+    const response = new Response(
+      new ReadableStream({
+        pull() {
+          return new Promise<void>(() => undefined)
+        },
+        cancel() {
+          return new Promise<void>(() => undefined)
+        },
+      }),
+    )
+    const result = new Agent365GraphClient(limits, new TestCredential(), TENANT_ID, {
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(response),
+    }).collect(undefined, controller.signal)
+    await Promise.resolve()
+    controller.abort()
+
+    await expect(
+      Promise.race([
+        result,
+        new Promise<'still-pending'>((resolve) => setTimeout(() => resolve('still-pending'), 25)),
+      ]),
+    ).rejects.toMatchObject({ code: 'cancelled' })
+  })
+
+  it('races a never-settling body read with the request timeout', async () => {
+    const timeoutLimits = agent365LimitsSchema.parse({ ...limits, requestTimeoutMs: 100 })
+    const response = new Response(
+      new ReadableStream({
+        pull() {
+          return new Promise<void>(() => undefined)
+        },
+        cancel() {
+          return new Promise<void>(() => undefined)
+        },
+      }),
+    )
+
+    await expect(
+      new Agent365GraphClient(timeoutLimits, new TestCredential(), TENANT_ID, {
+        fetcher: vi.fn<typeof fetch>().mockResolvedValue(response),
+      }).collect(),
+    ).rejects.toMatchObject({ code: 'timeout' })
+  })
+
   it('rejects malformed envelopes and undocumented enum values', async () => {
     for (const body of [
       { items: [item] },

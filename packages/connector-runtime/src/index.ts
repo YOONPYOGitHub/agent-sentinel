@@ -7,6 +7,7 @@ export {
   Agent365HealthAwareSnapshotRepository,
   projectAgent365SnapshotHealth,
   type Agent365HealthResolver,
+  type Agent365SnapshotHealthState,
 } from './agent365-snapshot-health.js'
 export {
   AGENT365_HEALTH_MAX_AGE_MS,

@@ -10,6 +10,7 @@ import type {
   BusinessOutcomeConnector,
   BusinessOutcomeRequest,
   ConnectorHealthReport,
+  ConnectorHealthSnapshotBinding,
   ConnectorHealthRepository,
   ManifestIngestionRepository,
   RuntimeTelemetryRequest,
@@ -356,9 +357,15 @@ export async function createApp(
   if (resolvedService === undefined) {
     throw new Error('Failed to initialize the application service.')
   }
-  const currentConnectorHealth = async (
+  const currentConnectorHealthState = async (
     estate: EstateContext,
-  ): Promise<ConnectorHealthReport | undefined> => {
+  ): Promise<
+    | {
+        health: ConnectorHealthReport
+        snapshotBinding?: ConnectorHealthSnapshotBinding
+      }
+    | undefined
+  > => {
     if (resolvedDataMode !== 'live') return undefined
     const status = await resolvedService.getConnectorStatus()
     const persistedHealth = await connectorHealthRepository?.findLatest(estate, status.connectorId)
@@ -368,23 +375,35 @@ export async function createApp(
         : await resolveAgent365Runtime(connectorSourceRepository, estate)
     if (persistedHealth === undefined || persistedHealth === null) {
       return currentAgent365Runtime !== undefined && currentAgent365Runtime.bindings.length > 0
-        ? synthesizeAgent365UnmeasuredHealth(currentAgent365Runtime)
+        ? { health: synthesizeAgent365UnmeasuredHealth(currentAgent365Runtime) }
         : undefined
     }
-    return reconcileAgent365PersistedHealth(
-      persistedHealth,
-      currentAgent365Runtime?.bindings ?? [],
-      options.connectorHealthClock?.() ?? new Date(),
-    )
+    return {
+      health: reconcileAgent365PersistedHealth(
+        persistedHealth,
+        currentAgent365Runtime?.bindings ?? [],
+        options.connectorHealthClock?.() ?? new Date(),
+      ),
+      ...(persistedHealth.snapshotBinding === undefined
+        ? {}
+        : { snapshotBinding: persistedHealth.snapshotBinding }),
+    }
+  }
+  const currentConnectorHealth = async (
+    estate: EstateContext,
+  ): Promise<ConnectorHealthReport | undefined> => {
+    return (await currentConnectorHealthState(estate))?.health
   }
   const snapshotRepository =
     resolvedDataMode === 'live' && persistedSnapshotRepository !== undefined
       ? new Agent365HealthAwareSnapshotRepository(persistedSnapshotRepository, async (estate) => {
           return (
-            (await currentConnectorHealth(estate)) ?? {
-              overall: 'unavailable',
-              partial: true,
-              sources: [],
+            (await currentConnectorHealthState(estate)) ?? {
+              health: {
+                overall: 'unavailable',
+                partial: true,
+                sources: [],
+              },
             }
           )
         })

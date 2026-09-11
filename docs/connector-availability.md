@@ -77,7 +77,11 @@ synthetic, missing, unsupported, and empty evidence never does.
 Persisted Agent 365 health is reconciled against the current source binding
 generation. When an existing source ID is enabled or disabled, its current
 activation state replaces the obsolete measured state; removed source IDs
-remain stale diagnostics rather than being reassigned.
+remain stale diagnostics rather than being reassigned. Ready and complete
+health promotes retained evidence only when it is bound to the exact persisted
+snapshot generation and canonical evidence digest. Jobs save that final
+snapshot before bound health and stop before finding publication if the health
+write fails.
 
 ## Tenant transition impact
 

@@ -1,4 +1,8 @@
-import type { ConnectorHealthReport } from '@agent-sentinel/connector-sdk'
+import {
+  computeSnapshotEvidenceDigest,
+  type ConnectorHealthReport,
+  type ConnectorHealthSnapshotBinding,
+} from '@agent-sentinel/connector-sdk'
 import {
   assertEstateSnapshot,
   hydratePersistedEstateSnapshot,
@@ -49,7 +53,15 @@ function withUnknownEvidenceType(evidence: Evidence): Evidence['evidenceTypes'] 
 export function projectAgent365SnapshotHealth(
   snapshot: EstateSnapshot,
   health: ConnectorHealthReport,
+  snapshotBinding?: ConnectorHealthSnapshotBinding,
 ): EstateSnapshot {
+  const bindingStatus =
+    snapshotBinding === undefined
+      ? 'unbound'
+      : snapshotBinding.snapshotGeneratedAt === snapshot.generatedAt &&
+          snapshotBinding.evidenceDigest === computeSnapshotEvidenceDigest(snapshot)
+        ? 'matches'
+        : 'mismatch'
   const evidence = snapshot.evidence.map((item): Evidence => {
     if (!isAgent365Evidence(item)) return item
     const sourceId = item.metadata?.['sourceConnectorId']
@@ -83,6 +95,23 @@ export function projectAgent365SnapshotHealth(
       }
     }
     if (source.readiness === 'ready' && source.dataState === 'complete') {
+      if (bindingStatus !== 'matches') {
+        return {
+          ...item,
+          freshness: 'stale',
+          confidence: 0,
+          evidenceTypes: withUnknownEvidenceType(item),
+          sourceStatus: {
+            status: 'unknown',
+            sourceId,
+            readiness: 'unavailable',
+            reason:
+              bindingStatus === 'unbound'
+                ? 'source-health-unbound'
+                : 'source-health-snapshot-mismatch',
+          },
+        }
+      }
       return {
         ...item,
         freshness: 'live',
@@ -112,7 +141,12 @@ export function projectAgent365SnapshotHealth(
   return assertEstateSnapshot({ ...snapshot, evidence })
 }
 
-export type Agent365HealthResolver = (estate: EstateContext) => Promise<ConnectorHealthReport>
+export interface Agent365SnapshotHealthState {
+  readonly health: ConnectorHealthReport
+  readonly snapshotBinding?: ConnectorHealthSnapshotBinding
+}
+
+export type Agent365HealthResolver = (estate: EstateContext) => Promise<Agent365SnapshotHealthState>
 
 export class Agent365HealthAwareSnapshotRepository implements SnapshotRepository {
   constructor(
@@ -133,9 +167,13 @@ export class Agent365HealthAwareSnapshotRepository implements SnapshotRepository
   }
 
   async list(estate: EstateContext, limit?: number): Promise<EstateSnapshot[]> {
-    const health = await this.resolveHealth(estate)
+    const state = await this.resolveHealth(estate)
     return (await this.repository.list(estate, limit)).map((snapshot) =>
-      projectAgent365SnapshotHealth(hydratePersistedEstateSnapshot(snapshot, estate.id), health),
+      projectAgent365SnapshotHealth(
+        hydratePersistedEstateSnapshot(snapshot, estate.id),
+        state.health,
+        state.snapshotBinding,
+      ),
     )
   }
 
@@ -144,9 +182,11 @@ export class Agent365HealthAwareSnapshotRepository implements SnapshotRepository
     estate: EstateContext,
   ): Promise<EstateSnapshot | null> {
     if (snapshot === null) return null
+    const state = await this.resolveHealth(estate)
     return projectAgent365SnapshotHealth(
       hydratePersistedEstateSnapshot(snapshot, estate.id),
-      await this.resolveHealth(estate),
+      state.health,
+      state.snapshotBinding,
     )
   }
 }

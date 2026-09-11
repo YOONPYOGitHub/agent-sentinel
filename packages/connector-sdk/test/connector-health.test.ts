@@ -58,6 +58,33 @@ describe('connector health diagnostics schema', () => {
     expect(parsed.health.sourceSetFingerprint).toBe(sourceSetFingerprint)
   })
 
+  it('preserves an optional exact persisted snapshot binding', () => {
+    const input = measurement()
+    Object.assign(input, {
+      snapshotBinding: {
+        snapshotGeneratedAt: '2026-09-04T12:59:00.000Z',
+        evidenceDigest: 'b'.repeat(64),
+      },
+    })
+
+    expect(connectorHealthMeasurementSchema.parse(input).snapshotBinding).toEqual({
+      snapshotGeneratedAt: '2026-09-04T12:59:00.000Z',
+      evidenceDigest: 'b'.repeat(64),
+    })
+  })
+
+  it('rejects malformed persisted snapshot bindings', () => {
+    const input = measurement()
+    Object.assign(input, {
+      snapshotBinding: {
+        snapshotGeneratedAt: 'not-a-date',
+        evidenceDigest: 'not-a-digest',
+      },
+    })
+
+    expect(connectorHealthMeasurementSchema.safeParse(input).success).toBe(false)
+  })
+
   it('preserves typed data state and exact source provenance', () => {
     const input = measurement()
     Object.assign(input.health.sources[0], {

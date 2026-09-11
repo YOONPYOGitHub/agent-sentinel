@@ -206,7 +206,7 @@ describe('deployment Azure Monitor OTel source projection', () => {
   })
 
   it('projects cross-tenant Foundry sources under the portfolio estate boundary', () => {
-    const [source] = buildDeploymentConnectorSources(
+    const sources = buildDeploymentConnectorSources(
       {
         AGENT_SENTINEL_CONNECTOR: 'foundry',
         AGENT_SENTINEL_TENANT_ID: estate.tenantId,
@@ -225,6 +225,7 @@ describe('deployment Azure Monitor OTel source projection', () => {
       registry,
       'live',
     )
+    const source = sources.find((candidate) => candidate.sourceId === 'foundry-external-project')
 
     expect(source).toMatchObject({
       estateId: estate.id,

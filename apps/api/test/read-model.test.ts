@@ -11,6 +11,8 @@ import { agentSentinelStateSchema } from '@agent-sentinel/domain'
 import {
   computeManifestHash,
   type AgentConnector,
+  type ConnectorHealthReport,
+  computeSnapshotEvidenceDigest,
   ManifestIngestionSourceLimitError,
   MAX_MANIFEST_SOURCES,
   manifestIngestionRecordSchema,
@@ -258,7 +260,7 @@ afterEach(async () => {
 })
 
 describe('live product read model', () => {
-  it('joins current Agent 365 failure health into retained package state evidence', async () => {
+  it('projects retained Agent 365 evidence only from exact bound health', async () => {
     const estate: EstateContext = {
       id: 'default',
       tenantId: '11111111-1111-4111-8111-111111111111',
@@ -414,6 +416,89 @@ describe('live product read model', () => {
         readiness: 'authorization-required',
         dataState: 'failed',
         reason: 'authorization',
+      },
+    })
+
+    const readyHealth: ConnectorHealthReport = {
+      overall: 'ready',
+      partial: false,
+      sourceSetFingerprint: runtime.sourceSetFingerprint,
+      sources: [
+        {
+          id: 'agent365:deployment',
+          name: 'Deployment Agent 365',
+          role: 'discovery',
+          enabled: true,
+          configured: true,
+          readiness: 'ready',
+          dataState: 'complete',
+          checkedAt: '2026-09-09T00:05:01.000Z',
+          provenance: {
+            estateTenantId: estate.tenantId,
+            estateEnvironment: estate.environment,
+            sourceConnectorId: 'deployment',
+            sourceTenantId: estate.tenantId,
+            sourceEnvironment: estate.environment,
+            provider: 'microsoft-graph-agent365-package-catalog',
+            providerObjectId: '/v1.0/copilot/admin/catalog/packages',
+          },
+        },
+      ],
+    }
+    await healthRepository.save(estate, {
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      connectorId: 'azure-ai-foundry-agent-service',
+      sourceSetFingerprint: runtime.sourceSetFingerprint,
+      snapshotBinding: {
+        snapshotGeneratedAt: snapshot.generatedAt,
+        evidenceDigest: computeSnapshotEvidenceDigest(snapshot),
+      },
+      measuredAt: '2026-09-09T00:05:01.000Z',
+      health: readyHealth,
+    })
+
+    const boundState = agentSentinelStateSchema.parse(
+      (await app.inject({ method: 'GET', url: '/api/demo/state' })).json(),
+    )
+    expect(boundState.snapshot.evidence[0]).toMatchObject({
+      freshness: 'live',
+      sourceStatus: {
+        status: 'live',
+        sourceId: 'deployment',
+        readiness: 'ready',
+        dataState: 'complete',
+      },
+    })
+
+    await healthRepository.save(estate, {
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      connectorId: 'azure-ai-foundry-agent-service',
+      sourceSetFingerprint: runtime.sourceSetFingerprint,
+      measuredAt: '2026-09-09T00:05:02.000Z',
+      health: {
+        ...readyHealth,
+        sources: readyHealth.sources.map((sourceHealth) => ({
+          ...sourceHealth,
+          checkedAt: '2026-09-09T00:05:02.000Z',
+        })),
+      },
+    })
+
+    const legacyState = agentSentinelStateSchema.parse(
+      (await app.inject({ method: 'GET', url: '/api/demo/state' })).json(),
+    )
+    expect(legacyState.snapshot.evidence[0]).toMatchObject({
+      freshness: 'stale',
+      confidence: 0,
+      sourceStatus: {
+        status: 'unknown',
+        sourceId: 'deployment',
+        readiness: 'unavailable',
+        reason: 'source-health-unbound',
       },
     })
   })

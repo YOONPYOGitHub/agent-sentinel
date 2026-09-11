@@ -149,9 +149,13 @@ export function reconcileAgent365PersistedHealth(
   const measurementExpired = now.getTime() - Date.parse(measurement.measuredAt) > maxAgeMs
   if (!sourceSetChanged && !measurementExpired) return measurement.health
 
-  const bindingByHealthId = new Map(
-    bindings.map((binding) => [`agent365:${binding.bindingSourceId}`, binding]),
-  )
+  const bindingByHealthId = new Map<string, Agent365RuntimeBinding>()
+  const bindingByConfigurationHealthId = new Map<string, Agent365RuntimeBinding>()
+  for (const binding of bindings) {
+    const bindingHealthId = `agent365:${binding.bindingSourceId}`
+    if (!bindingByHealthId.has(bindingHealthId)) bindingByHealthId.set(bindingHealthId, binding)
+    bindingByConfigurationHealthId.set(`agent365:${binding.sourceId}`, binding)
+  }
   const sources = measurement.health.sources.map((source) => {
     const expiredSource = measurementExpired
       ? staleAgent365Source(source, 'measurement-expired')
@@ -159,8 +163,10 @@ export function reconcileAgent365PersistedHealth(
     const reconciledSource = sourceSetChanged
       ? staleAgent365Source(expiredSource, 'source-set-changed')
       : expiredSource
-    const binding = bindingByHealthId.get(source.id)
+    const binding =
+      bindingByHealthId.get(source.id) ?? bindingByConfigurationHealthId.get(source.id)
     if (binding === undefined) return reconciledSource
+    const id = `agent365:${binding.bindingSourceId}`
     const status =
       binding.activation.status === 'active'
         ? {
@@ -175,6 +181,7 @@ export function reconcileAgent365PersistedHealth(
         : inactiveHealth(binding.activation.reason)
     return {
       ...reconciledSource,
+      id,
       name: binding.displayName,
       ...status,
       provenance: {

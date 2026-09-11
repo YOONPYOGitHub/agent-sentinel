@@ -75,8 +75,11 @@ Evidence may carry typed `sourceStatus` with `status`
 (`live|stale|unknown`), exact source ID, readiness, data state, checked time,
 and sanitized reason. Agent 365 retained package evidence is projected with
 this status on every API snapshot read. `live` requires the exact current
-source to be both `ready` and `complete`; all other or missing source states set
-evidence freshness to `stale` and cannot establish live graph authority.
+source to be both `ready` and `complete`, with persisted health bound to the
+same snapshot generation and canonical evidence digest. Legacy unbound health
+cannot promote retained evidence, while unbound failure or degraded health can
+still demote it. All other or missing source states set evidence freshness to
+`stale` and cannot establish live graph authority.
 
 ### Finding
 
