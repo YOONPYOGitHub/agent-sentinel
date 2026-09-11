@@ -1,14 +1,15 @@
 import type { TokenCredential } from '@azure/core-auth'
 import { z } from 'zod'
 
-import type {
-  AgentConnector,
-  ApprovalContext,
-  ConnectionTestResult,
-  ConnectorCapability,
-  ConnectorDescriptor,
-  ConnectorHealthReport,
-  ConnectorReadiness,
+import {
+  composeConnectorHealthReport,
+  type AgentConnector,
+  type ApprovalContext,
+  type ConnectionTestResult,
+  type ConnectorCapability,
+  type ConnectorDescriptor,
+  type ConnectorHealthReport,
+  type ConnectorReadiness,
 } from '@agent-sentinel/connector-sdk'
 import type { EstateSnapshot, Evidence, Remediation } from '@agent-sentinel/domain'
 
@@ -292,7 +293,7 @@ export class PurviewCompositionConnector implements AgentConnector {
             },
           ]
         : []
-    return {
+    return composeConnectorHealthReport(baseHealth, {
       overall: !baseReady ? 'unavailable' : basePartial || !complete ? 'degraded' : 'ready',
       partial: baseReady && (basePartial || !complete),
       sources: [
@@ -319,7 +320,7 @@ export class PurviewCompositionConnector implements AgentConnector {
           ...(state.reason !== undefined ? { reason: state.reason } : {}),
         })),
       ],
-    }
+    })
   }
 
   getEvidence(id: string): Promise<Evidence> {

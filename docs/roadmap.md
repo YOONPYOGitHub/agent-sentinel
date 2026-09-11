@@ -190,12 +190,16 @@ IDs and compose after Entra without inferred identity edges. The connector is
 disabled because Microsoft currently documents delegated inventory access only
 and explicitly excludes preview Power Platform RBAC roles from inventory.
 
-**Microsoft Agent 365 package catalog foundation — implemented, authorization pending:**
+**Microsoft Agent 365 package catalog foundation — provider access verified,
+deployment validation pending:**
 the official Microsoft Graph v1.0 list API supplies bounded tenant package
 inventory after Power Platform composition. Detail and all writes remain
-disabled. Activation still requires separate Microsoft Agent 365 licensing and
-tenant-admin `CopilotPackages.Read.All` application consent; no live tenant is
-configured by this change.
+disabled. Five `AGENT_365` seats exist with one assigned, the connector UAMI
+has tenant-admin `CopilotPackages.Read.All`, and a bounded managed-identity call
+returned HTTP 200 with 306 packages. The current task branch binds enabled
+persisted and immutable deployment sources in API/jobs; deployment and
+persisted-snapshot validation remain pending, and the package total is not an
+agent total.
 
 **Microsoft Defender for Cloud Apps evidence — live for the primary source:**
 the official tenant-specific v1 alert and activity GET lists are consumed with
@@ -224,13 +228,13 @@ organization entries.
 
 | Connector                                   | Catalogued state         | Gate                                                                                                       |
 | ------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| Microsoft Agent 365 (`m365-agent-registry`) | `authorization-required` | Agent 365 license plus tenant-admin `CopilotPackages.Read.All` application consent                         |
+| Microsoft Agent 365 (`m365-agent-registry`) | `degraded`               | Provider read is verified; deploy and validate source-linked persisted inventory                           |
 | Microsoft Entra identity and entitlements   | `connected`              | Primary stable v1.0 inventory is live; each additional tenant requires consent                             |
 | Azure Resource Graph                        | `connected`              | Five resources are visible through existing UAMI roles; broader Reader coverage requires separate approval |
 | Microsoft Purview                           | `connected`              | Primary label-definition catalog is live; catalog evidence does not prove usage                            |
 | Microsoft Defender for Cloud Apps           | `connected`              | Primary bounded alert/activity lists are ready; current result is empty                                    |
 | Microsoft Copilot Studio / Agent Builder    | `authorization-required` | No supported unattended ResourceQuery inventory authorization; schema is preview                           |
-| Microsoft 365 and SharePoint agents         | `authorization-required` | Covered without duplication by Agent 365 packages; Agent 365 product licensing remains pending             |
+| Microsoft 365 and SharePoint agents         | `degraded`               | Classified from Agent 365 package metadata; deployment validation remains pending and no scraping is used  |
 | Microsoft Teams distribution                | `connected`              | Organization-catalog source is ready; current result is empty                                              |
 
 **Definition of done, per connector**

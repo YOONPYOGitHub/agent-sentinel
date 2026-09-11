@@ -1,8 +1,10 @@
 import {
   aggregateLiveSources,
   projectRuntimeEvidence,
+  removeRuntimeEvidenceForRequest,
   runtimeObservationWindowsSchema,
   runtimeTelemetryRequestForAgent,
+  validateRuntimeTelemetryProvenance,
   ManifestIngestionSourceLimitError,
   MAX_MANIFEST_SOURCES,
   type AgentConnector,
@@ -10,17 +12,23 @@ import {
   type RuntimeObservationWindows,
   type RuntimeTelemetryConnector,
 } from '@agent-sentinel/connector-sdk'
-import type {
-  AgentSentinelState,
-  EstateContext,
-  EstateSnapshot,
-  Finding,
-  ManifestConfigurationReconciliation,
-  ManifestRuntimeVerification,
-  Remediation,
-  SnapshotRepository,
-  ValidationRun,
+import {
+  assessRuntimeOtelQuality,
+  hydratePersistedEstateSnapshot,
+  type AgentSentinelState,
+  type EstateContext,
+  type EstateSnapshot,
+  type Finding,
+  type ManifestConfigurationReconciliation,
+  type ManifestRuntimeVerification,
+  type Remediation,
+  type SnapshotRepository,
+  type ValidationRun,
 } from '@agent-sentinel/domain'
+import {
+  createLiveGraphTraversalContextForSnapshot,
+  trustedMockGraphTraversalContext,
+} from '@agent-sentinel/graph-engine'
 import { MockAgentConnector } from '@agent-sentinel/mock-connector'
 import { evaluateUncontrolledEgress } from '@agent-sentinel/policy-engine'
 
@@ -44,7 +52,6 @@ export class ReadModelUnavailableError extends Error {
 
 export interface PersistedReadModel {
   snapshotRepository: SnapshotRepository
-  estate: EstateContext
 }
 
 interface RuntimeEvidenceSourceRequest {
@@ -67,6 +74,7 @@ export class DemoService {
     | undefined
 
   constructor(
+    private readonly estate: EstateContext,
     private readonly connector: AgentConnector = new MockAgentConnector(),
     private readonly connectorMode: 'mock' | 'foundry' = 'mock',
     private readonly projectEndpoint?: string,
@@ -86,15 +94,26 @@ export class DemoService {
         'The persisted estate read model is not configured for this live deployment.',
       )
     }
-    const snapshot =
+    const candidateSnapshot =
       this.persistedReadModel === undefined
         ? await this.connector.discover()
-        : await this.persistedReadModel.snapshotRepository.findLatest(
-            this.persistedReadModel.estate,
-          )
-    if (snapshot === null) {
+        : await this.persistedReadModel.snapshotRepository.findLatest(this.estate)
+    if (candidateSnapshot === null) {
       throw new ReadModelUnavailableError(
         'No persisted estate snapshot is available for the configured tenant and environment.',
+      )
+    }
+    const snapshot =
+      this.persistedReadModel === undefined
+        ? candidateSnapshot
+        : hydratePersistedEstateSnapshot(candidateSnapshot, this.estate.id)
+    if (
+      this.connectorMode === 'foundry' &&
+      (snapshot.tenantId.toLowerCase() !== this.estate.tenantId.toLowerCase() ||
+        snapshot.environment !== this.estate.environment)
+    ) {
+      throw new ReadModelUnavailableError(
+        'The candidate snapshot does not match the independently configured estate boundary.',
       )
     }
     const runtimeProjection = await this.withRuntimeEvidence(snapshot)
@@ -102,7 +121,13 @@ export class DemoService {
       runtimeProjection.snapshot,
       runtimeProjection.coverage,
     )
-    const currentFindings = evaluateUncontrolledEgress(runtimeProjection.snapshot)
+    const traversalContext =
+      this.connectorMode === 'mock'
+        ? trustedMockGraphTraversalContext
+        : createLiveGraphTraversalContextForSnapshot(runtimeProjection.snapshot, {
+            estate: this.estate,
+          })
+    const currentFindings = evaluateUncontrolledEgress(runtimeProjection.snapshot, traversalContext)
     if (
       this.persistedReadModel === undefined &&
       this.findingHistory === undefined &&
@@ -152,7 +177,7 @@ export class DemoService {
         },
       }
     }
-    const key = `${snapshot.tenantId}\0${snapshot.environment}\0${snapshot.generatedAt}`
+    const key = `${this.estate.id}\0${this.estate.tenantId}\0${this.estate.environment}\0${snapshot.generatedAt}`
     if (
       this.runtimeProjectionCache?.key === key &&
       this.runtimeProjectionCache.expiresAt > Date.now()
@@ -177,11 +202,7 @@ export class DemoService {
       throw new Error('Runtime telemetry connector is not configured.')
     }
     const requests = agents.flatMap((agent) => {
-      const request = runtimeTelemetryRequestForAgent(
-        snapshot,
-        agent,
-        this.persistedReadModel?.estate,
-      )
+      const request = runtimeTelemetryRequestForAgent(snapshot, agent, this.estate)
       return request === undefined ? [] : [{ agent, request }]
     })
     if (requests.length === 0) {
@@ -218,12 +239,25 @@ export class DemoService {
         maxRecordsPerSource: 10_000,
       },
       execute: async (source, context) => {
-        const windows = runtimeObservationWindowsSchema.parse(
-          await connector.readObservationWindows(source.request, { signal: context.signal }),
+        const windows = validateRuntimeTelemetryProvenance(
+          source.request,
+          runtimeObservationWindowsSchema.parse(
+            await connector.readObservationWindows(source.request, { signal: context.signal }),
+          ),
         )
         const observations = [...windows.baseline.observations, ...windows.observed.observations]
+        const rejected =
+          observations.length === 0 &&
+          [windows.baseline, windows.observed].some(
+            (window) => assessRuntimeOtelQuality(window).quality?.status === 'degraded',
+          )
         return {
-          state: observations.length === 0 ? ('empty' as const) : ('complete' as const),
+          state:
+            observations.length === 0
+              ? rejected
+                ? ('partial' as const)
+                : ('empty' as const)
+              : ('complete' as const),
           value: windows,
           pages: 1,
           records: observations.length,
@@ -231,7 +265,7 @@ export class DemoService {
             observations.length === 0
               ? []
               : [windows.baselineEvidenceId, windows.observedEvidenceId],
-          ...(observations.length === 0 ? { reason: 'empty' } : {}),
+          ...(observations.length === 0 ? { reason: rejected ? 'degraded-quality' : 'empty' } : {}),
         }
       },
       failureReason: () => 'query-failed',
@@ -250,14 +284,13 @@ export class DemoService {
     for (const outcome of aggregation.outcomes) {
       const { agent, request } = outcome.source
       const commonSourceResult = {
-        ...(this.persistedReadModel === undefined
-          ? {}
-          : { estateId: this.persistedReadModel.estate.id }),
-        estateTenantId: snapshot.tenantId,
-        estateEnvironment: snapshot.environment,
+        estateId: this.estate.id,
+        estateTenantId: this.estate.tenantId,
+        estateEnvironment: this.estate.environment,
         snapshotGeneratedAt: snapshot.generatedAt,
         sourceConnectorId: request.sourceConnectorId!,
         sourceTenantId: request.sourceTenantId!,
+        sourceProjectId: request.sourceProjectId!,
         sourceEnvironment: request.sourceEnvironment!,
         sourceAgentId: request.sourceAgentId!,
         agentId: agent.id,
@@ -281,6 +314,7 @@ export class DemoService {
         continue
       }
       const windows = outcome.value
+      projected = removeRuntimeEvidenceForRequest(projected, request)
       const observations = [...windows.baseline.observations, ...windows.observed.observations]
       const inputProviderResourceIds = [
         ...new Set([
@@ -306,7 +340,7 @@ export class DemoService {
         continue
       }
       try {
-        const projection = projectRuntimeEvidence(projected, windows)
+        const projection = projectRuntimeEvidence(projected, windows, request)
         projected = projection.snapshot
         const validatedObservations = [
           ...projection.windows.baseline.observations,
@@ -431,7 +465,7 @@ export class DemoService {
     }
     try {
       const records = await this.manifestIngestionRepository.listLatest(
-        snapshot.environment,
+        this.estate.environment,
         MAX_MANIFEST_SOURCES,
       )
       return {

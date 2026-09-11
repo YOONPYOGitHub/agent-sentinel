@@ -26,8 +26,10 @@ function makeStubRepositories(): {
         environment: 'production',
         evidenceIds: ['evidence-1'],
         metadata: {
+          sourceOfTruth: 'true',
           sourceConnectorId: 'primary',
           sourceTenantId: 'tenant-demo',
+          sourceProjectId: 'test',
           sourceEnvironment: 'production',
           sourceObjectId: 'live-agent',
         },
@@ -44,6 +46,16 @@ function makeStubRepositories(): {
         confidence: 1,
         evidenceTypes: ['declared_configuration' as const],
         summary: 'Declared configuration.',
+        metadata: {
+          sourceOfTruth: 'true',
+          estateTenantId: 'tenant-demo',
+          estateEnvironment: 'validation',
+          sourceConnectorId: 'primary',
+          sourceTenantId: 'tenant-demo',
+          sourceProjectId: 'test',
+          sourceEnvironment: 'production',
+          sourceObjectId: 'live-agent',
+        },
       },
     ],
   }
@@ -278,6 +290,60 @@ describe('behavior drift API — foundry/live mode', () => {
     await app.close()
   })
 
+  it('does not make stale degraded telemetry ready when ingestion counts are invalid', async () => {
+    const fixture = createRuntimeTelemetryFixture()
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: {
+          id: fixture.id,
+          async readObservationWindows(request, options) {
+            const windows = await fixture.readObservationWindows(request, options)
+            return {
+              ...windows,
+              baseline: {
+                ...windows.baseline,
+                otelQuality: {
+                  ...windows.baseline.otelQuality!,
+                  status: 'degraded',
+                  caveats: ['stale'],
+                  recordsReceived: 0,
+                  recordsAccepted: 0,
+                  pagesProcessed: 0,
+                },
+              },
+              observed: {
+                ...windows.observed,
+                otelQuality: {
+                  ...windows.observed.otelQuality!,
+                  status: 'degraded',
+                  caveats: ['stale'],
+                  recordsReceived: 60,
+                  recordsAccepted: 59,
+                  duplicatesRemoved: 1,
+                },
+              },
+            }
+          },
+        },
+        ...makeStubRepositories(),
+      },
+    )
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/live-agent/drift',
+    })
+    const result = driftAnalysisResultSchema.parse(response.json())
+
+    expect(result.status).toBe('invalid')
+    expect(result.anyDrift).toBe(false)
+    expect(result.unavailableReason).toContain('invalid-record')
+    await app.close()
+  })
+
   it('resolves aggregate agent ids to exact telemetry source bindings', async () => {
     const fixture = createRuntimeTelemetryFixture()
     const readObservationWindows = vi.fn(fixture.readObservationWindows.bind(fixture))
@@ -300,8 +366,10 @@ describe('behavior drift API — foundry/live mode', () => {
             environment: 'production',
             evidenceIds: ['evidence-1'],
             metadata: {
+              sourceOfTruth: 'true',
               sourceConnectorId: 'project-a',
               sourceTenantId: 'source-tenant',
+              sourceProjectId: 'project-a',
               sourceEnvironment: 'production',
               sourceObjectId: 'provider-agent-id',
             },
@@ -318,6 +386,16 @@ describe('behavior drift API — foundry/live mode', () => {
             confidence: 1,
             evidenceTypes: ['declared_configuration'],
             summary: 'Declared configuration.',
+            metadata: {
+              sourceOfTruth: 'true',
+              estateTenantId: 'tenant-demo',
+              estateEnvironment: 'validation',
+              sourceConnectorId: 'project-a',
+              sourceTenantId: 'source-tenant',
+              sourceProjectId: 'project-a',
+              sourceEnvironment: 'production',
+              sourceObjectId: 'provider-agent-id',
+            },
           },
         ],
       })
@@ -335,12 +413,14 @@ describe('behavior drift API — foundry/live mode', () => {
       url: '/api/behavior/agents/live-agent/drift',
     })
     expect(readObservationWindows).toHaveBeenCalledWith({
+      snapshotGeneratedAt: '2026-08-28T00:00:00.000Z',
       estateId: 'default',
       estateEnvironment: 'validation',
       tenantId: 'tenant-demo',
       agentId: 'live-agent',
       sourceConnectorId: 'project-a',
       sourceTenantId: 'source-tenant',
+      sourceProjectId: 'project-a',
       sourceAgentId: 'provider-agent-id',
       sourceEnvironment: 'production',
     })
@@ -427,6 +507,39 @@ describe('behavior drift API — foundry/live mode', () => {
     expect(result.status).toBe('invalid')
     expect(result.unavailableReason).toContain('No exact runtime telemetry source binding')
     expect(readObservationWindows).not.toHaveBeenCalled()
+    await app.close()
+  })
+
+  it('does not query configured telemetry when no snapshot resolver is available', async () => {
+    const fixture = createRuntimeTelemetryFixture()
+    const acquireCredential = vi.fn(() => Promise.resolve())
+    const readObservationWindows = vi.fn(
+      async (...args: Parameters<typeof fixture.readObservationWindows>) => {
+        await acquireCredential()
+        return fixture.readObservationWindows(...args)
+      },
+    )
+    const { exposureRepository } = makeStubRepositories()
+    const app = await createApp(
+      undefined,
+      { mode: 'disabled', allowedScopes: { read: [], write: [] } },
+      {
+        dataMode: 'live',
+        runtimeTelemetryConnector: { id: fixture.id, readObservationWindows },
+        exposureRepository,
+      },
+    )
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/behavior/agents/live-agent/drift',
+    })
+    const result = driftAnalysisResultSchema.parse(response.json())
+
+    expect(result.status).toBe('invalid')
+    expect(result.unavailableReason).toContain('No exact runtime telemetry source binding')
+    expect(readObservationWindows).not.toHaveBeenCalled()
+    expect(acquireCredential).not.toHaveBeenCalled()
     await app.close()
   })
 

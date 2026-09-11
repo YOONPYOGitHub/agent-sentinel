@@ -1,0 +1,606 @@
+import { createHash } from 'node:crypto'
+
+import {
+  AGENT365_GRAPH_ORIGIN,
+  AGENT365_PACKAGES_PATH,
+  Agent365CompositionConnector,
+  agent365ConfigSchema,
+  type Agent365Config,
+  type Agent365CompositionOptions,
+  type Agent365SourceConfig,
+} from '@agent-sentinel/agent365-connector'
+import {
+  composeConnectorHealthReport,
+  type AgentConnector,
+  type ApprovalContext,
+  type ConnectorHealthReport,
+  type ConnectorHealthMeasurement,
+  type ConnectorOperationRequest,
+  type ConnectorSourceHealth,
+  type OperationAwareAgentConnector,
+} from '@agent-sentinel/connector-sdk'
+import {
+  agent365AggregationSchema,
+  connectorSourceDefinitionSchema,
+  connectorSourceReadModelSchema,
+  evaluateAgent365SourcePolicy,
+  isConnectorSourceMigrationRequired,
+  type Agent365SourcePolicyInactiveReason,
+  type ConnectorSourceDefinition,
+  type ConnectorSourceRepository,
+  type EstateContext,
+  type EstateSnapshot,
+  type Evidence,
+  type Remediation,
+} from '@agent-sentinel/domain'
+
+export type Agent365RuntimeInactiveReason =
+  Agent365SourcePolicyInactiveReason | 'duplicate-tenant-boundary' | 'migration-required'
+
+export interface Agent365RuntimeBinding {
+  readonly estateId: string
+  readonly tenantId: string
+  readonly environment: string
+  readonly sourceTenantId?: string
+  readonly sourceEnvironment?: string
+  readonly sourceId: string
+  readonly bindingSourceId: string
+  readonly displayName: string
+  readonly origin: 'deployment' | 'user'
+  readonly sourceVersion: number
+  readonly sourceEtag: string
+  readonly activation:
+    | { readonly status: 'active' }
+    | {
+        readonly status: 'inactive'
+        readonly reason: Agent365RuntimeInactiveReason
+      }
+}
+
+export interface ResolvedAgent365Runtime {
+  readonly config: Agent365Config | undefined
+  readonly bindings: readonly Agent365RuntimeBinding[]
+  readonly sourceSetFingerprint: string
+}
+
+export interface ResolveAgent365RuntimeOptions {
+  readonly pageSize?: number
+  readonly maxSources?: number
+}
+
+export const AGENT365_HEALTH_MAX_AGE_MS = 24 * 60 * 60 * 1_000
+
+function inactiveHealth(
+  reason: Agent365RuntimeInactiveReason,
+): Pick<ConnectorSourceHealth, 'enabled' | 'configured' | 'readiness' | 'dataState' | 'reason'> {
+  switch (reason) {
+    case 'source-disabled':
+      return {
+        enabled: false,
+        configured: true,
+        readiness: 'disabled',
+        dataState: 'unsupported',
+        reason,
+      }
+    case 'deployment-origin-required':
+    case 'managed-identity-required':
+    case 'managed-identity-client-id-not-approved':
+      return {
+        enabled: true,
+        configured: false,
+        readiness: 'authorization-required',
+        dataState: 'unsupported',
+        reason,
+      }
+    case 'duplicate-tenant-boundary':
+      return {
+        enabled: true,
+        configured: false,
+        readiness: 'degraded',
+        dataState: 'unsupported',
+        reason,
+      }
+    case 'migration-required':
+      return {
+        enabled: false,
+        configured: false,
+        readiness: 'degraded',
+        dataState: 'unsupported',
+        reason,
+      }
+  }
+}
+
+export function agent365SourceSetFingerprint(bindings: readonly Agent365RuntimeBinding[]): string {
+  const canonical = bindings
+    .map((binding) => ({
+      estateId: binding.estateId,
+      tenantId: binding.tenantId,
+      environment: binding.environment,
+      sourceTenantId: binding.sourceTenantId ?? binding.tenantId,
+      sourceEnvironment: binding.sourceEnvironment ?? binding.environment,
+      sourceId: binding.sourceId,
+      bindingSourceId: binding.bindingSourceId,
+      origin: binding.origin,
+      sourceVersion: binding.sourceVersion,
+      sourceEtag: binding.sourceEtag,
+    }))
+    .toSorted((left, right) => left.sourceId.localeCompare(right.sourceId))
+  return createHash('sha256').update(JSON.stringify(canonical), 'utf8').digest('hex')
+}
+
+function staleAgent365Source(
+  source: ConnectorHealthReport['sources'][number],
+  reason: 'source-set-changed' | 'measurement-expired',
+): ConnectorHealthReport['sources'][number] {
+  if (!source.enabled || (reason === 'source-set-changed' && !source.id.startsWith('agent365:'))) {
+    return source
+  }
+  return {
+    ...source,
+    readiness: 'degraded',
+    dataState: 'stale',
+    reason,
+  }
+}
+
+export function reconcileAgent365PersistedHealth(
+  measurement: ConnectorHealthMeasurement,
+  bindings: readonly Agent365RuntimeBinding[],
+  now = new Date(),
+  maxAgeMs = AGENT365_HEALTH_MAX_AGE_MS,
+): ConnectorHealthReport {
+  const currentFingerprint = agent365SourceSetFingerprint(bindings)
+  const measuredFingerprint =
+    measurement.sourceSetFingerprint ?? measurement.health.sourceSetFingerprint
+  const hasAgent365Measurement = measurement.health.sources.some((source) =>
+    source.id.startsWith('agent365:'),
+  )
+  const sourceSetChanged =
+    (hasAgent365Measurement || bindings.length > 0) && measuredFingerprint !== currentFingerprint
+  const measurementExpired = now.getTime() - Date.parse(measurement.measuredAt) > maxAgeMs
+  if (!sourceSetChanged && !measurementExpired) return measurement.health
+
+  const bindingByHealthId = new Map<string, Agent365RuntimeBinding>()
+  const bindingByConfigurationHealthId = new Map<string, Agent365RuntimeBinding>()
+  for (const binding of bindings) {
+    const bindingHealthId = `agent365:${binding.bindingSourceId}`
+    if (!bindingByHealthId.has(bindingHealthId)) bindingByHealthId.set(bindingHealthId, binding)
+    bindingByConfigurationHealthId.set(`agent365:${binding.sourceId}`, binding)
+  }
+  const sources = measurement.health.sources.map((source) => {
+    const expiredSource = measurementExpired
+      ? staleAgent365Source(source, 'measurement-expired')
+      : source
+    const reconciledSource = sourceSetChanged
+      ? staleAgent365Source(expiredSource, 'source-set-changed')
+      : expiredSource
+    const binding =
+      bindingByHealthId.get(source.id) ?? bindingByConfigurationHealthId.get(source.id)
+    if (binding === undefined) return reconciledSource
+    const id = `agent365:${binding.bindingSourceId}`
+    const status =
+      binding.activation.status === 'active'
+        ? {
+            enabled: true,
+            configured: true,
+            readiness: 'degraded' as const,
+            dataState: 'stale' as const,
+            reason: sourceSetChanged
+              ? ('source-set-changed' as const)
+              : ('measurement-expired' as const),
+          }
+        : inactiveHealth(binding.activation.reason)
+    return {
+      ...reconciledSource,
+      id,
+      name: binding.displayName,
+      ...status,
+      provenance: {
+        estateTenantId: binding.tenantId,
+        estateEnvironment: binding.environment,
+        sourceConnectorId: binding.bindingSourceId,
+        sourceTenantId: binding.sourceTenantId ?? binding.tenantId,
+        sourceEnvironment: binding.sourceEnvironment ?? binding.environment,
+        provider: 'microsoft-graph-agent365-package-catalog' as const,
+        providerObjectId: AGENT365_PACKAGES_PATH,
+      },
+    }
+  })
+  const existingIds = new Set(sources.map((source) => source.id))
+  for (const binding of bindings) {
+    const id = `agent365:${binding.bindingSourceId}`
+    if (existingIds.has(id)) continue
+    const status =
+      binding.activation.status === 'active'
+        ? {
+            enabled: true,
+            configured: true,
+            readiness: 'degraded' as const,
+            dataState: 'stale' as const,
+            reason: sourceSetChanged
+              ? ('source-set-changed' as const)
+              : ('measurement-expired' as const),
+          }
+        : inactiveHealth(binding.activation.reason)
+    sources.push({
+      id,
+      name: binding.displayName,
+      role: 'discovery',
+      ...status,
+      checkedAt: measurement.measuredAt,
+      provenance: {
+        estateTenantId: binding.tenantId,
+        estateEnvironment: binding.environment,
+        sourceConnectorId: binding.bindingSourceId,
+        sourceTenantId: binding.sourceTenantId ?? binding.tenantId,
+        sourceEnvironment: binding.sourceEnvironment ?? binding.environment,
+        provider: 'microsoft-graph-agent365-package-catalog',
+        providerObjectId: AGENT365_PACKAGES_PATH,
+      },
+    })
+  }
+  return {
+    ...measurement.health,
+    overall: measurement.health.overall === 'unavailable' ? 'unavailable' : 'degraded',
+    partial: true,
+    sources,
+  }
+}
+
+export function synthesizeAgent365UnmeasuredHealth(
+  runtime: ResolvedAgent365Runtime,
+): ConnectorHealthReport {
+  const sources: ConnectorSourceHealth[] = runtime.bindings.map((binding) => ({
+    id: `agent365:${binding.bindingSourceId}`,
+    name: binding.displayName,
+    role: 'discovery',
+    ...(binding.activation.status === 'active'
+      ? {
+          enabled: true,
+          configured: true,
+          readiness: 'unavailable' as const,
+          reason: 'not-measured',
+        }
+      : inactiveHealth(binding.activation.reason)),
+    provenance: {
+      estateTenantId: binding.tenantId,
+      estateEnvironment: binding.environment,
+      sourceConnectorId: binding.bindingSourceId,
+      sourceTenantId: binding.sourceTenantId ?? binding.tenantId,
+      sourceEnvironment: binding.sourceEnvironment ?? binding.environment,
+      provider: 'microsoft-graph-agent365-package-catalog',
+      providerObjectId: AGENT365_PACKAGES_PATH,
+    },
+  }))
+  return {
+    overall: 'unavailable',
+    partial: sources.some((source) => source.enabled && source.readiness !== 'disabled'),
+    sourceSetFingerprint: runtime.sourceSetFingerprint,
+    sources,
+  }
+}
+
+class Agent365RuntimeConnector implements OperationAwareAgentConnector {
+  readonly descriptor
+
+  constructor(
+    private readonly inner: AgentConnector,
+    private readonly bindings: readonly Agent365RuntimeBinding[],
+    private readonly sourceSetFingerprint: string,
+  ) {
+    this.descriptor = inner.descriptor
+  }
+
+  async testConnection(
+    request: ConnectorOperationRequest = {},
+  ): Promise<Awaited<ReturnType<OperationAwareAgentConnector['testConnection']>>> {
+    const result = await (this.inner as OperationAwareAgentConnector).testConnection(request)
+    const hasEnabledInactiveSource = this.bindings.some(
+      (binding) =>
+        binding.activation.status === 'inactive' && binding.activation.reason !== 'source-disabled',
+    )
+    if (!hasEnabledInactiveSource) return result
+    return {
+      ok: false,
+      checkedAt: result.checkedAt,
+      message: 'One or more enabled Agent 365 sources are inactive or unavailable.',
+    }
+  }
+
+  discover(request: ConnectorOperationRequest = {}): Promise<EstateSnapshot> {
+    return (this.inner as OperationAwareAgentConnector).discover(request)
+  }
+
+  getEvidence(evidenceId: string): Promise<Evidence> {
+    return this.inner.getEvidence(evidenceId)
+  }
+
+  getConnectorHealth(): ConnectorHealthReport {
+    const health = this.inner.getConnectorHealth?.() ?? {
+      overall: 'unavailable' as const,
+      partial: false,
+      sources: [],
+    }
+    const activeBindingByHealthId = new Map<string, Agent365RuntimeBinding>(
+      this.bindings
+        .filter((binding) => binding.activation.status === 'active')
+        .map((binding) => [`agent365:${binding.bindingSourceId}`, binding] as const),
+    )
+    const activeSources = health.sources.map((source) => {
+      const binding = activeBindingByHealthId.get(source.id)
+      return binding === undefined
+        ? source
+        : {
+            ...source,
+            provenance: {
+              estateTenantId: binding.tenantId,
+              estateEnvironment: binding.environment,
+              sourceConnectorId: binding.bindingSourceId,
+              sourceTenantId: binding.sourceTenantId ?? binding.tenantId,
+              sourceEnvironment: binding.sourceEnvironment ?? binding.environment,
+              provider: 'microsoft-graph-agent365-package-catalog' as const,
+              providerObjectId: AGENT365_PACKAGES_PATH,
+            },
+          }
+    })
+    const inactive = this.bindings
+      .filter(
+        (
+          binding,
+        ): binding is Agent365RuntimeBinding & {
+          activation: {
+            status: 'inactive'
+            reason: Agent365RuntimeInactiveReason
+          }
+        } => binding.activation.status === 'inactive',
+      )
+      .map((binding) => ({
+        id: `agent365:${binding.bindingSourceId}`,
+        name: binding.displayName,
+        role: 'discovery' as const,
+        ...inactiveHealth(binding.activation.reason),
+        provenance: {
+          estateTenantId: binding.tenantId,
+          estateEnvironment: binding.environment,
+          sourceConnectorId: binding.bindingSourceId,
+          sourceTenantId: binding.sourceTenantId ?? binding.tenantId,
+          sourceEnvironment: binding.sourceEnvironment ?? binding.environment,
+          provider: 'microsoft-graph-agent365-package-catalog',
+          providerObjectId: AGENT365_PACKAGES_PATH,
+        },
+      }))
+    const enabledInactive = inactive.some(
+      (source) => source.enabled || source.reason === 'migration-required',
+    )
+    return composeConnectorHealthReport(health, {
+      sourceSetFingerprint: this.sourceSetFingerprint,
+      overall:
+        health.overall === 'unavailable'
+          ? 'unavailable'
+          : health.partial || enabledInactive
+            ? 'degraded'
+            : health.overall,
+      partial: health.partial || enabledInactive,
+      sources: [...activeSources, ...inactive],
+    })
+  }
+
+  execute(
+    remediation: Remediation,
+    approval: ApprovalContext,
+  ): Promise<{ remediation: Remediation; snapshot: EstateSnapshot }> {
+    if (this.inner.execute === undefined) {
+      return Promise.reject(new Error('Base connector does not support remediation execution.'))
+    }
+    return this.inner.execute(remediation, approval)
+  }
+}
+
+export function createAgent365RuntimeConnector(
+  base: AgentConnector,
+  runtime: ResolvedAgent365Runtime,
+  options: Agent365CompositionOptions = {},
+): OperationAwareAgentConnector {
+  const inner =
+    runtime.config === undefined
+      ? base
+      : new Agent365CompositionConnector(base, runtime.config, options)
+  return new Agent365RuntimeConnector(inner, runtime.bindings, runtime.sourceSetFingerprint)
+}
+
+function positiveInteger(value: number, name: string, maximum: number): number {
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
+    throw new Error(`${name} must be an integer between 1 and ${maximum}.`)
+  }
+  return value
+}
+
+function activationFor(source: ConnectorSourceDefinition): Agent365RuntimeBinding['activation'] {
+  const decision = evaluateAgent365SourcePolicy(source)
+  if (decision.status === 'not-applicable') {
+    throw new Error(`Connector source ${source.sourceId} is not an Agent 365 source.`)
+  }
+  return decision
+}
+
+function sourceConfig(
+  source: ConnectorSourceDefinition,
+  bindingSourceId: string,
+): Agent365SourceConfig {
+  if (source.configuration.type !== 'agent365') {
+    throw new Error(`Connector source ${source.sourceId} is not an Agent 365 source.`)
+  }
+  if (source.credential.mode !== 'managed-identity') {
+    throw new Error(`Connector source ${source.sourceId} has no approved managed identity.`)
+  }
+  return {
+    id: bindingSourceId,
+    name: source.displayName,
+    tenantId: source.configuration.sourceTenantId ?? source.tenantId,
+    environment: source.configuration.sourceEnvironment ?? source.environment,
+    graphBaseUrl: source.configuration.graphBaseUrl,
+    limits: source.configuration.limits,
+    credential: {
+      mode: 'managed-identity',
+      managedIdentityClientId: source.credential.managedIdentityClientId,
+    },
+  }
+}
+
+export async function resolveAgent365Runtime(
+  repository: ConnectorSourceRepository,
+  estate: EstateContext,
+  options: ResolveAgent365RuntimeOptions = {},
+): Promise<ResolvedAgent365Runtime> {
+  const pageSize = positiveInteger(options.pageSize ?? 100, 'pageSize', 1_000)
+  const maxSources = positiveInteger(options.maxSources ?? 1_000, 'maxSources', 1_000)
+  const sources: ConnectorSourceDefinition[] = []
+  const migrationBindings: Agent365RuntimeBinding[] = []
+  const seen = new Set<string>()
+  let sourceCount = 0
+  let cursor: string | undefined
+
+  for (;;) {
+    const remaining = maxSources - sourceCount
+    const limit = Math.min(pageSize, remaining + 1)
+    const page = await repository.list(estate, limit, cursor)
+    if (page.length === 0) break
+    const nextCursor = page.at(-1)!.sourceId
+    if (cursor !== undefined && nextCursor <= cursor) {
+      throw new Error('Connector source pagination did not advance.')
+    }
+
+    for (const value of page) {
+      const readModel = connectorSourceReadModelSchema.parse(value)
+      if (
+        readModel.estateId !== estate.id ||
+        readModel.tenantId !== estate.tenantId ||
+        readModel.environment !== estate.environment
+      ) {
+        throw new Error(
+          `Connector source ${readModel.sourceId} does not match the requested estate boundary.`,
+        )
+      }
+      if (seen.has(readModel.sourceId)) {
+        throw new Error(`Duplicate connector source identity: ${readModel.sourceId}`)
+      }
+      seen.add(readModel.sourceId)
+      sourceCount += 1
+      if (sourceCount > maxSources) {
+        throw new Error(`Connector source count exceeds the runtime maximum of ${maxSources}.`)
+      }
+      if (isConnectorSourceMigrationRequired(readModel)) {
+        if (readModel.connectorType === 'agent365' && readModel.configuration.type === 'agent365') {
+          migrationBindings.push({
+            estateId: readModel.estateId,
+            tenantId: readModel.tenantId,
+            environment: readModel.environment,
+            sourceTenantId: readModel.configuration.sourceTenantId ?? readModel.tenantId,
+            sourceEnvironment: readModel.configuration.sourceEnvironment ?? readModel.environment,
+            sourceId: readModel.sourceId,
+            bindingSourceId: readModel.runtimeBinding?.bindingSourceId ?? readModel.sourceId,
+            displayName: readModel.displayName,
+            origin: readModel.origin,
+            sourceVersion: readModel.version,
+            sourceEtag: readModel.etag,
+            activation: { status: 'inactive', reason: 'migration-required' },
+          })
+        }
+        continue
+      }
+      sources.push(connectorSourceDefinitionSchema.parse(readModel))
+    }
+
+    cursor = nextCursor
+    if (page.length < limit) break
+  }
+
+  const agent365Sources = sources
+    .filter((source) => source.connectorType === 'agent365')
+    .toSorted(
+      (left, right) =>
+        Number(right.origin === 'deployment') - Number(left.origin === 'deployment') ||
+        left.sourceId.localeCompare(right.sourceId),
+    )
+  const deploymentTenants = new Set(
+    agent365Sources
+      .filter((source) => source.origin === 'deployment')
+      .map((source) =>
+        source.configuration.type === 'agent365'
+          ? (source.configuration.sourceTenantId ?? source.tenantId).toLowerCase()
+          : source.tenantId.toLowerCase(),
+      ),
+  )
+  const activeTenants = new Set<string>()
+  const resolvedSources = agent365Sources.map((source) => {
+    let activation = activationFor(source)
+    const tenantId =
+      source.configuration.type === 'agent365'
+        ? (source.configuration.sourceTenantId ?? source.tenantId).toLowerCase()
+        : source.tenantId.toLowerCase()
+    if (activation.status === 'active') {
+      if (
+        activeTenants.has(tenantId) ||
+        (source.origin === 'user' && deploymentTenants.has(tenantId))
+      ) {
+        activation = { status: 'inactive', reason: 'duplicate-tenant-boundary' }
+      } else {
+        activeTenants.add(tenantId)
+      }
+    }
+    return { source, activation }
+  })
+  const bindings = [
+    ...resolvedSources.map(({ source, activation }): Agent365RuntimeBinding => ({
+      estateId: source.estateId,
+      tenantId: source.tenantId,
+      environment: source.environment,
+      sourceTenantId:
+        source.configuration.type === 'agent365'
+          ? (source.configuration.sourceTenantId ?? source.tenantId)
+          : source.tenantId,
+      sourceEnvironment:
+        source.configuration.type === 'agent365'
+          ? (source.configuration.sourceEnvironment ?? source.environment)
+          : source.environment,
+      sourceId: source.sourceId,
+      bindingSourceId: source.runtimeBinding?.bindingSourceId ?? source.sourceId,
+      displayName: source.displayName,
+      origin: source.origin,
+      sourceVersion: source.version,
+      sourceEtag: source.etag,
+      activation,
+    })),
+    ...migrationBindings,
+  ].toSorted((left, right) => left.sourceId.localeCompare(right.sourceId))
+  const activeResolvedSources = resolvedSources.filter(
+    (
+      value,
+    ): value is typeof value & {
+      activation: { status: 'active' }
+    } => value.activation.status === 'active',
+  )
+  const activeSources = activeResolvedSources.map(({ source }) =>
+    sourceConfig(source, source.runtimeBinding?.bindingSourceId ?? source.sourceId),
+  )
+  const sourceSetFingerprint = agent365SourceSetFingerprint(bindings)
+  if (activeSources.length === 0) {
+    return { config: undefined, bindings, sourceSetFingerprint }
+  }
+  const first = activeSources[0]!
+  const aggregationSource = activeResolvedSources[0]!.source
+  if (aggregationSource.configuration.type !== 'agent365') {
+    throw new Error(`Connector source ${aggregationSource.sourceId} is not an Agent 365 source.`)
+  }
+  return {
+    config: agent365ConfigSchema.parse({
+      graphBaseUrl: first.graphBaseUrl ?? AGENT365_GRAPH_ORIGIN,
+      limits: first.limits,
+      aggregation: agent365AggregationSchema.parse(aggregationSource.configuration.aggregation),
+      sources: activeSources,
+    }),
+    bindings,
+    sourceSetFingerprint,
+  }
+}

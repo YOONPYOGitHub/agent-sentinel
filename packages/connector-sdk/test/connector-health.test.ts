@@ -46,6 +46,45 @@ function measurement(overrides: Record<string, number> = {}) {
 }
 
 describe('connector health diagnostics schema', () => {
+  it('preserves an exact source-set fingerprint on reports and persisted measurements', () => {
+    const sourceSetFingerprint = 'a'.repeat(64)
+    const input = measurement()
+    Object.assign(input, { sourceSetFingerprint })
+    Object.assign(input.health, { sourceSetFingerprint })
+
+    const parsed = connectorHealthMeasurementSchema.parse(input)
+
+    expect(parsed.sourceSetFingerprint).toBe(sourceSetFingerprint)
+    expect(parsed.health.sourceSetFingerprint).toBe(sourceSetFingerprint)
+  })
+
+  it('preserves an optional exact persisted snapshot binding', () => {
+    const input = measurement()
+    Object.assign(input, {
+      snapshotBinding: {
+        snapshotGeneratedAt: '2026-09-04T12:59:00.000Z',
+        evidenceDigest: 'b'.repeat(64),
+      },
+    })
+
+    expect(connectorHealthMeasurementSchema.parse(input).snapshotBinding).toEqual({
+      snapshotGeneratedAt: '2026-09-04T12:59:00.000Z',
+      evidenceDigest: 'b'.repeat(64),
+    })
+  })
+
+  it('rejects malformed persisted snapshot bindings', () => {
+    const input = measurement()
+    Object.assign(input, {
+      snapshotBinding: {
+        snapshotGeneratedAt: 'not-a-date',
+        evidenceDigest: 'not-a-digest',
+      },
+    })
+
+    expect(connectorHealthMeasurementSchema.safeParse(input).success).toBe(false)
+  })
+
   it('preserves typed data state and exact source provenance', () => {
     const input = measurement()
     Object.assign(input.health.sources[0], {

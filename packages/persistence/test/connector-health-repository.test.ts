@@ -169,6 +169,47 @@ describe.each(repositories())('$name connector health repository', ({ create }) 
     await expect(repository.findLatest(estateA, 'foundry')).resolves.toEqual(first)
   })
 
+  it('round-trips optional snapshot binding while retaining legacy compatibility', async () => {
+    const { repository } = create()
+    const legacy = measurement('foundry', '2026-09-04T13:00:00.000Z')
+    const bound = {
+      ...measurement('foundry', '2026-09-04T13:05:00.000Z'),
+      snapshotBinding: {
+        snapshotGeneratedAt: '2026-09-04T13:04:00.000Z',
+        evidenceDigest: 'a'.repeat(64),
+      },
+    }
+
+    await repository.save(estateA, legacy)
+    await repository.save(estateA, bound)
+
+    await expect(repository.findLatest(estateA, 'foundry')).resolves.toEqual(bound)
+  })
+
+  it('conflicts when the same measurement identity has a different snapshot binding', async () => {
+    const { repository } = create()
+    const first = {
+      ...measurement('foundry', '2026-09-04T13:00:00.000Z'),
+      snapshotBinding: {
+        snapshotGeneratedAt: '2026-09-04T12:59:00.000Z',
+        evidenceDigest: 'a'.repeat(64),
+      },
+    }
+    const conflicting = {
+      ...structuredClone(first),
+      snapshotBinding: {
+        ...first.snapshotBinding,
+        evidenceDigest: 'b'.repeat(64),
+      },
+    }
+
+    await repository.save(estateA, first)
+    await expect(repository.save(estateA, conflicting)).rejects.toBeInstanceOf(
+      ConnectorHealthConflictError,
+    )
+    await expect(repository.findLatest(estateA, 'foundry')).resolves.toEqual(first)
+  })
+
   it('does not partially overwrite health or diagnostics on conflict', async () => {
     const { repository } = create()
     const first = diagnosticMeasurement()

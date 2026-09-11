@@ -74,6 +74,9 @@ importers:
       '@agent-sentinel/behavior-engine':
         specifier: workspace:*
         version: link:../../packages/behavior-engine
+      '@agent-sentinel/connector-runtime':
+        specifier: workspace:*
+        version: link:../../packages/connector-runtime
       '@agent-sentinel/connector-sdk':
         specifier: workspace:*
         version: link:../../packages/connector-sdk
@@ -159,9 +162,15 @@ importers:
       '@agent-sentinel/agent365-connector':
         specifier: workspace:*
         version: link:../../connectors/agent365
+      '@agent-sentinel/azure-monitor-otel-connector':
+        specifier: workspace:*
+        version: link:../../connectors/azure-monitor-otel
       '@agent-sentinel/azure-resource-graph-connector':
         specifier: workspace:*
         version: link:../../connectors/azure-resource-graph
+      '@agent-sentinel/connector-runtime':
+        specifier: workspace:*
+        version: link:../../packages/connector-runtime
       '@agent-sentinel/connector-sdk':
         specifier: workspace:*
         version: link:../../packages/connector-sdk
@@ -177,6 +186,9 @@ importers:
       '@agent-sentinel/foundry-connector':
         specifier: workspace:*
         version: link:../../connectors/foundry
+      '@agent-sentinel/graph-engine':
+        specifier: workspace:*
+        version: link:../../packages/graph-engine
       '@agent-sentinel/manifest-connector':
         specifier: workspace:*
         version: link:../../connectors/manifest
@@ -485,6 +497,42 @@ importers:
         specifier: ^4.1.5
         version: 4.4.3
 
+  packages/connector-runtime:
+    dependencies:
+      '@agent-sentinel/agent365-connector':
+        specifier: workspace:*
+        version: link:../../connectors/agent365
+      '@agent-sentinel/azure-monitor-otel-connector':
+        specifier: workspace:*
+        version: link:../../connectors/azure-monitor-otel
+      '@agent-sentinel/azure-resource-graph-connector':
+        specifier: workspace:*
+        version: link:../../connectors/azure-resource-graph
+      '@agent-sentinel/connector-sdk':
+        specifier: workspace:*
+        version: link:../connector-sdk
+      '@agent-sentinel/defender-cloud-apps-connector':
+        specifier: workspace:*
+        version: link:../../connectors/defender-cloud-apps
+      '@agent-sentinel/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@agent-sentinel/entra-identity-connector':
+        specifier: workspace:*
+        version: link:../../connectors/entra-identity
+      '@agent-sentinel/foundry-connector':
+        specifier: workspace:*
+        version: link:../../connectors/foundry
+      '@agent-sentinel/power-platform-connector':
+        specifier: workspace:*
+        version: link:../../connectors/power-platform
+      '@agent-sentinel/purview-connector':
+        specifier: workspace:*
+        version: link:../../connectors/purview
+      '@agent-sentinel/teams-distribution-connector':
+        specifier: workspace:*
+        version: link:../../connectors/teams-distribution
+
   packages/connector-sdk:
     dependencies:
       '@agent-sentinel/domain':
@@ -588,6 +636,9 @@ importers:
       '@agent-sentinel/domain':
         specifier: workspace:*
         version: link:../domain
+      '@agent-sentinel/graph-engine':
+        specifier: workspace:*
+        version: link:../graph-engine
       '@agent-sentinel/manifest-connector':
         specifier: workspace:*
         version: link:../../connectors/manifest

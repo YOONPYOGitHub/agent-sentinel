@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import type { ManifestEnvelope } from '@agent-sentinel/connector-sdk'
 import { evidenceSchema, exposureFindingSchema } from '@agent-sentinel/domain'
 import { normalizeManifest } from '@agent-sentinel/manifest-connector'
+import { createLiveGraphTraversalContextForSnapshot } from '@agent-sentinel/graph-engine'
 import { evaluateAllExposurePolicies } from '@agent-sentinel/policy-engine'
 import { describe, expect, it } from 'vitest'
 
@@ -24,7 +25,18 @@ describe('shift-left manifest scanning', () => {
   it('uses the runtime policy engine without changing its findings', () => {
     const envelope = fixture() as ManifestEnvelope
     const report = scanValidatedManifest(envelope, scope)
-    const runtimeFindings = evaluateAllExposurePolicies(normalizeManifest(envelope, scope).snapshot)
+    const snapshot = normalizeManifest(envelope, scope).snapshot
+    const runtimeFindings = evaluateAllExposurePolicies(
+      snapshot,
+      createLiveGraphTraversalContextForSnapshot(snapshot, {
+        estate: {
+          id: 'shift-left',
+          tenantId: scope.tenantId,
+          environment: scope.environmentId,
+        },
+        clock: () => new Date(snapshot.generatedAt),
+      }),
+    )
 
     expect(
       report.policies.flatMap((policy) => policy.findings.map(({ finding }) => finding)),
@@ -113,5 +125,33 @@ describe('shift-left manifest scanning', () => {
     expect(tenant.errors[0]?.message).toContain('does not match')
     expect(environment.errors[0]?.path).toBe('environmentId')
     expect(environment.errors[0]?.message).toContain('does not match')
+  })
+
+  it('returns typed validation errors for generated evidence namespace collisions', () => {
+    const raw = fixture() as ManifestEnvelope
+    const agent = raw.agents[0]
+    if (agent === undefined) throw new Error('Expected a manifest agent fixture.')
+    const collision = {
+      ...raw,
+      evidence: [
+        ...raw.evidence,
+        {
+          id: `declared::${agent.id}`,
+          subjectId: agent.id,
+          evidenceType: 'declared_configuration',
+          confidence: 0.4,
+          observedAt: raw.producedAt,
+          claims: {},
+        },
+      ],
+    }
+
+    expect(() => scanManifest(collision, scope)).not.toThrow()
+    const result = scanManifest(collision, scope)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors).toHaveLength(1)
+    expect(result.errors[0]?.path).toMatch(/^evidence\.\d+\.id$/)
+    expect(result.errors[0]?.message).toContain('collides with generated evidence')
   })
 })

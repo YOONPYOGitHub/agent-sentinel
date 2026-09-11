@@ -7,9 +7,17 @@ import type {
   ExposureFindingRepository,
   SnapshotRepository,
 } from '@agent-sentinel/domain'
+import {
+  createLiveGraphTraversalContextForSnapshot,
+  trustedMockGraphTraversalContext,
+} from '@agent-sentinel/graph-engine'
 
 import { createApp } from '../src/app.js'
 import { buildRemediationPreview } from '../src/exposure-routes.js'
+
+function buildMockRemediationPreview(snapshot: EstateSnapshot, finding: ExposureFinding) {
+  return buildRemediationPreview(snapshot, finding, trustedMockGraphTraversalContext)
+}
 
 async function makeApp(
   mode: 'mock' | 'live',
@@ -330,7 +338,7 @@ describe('exposure API (mock mode)', () => {
   })
 
   it('retains nonzero residual risk when an alternate active route remains', () => {
-    const preview = buildRemediationPreview(
+    const preview = buildMockRemediationPreview(
       makePreviewSnapshot({ alternateRoute: true }),
       makeFinding(),
     )
@@ -345,7 +353,7 @@ describe('exposure API (mock mode)', () => {
   })
 
   it('reports partial route removal from the simulated snapshot', () => {
-    const preview = buildRemediationPreview(
+    const preview = buildMockRemediationPreview(
       makePreviewSnapshot({ alternateRoute: true }),
       makeFinding(),
     )
@@ -356,7 +364,7 @@ describe('exposure API (mock mode)', () => {
   })
 
   it('reports zero residual risk only when all active risky routes are removed', () => {
-    const preview = buildRemediationPreview(
+    const preview = buildMockRemediationPreview(
       makePreviewSnapshot({ alternateRoute: true }),
       makeFinding({ affectedEdgeIds: ['edge-1', 'edge-2'] }),
     )
@@ -373,7 +381,7 @@ describe('exposure API (mock mode)', () => {
       edge.id === 'edge-1' ? { ...edge, active: false } : edge,
     )
 
-    const preview = buildRemediationPreview(snapshot, makeFinding())
+    const preview = buildMockRemediationPreview(snapshot, makeFinding())
 
     expect(preview.title).toBe('No active risky routes to block')
     expect(preview.targetEdgeIds).toEqual([])
@@ -388,7 +396,7 @@ describe('exposure API (mock mode)', () => {
   })
 
   it('never claims risk reduction when a stale finding has no target routes', () => {
-    const preview = buildRemediationPreview(
+    const preview = buildMockRemediationPreview(
       makePreviewSnapshot({ alternateRoute: true }),
       makeFinding({ affectedEdgeIds: [], riskScore: 99 }),
     )
@@ -407,7 +415,7 @@ describe('exposure API (mock mode)', () => {
     const snapshot = makePreviewSnapshot({ alternateRoute: true })
     snapshot.edges = snapshot.edges.map((edge) => ({ ...edge, active: false }))
 
-    const preview = buildRemediationPreview(snapshot, makeFinding({ riskScore: 99 }))
+    const preview = buildMockRemediationPreview(snapshot, makeFinding({ riskScore: 99 }))
 
     expect(preview.targetEdgeIds).toEqual([])
     expect(preview.after.riskScore).toBe(preview.before.riskScore)
@@ -418,7 +426,7 @@ describe('exposure API (mock mode)', () => {
   })
 
   it('reports partial target coverage when only some requested routes are active', () => {
-    const preview = buildRemediationPreview(
+    const preview = buildMockRemediationPreview(
       makePreviewSnapshot({ alternateRoute: true }),
       makeFinding({ affectedEdgeIds: ['edge-1', 'already-inactive-edge'] }),
     )
@@ -432,7 +440,7 @@ describe('exposure API (mock mode)', () => {
   })
 
   it('reports missing cited evidence as residual-analysis uncertainty', () => {
-    const preview = buildRemediationPreview(
+    const preview = buildMockRemediationPreview(
       makePreviewSnapshot({ alternateRoute: true }),
       makeFinding({ evidenceIds: ['ev-1', 'missing-evidence'] }),
     )
@@ -446,7 +454,7 @@ describe('exposure API (mock mode)', () => {
   })
 
   it('reports stale and unknown evidence as residual-analysis uncertainty', () => {
-    const preview = buildRemediationPreview(
+    const preview = buildMockRemediationPreview(
       makePreviewSnapshot({ alternateRoute: true, staleOrUnknownEvidence: true }),
       makeFinding(),
     )
@@ -461,7 +469,7 @@ describe('exposure API (mock mode)', () => {
   })
 
   it('claims no reduction when deterministic analysis cannot reproduce the selected policy', () => {
-    const preview = buildRemediationPreview(
+    const preview = buildMockRemediationPreview(
       makePreviewSnapshot(),
       makeFinding({ policyId: 'AS-POL-999', riskScore: 64 }),
     )
@@ -471,6 +479,35 @@ describe('exposure API (mock mode)', () => {
     expect(preview.uncertainty).toContainEqual(
       expect.objectContaining({ code: 'analysis-coverage-unknown' }),
     )
+  })
+
+  it('reuses one live authority validation throughout remediation analysis', () => {
+    const snapshot = makePreviewSnapshot({ alternateRoute: true })
+    let authorityReads = 0
+    for (const item of snapshot.evidence) {
+      Object.defineProperty(item, 'authority', {
+        configurable: true,
+        enumerable: true,
+        get() {
+          authorityReads += 1
+          return undefined
+        },
+      })
+    }
+    const traversalContext = createLiveGraphTraversalContextForSnapshot(snapshot, {
+      estate: {
+        id: 'custom-estate',
+        tenantId: snapshot.tenantId,
+        environment: snapshot.environment,
+      },
+      clock: () => new Date(Date.parse(snapshot.generatedAt) + 60_000),
+    })
+    authorityReads = 0
+
+    const preview = buildRemediationPreview(snapshot, makeFinding(), traversalContext)
+
+    expect(preview.residualFindings).toHaveLength(1)
+    expect(authorityReads).toBe(3)
   })
 
   it('generates an evidence-cited advisory narrative without changing the finding', async () => {
@@ -732,6 +769,39 @@ describe('exposure API (live mode)', () => {
       expect(body.uncertainty).toEqual(
         expect.arrayContaining([expect.objectContaining({ code: 'no-active-target-routes' })]),
       )
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('rejects duplicate live graph node IDs before remediation analysis', async () => {
+    const finding = makeFinding()
+    const snapshot = makePreviewSnapshot()
+    snapshot.nodes.push({ ...snapshot.nodes[0]! })
+    const repository: ExposureFindingRepository = {
+      upsert: (_estate, value) => Promise.resolve(value),
+      findById: () => Promise.resolve(finding),
+      listByTenant: () => Promise.resolve({ items: [], total: 0 }),
+      getFacets: () => Promise.resolve({ severity: {}, status: {}, policyId: {} }),
+      resolveAbsent: () => Promise.resolve([]),
+    }
+    const snapshotRepository: SnapshotRepository = {
+      save: () => Promise.resolve(),
+      findLatest: () => Promise.resolve(null),
+      findById: () => Promise.resolve(snapshot),
+      list: () => Promise.resolve([]),
+    }
+    const app = await makeApp('live', repository, snapshotRepository)
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/exposures/${finding.id}/remediation-preview`,
+      })
+      expect(response.statusCode).toBe(500)
+      expect(response.statusCode).toBe(500)
+      const body = response.json<{ error: string; message: string }>()
+      expect(body.error).toBe('internal_error')
+      expect(body.message).toMatch(/duplicate graph node id/i)
     } finally {
       await app.close()
     }

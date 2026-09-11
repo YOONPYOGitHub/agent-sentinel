@@ -2,6 +2,7 @@ import {
   assertEstateSnapshot,
   type EstateSnapshot,
   type Evidence,
+  type EvidenceAuthority,
   type GraphEdge,
   type GraphNode,
 } from '@agent-sentinel/domain'
@@ -40,6 +41,19 @@ function ownerLabel(owner: EntraDirectoryOwner): string {
   return owner.displayName ?? owner.userPrincipalName ?? owner.id
 }
 
+function assertUniqueIds<T extends { id: string }>(
+  items: readonly T[],
+  label: 'graph node' | 'graph edge' | 'evidence',
+): void {
+  const ids = new Set<string>()
+  for (const item of items) {
+    if (ids.has(item.id)) {
+      throw new Error(`Entra normalization rejects duplicate ${label} ID: ${item.id}`)
+    }
+    ids.add(item.id)
+  }
+}
+
 export function mapEntraInventoryToSnapshot(
   inventory: EntraInventory,
   config: Pick<EntraIdentityConnectorConfig, 'tenantId' | 'environment'>,
@@ -49,6 +63,12 @@ export function mapEntraInventoryToSnapshot(
   const edges: GraphEdge[] = []
   const evidence: Evidence[] = []
   const nodesByObjectId = new Map<string, GraphNode>()
+  assertUniqueIds(
+    inventory.servicePrincipals.map((principal) => ({
+      id: principalNodeId(principal.id.toLowerCase()),
+    })),
+    'graph node',
+  )
 
   for (const principal of [...inventory.servicePrincipals].sort((left, right) =>
     left.id.localeCompare(right.id),
@@ -215,6 +235,9 @@ export function mapEntraInventoryToSnapshot(
     }
   }
 
+  assertUniqueIds(nodes, 'graph node')
+  assertUniqueIds(edges, 'graph edge')
+  assertUniqueIds(evidence, 'evidence')
   return assertEstateSnapshot({
     tenantId: config.tenantId,
     environment: config.environment,
@@ -240,28 +263,132 @@ export interface EntraCompositionResult {
   diagnostics: EntraCorrelationDiagnostics
 }
 
+export interface RunsAsSourceEndpoint {
+  sourceId: string
+  tenantId: string
+  environment: string
+  provider: 'azure-ai-foundry-agent-service' | 'microsoft-entra'
+  sourceObjectId: string
+}
+
+export interface EntraFoundryRunsAsBinding {
+  estateId: string
+  foundry: RunsAsSourceEndpoint & { provider: 'azure-ai-foundry-agent-service' }
+  entra: RunsAsSourceEndpoint & { provider: 'microsoft-entra' }
+}
+
+function sameAuthority(left: EvidenceAuthority, right: EvidenceAuthority): boolean {
+  const sameSourceObjectId =
+    left.provider === 'microsoft-entra'
+      ? left.sourceObjectId.toLowerCase() === right.sourceObjectId.toLowerCase()
+      : left.sourceObjectId === right.sourceObjectId
+  const sameProviderObjectId =
+    left.provider === 'microsoft-entra'
+      ? left.providerObjectId.toLowerCase() === right.providerObjectId.toLowerCase()
+      : left.providerObjectId === right.providerObjectId
+  return (
+    left.estateId === right.estateId &&
+    left.sourceId === right.sourceId &&
+    left.tenantId.toLowerCase() === right.tenantId.toLowerCase() &&
+    left.environment === right.environment &&
+    left.provider === right.provider &&
+    sameSourceObjectId &&
+    sameProviderObjectId &&
+    left.snapshotGeneratedAt === right.snapshotGeneratedAt &&
+    left.sourceRelease === right.sourceRelease
+  )
+}
+
+function exactAuthorityEvidence(
+  node: GraphNode,
+  evidenceById: ReadonlyMap<string, Evidence>,
+  estateId: string,
+  endpoint: RunsAsSourceEndpoint,
+): Evidence[] {
+  if (
+    node.metadata['sourceOfTruth'] !== 'true' ||
+    node.metadata['estateId'] !== estateId ||
+    node.metadata['sourceId'] !== endpoint.sourceId ||
+    node.metadata['sourceTenantId']?.toLowerCase() !== endpoint.tenantId.toLowerCase() ||
+    node.metadata['sourceEnvironment'] !== endpoint.environment ||
+    node.metadata['provider'] !== endpoint.provider ||
+    (endpoint.provider === 'azure-ai-foundry-agent-service'
+      ? node.metadata['sourceProjectId'] !== endpoint.sourceObjectId
+      : node.metadata['sourceInventoryObjectId']?.toLowerCase() !==
+        endpoint.sourceObjectId.toLowerCase())
+  ) {
+    return []
+  }
+  const providerObjectId = node.metadata['providerObjectId']
+  const snapshotGeneratedAt = node.metadata['snapshotGeneratedAt']
+  const sourceRelease = node.metadata['sourceRelease']
+  if (
+    providerObjectId === undefined ||
+    snapshotGeneratedAt === undefined ||
+    sourceRelease === undefined
+  ) {
+    return []
+  }
+  const expected: EvidenceAuthority = {
+    estateId,
+    sourceId: endpoint.sourceId,
+    tenantId: endpoint.tenantId,
+    environment: endpoint.environment,
+    provider: endpoint.provider,
+    sourceObjectId: endpoint.sourceObjectId,
+    providerObjectId,
+    snapshotGeneratedAt,
+    sourceRelease,
+  }
+  return node.evidenceIds.flatMap((evidenceId) => {
+    const evidence = evidenceById.get(evidenceId)
+    if (
+      evidence?.authority === undefined ||
+      !sameAuthority(evidence.authority, expected) ||
+      evidence.freshness === 'stale' ||
+      evidence.confidence < 0.8 ||
+      evidence.evidenceTypes.includes('synthetic_validation') ||
+      evidence.evidenceTypes.includes('unknown') ||
+      !evidence.evidenceTypes.includes('declared_configuration')
+    ) {
+      return []
+    }
+    return [evidence]
+  })
+}
+
 function composeSnapshotWithEntra(
   base: EstateSnapshot,
   identities: EstateSnapshot,
-  shouldCorrelate: (agent: GraphNode) => boolean,
+  bindingForAgent: (agent: GraphNode) => EntraFoundryRunsAsBinding | undefined,
   source: EntraAggregateSource,
 ): EntraCompositionResult {
-  const distinctById = <T extends { id: string }>(items: readonly T[]): T[] => {
-    const sorted = [...items].sort(
+  const sortedById = <T extends { id: string }>(items: readonly T[]): T[] =>
+    [...items].sort(
       (left, right) =>
         left.id.localeCompare(right.id) ||
         JSON.stringify(left).localeCompare(JSON.stringify(right)),
     )
-    return sorted.filter((item, index) => index === 0 || sorted[index - 1]?.id !== item.id)
-  }
   const distinctStrings = (items: readonly string[]): string[] => [...new Set(items)].sort()
+  assertUniqueIds(base.nodes, 'graph node')
+  assertUniqueIds(base.edges, 'graph edge')
+  assertUniqueIds(base.evidence, 'evidence')
+  assertUniqueIds(identities.nodes, 'graph node')
+  assertUniqueIds(identities.edges, 'graph edge')
+  assertUniqueIds(identities.evidence, 'evidence')
+  assertUniqueIds([...base.nodes, ...identities.nodes], 'graph node')
+  assertUniqueIds([...base.edges, ...identities.edges], 'graph edge')
+  assertUniqueIds([...base.evidence, ...identities.evidence], 'evidence')
   const identityRecords = identities.nodes.map((node) => ({
     ...node,
     evidenceIds: distinctStrings(node.evidenceIds),
     metadata: { ...node.metadata },
   }))
-  const identityNodes = distinctById(identityRecords)
+  const identityNodes = sortedById(identityRecords)
   const identityNodeById = new Map(identityNodes.map((node) => [node.id, node]))
+  const evidenceById = new Map(
+    [...base.evidence, ...identities.evidence].map((evidence) => [evidence.id, evidence]),
+  )
   const byDirectoryId = new Map<string, GraphNode[]>()
   const byApplicationId = new Map<string, GraphNode[]>()
   const byAgentIdentityId = new Map<string, GraphNode[]>()
@@ -283,7 +410,7 @@ function composeSnapshotWithEntra(
       .map(([directoryId]) => directoryId),
   )
 
-  const baseNodes = distinctById(base.nodes).map((node) => ({
+  const baseNodes = sortedById(base.nodes).map((node) => ({
     ...node,
     evidenceIds: distinctStrings(node.evidenceIds),
     metadata: { ...node.metadata },
@@ -296,9 +423,28 @@ function composeSnapshotWithEntra(
   let unmatched = 0
   let ambiguous = 0
   const diagnosticEvidenceIds = new Set<string>()
-  for (const agent of baseNodes.filter((node) => node.kind === 'agent' && shouldCorrelate(node))) {
+  for (const agent of baseNodes.filter((node) => node.kind === 'agent')) {
+    const sourceBinding = bindingForAgent(agent)
+    if (sourceBinding === undefined) continue
     authoritativeAgentsConsidered += 1
     for (const evidenceId of agent.evidenceIds) diagnosticEvidenceIds.add(evidenceId)
+    const agentAuthorityEvidence = exactAuthorityEvidence(
+      agent,
+      evidenceById,
+      sourceBinding.estateId,
+      sourceBinding.foundry,
+    )
+    if (agentAuthorityEvidence.length !== 1) {
+      unmatched += 1
+      agent.metadata['entraCorrelationStatus'] = 'unmatched'
+      agent.metadata['entraCorrelationReason'] =
+        agentAuthorityEvidence.length === 0
+          ? 'insufficient-authoritative-evidence'
+          : 'ambiguous-authoritative-evidence'
+      delete agent.metadata['entraCorrelationMatchKind']
+      delete agent.metadata['entraIdentityNodeId']
+      continue
+    }
     const candidates = new Map<
       string,
       { identity: GraphNode; kinds: Set<'object-id' | 'application-id' | 'agent-identity-id'> }
@@ -384,6 +530,35 @@ function composeSnapshotWithEntra(
     }
     const candidate = [...candidates.values()][0]!
     const identity = candidate.identity
+    if (
+      candidate.kinds.has('application-id') &&
+      !candidate.kinds.has('object-id') &&
+      !candidate.kinds.has('agent-identity-id')
+    ) {
+      unmatched += 1
+      agent.metadata['entraCorrelationStatus'] = 'unmatched'
+      agent.metadata['entraCorrelationReason'] = 'application-id-authority-unavailable'
+      delete agent.metadata['entraCorrelationMatchKind']
+      delete agent.metadata['entraIdentityNodeId']
+      continue
+    }
+    const identityAuthorityEvidence = exactAuthorityEvidence(
+      identity,
+      evidenceById,
+      sourceBinding.estateId,
+      sourceBinding.entra,
+    )
+    if (identityAuthorityEvidence.length !== 1) {
+      unmatched += 1
+      agent.metadata['entraCorrelationStatus'] = 'unmatched'
+      agent.metadata['entraCorrelationReason'] =
+        identityAuthorityEvidence.length === 0
+          ? 'insufficient-authoritative-evidence'
+          : 'ambiguous-authoritative-evidence'
+      delete agent.metadata['entraCorrelationMatchKind']
+      delete agent.metadata['entraIdentityNodeId']
+      continue
+    }
     const matchKind = candidate.kinds.has('agent-identity-id')
       ? 'agent-identity-id'
       : candidate.kinds.has('object-id')
@@ -406,17 +581,35 @@ function composeSnapshotWithEntra(
       from: agent.id,
       to: identity.id,
       relationship: 'RUNS_AS',
-      evidenceIds: distinctStrings([...agent.evidenceIds, ...identity.evidenceIds]),
+      evidenceIds: [agentAuthorityEvidence[0]!.id, identityAuthorityEvidence[0]!.id],
       active: true,
       removable: false,
+      runsAsBinding: {
+        agent: agentAuthorityEvidence[0]!.authority!,
+        identity: identityAuthorityEvidence[0]!.authority!,
+        identifier: {
+          kind: matchKind,
+          value:
+            matchKind === 'agent-identity-id'
+              ? (agent.metadata['entraAgentIdentityId'] ?? agent.metadata['agentIdentityId']!)
+              : matchKind === 'object-id'
+                ? (agent.metadata['entraServicePrincipalId'] ??
+                  agent.metadata['servicePrincipalId'] ??
+                  agent.metadata['objectId']!)
+                : (agent.metadata['entraAppId'] ??
+                  agent.metadata['appId'] ??
+                  agent.metadata['entraClientId'] ??
+                  agent.metadata['clientId']!),
+        },
+      },
     })
   }
 
-  const nodes = distinctById([...baseNodes, ...identityNodes])
-  const edges = distinctById([...base.edges, ...identities.edges, ...correlationEdges]).map(
+  const nodes = sortedById([...baseNodes, ...identityNodes])
+  const edges = sortedById([...base.edges, ...identities.edges, ...correlationEdges]).map(
     (edge) => ({ ...edge, evidenceIds: distinctStrings(edge.evidenceIds) }),
   )
-  const evidence = distinctById([...base.evidence, ...identities.evidence])
+  const evidence = sortedById([...base.evidence, ...identities.evidence])
   return {
     snapshot: assertEstateSnapshot({
       tenantId: base.tenantId,
@@ -450,14 +643,29 @@ function composeSnapshotWithEntra(
 export function enrichSnapshotWithEntraAndDiagnostics(
   base: EstateSnapshot,
   identities: EstateSnapshot,
+  binding?: EntraFoundryRunsAsBinding,
 ): EntraCompositionResult {
+  if (binding !== undefined) {
+    return enrichAggregateSnapshotWithExactEntraBindingsAndDiagnostics(
+      base,
+      identities,
+      {
+        id: binding.entra.sourceId.slice('entra:'.length),
+        name: 'Explicit Microsoft Entra inventory',
+        tenantId: binding.entra.tenantId,
+        environment: binding.entra.environment,
+      },
+      [binding],
+      binding.estateId,
+    )
+  }
   if (base.tenantId.toLowerCase() !== identities.tenantId.toLowerCase()) {
     throw new Error('Cannot compose connector snapshots from different Microsoft Entra tenants.')
   }
   if (base.environment !== identities.environment) {
     throw new Error('Cannot compose connector snapshots from different environments.')
   }
-  return composeSnapshotWithEntra(base, identities, () => true, {
+  return composeSnapshotWithEntra(base, identities, () => undefined, {
     id: 'primary',
     name: 'Primary source',
     tenantId: identities.tenantId,
@@ -468,8 +676,9 @@ export function enrichSnapshotWithEntraAndDiagnostics(
 export function enrichSnapshotWithEntra(
   base: EstateSnapshot,
   identities: EstateSnapshot,
+  binding?: EntraFoundryRunsAsBinding,
 ): EstateSnapshot {
-  return enrichSnapshotWithEntraAndDiagnostics(base, identities).snapshot
+  return enrichSnapshotWithEntraAndDiagnostics(base, identities, binding).snapshot
 }
 
 export interface EntraAggregateSource {
@@ -477,6 +686,7 @@ export interface EntraAggregateSource {
   name: string
   tenantId: string
   environment: string
+  projectId?: string
 }
 
 function aggregateScopedId(sourceId: string, id: string): string {
@@ -488,6 +698,10 @@ export function enrichAggregateSnapshotWithEntraAndDiagnostics(
   identities: EstateSnapshot,
   source: EntraAggregateSource,
 ): EntraCompositionResult {
+  assertUniqueIds(base.nodes, 'graph node')
+  assertUniqueIds(base.evidence, 'evidence')
+  assertUniqueIds(identities.nodes, 'graph node')
+  assertUniqueIds(identities.evidence, 'evidence')
   if (identities.tenantId.toLowerCase() !== source.tenantId.toLowerCase()) {
     throw new Error('Entra identity snapshot does not match its configured source tenant.')
   }
@@ -539,13 +753,125 @@ export function enrichAggregateSnapshotWithEntraAndDiagnostics(
     })),
   })
 
+  return composeSnapshotWithEntra(base, scopedIdentities, () => undefined, source)
+}
+
+export function enrichAggregateSnapshotWithExactEntraBindingsAndDiagnostics(
+  base: EstateSnapshot,
+  identities: EstateSnapshot,
+  source: EntraAggregateSource,
+  bindings: readonly EntraFoundryRunsAsBinding[],
+  estateIdInput?: string,
+): EntraCompositionResult {
+  assertUniqueIds(base.nodes, 'graph node')
+  assertUniqueIds(base.evidence, 'evidence')
+  assertUniqueIds(identities.nodes, 'graph node')
+  assertUniqueIds(identities.evidence, 'evidence')
+  if (identities.tenantId.toLowerCase() !== source.tenantId.toLowerCase()) {
+    throw new Error('Entra identity snapshot does not match its configured source tenant.')
+  }
+  if (identities.environment !== source.environment) {
+    throw new Error('Entra identity snapshot does not match its configured source environment.')
+  }
+  const estateIds = new Set([
+    ...bindings.map((binding) => binding.estateId),
+    ...(estateIdInput === undefined ? [] : [estateIdInput]),
+  ])
+  if (estateIds.size !== 1) {
+    throw new Error('Exact Entra bindings must belong to one estate.')
+  }
+  const scopedSourceId = `entra:${source.id}`
+  const estateId = [...estateIds][0]
+  if (estateId === undefined) {
+    throw new Error('Exact Entra composition requires at least one binding.')
+  }
+  const nodeIds = new Map(
+    identities.nodes.map((node) => [node.id, aggregateScopedId(source.id, node.id)]),
+  )
+  const evidenceIds = new Map(
+    identities.evidence.map((item) => [item.id, aggregateScopedId(source.id, item.id)]),
+  )
+  const scopedIdentities = assertEstateSnapshot({
+    tenantId: base.tenantId,
+    environment: base.environment,
+    generatedAt: identities.generatedAt,
+    nodes: identities.nodes.map((node) => {
+      const providerObjectId = node.metadata['directoryObjectId'] ?? node.id
+      return {
+        ...node,
+        id: nodeIds.get(node.id)!,
+        evidenceIds: node.evidenceIds.map((id) => evidenceIds.get(id) ?? id),
+        metadata: {
+          ...node.metadata,
+          estateId,
+          sourceId: scopedSourceId,
+          sourceConnectorId: source.id,
+          sourceConnectorName: source.name,
+          sourceTenantId: source.tenantId,
+          sourceEnvironment: source.environment,
+          sourceInventoryObjectId: source.tenantId,
+          provider: 'microsoft-entra',
+          providerObjectId,
+          sourceObjectId: providerObjectId,
+          snapshotGeneratedAt: identities.generatedAt,
+          sourceRelease: 'v1.0',
+        },
+      }
+    }),
+    edges: identities.edges.map((edge) => ({
+      ...edge,
+      id: aggregateScopedId(source.id, edge.id),
+      from: nodeIds.get(edge.from) ?? edge.from,
+      to: nodeIds.get(edge.to) ?? edge.to,
+      evidenceIds: edge.evidenceIds.map((id) => evidenceIds.get(id) ?? id),
+    })),
+    evidence: identities.evidence.map((item) => {
+      const providerObjectId = item.sourceObjectId
+      const isPrincipalEvidence = item.id.startsWith('entra-service-principal-evidence-')
+      return {
+        ...item,
+        id: evidenceIds.get(item.id)!,
+        source: `${item.source} · ${source.name}`,
+        sourceObjectId: `${source.id}:${item.sourceObjectId}`,
+        ...(isPrincipalEvidence
+          ? {
+              authority: {
+                estateId,
+                sourceId: scopedSourceId,
+                tenantId: source.tenantId,
+                environment: source.environment,
+                provider: 'microsoft-entra' as const,
+                sourceObjectId: source.tenantId,
+                providerObjectId,
+                snapshotGeneratedAt: identities.generatedAt,
+                sourceRelease: 'v1.0',
+              },
+            }
+          : {}),
+        metadata: {
+          ...item.metadata,
+          estateId,
+          sourceId: scopedSourceId,
+          sourceConnectorId: source.id,
+          sourceConnectorName: source.name,
+          sourceTenantId: source.tenantId,
+          sourceEnvironment: source.environment,
+          sourceInventoryObjectId: source.tenantId,
+          provider: 'microsoft-entra',
+          providerObjectId,
+          snapshotGeneratedAt: identities.generatedAt,
+          sourceRelease: isPrincipalEvidence ? 'v1.0' : 'supplemental',
+        },
+      }
+    }),
+  })
+  const bindingByFoundrySource = new Map(
+    bindings.map((binding) => [binding.foundry.sourceId, binding]),
+  )
   return composeSnapshotWithEntra(
     base,
     scopedIdentities,
-    (agent) =>
-      agent.metadata['sourceConnectorId'] === source.id &&
-      agent.metadata['sourceTenantId']?.toLowerCase() === source.tenantId.toLowerCase() &&
-      agent.metadata['sourceEnvironment'] === source.environment,
+    (agent) => bindingByFoundrySource.get(agent.metadata['sourceId'] ?? ''),
     source,
   )
 }

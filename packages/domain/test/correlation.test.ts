@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  agentCorrelationsSchema,
   outcomeCorrelationSchema,
   runtimeObservationSchema,
   tokenEconomicsCoverageSchema,
@@ -42,6 +43,23 @@ describe('agent correlation contract', () => {
         ],
       }).success,
     ).toBe(false)
+  })
+
+  it('canonicalizes equivalent correlation sets by unique kind', () => {
+    const correlations = [
+      { kind: 'agent-version' as const, value: '17' },
+      { kind: 'agent-run-id' as const, value: 'run-1' },
+      { kind: 'correlation-id' as const, value: 'correlation-1' },
+    ]
+
+    expect(agentCorrelationsSchema.parse(correlations)).toEqual([
+      { kind: 'agent-run-id', value: 'run-1' },
+      { kind: 'correlation-id', value: 'correlation-1' },
+      { kind: 'agent-version', value: '17' },
+    ])
+    expect(runtimeObservationSchema.parse({ ...observation, correlations }).correlations).toEqual(
+      agentCorrelationsSchema.parse(correlations),
+    )
   })
 
   it('requires exact-correlation coverage to reconcile with the measured population', () => {

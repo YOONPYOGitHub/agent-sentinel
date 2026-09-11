@@ -98,6 +98,187 @@ describe('Agent365GraphClient', () => {
     expect(requestUrl(fetcher.mock.calls[1]![0])).toContain('$skiptoken=opaque')
   })
 
+  it('returns measured page and record counts', async () => {
+    const firstBody = {
+      '@odata.nextLink':
+        'https://graph.microsoft.com/v1.0/copilot/admin/catalog/packages?$skiptoken=next',
+      value: [item],
+    }
+    const secondBody = { value: [{ id: 'P_2', displayName: 'Package two' }] }
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json(firstBody))
+      .mockResolvedValueOnce(json(secondBody))
+
+    await expect(
+      new Agent365GraphClient(limits, new TestCredential(), TENANT_ID, {
+        fetcher,
+      }).collectMeasured(),
+    ).resolves.toEqual({
+      packages: [item, { id: 'P_2', displayName: 'Package two' }],
+      pages: 2,
+      records: 2,
+      responseBytes:
+        Buffer.byteLength(JSON.stringify(firstBody), 'utf8') +
+        Buffer.byteLength(JSON.stringify(secondBody), 'utf8'),
+      truncated: false,
+    })
+  })
+
+  it('marks collection truncated when the aggregate maximum slices extra page records', async () => {
+    const result = await new Agent365GraphClient(limits, new TestCredential(), TENANT_ID, {
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+        json({
+          value: [
+            item,
+            {
+              id: 'P_2',
+              displayName: 'Package two',
+            },
+          ],
+        }),
+      ),
+    }).collectMeasured(1)
+
+    expect(result).toMatchObject({
+      packages: [item],
+      pages: 1,
+      records: 1,
+      truncated: true,
+    })
+  })
+
+  it('marks collection truncated when a nextLink remains at the aggregate maximum', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      json({
+        '@odata.nextLink':
+          'https://graph.microsoft.com/v1.0/copilot/admin/catalog/packages?$skiptoken=next',
+        value: [item],
+      }),
+    )
+
+    const result = await new Agent365GraphClient(limits, new TestCredential(), TENANT_ID, {
+      fetcher,
+    }).collectMeasured(1)
+
+    expect(result).toMatchObject({
+      packages: [item],
+      pages: 1,
+      records: 1,
+      truncated: true,
+    })
+    expect(fetcher).toHaveBeenCalledOnce()
+  })
+
+  it('returns measured records as bounded partial data when a valid nextLink remains at the page cap', async () => {
+    const firstLink =
+      'https://graph.microsoft.com/v1.0/copilot/admin/catalog/packages?$skiptoken=second'
+    const remainingLink =
+      'https://graph.microsoft.com/v1.0/copilot/admin/catalog/packages?$skiptoken=third'
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ '@odata.nextLink': firstLink, value: [item] }))
+      .mockResolvedValueOnce(
+        json({
+          '@odata.nextLink': remainingLink,
+          value: [{ id: 'P_2', displayName: 'Package two' }],
+        }),
+      )
+
+    await expect(
+      new Agent365GraphClient(limits, new TestCredential(), TENANT_ID, {
+        fetcher,
+      }).collectMeasured(undefined, undefined, 2),
+    ).resolves.toMatchObject({
+      packages: [item, { id: 'P_2', displayName: 'Package two' }],
+      pages: 2,
+      records: 2,
+      truncated: true,
+    })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('still rejects a repeated nextLink at the page cap', async () => {
+    const link = 'https://graph.microsoft.com/v1.0/copilot/admin/catalog/packages?$skiptoken=same'
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ '@odata.nextLink': link, value: [item] }))
+      .mockResolvedValueOnce(json({ '@odata.nextLink': link, value: [] }))
+
+    await expect(
+      new Agent365GraphClient(limits, new TestCredential(), TENANT_ID, {
+        fetcher,
+      }).collectMeasured(undefined, undefined, 2),
+    ).rejects.toMatchObject({ code: 'bounds' })
+  })
+
+  it('does not acquire a token when caller cancellation is already requested', async () => {
+    const credential = new TestCredential()
+    const fetcher = vi.fn<typeof fetch>()
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      new Agent365GraphClient(limits, credential, TENANT_ID, {
+        fetcher,
+      }).collect(undefined, controller.signal),
+    ).rejects.toMatchObject({ code: 'cancelled' })
+    expect(credential.scopes).toEqual([])
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('propagates caller cancellation to an in-flight package request', async () => {
+    let requestSignal: AbortSignal | undefined
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          requestSignal = init?.signal as AbortSignal | undefined
+          requestSignal?.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError')),
+          )
+        }),
+    )
+    const controller = new AbortController()
+    const result = new Agent365GraphClient(limits, new TestCredential(), TENANT_ID, {
+      fetcher,
+    }).collect(undefined, controller.signal)
+    await vi.waitFor(() => expect(requestSignal).toBeDefined())
+
+    controller.abort()
+
+    await expect(result).rejects.toMatchObject({ code: 'cancelled' })
+    expect(requestSignal?.aborted).toBe(true)
+  })
+
+  it('cancels a bounded Retry-After wait', async () => {
+    let sleepSignal: AbortSignal | undefined
+    const sleep = vi.fn(
+      (_milliseconds: number, signal?: AbortSignal) =>
+        new Promise<void>((_resolve, reject) => {
+          sleepSignal = signal
+          signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+        }),
+    )
+    const controller = new AbortController()
+    const result = new Agent365GraphClient(limits, new TestCredential(), TENANT_ID, {
+      fetcher: vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          json(
+            { error: { code: 'TooManyRequests' } },
+            { status: 429, headers: { 'retry-after': '1' } },
+          ),
+        ),
+      sleep,
+    }).collect(undefined, controller.signal)
+    await vi.waitFor(() => expect(sleepSignal).toBeDefined())
+
+    controller.abort()
+
+    await expect(result).rejects.toMatchObject({ code: 'cancelled' })
+    expect(sleepSignal?.aborted).toBe(true)
+  })
+
   it.each([
     'https://evil.example/v1.0/copilot/admin/catalog/packages?$skiptoken=x',
     'https://user:pass@graph.microsoft.com/v1.0/copilot/admin/catalog/packages?$skiptoken=x',
@@ -138,19 +319,6 @@ describe('Agent365GraphClient', () => {
         fetcher: vi
           .fn<typeof fetch>()
           .mockResolvedValue(json({ value: [item, { id: 'P_2', displayName: 'Two' }] })),
-      }).collect(),
-    ).rejects.toMatchObject({ code: 'bounds' })
-
-    const pageLimits = agent365LimitsSchema.parse({ ...limits, maxPages: 1 })
-    await expect(
-      new Agent365GraphClient(pageLimits, new TestCredential(), TENANT_ID, {
-        fetcher: vi.fn<typeof fetch>().mockResolvedValue(
-          json({
-            '@odata.nextLink':
-              'https://graph.microsoft.com/v1.0/copilot/admin/catalog/packages?$skiptoken=more',
-            value: [item],
-          }),
-        ),
       }).collect(),
     ).rejects.toMatchObject({ code: 'bounds' })
 
@@ -281,6 +449,159 @@ describe('Agent365GraphClient', () => {
     await expect(
       new Agent365GraphClient(timeoutLimits, new TestCredential(), TENANT_ID, {
         fetcher,
+      }).collect(),
+    ).rejects.toMatchObject({ code: 'timeout' })
+  })
+
+  it('preserves timeout when a non-2xx response body stalls until request abort', async () => {
+    const timeoutLimits = agent365LimitsSchema.parse({ ...limits, requestTimeoutMs: 100 })
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, init) => {
+      const signal = init?.signal
+      return Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              signal?.addEventListener(
+                'abort',
+                () => controller.error(new DOMException('aborted', 'AbortError')),
+                { once: true },
+              )
+            },
+          }),
+          { status: 403 },
+        ),
+      )
+    })
+
+    await expect(
+      new Agent365GraphClient(timeoutLimits, new TestCredential(), TENANT_ID, {
+        fetcher,
+      }).collect(),
+    ).rejects.toMatchObject({ code: 'timeout' })
+  })
+
+  it('preserves caller cancellation when a non-2xx response body aborts', async () => {
+    const controller = new AbortController()
+    let responseStarted = false
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, init) => {
+      const signal = init?.signal
+      return Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(streamController) {
+              responseStarted = true
+              signal?.addEventListener(
+                'abort',
+                () => streamController.error(new DOMException('aborted', 'AbortError')),
+                { once: true },
+              )
+            },
+          }),
+          { status: 403 },
+        ),
+      )
+    })
+    const result = new Agent365GraphClient(limits, new TestCredential(), TENANT_ID, {
+      fetcher,
+    }).collect(undefined, controller.signal)
+    await vi.waitFor(() => expect(responseStarted).toBe(true))
+
+    controller.abort()
+
+    await expect(result).rejects.toMatchObject({ code: 'cancelled' })
+  })
+
+  it('does not await a never-settling response body cancel before retrying', async () => {
+    const neverSettlingBody = new ReadableStream({
+      pull() {
+        return undefined
+      },
+      cancel() {
+        return new Promise<void>(() => undefined)
+      },
+    })
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(neverSettlingBody, {
+          status: 429,
+          headers: { 'retry-after': '0' },
+        }),
+      )
+      .mockResolvedValueOnce(json({ value: [item] }))
+
+    await expect(
+      new Agent365GraphClient(limits, new TestCredential(), TENANT_ID, {
+        fetcher,
+        sleep: () => Promise.resolve(),
+      }).collect(),
+    ).resolves.toEqual([item])
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not await a never-settling body cancel when declared bytes exceed the limit', async () => {
+    const response = new Response(
+      new ReadableStream({
+        cancel() {
+          return new Promise<void>(() => undefined)
+        },
+      }),
+      { headers: { 'content-length': '20001' } },
+    )
+    const result = new Agent365GraphClient(limits, new TestCredential(), TENANT_ID, {
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(response),
+    }).collect()
+
+    await expect(
+      Promise.race([
+        result,
+        new Promise<'still-pending'>((resolve) => setTimeout(() => resolve('still-pending'), 25)),
+      ]),
+    ).rejects.toMatchObject({ code: 'bounds' })
+  })
+
+  it('races a never-settling body read with caller cancellation', async () => {
+    const controller = new AbortController()
+    const response = new Response(
+      new ReadableStream({
+        pull() {
+          return new Promise<void>(() => undefined)
+        },
+        cancel() {
+          return new Promise<void>(() => undefined)
+        },
+      }),
+    )
+    const result = new Agent365GraphClient(limits, new TestCredential(), TENANT_ID, {
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(response),
+    }).collect(undefined, controller.signal)
+    await Promise.resolve()
+    controller.abort()
+
+    await expect(
+      Promise.race([
+        result,
+        new Promise<'still-pending'>((resolve) => setTimeout(() => resolve('still-pending'), 25)),
+      ]),
+    ).rejects.toMatchObject({ code: 'cancelled' })
+  })
+
+  it('races a never-settling body read with the request timeout', async () => {
+    const timeoutLimits = agent365LimitsSchema.parse({ ...limits, requestTimeoutMs: 100 })
+    const response = new Response(
+      new ReadableStream({
+        pull() {
+          return new Promise<void>(() => undefined)
+        },
+        cancel() {
+          return new Promise<void>(() => undefined)
+        },
+      }),
+    )
+
+    await expect(
+      new Agent365GraphClient(timeoutLimits, new TestCredential(), TENANT_ID, {
+        fetcher: vi.fn<typeof fetch>().mockResolvedValue(response),
       }).collect(),
     ).rejects.toMatchObject({ code: 'timeout' })
   })

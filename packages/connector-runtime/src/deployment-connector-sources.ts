@@ -11,9 +11,10 @@ import {
   connectorSourceDefinitionSchema,
   type ConnectorCredentialMetadata,
   type ConnectorSourceAuditCursor,
-  type ConnectorSourceAuditRecord,
+  type ConnectorSourceAuditReadModel,
   type ConnectorSourceCreateInput,
   type ConnectorSourceDefinition,
+  type ConnectorSourceReadModel,
   type ConnectorSourceMutationContext,
   type ConnectorSourceRepository,
   type ConnectorSourceUpdateInput,
@@ -22,15 +23,20 @@ import {
   type EstateContext,
 } from '@agent-sentinel/domain'
 import { resolveEntraRuntimeActivation } from '@agent-sentinel/entra-identity-connector'
-import { parseFoundryPortfolioConfig } from '@agent-sentinel/foundry-connector'
+import {
+  foundrySourceProjectId,
+  parseFoundryPortfolioConfig,
+} from '@agent-sentinel/foundry-connector'
 import { parsePowerPlatformConfig } from '@agent-sentinel/power-platform-connector'
 import { parsePurviewConfig } from '@agent-sentinel/purview-connector'
 import { parseTeamsDistributionConfig } from '@agent-sentinel/teams-distribution-connector'
 
-import type { EstateRegistry } from './estate-config.js'
-
 const DEPLOYMENT_TIMESTAMP = '1970-01-01T00:00:00.000Z'
 const DEPLOYMENT_ACTOR = { type: 'deployment' as const, id: 'deployment-json' }
+
+export interface ConnectorRuntimeEstateRegistry {
+  readonly estates: readonly EstateContext[]
+}
 
 interface ProjectableSource {
   id: string
@@ -41,6 +47,10 @@ interface ProjectableSource {
     | {
         mode: 'default'
         managedIdentityClientId?: string | undefined
+      }
+    | {
+        mode: 'managed-identity'
+        managedIdentityClientId: string
       }
     | {
         mode: 'federated-app'
@@ -85,6 +95,12 @@ function credentialMetadata(
   environment: NodeJS.ProcessEnv,
 ): ConnectorCredentialMetadata {
   if (credential === undefined) return { mode: 'default' }
+  if (credential.mode === 'managed-identity') {
+    return {
+      mode: 'managed-identity',
+      managedIdentityClientId: credential.managedIdentityClientId,
+    }
+  }
   if (credential.mode === 'default') {
     return credential.managedIdentityClientId === undefined
       ? { mode: 'default' }
@@ -119,16 +135,19 @@ function connectorLimits(limits: CommonLimits) {
 }
 
 function projectSource(
-  registry: EstateRegistry,
+  registry: ConnectorRuntimeEstateRegistry,
   environment: NodeJS.ProcessEnv,
   type: ConnectorType,
   isEnabled: boolean,
   source: ProjectableSource,
   configuration: unknown,
+  estateBoundary: Pick<ProjectableSource, 'tenantId' | 'environment'> = source,
+  retainProviderBoundary = false,
 ): ConnectorSourceDefinition | undefined {
   const estate = registry.estates.find(
     (candidate) =>
-      candidate.tenantId === source.tenantId && candidate.environment === source.environment,
+      candidate.tenantId === estateBoundary.tenantId &&
+      candidate.environment === estateBoundary.environment,
   )
   if (estate === undefined) return undefined
   const id = sourceId(type, source.id)
@@ -143,6 +162,15 @@ function projectSource(
     origin: 'deployment' as const,
     configuration,
     credential: credentialMetadata(source.credential, environment),
+    runtimeBinding: {
+      bindingSourceId: source.id,
+      ...(retainProviderBoundary
+        ? {
+            sourceTenantId: source.tenantId,
+            sourceEnvironment: source.environment,
+          }
+        : {}),
+    },
     testStatus: { status: 'not-tested' as const },
   }
   return connectorSourceDefinitionSchema.parse({
@@ -158,7 +186,7 @@ function projectSource(
 
 export function buildDeploymentConnectorSources(
   environment: NodeJS.ProcessEnv,
-  registry: EstateRegistry,
+  registry: ConnectorRuntimeEstateRegistry,
   dataMode: AzureMonitorOtelRuntimeMode,
 ): ConnectorSourceDefinition[] {
   const definitions: ConnectorSourceDefinition[] = []
@@ -167,6 +195,8 @@ export function buildDeploymentConnectorSources(
     isEnabled: boolean,
     sources: readonly T[],
     configuration: (source: T) => unknown,
+    estateBoundary?: (source: T) => Pick<ProjectableSource, 'tenantId' | 'environment'>,
+    retainProviderBoundary = false,
   ): void => {
     for (const source of sources) {
       const definition = projectSource(
@@ -176,6 +206,8 @@ export function buildDeploymentConnectorSources(
         isEnabled,
         source,
         configuration(source),
+        estateBoundary?.(source),
+        retainProviderBoundary,
       )
       if (definition !== undefined) definitions.push(definition)
     }
@@ -187,7 +219,17 @@ export function buildDeploymentConnectorSources(
       'foundry',
       environment['AGENT_SENTINEL_CONNECTOR']?.trim() === 'foundry',
       config.sources,
-      (source) => ({ type: 'foundry', projectEndpoint: source.projectEndpoint }),
+      (source) => ({
+        type: 'foundry',
+        projectEndpoint: source.projectEndpoint,
+        sourceTenantId: source.tenantId,
+        sourceEnvironment: source.environment,
+        sourceProjectId: foundrySourceProjectId(source.projectEndpoint),
+      }),
+      () => ({
+        tenantId: config.estateTenantId,
+        environment: config.estateEnvironment,
+      }),
     )
   }
   const entraActivation = resolveEntraRuntimeActivation(environment, dataMode)
@@ -211,13 +253,41 @@ export function buildDeploymentConnectorSources(
       }),
     )
   }
-  if (configured(environment, 'AGENT365_SOURCES_JSON')) {
+  if (
+    configured(environment, 'AGENT365_SOURCES_JSON') ||
+    configured(environment, 'AGENT365_TENANT_ID') ||
+    configured(environment, 'AGENT365_ENVIRONMENT') ||
+    enabled(environment, 'AGENT365_CONNECTOR_ENABLED')
+  ) {
     const config = parseAgent365Config(environment)
-    add('agent365', enabled(environment, 'AGENT365_CONNECTOR_ENABLED'), config.sources, () => ({
-      type: 'agent365',
-      graphBaseUrl: config.graphBaseUrl,
-      limits: connectorLimits(config.limits),
-    }))
+    const estateTenantId = environment['AGENT_SENTINEL_TENANT_ID']?.trim()
+    const estateEnvironment = environment['AGENT_SENTINEL_ENVIRONMENT']?.trim()
+    if (
+      (estateTenantId === undefined || estateTenantId === '') !==
+      (estateEnvironment === undefined || estateEnvironment === '')
+    ) {
+      throw new Error(
+        'Agent 365 portfolio projection requires both AGENT_SENTINEL_TENANT_ID and AGENT_SENTINEL_ENVIRONMENT when either is configured.',
+      )
+    }
+    add(
+      'agent365',
+      enabled(environment, 'AGENT365_CONNECTOR_ENABLED'),
+      config.sources,
+      (source) => ({
+        type: 'agent365',
+        graphBaseUrl: source.graphBaseUrl,
+        sourceTenantId: source.tenantId,
+        sourceEnvironment: source.environment,
+        limits: connectorLimits(source.limits),
+        aggregation: config.aggregation,
+      }),
+      (source) =>
+        estateTenantId && estateEnvironment
+          ? { tenantId: estateTenantId, environment: estateEnvironment }
+          : source,
+      true,
+    )
   }
   if (configured(environment, 'DEFENDER_CLOUD_APPS_SOURCES_JSON')) {
     const config = parseDefenderCloudAppsConfig(environment)
@@ -276,6 +346,7 @@ export function buildDeploymentConnectorSources(
     (source) => ({
       type: 'azure-monitor-otel',
       workspaceId: source.workspaceId,
+      sourceProjectId: source.sourceProjectId,
       logsBaseUrl: 'https://api.loganalytics.io',
       baselineWindowHours: source.baselineWindowHours,
       observedWindowHours: source.observedWindowHours,
@@ -327,10 +398,7 @@ export class DeploymentConnectorSourceRepository implements ConnectorSourceRepos
     return this.repository.create(estate, input, mutation)
   }
 
-  findById(
-    estate: EstateContext,
-    sourceIdValue: string,
-  ): Promise<ConnectorSourceDefinition | null> {
+  findById(estate: EstateContext, sourceIdValue: string): Promise<ConnectorSourceReadModel | null> {
     this.assertEstateProjectionBoundary(estate)
     const source = this.projectedSource(estate, sourceIdValue)
     return source === undefined
@@ -342,7 +410,7 @@ export class DeploymentConnectorSourceRepository implements ConnectorSourceRepos
     estate: EstateContext,
     limit = 100,
     afterSourceId?: string,
-  ): Promise<ConnectorSourceDefinition[]> {
+  ): Promise<ConnectorSourceReadModel[]> {
     this.assertEstateProjectionBoundary(estate)
     const projected = [...this.projected.values()].filter(
       (source) =>
@@ -394,7 +462,7 @@ export class DeploymentConnectorSourceRepository implements ConnectorSourceRepos
     sourceIdValue: string,
     limit?: number,
     after?: ConnectorSourceAuditCursor,
-  ): Promise<ConnectorSourceAuditRecord[]> {
+  ): Promise<ConnectorSourceAuditReadModel[]> {
     this.assertEstateProjectionBoundary(estate)
     if (this.projectedSource(estate, sourceIdValue) !== undefined) return Promise.resolve([])
     return this.repository.listAudit(estate, sourceIdValue, limit, after)

@@ -14,6 +14,8 @@ targetScope = 'resourceGroup'
 // (see docs/runbooks.md > CI Runner section).
 
 param location string = resourceGroup().location
+@minLength(2)
+@maxLength(47)
 param suffix string = '260814'
 param tags object = {
   application: 'agent-sentinel'

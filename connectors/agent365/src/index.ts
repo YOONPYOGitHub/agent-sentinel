@@ -1,11 +1,8 @@
 import type { TokenCredential } from '@azure/core-auth'
-import {
-  ClientAssertionCredential,
-  DefaultAzureCredential,
-  ManagedIdentityCredential,
-} from '@azure/identity'
+import { ManagedIdentityCredential } from '@azure/identity'
 import { z } from 'zod'
 
+import { aggregateLiveSources, composeConnectorHealthReport } from '@agent-sentinel/connector-sdk'
 import type {
   AgentConnector,
   ApprovalContext,
@@ -13,14 +10,26 @@ import type {
   ConnectorCapability,
   ConnectorDescriptor,
   ConnectorHealthReport,
+  ConnectorOperationRequest,
   ConnectorReadiness,
+  ConnectorSourceProvenance,
+  LiveSourceDataState,
+  OperationAwareAgentConnector,
 } from '@agent-sentinel/connector-sdk'
-import type { EstateSnapshot, Evidence, Remediation } from '@agent-sentinel/domain'
+import {
+  evaluateAgent365SourcePolicy,
+  type ConnectorCredentialMetadata,
+  type EstateSnapshot,
+  type Evidence,
+  type Remediation,
+} from '@agent-sentinel/domain'
 
 import {
   Agent365ConnectorError,
   Agent365GraphClient,
+  type Agent365Collection,
   type Agent365ClientOptions,
+  type Agent365ResponseByteBudget,
 } from './client.js'
 import {
   mapAgent365PackagesToSnapshot,
@@ -30,6 +39,7 @@ import {
 import {
   AGENT365_API_VERSION,
   AGENT365_GRAPH_ORIGIN,
+  AGENT365_PACKAGES_PATH,
   agent365ConfigSchema,
   agent365LimitsSchema,
   type Agent365Config,
@@ -39,35 +49,35 @@ import {
 
 export type Agent365CredentialFactory = (source: Agent365SourceConfig) => TokenCredential
 
-export function createAgent365SourceCredential(source: Agent365SourceConfig): TokenCredential {
-  if (source.credential?.mode === 'federated-app') {
-    const managedIdentityClientId =
-      source.credential.managedIdentityClientId ?? process.env['AZURE_CLIENT_ID']?.trim()
-    if (!managedIdentityClientId) {
-      throw new Agent365ConnectorError(
-        'authentication',
-        'Cross-tenant Agent 365 federation requires a user-assigned managed identity.',
-      )
-    }
-    const assertionCredential = new ManagedIdentityCredential({
-      clientId: managedIdentityClientId,
-    })
-    return new ClientAssertionCredential(source.tenantId, source.credential.clientId, async () => {
-      const assertion = await assertionCredential.getToken('api://AzureADTokenExchange/.default')
-      if (assertion === null) {
-        throw new Agent365ConnectorError(
-          'authentication',
-          'Managed identity did not return a workload identity federation assertion.',
-        )
-      }
-      return assertion.token
-    })
+function assertAgent365SourceCredentialPolicy(source: Agent365SourceConfig): void {
+  const credential: ConnectorCredentialMetadata =
+    source.credential?.mode === 'managed-identity' || source.credential?.mode === 'federated-app'
+      ? source.credential
+      : { mode: 'default' }
+  const decision = evaluateAgent365SourcePolicy({
+    connectorType: 'agent365',
+    origin: 'deployment',
+    enabled: true,
+    credential,
+  })
+  if (decision.status !== 'active' || source.credential?.mode !== 'managed-identity') {
+    const reason = decision.status === 'inactive' ? decision.reason : 'managed-identity-required'
+    throw new Agent365ConnectorError(
+      'authentication',
+      reason === 'managed-identity-required'
+        ? 'Agent 365 sources require an explicit user-assigned managed identity client ID.'
+        : `Agent 365 source policy: ${reason}.`,
+    )
   }
-  return new DefaultAzureCredential({
-    tenantId: source.tenantId,
-    ...(source.credential?.managedIdentityClientId !== undefined
-      ? { managedIdentityClientId: source.credential.managedIdentityClientId }
-      : {}),
+}
+
+export function createAgent365SourceCredential(source: Agent365SourceConfig): TokenCredential {
+  assertAgent365SourceCredentialPolicy(source)
+  if (source.credential?.mode !== 'managed-identity') {
+    throw new Agent365ConnectorError('authentication', 'Agent 365 managed identity is missing.')
+  }
+  return new ManagedIdentityCredential({
+    clientId: source.credential.managedIdentityClientId,
   })
 }
 
@@ -100,6 +110,7 @@ function limitsFromEnvironment(environment: NodeJS.ProcessEnv): Agent365Limits {
 export function parseAgent365Config(environment: NodeJS.ProcessEnv = process.env): Agent365Config {
   let sources: unknown
   const sourcesJson = environment['AGENT365_SOURCES_JSON']?.trim()
+  const managedIdentityClientId = environment['AGENT365_MANAGED_IDENTITY_CLIENT_ID']?.trim()
   if (sourcesJson !== undefined && sourcesJson !== '') {
     try {
       sources = JSON.parse(sourcesJson)
@@ -120,13 +131,46 @@ export function parseAgent365Config(environment: NodeJS.ProcessEnv = process.env
         name: 'Primary Microsoft Agent 365 tenant',
         tenantId,
         environment: sourceEnvironment,
+        ...(managedIdentityClientId
+          ? {
+              credential: {
+                mode: 'managed-identity',
+                managedIdentityClientId,
+              },
+            }
+          : {}),
       },
     ]
   }
+  const graphBaseUrl = environment['AGENT365_GRAPH_BASE_URL']?.trim() || AGENT365_GRAPH_ORIGIN
+  const limits = limitsFromEnvironment(environment)
+  const resolvedSources = Array.isArray(sources)
+    ? sources.map((source: unknown): unknown => {
+        if (typeof source !== 'object' || source === null || Array.isArray(source)) return source
+        const record = source as Record<string, unknown>
+        return {
+          ...record,
+          graphBaseUrl: record['graphBaseUrl'] ?? graphBaseUrl,
+          limits: record['limits'] ?? limits,
+          credential:
+            record['credential'] ??
+            (managedIdentityClientId
+              ? {
+                  mode: 'managed-identity',
+                  managedIdentityClientId,
+                }
+              : undefined),
+        }
+      })
+    : sources
   return agent365ConfigSchema.parse({
-    graphBaseUrl: environment['AGENT365_GRAPH_BASE_URL']?.trim() || AGENT365_GRAPH_ORIGIN,
-    limits: limitsFromEnvironment(environment),
-    sources,
+    graphBaseUrl,
+    limits,
+    aggregation: {
+      maxConcurrency: envNumber(environment, 'AGENT365_MAX_CONCURRENCY'),
+      maxDurationMs: envNumber(environment, 'AGENT365_MAX_DURATION_MS'),
+    },
+    sources: resolvedSources,
   })
 }
 
@@ -141,13 +185,13 @@ export function safeAgent365FailureReason(error: unknown): string {
 }
 
 function readinessForFailure(reason: string | undefined): ConnectorReadiness {
-  if (reason === 'authorization' || reason === 'license-required') {
+  if (reason === 'authentication' || reason === 'authorization' || reason === 'license-required') {
     return 'authorization-required'
   }
   return 'unavailable'
 }
 
-export class Agent365InventoryConnector implements AgentConnector {
+export class Agent365InventoryConnector implements OperationAwareAgentConnector {
   readonly descriptor: ConnectorDescriptor = {
     id: 'agent365-package-catalog',
     name: 'Microsoft Agent 365 package catalog',
@@ -166,20 +210,27 @@ export class Agent365InventoryConnector implements AgentConnector {
   private readonly client: Agent365GraphClient
   private evidenceById = new Map<string, Evidence>()
   private failureReason: string | undefined = 'not-queried'
+  private lastMeasurement: Pick<Agent365Collection, 'pages' | 'records' | 'truncated'> = {
+    pages: 0,
+    records: 0,
+    truncated: false,
+  }
 
   constructor(
     private readonly source: Agent365SourceConfig,
-    limits: Agent365Limits,
     credential: TokenCredential,
     options: Agent365ClientOptions = {},
   ) {
-    this.client = new Agent365GraphClient(limits, credential, source.tenantId, options)
+    this.client = new Agent365GraphClient(source.limits, credential, source.tenantId, options)
   }
 
-  async testConnection(): Promise<ConnectionTestResult> {
+  async testConnection(
+    request: ConnectorOperationRequest = {},
+    aggregateByteBudget?: Agent365ResponseByteBudget,
+  ): Promise<ConnectionTestResult> {
     const checkedAt = new Date().toISOString()
     try {
-      await this.client.probe()
+      await this.client.probe(request.signal, aggregateByteBudget)
       this.failureReason = undefined
       return { ok: true, checkedAt, message: 'Agent 365 package catalog is reachable.' }
     } catch (error) {
@@ -188,9 +239,35 @@ export class Agent365InventoryConnector implements AgentConnector {
     }
   }
 
-  async discover(): Promise<EstateSnapshot> {
+  async discover(
+    request: ConnectorOperationRequest = {},
+    aggregateByteBudget?: Agent365ResponseByteBudget,
+  ): Promise<EstateSnapshot> {
     try {
-      const snapshot = mapAgent365PackagesToSnapshot(await this.client.collect(), this.source)
+      const maximumRecords =
+        request.maxRecords === undefined
+          ? undefined
+          : Math.min(request.maxRecords, this.source.limits.maxItems)
+      const maximumPages =
+        request.maxPages === undefined
+          ? undefined
+          : Math.min(request.maxPages, this.source.limits.maxPages)
+      const collection = await this.client.collectMeasured(
+        maximumRecords,
+        request.signal,
+        maximumPages,
+        aggregateByteBudget,
+      )
+      const snapshot = mapAgent365PackagesToSnapshot(
+        collection.packages,
+        this.source,
+        new Date().toISOString(),
+      )
+      this.lastMeasurement = {
+        pages: collection.pages,
+        records: collection.records,
+        truncated: collection.truncated,
+      }
       this.failureReason = undefined
       this.evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]))
       return snapshot
@@ -202,6 +279,10 @@ export class Agent365InventoryConnector implements AgentConnector {
 
   getFailureReason(): string | undefined {
     return this.failureReason
+  }
+
+  getLastMeasurement(): Pick<Agent365Collection, 'pages' | 'records' | 'truncated'> {
+    return { ...this.lastMeasurement }
   }
 
   getEvidence(id: string): Promise<Evidence> {
@@ -218,11 +299,16 @@ export class Agent365InventoryConnector implements AgentConnector {
 }
 
 interface Agent365SourceState {
+  id: string
   source: Agent365SourceConfig
   connector: Agent365InventoryConnector | undefined
   readiness: ConnectorReadiness
+  dataState: LiveSourceDataState | undefined
+  pages: number | undefined
+  records: number | undefined
   checkedAt: string | undefined
   reason: string | undefined
+  provenance: ConnectorSourceProvenance | undefined
 }
 
 export interface Agent365CompositionOptions {
@@ -230,7 +316,37 @@ export interface Agent365CompositionOptions {
   clientFactory?: (source: Agent365SourceConfig) => Agent365ClientOptions
 }
 
-export class Agent365CompositionConnector implements AgentConnector {
+function responseByteBudget(maximumBytes: number): Agent365ResponseByteBudget {
+  let remaining = maximumBytes
+  return {
+    tryConsume(bytes) {
+      if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > remaining) {
+        remaining = 0
+        return false
+      }
+      remaining -= bytes
+      return true
+    },
+  }
+}
+
+function allocateRecordBudgets(
+  sources: readonly Agent365SourceState[],
+  maximum: number,
+): ReadonlyMap<string, number> {
+  const budgets = new Map<string, number>()
+  let remaining = maximum
+  for (const [index, state] of sources.entries()) {
+    const remainingSources = sources.length - index
+    const fairShare = remaining === 0 ? 0 : Math.ceil(remaining / remainingSources)
+    const budget = Math.min(fairShare, state.source.limits.maxItems)
+    budgets.set(state.id, budget)
+    remaining -= budget
+  }
+  return budgets
+}
+
+export class Agent365CompositionConnector implements OperationAwareAgentConnector {
   readonly descriptor: ConnectorDescriptor
   private readonly sources: Agent365SourceState[]
   private evidenceById = new Map<string, Evidence>()
@@ -248,25 +364,36 @@ export class Agent365CompositionConnector implements AgentConnector {
     const credentialFactory = options.credentialFactory ?? createAgent365SourceCredential
     this.sources = (config?.sources ?? []).map((source) => {
       try {
+        assertAgent365SourceCredentialPolicy(source)
         return {
+          id: source.id,
           source,
           connector: new Agent365InventoryConnector(
             source,
-            config!.limits,
             credentialFactory(source),
             options.clientFactory?.(source),
           ),
           readiness: 'degraded' as const,
+          dataState: undefined,
+          pages: undefined,
+          records: undefined,
           checkedAt: undefined,
           reason: 'not-queried',
+          provenance: undefined,
         }
       } catch (error) {
+        const reason = safeAgent365FailureReason(error)
         return {
+          id: source.id,
           source,
           connector: undefined,
-          readiness: 'unavailable' as const,
+          readiness: readinessForFailure(reason),
+          dataState: 'failed' as const,
+          pages: 0,
+          records: 0,
           checkedAt: undefined,
-          reason: safeAgent365FailureReason(error),
+          reason,
+          provenance: undefined,
         }
       }
     })
@@ -289,30 +416,104 @@ export class Agent365CompositionConnector implements AgentConnector {
     }
   }
 
-  async testConnection(): Promise<ConnectionTestResult> {
-    const [base, ...results] = await Promise.all([
-      this.base.testConnection(),
-      ...this.sources.map((state) => state.connector?.testConnection()),
-    ])
-    this.baseHealth = base
-    for (const [index, result] of results.entries()) {
-      const state = this.sources[index]!
-      if (result === undefined || state.connector === undefined) continue
-      state.checkedAt = result.checkedAt
-      state.reason = result.ok ? undefined : state.connector.getFailureReason()
-      state.readiness = result.ok ? 'ready' : readinessForFailure(state.reason)
+  async testConnection(request: ConnectorOperationRequest = {}): Promise<ConnectionTestResult> {
+    if (this.config === undefined || this.sources.length === 0) {
+      const base = await (this.base as OperationAwareAgentConnector).testConnection(request)
+      this.baseHealth = base
+      return base
     }
-    return {
-      ok: base.ok,
+    const executable = this.sources.filter(
+      (
+        state,
+      ): state is Agent365SourceState & {
+        connector: Agent365InventoryConnector
+      } => state.connector !== undefined,
+    )
+    const aggregateByteBudget = responseByteBudget(this.config.limits.maxResponseBytes)
+    const tasks = [
+      { id: 'base', kind: 'base' as const },
+      ...executable.map((state) => ({
+        id: `agent365:${state.id}`,
+        kind: 'agent365' as const,
+        state,
+      })),
+    ]
+    const aggregation = await aggregateLiveSources({
+      sources: tasks,
+      limits: {
+        maxSources: 51,
+        maxConcurrency: this.config.aggregation.maxConcurrency,
+        maxDurationMs: this.config.aggregation.maxDurationMs,
+        maxPagesPerSource: 1,
+        maxRecordsPerSource: 1,
+      },
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+      execute: async (task, context) => {
+        const result =
+          task.kind === 'base'
+            ? await (this.base as OperationAwareAgentConnector).testConnection({
+                signal: context.signal,
+              })
+            : await task.state.connector.testConnection(
+                { signal: context.signal },
+                aggregateByteBudget,
+              )
+        const reason =
+          result.ok || task.kind === 'base' ? undefined : task.state.connector.getFailureReason()
+        return {
+          state: result.ok ? ('complete' as const) : ('partial' as const),
+          value: result,
+          pages: 0,
+          records: 0,
+          evidenceIds: [],
+          ...(reason === undefined ? {} : { reason }),
+        }
+      },
+      failureReason: safeAgent365FailureReason,
+    })
+    const baseOutcome = aggregation.outcomes[0]!
+    const baseResult = baseOutcome.value
+    this.baseHealth = baseResult ?? {
+      ok: false,
       checkedAt: new Date().toISOString(),
-      message: base.ok
-        ? 'Primary discovery source is reachable.'
-        : 'Primary discovery source is unavailable.',
+      message: 'Primary discovery source connection test did not complete.',
+    }
+    for (const outcome of aggregation.outcomes.slice(1)) {
+      if (outcome.source.kind !== 'agent365') continue
+      const state = outcome.source.state
+      const result = outcome.value
+      state.checkedAt = result?.checkedAt ?? new Date().toISOString()
+      if (outcome.state === 'complete' && result?.ok === true) {
+        state.reason = undefined
+        state.readiness = 'ready'
+        continue
+      }
+      state.reason = outcome.reason ?? state.connector.getFailureReason() ?? 'request-failed'
+      state.readiness = readinessForFailure(state.reason)
+      state.dataState =
+        state.dataState === 'complete' || state.dataState === 'empty'
+          ? 'stale'
+          : outcome.state === 'cancelled'
+            ? 'cancelled'
+            : 'failed'
+    }
+    const checkedAt = new Date().toISOString()
+    for (const state of this.sources) {
+      if (state.connector !== undefined) continue
+      state.checkedAt = checkedAt
+    }
+    const ok = aggregation.complete && this.sources.every((state) => state.connector !== undefined)
+    return {
+      ok,
+      checkedAt,
+      message: ok
+        ? 'The base connector and all enabled Agent 365 sources are reachable.'
+        : 'The base connector or one or more enabled Agent 365 sources are unavailable.',
     }
   }
 
-  async discover(): Promise<EstateSnapshot> {
-    const base = await this.base.discover()
+  async discover(request: ConnectorOperationRequest = {}): Promise<EstateSnapshot> {
+    const base = await (this.base as OperationAwareAgentConnector).discover(request)
     this.baseHealth = {
       ok: true,
       checkedAt: new Date().toISOString(),
@@ -322,41 +523,132 @@ export class Agent365CompositionConnector implements AgentConnector {
       this.evidenceById = new Map(base.evidence.map((item) => [item.id, item]))
       return base
     }
+    const executable = this.sources.filter(
+      (
+        state,
+      ): state is Agent365SourceState & {
+        connector: Agent365InventoryConnector
+      } => state.connector !== undefined,
+    )
+    if (executable.length === 0) {
+      const checkedAt = new Date().toISOString()
+      for (const state of this.sources) {
+        state.checkedAt = checkedAt
+        state.provenance = {
+          estateTenantId: base.tenantId,
+          estateEnvironment: base.environment,
+          sourceConnectorId: state.source.id,
+          sourceTenantId: state.source.tenantId,
+          sourceEnvironment: state.source.environment,
+          provider: 'microsoft-graph-agent365-package-catalog',
+          providerObjectId: AGENT365_PACKAGES_PATH,
+        }
+      }
+      this.evidenceById = new Map(base.evidence.map((item) => [item.id, item]))
+      return base
+    }
+    const configuredMaxPages = Math.max(
+      ...this.config.sources.map((source) => source.limits.maxPages),
+    )
+    const configuredMaxRecords = Math.max(
+      ...this.config.sources.map((source) => source.limits.maxItems),
+    )
+    const recordBudgets = allocateRecordBudgets(executable, this.config.limits.maxItems)
+    const aggregateByteBudget = responseByteBudget(this.config.limits.maxResponseBytes)
+    const aggregation = await aggregateLiveSources({
+      sources: executable,
+      limits: {
+        maxSources: 50,
+        maxConcurrency: this.config.aggregation.maxConcurrency,
+        maxDurationMs: this.config.aggregation.maxDurationMs,
+        maxPagesPerSource: Math.min(request.maxPages ?? configuredMaxPages, configuredMaxPages),
+        maxRecordsPerSource: Math.min(
+          request.maxRecords ?? configuredMaxRecords,
+          configuredMaxRecords,
+        ),
+      },
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+      execute: async (state, context) => {
+        const recordBudget = recordBudgets.get(state.id) ?? 0
+        if (recordBudget === 0) {
+          throw new Agent365ConnectorError(
+            'bounds',
+            'Agent 365 aggregation reached the configured item limit.',
+          )
+        }
+        const discovered = await state.connector.discover(
+          {
+            signal: context.signal,
+            maxPages: Math.min(context.maxPages, state.source.limits.maxPages),
+            maxRecords: Math.min(context.maxRecords, recordBudget),
+          },
+          aggregateByteBudget,
+        )
+        if (
+          discovered.tenantId.toLowerCase() !== state.source.tenantId.toLowerCase() ||
+          discovered.environment !== state.source.environment
+        ) {
+          throw new Agent365ConnectorError(
+            'malformed-response',
+            'Agent 365 discovery did not match its configured source boundary.',
+          )
+        }
+        const measurement = state.connector.getLastMeasurement()
+        return {
+          state: measurement.truncated
+            ? ('partial' as const)
+            : measurement.records === 0
+              ? ('empty' as const)
+              : ('complete' as const),
+          value: discovered,
+          pages: measurement.pages,
+          records: measurement.records,
+          evidenceIds: discovered.evidence.map((item) => item.id),
+          ...(measurement.truncated
+            ? { reason: 'bounds' }
+            : measurement.records === 0
+              ? { reason: 'empty' }
+              : {}),
+        }
+      },
+      failureReason: safeAgent365FailureReason,
+    })
     const additions: Agent365SourceSnapshot[] = []
     let remainingItems = this.config.limits.maxItems
-    for (const state of this.sources) {
+    for (const outcome of aggregation.outcomes) {
+      const state = outcome.source
       state.checkedAt = new Date().toISOString()
-      if (state.connector === undefined) continue
-      if (remainingItems === 0) {
-        state.reason = 'bounds'
-        state.readiness = readinessForFailure(state.reason)
-        continue
+      state.dataState = outcome.state
+      state.pages = outcome.pages
+      state.records = outcome.records
+      state.reason = outcome.reason
+      state.provenance = {
+        estateTenantId: base.tenantId,
+        estateEnvironment: base.environment,
+        sourceConnectorId: state.source.id,
+        sourceTenantId: state.source.tenantId,
+        sourceEnvironment: state.source.environment,
+        provider: 'microsoft-graph-agent365-package-catalog',
+        providerObjectId: AGENT365_PACKAGES_PATH,
       }
-      let discovered: EstateSnapshot
-      try {
-        discovered = await state.connector.discover()
-      } catch (error) {
-        state.reason = state.connector.getFailureReason() ?? safeAgent365FailureReason(error)
-        state.readiness = readinessForFailure(state.reason)
-        continue
+      if (outcome.state === 'complete') {
+        state.readiness = 'ready'
+      } else if (outcome.state === 'empty') {
+        state.readiness = 'degraded'
+      } else if (outcome.state === 'partial' && outcome.reason === 'bounds') {
+        state.readiness = 'degraded'
+      } else {
+        state.readiness = readinessForFailure(outcome.reason)
       }
-      if (
-        discovered.tenantId.toLowerCase() !== state.source.tenantId.toLowerCase() ||
-        discovered.environment !== state.source.environment
-      ) {
+      if (outcome.value === undefined) continue
+      if (outcome.value.nodes.length > remainingItems) {
         state.readiness = 'unavailable'
-        state.reason = 'malformed-response'
-        continue
-      }
-      if (discovered.nodes.length > remainingItems) {
-        state.readiness = 'unavailable'
+        state.dataState = 'partial'
         state.reason = 'bounds'
         continue
       }
-      additions.push({ source: state.source, snapshot: discovered })
-      remainingItems -= discovered.nodes.length
-      state.readiness = 'ready'
-      state.reason = undefined
+      additions.push({ source: state.source, snapshot: outcome.value })
+      remainingItems -= outcome.value.nodes.length
     }
     let snapshot = base
     try {
@@ -364,6 +656,7 @@ export class Agent365CompositionConnector implements AgentConnector {
     } catch {
       for (const state of this.sources.filter((item) => item.readiness === 'ready')) {
         state.readiness = 'unavailable'
+        state.dataState = 'failed'
         state.reason = 'malformed-response'
       }
     }
@@ -379,7 +672,9 @@ export class Agent365CompositionConnector implements AgentConnector {
     const complete =
       this.config !== undefined &&
       this.sources.length > 0 &&
-      this.sources.every((source) => source.readiness === 'ready')
+      this.sources.every(
+        (source) => source.dataState === 'complete' && source.readiness === 'ready',
+      )
     const configurationSource =
       this.config === undefined
         ? [
@@ -394,7 +689,7 @@ export class Agent365CompositionConnector implements AgentConnector {
             },
           ]
         : []
-    return {
+    return composeConnectorHealthReport(baseHealth, {
       overall: !baseReady ? 'unavailable' : basePartial || !complete ? 'degraded' : 'ready',
       partial: baseReady && (basePartial || !complete),
       sources: [
@@ -417,11 +712,15 @@ export class Agent365CompositionConnector implements AgentConnector {
           enabled: true,
           configured: true,
           readiness: state.readiness,
+          ...(state.dataState === undefined ? {} : { dataState: state.dataState }),
+          ...(state.pages === undefined ? {} : { pages: state.pages }),
+          ...(state.records === undefined ? {} : { records: state.records }),
           ...(state.checkedAt !== undefined ? { checkedAt: state.checkedAt } : {}),
           ...(state.reason !== undefined ? { reason: state.reason } : {}),
+          ...(state.provenance === undefined ? {} : { provenance: state.provenance }),
         })),
       ],
-    }
+    })
   }
 
   getEvidence(id: string): Promise<Evidence> {
@@ -450,7 +749,7 @@ export function createOptionalAgent365Connector(
   base: AgentConnector,
   environment: NodeJS.ProcessEnv = process.env,
   options: OptionalAgent365Options = {},
-): AgentConnector {
+): OperationAwareAgentConnector {
   let enabled: boolean
   try {
     enabled = envBoolean(environment, 'AGENT365_CONNECTOR_ENABLED')
@@ -493,11 +792,18 @@ export {
   sanitizeAgent365GraphBaseUrl,
 } from './schemas.js'
 export {
+  classifyAgent365Package,
   isAgentPackage,
   mapAgent365PackagesToSnapshot,
   mergeAgent365Snapshots,
 } from './normalize.js'
-export type { Agent365ClientOptions, Agent365ErrorCode } from './client.js'
+export type { Agent365PackageClassification } from './normalize.js'
+export type {
+  Agent365ClientOptions,
+  Agent365Collection,
+  Agent365ErrorCode,
+  Agent365ResponseByteBudget,
+} from './client.js'
 export type {
   Agent365Config,
   Agent365Limits,

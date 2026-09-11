@@ -18,7 +18,13 @@ import {
   type RemediationPreview,
   type SnapshotRepository,
 } from '@agent-sentinel/domain'
-import { calculateBlastRadius, simulateEdgeRemoval } from '@agent-sentinel/graph-engine'
+import {
+  calculateBlastRadius,
+  createLiveGraphTraversalContextForSnapshot,
+  simulateEdgeRemoval,
+  trustedMockGraphTraversalContext,
+  type GraphTraversalContext,
+} from '@agent-sentinel/graph-engine'
 import { evaluateAllExposurePolicies } from '@agent-sentinel/policy-engine'
 import { foundryManifest, type AgentDefinition } from '@agent-sentinel/scenarios'
 import { mapAgentToSnapshot, FOUNDRY_API_VERSION } from '@agent-sentinel/foundry-connector'
@@ -91,7 +97,10 @@ export function buildMockExposurePage(
     { tenantId, environment },
   )
   const snapshotId = `${snapshot.tenantId}-${snapshot.environment}-${snapshot.generatedAt}`
-  const findings: ExposureFinding[] = evaluateAllExposurePolicies(snapshot).map((finding) => ({
+  const findings: ExposureFinding[] = evaluateAllExposurePolicies(
+    snapshot,
+    trustedMockGraphTraversalContext,
+  ).map((finding) => ({
     ...finding,
     sourceMode: 'mock',
     tenantId,
@@ -174,6 +183,7 @@ function buildComparisonGraph(
 export function buildRemediationPreview(
   snapshot: EstateSnapshot,
   finding: ExposureFinding,
+  traversalContext: GraphTraversalContext,
 ): RemediationPreview {
   const targetEdgeIds = finding.affectedEdgeIds.filter((edgeId) =>
     snapshot.edges.some((edge) => edge.id === edgeId && edge.active),
@@ -186,10 +196,10 @@ export function buildRemediationPreview(
     (current, edgeId) => simulateEdgeRemoval(current, edgeId),
     snapshot,
   )
-  const baselineFindings = evaluateAllExposurePolicies(snapshot).filter(
+  const baselineFindings = evaluateAllExposurePolicies(snapshot, traversalContext).filter(
     (candidate) => candidate.affectedAgentId === finding.affectedAgentId,
   )
-  const residualFindings = evaluateAllExposurePolicies(previewSnapshot)
+  const residualFindings = evaluateAllExposurePolicies(previewSnapshot, traversalContext)
     .filter((candidate) => candidate.affectedAgentId === finding.affectedAgentId)
     .map((candidate) => ({
       ...candidate,
@@ -212,8 +222,16 @@ export function buildRemediationPreview(
     targetEdgeIds.length > 0 && baselineCoversSelectedPolicy
       ? analyzedResidualRisk
       : beforeRiskScore
-  const beforeBlastRadius = calculateBlastRadius(snapshot, finding.affectedAgentId)
-  const afterBlastRadius = calculateBlastRadius(previewSnapshot, finding.affectedAgentId)
+  const beforeBlastRadius = calculateBlastRadius(
+    snapshot,
+    finding.affectedAgentId,
+    traversalContext,
+  )
+  const afterBlastRadius = calculateBlastRadius(
+    previewSnapshot,
+    finding.affectedAgentId,
+    traversalContext,
+  )
   const comparisonNodeIds = new Set([
     finding.affectedAgentId,
     ...beforeBlastRadius.map((node) => node.id),
@@ -551,7 +569,12 @@ export function registerExposureRoutes(app: FastifyInstance, options: ExposureRo
         void reply.status(404)
         return { error: 'not_found', message: `Exposure finding not found: ${findingId}` }
       }
-      return buildRemediationPreview(context.snapshot, context.finding)
+      const estate = requireEstateContext(request)
+      const traversalContext =
+        options.mode === 'mock'
+          ? trustedMockGraphTraversalContext
+          : createLiveGraphTraversalContextForSnapshot(context.snapshot, { estate })
+      return buildRemediationPreview(context.snapshot, context.finding, traversalContext)
     },
   )
 

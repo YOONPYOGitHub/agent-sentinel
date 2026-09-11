@@ -21,7 +21,10 @@ export {
 export { InMemoryExposureFindingRepository } from './in-memory-exposure-finding-repository.js'
 export { InMemoryConnectorHealthRepository } from './in-memory-connector-health-repository.js'
 export { InMemoryGovernanceCaseRepository } from './in-memory-governance-case-repository.js'
-export { InMemoryConnectorSourceRepository } from './in-memory-connector-source-repository.js'
+export {
+  InMemoryConnectorSourceRepository,
+  type InMemoryConnectorSourceRepositoryOptions,
+} from './in-memory-connector-source-repository.js'
 export { InMemoryManifestIngestionRepository } from './in-memory-manifest-ingestion-repository.js'
 export {
   CosmosManifestIngestionRepository,

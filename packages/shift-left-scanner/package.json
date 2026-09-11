@@ -21,6 +21,7 @@
   "dependencies": {
     "@agent-sentinel/connector-sdk": "workspace:*",
     "@agent-sentinel/domain": "workspace:*",
+    "@agent-sentinel/graph-engine": "workspace:*",
     "@agent-sentinel/manifest-connector": "workspace:*",
     "@agent-sentinel/policy-engine": "workspace:*"
   }

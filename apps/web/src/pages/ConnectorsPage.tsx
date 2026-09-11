@@ -143,35 +143,74 @@ function ActiveConnectorPanel({
 }) {
   const isFoundry = active.mode === 'foundry'
   const connected = active.lifecycleState === 'connected'
+  const enabledSources = health?.sources.filter((source) => source.enabled) ?? []
+  const configurationConflict = enabledSources.some(
+    (source) => source.reason === 'duplicate-tenant-boundary',
+  )
+  const authorizationRequired = enabledSources.some(
+    (source) => source.readiness === 'authorization-required',
+  )
+  const collectionFailed = enabledSources.some(
+    (source) => source.dataState === 'failed' || source.dataState === 'cancelled',
+  )
+  const stale = enabledSources.some((source) => source.dataState === 'stale')
+  const empty = enabledSources.some((source) => source.dataState === 'empty')
   const degraded = active.lifecycleState === 'degraded'
+  const banner = configurationConflict
+    ? {
+        copy: 'A duplicate tenant boundary is inactive because deployment configuration owns it.',
+        badge: 'Configuration conflict',
+      }
+    : authorizationRequired
+      ? {
+          copy: 'Authorization is required before one or more configured sources can collect data.',
+          badge: 'Authorization required',
+        }
+      : collectionFailed
+        ? {
+            copy: 'The latest connector collection failed; complete snapshots are not promoted.',
+            badge: 'Collection failed',
+          }
+        : stale
+          ? {
+              copy: 'Connector evidence is stale and cannot establish current readiness.',
+              badge: 'Stale evidence',
+            }
+          : empty
+            ? {
+                copy: 'Connected sources returned a valid empty result for the latest observation.',
+                badge: 'Valid empty result',
+              }
+            : degraded
+              ? {
+                  copy: 'Some configured sources are unavailable; complete snapshots are not promoted',
+                  badge: 'Degraded · partial',
+                }
+              : !connected
+                ? {
+                    copy: 'Configured source failed its latest runtime connection test',
+                    badge: 'Connection unavailable',
+                  }
+                : {
+                    copy: isFoundry
+                      ? 'Live discovery from Azure AI Foundry Agent Service'
+                      : 'Synthetic seeded estate for demonstration and local development',
+                    badge: isFoundry ? 'Connected · Foundry' : 'Connected · mock',
+                  }
   return (
     <div className="connector-card connector-card--active">
       <div className="connector-card__header">
         <PlugConnectedRegular aria-hidden="true" />
         <div>
           <h2>{isFoundry ? 'Azure AI Foundry' : 'Mock agent estate'}</h2>
-          <p>
-            {degraded
-              ? 'Some configured sources are unavailable; complete snapshots are not promoted'
-              : !connected
-                ? 'Configured source failed its latest runtime connection test'
-                : isFoundry
-                  ? 'Live discovery from Azure AI Foundry Agent Service'
-                  : 'Synthetic seeded estate for demonstration and local development'}
-          </p>
+          <p>{banner.copy}</p>
         </div>
         <Badge
           color={lifecycleColor(active.lifecycleState)}
           appearance="tint"
           aria-label={`Connection mode: ${active.mode}`}
         >
-          {degraded
-            ? 'Degraded · partial'
-            : connected
-              ? active.mode === 'foundry'
-                ? 'Connected · Foundry'
-                : 'Connected · mock'
-              : 'Connection unavailable'}
+          {banner.badge}
         </Badge>
       </div>
       <dl className="connector-details">
@@ -206,6 +245,25 @@ function ActiveConnectorPanel({
               <dd>
                 {source.readiness}
                 {source.reason ? ` · ${source.reason}` : ''}
+                {source.dataState !== undefined ? (
+                  <span>
+                    Data {source.dataState}
+                    {source.pages === undefined
+                      ? ''
+                      : ` · ${source.pages} ${source.pages === 1 ? 'page' : 'pages'}`}
+                    {source.records === undefined
+                      ? ''
+                      : ` · ${source.records} ${source.records === 1 ? 'record' : 'records'}`}
+                  </span>
+                ) : null}
+                {source.checkedAt !== undefined ? (
+                  <span>{`Checked ${source.checkedAt}`}</span>
+                ) : null}
+                {source.provenance !== undefined ? (
+                  <span>
+                    {`Source ${source.provenance.sourceConnectorId} · ${source.provenance.provider} · ${source.provenance.providerObjectId}`}
+                  </span>
+                ) : null}
               </dd>
             </div>
           ))}

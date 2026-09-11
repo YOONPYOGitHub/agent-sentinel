@@ -62,6 +62,8 @@ param entraConnectorEnabled bool = false
 param entraConnectorTenantId string = ''
 @description('Optional JSON array of Entra sources matched by id to Foundry sources.')
 param entraSourcesJson string = ''
+@description('Optional JSON array of explicit estate-scoped Foundry-to-Entra inventory authority bindings.')
+param entraRunsAsBindingsJson string = ''
 @description('Environment boundary for Entra identity enrichment. Must exactly match Foundry.')
 param entraConnectorEnvironment string = ''
 @description('Microsoft Graph resource base. Restricted by connector validation to the public Graph host.')
@@ -98,6 +100,12 @@ param powerPlatformMaxResponseBytes string = '2000000'
 
 @description('Enable read-only Microsoft Agent 365 Graph v1.0 package catalog inventory. Keep false until licensing and tenant-admin application consent are approved.')
 param agent365ConnectorEnabled bool = false
+@description('Approved existing Agent 365 connector UAMI client ID. Empty keeps Agent 365 inactive.')
+@allowed([
+  ''
+  '59dbea72-1e91-403a-89cf-e02cdb8da350'
+])
+param agent365ManagedIdentityClientId string = ''
 @description('Optional JSON array of up to 50 independent Microsoft Agent 365 tenant sources.')
 param agent365SourcesJson string = ''
 @description('Legacy primary Agent 365 tenant ID. Empty while disabled or when source JSON is used.')
@@ -188,6 +196,10 @@ param azureMonitorSourcesJson string = ''
 @description('Cosmos database id backing exposure findings.')
 param cosmosDatabase string = 'agent-sentinel-db'
 
+@description('Manifest ingestion container selected after reviewed copy validation. Keep the legacy container until cutover is approved.')
+@allowed(['manifest-ingestions', 'manifest-ingestions-v2'])
+param manifestIngestionsContainerName string = 'manifest-ingestions'
+
 @description('Ingestion worker discovery interval in milliseconds.')
 param discoveryIntervalMs string = '300000'
 @description('API authentication mode. Keep disabled until Entra and WAF configuration are approved.')
@@ -221,6 +233,7 @@ var effectiveApplicationIdentityName = empty(applicationIdentityName) ? 'id-agen
 var effectiveConnectorIdentityName = empty(connectorIdentityName) ? 'id-agent-sentinel-connectors-${suffix}' : connectorIdentityName
 var effectiveTeamsIdentityName = empty(teamsIdentityName) ? 'id-agent-sentinel-teams-${suffix}' : teamsIdentityName
 var effectiveFoundryAccountName = empty(foundryAccountName) ? 'ais-agent-sentinel-${suffix}' : foundryAccountName
+var validatedEntraRunsAsBindingsJson = string(empty(entraRunsAsBindingsJson) ? [] : json(entraRunsAsBindingsJson))
 
 module network './modules/network.bicep' = {
   name: 'network'
@@ -381,6 +394,7 @@ module containerApps './modules/container-apps.bicep' = {
     entraConnectorEnabled: entraConnectorEnabled
     entraConnectorTenantId: entraConnectorTenantId
     entraSourcesJson: entraSourcesJson
+    entraRunsAsBindingsJson: validatedEntraRunsAsBindingsJson
     entraConnectorEnvironment: entraConnectorEnvironment
     entraConnectorGraphBaseUrl: entraConnectorGraphBaseUrl
     entraConnectorOwnersEnabled: entraConnectorOwnersEnabled
@@ -404,6 +418,7 @@ module containerApps './modules/container-apps.bicep' = {
     powerPlatformMaxRetryAfterMs: powerPlatformMaxRetryAfterMs
     powerPlatformMaxResponseBytes: powerPlatformMaxResponseBytes
     agent365ConnectorEnabled: agent365ConnectorEnabled
+    agent365ManagedIdentityClientId: agent365ManagedIdentityClientId
     agent365SourcesJson: agent365SourcesJson
     agent365TenantId: agent365TenantId
     agent365Environment: agent365Environment
@@ -462,6 +477,7 @@ module containerApps './modules/container-apps.bicep' = {
     azureMonitorConnectorEnabled: azureMonitorConnectorEnabled
     azureMonitorSourcesJson: azureMonitorSourcesJson
     cosmosDatabase: cosmosDatabase
+    manifestIngestionsContainerName: manifestIngestionsContainerName
     discoveryIntervalMs: discoveryIntervalMs
     authMode: authMode
     authTenantId: authTenantId

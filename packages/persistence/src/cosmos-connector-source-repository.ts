@@ -8,10 +8,15 @@ import {
   connectorSourceMutationContextSchema,
   connectorSourceUpdateInputSchema,
   estateContextSchema,
+  hydratePersistedConnectorSourceAuditRecord,
+  hydratePersistedConnectorSourceDefinition,
+  isConnectorSourceMigrationRequired,
   type ConnectorSourceAuditRecord,
+  type ConnectorSourceAuditReadModel,
   type ConnectorSourceAuditCursor,
   type ConnectorSourceCreateInput,
   type ConnectorSourceDefinition,
+  type ConnectorSourceReadModel,
   type ConnectorSourceMutationContext,
   type ConnectorSourceRepository,
   type ConnectorSourceUpdateInput,
@@ -32,7 +37,7 @@ interface SourceDocument {
   tenantId: string
   environment: string
   documentType: typeof SOURCE_TYPE
-  source: ConnectorSourceDefinition
+  source: unknown
   deleted?: boolean
   _etag?: string
 }
@@ -45,7 +50,7 @@ interface AuditDocument {
   documentType: typeof AUDIT_TYPE
   sourceId: string
   occurredAt: string
-  audit: ConnectorSourceAuditRecord
+  audit: unknown
 }
 
 interface IdempotencyDocument {
@@ -70,6 +75,7 @@ interface EstateBoundaryDocument {
 export interface CosmosConnectorSourceRepositoryOptions {
   databaseId?: string
   containerId?: string
+  authoritativeSources?: readonly ConnectorSourceDefinition[]
 }
 
 function clone<T>(value: T): T {
@@ -135,13 +141,41 @@ function boundedLimit(limit: number | undefined): number {
   return limit
 }
 
+function persistedSourceId(value: unknown): string {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('sourceId' in value) ||
+    typeof value.sourceId !== 'string'
+  ) {
+    throw new Error('Invalid Cosmos connector source document: sourceId')
+  }
+  return value.sourceId
+}
+
+function persistedAuditId(value: unknown): string {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('id' in value) ||
+    typeof value.id !== 'string'
+  ) {
+    throw new Error('Invalid Cosmos connector source audit document: audit ID')
+  }
+  return value.id
+}
+
 export class CosmosConnectorSourceRepository implements ConnectorSourceRepository {
   private readonly container: Container
+  private readonly authoritativeSources: readonly ConnectorSourceDefinition[]
 
   constructor(client: CosmosClient, options: CosmosConnectorSourceRepositoryOptions = {}) {
     this.container = client
       .database(options.databaseId ?? 'agent-sentinel-db')
       .container(options.containerId ?? 'connector-sources')
+    this.authoritativeSources = (options.authoritativeSources ?? []).map((source) =>
+      connectorSourceDefinitionSchema.parse(source),
+    )
   }
 
   async create(
@@ -231,7 +265,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
   async findById(
     estateValue: EstateContext,
     logicalSourceId: string,
-  ): Promise<ConnectorSourceDefinition | null> {
+  ): Promise<ConnectorSourceReadModel | null> {
     const estate = estateContextSchema.parse(estateValue)
     await this.readEstateBoundary(estate)
     const document = await this.readSource(estate, logicalSourceId)
@@ -242,7 +276,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     estateValue: EstateContext,
     limit?: number,
     afterSourceId?: string,
-  ): Promise<ConnectorSourceDefinition[]> {
+  ): Promise<ConnectorSourceReadModel[]> {
     const estate = estateContextSchema.parse(estateValue)
     await this.readEstateBoundary(estate)
     const { resources } = await this.container.items
@@ -260,8 +294,8 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
       )
       .fetchAll()
     return resources.map((document) => {
-      this.assertSourceDocument(estate, document, document.source.sourceId)
-      return clone(document.source)
+      const source = this.decodeSourceDocument(estate, document, persistedSourceId(document.source))
+      return clone(source)
     })
   }
 
@@ -282,6 +316,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     const document = await this.readSource(estate, logicalSourceId)
     if (!document || document.deleted === true) return { status: 'not_found' }
     const existing = document.source
+    if (isConnectorSourceMigrationRequired(existing)) return { status: 'migration_required' }
     if (existing.origin === 'deployment') return { status: 'immutable' }
     if (existing.etag !== expectedEtag) return { status: 'conflict', reason: 'etag_mismatch' }
     if (!document._etag) {
@@ -334,6 +369,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     const document = await this.readSource(estate, logicalSourceId)
     if (!document || document.deleted === true) return { status: 'not_found' }
     const existing = document.source
+    if (isConnectorSourceMigrationRequired(existing)) return { status: 'migration_required' }
     if (existing.origin === 'deployment') return { status: 'immutable' }
     if (existing.etag !== expectedEtag) return { status: 'conflict', reason: 'etag_mismatch' }
     if (!document._etag) {
@@ -365,7 +401,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     logicalSourceId: string,
     limit?: number,
     after?: ConnectorSourceAuditCursor,
-  ): Promise<ConnectorSourceAuditRecord[]> {
+  ): Promise<ConnectorSourceAuditReadModel[]> {
     const estate = estateContextSchema.parse(estateValue)
     await this.readEstateBoundary(estate)
     const { resources } = await this.container.items
@@ -385,8 +421,13 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
       )
       .fetchAll()
     return resources.map((document) => {
-      this.assertAuditDocument(estate, document, logicalSourceId, document.audit.id)
-      return clone(document.audit)
+      const audit = this.decodeAuditDocument(
+        estate,
+        document,
+        logicalSourceId,
+        persistedAuditId(document.audit),
+      )
+      return clone(audit)
     })
   }
 
@@ -437,14 +478,16 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
   private async readSource(
     estate: EstateContext,
     logicalSourceId: string,
-  ): Promise<SourceDocument | null> {
+  ): Promise<(SourceDocument & { source: ConnectorSourceReadModel }) | null> {
     try {
       const { resource } = await this.container
         .item(sourceId(estate.id, logicalSourceId), estate.id)
         .read<SourceDocument>()
       if (!resource) return null
-      this.assertSourceDocument(estate, resource, logicalSourceId)
-      return resource
+      return {
+        ...resource,
+        source: this.decodeSourceDocument(estate, resource, logicalSourceId),
+      }
     } catch (error: unknown) {
       if (errorCode(error) === 404) return null
       throw error
@@ -454,14 +497,13 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
   private async readAudit(
     estate: EstateContext,
     logicalAuditId: string,
-  ): Promise<ConnectorSourceAuditRecord | null> {
+  ): Promise<ConnectorSourceAuditReadModel | null> {
     try {
       const { resource } = await this.container
         .item(auditId(estate.id, logicalAuditId), estate.id)
         .read<AuditDocument>()
       if (!resource) return null
-      this.assertAuditDocument(estate, resource, resource.sourceId, logicalAuditId)
-      return resource.audit
+      return this.decodeAuditDocument(estate, resource, resource.sourceId, logicalAuditId)
     } catch (error: unknown) {
       if (errorCode(error) === 404) return null
       throw error
@@ -550,12 +592,15 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     }
   }
 
-  private assertSourceDocument(
+  private decodeSourceDocument(
     estate: EstateContext,
     document: SourceDocument,
     logicalSourceId: string,
-  ): void {
-    const source = connectorSourceDefinitionSchema.parse(document.source)
+  ): ConnectorSourceReadModel {
+    const source = hydratePersistedConnectorSourceDefinition(
+      document.source,
+      this.authoritativeSources,
+    )
     if (
       document.estateId !== estate.id ||
       document.tenantId !== estate.tenantId ||
@@ -569,6 +614,7 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     ) {
       throw new Error(`Invalid Cosmos connector source document: ${logicalSourceId}`)
     }
+    return source
   }
 
   private createAudit(
@@ -645,13 +691,16 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     }
   }
 
-  private assertAuditDocument(
+  private decodeAuditDocument(
     estate: EstateContext,
     document: AuditDocument,
     logicalSourceId: string,
     logicalAuditId: string,
-  ): void {
-    const audit = connectorSourceAuditRecordSchema.parse(document.audit)
+  ): ConnectorSourceAuditReadModel {
+    const audit = hydratePersistedConnectorSourceAuditRecord(
+      document.audit,
+      this.authoritativeSources,
+    )
     if (
       document.id !== auditId(estate.id, logicalAuditId) ||
       document.estateId !== estate.id ||
@@ -667,5 +716,6 @@ export class CosmosConnectorSourceRepository implements ConnectorSourceRepositor
     ) {
       throw new Error(`Invalid Cosmos connector source audit document: ${logicalAuditId}`)
     }
+    return audit
   }
 }

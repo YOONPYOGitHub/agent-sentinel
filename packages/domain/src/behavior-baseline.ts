@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { agentCorrelationSchema } from './correlation.js'
+import { agentCorrelationsSchema } from './correlation.js'
 import {
   otelWindowQualitySchema,
   runtimeOtelProvenanceSchema,
@@ -45,15 +45,7 @@ export const runtimeObservationSchema = z.object({
   errorCode: z.string().max(100).optional(),
   toolCallNames: z.array(z.string().min(1).max(200)).max(50).default([]),
   synthetic: z.boolean().default(false),
-  correlations: z
-    .array(agentCorrelationSchema)
-    .max(3)
-    .refine(
-      (correlations) =>
-        new Set(correlations.map((correlation) => correlation.kind)).size === correlations.length,
-      'Runtime observation correlation kinds must be unique.',
-    )
-    .optional(),
+  correlations: agentCorrelationsSchema.optional(),
   otelProvenance: runtimeOtelProvenanceSchema.optional(),
 })
 export type RuntimeObservation = z.infer<typeof runtimeObservationSchema>
@@ -84,20 +76,51 @@ export interface RuntimeOtelQualityAssessment {
   validObservationIds: string[]
 }
 
+export interface RuntimeOtelFreshnessContext {
+  queriedAt: string
+  maximumFreshnessHours: number
+}
+
 const compareCodeUnits = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0
 
-export function assessRuntimeOtelQuality(window: ObservationWindow): RuntimeOtelQualityAssessment {
+export function assessRuntimeOtelQuality(
+  window: ObservationWindow,
+  freshness?: RuntimeOtelFreshnessContext,
+): RuntimeOtelQualityAssessment {
   if (window.source !== 'azure-monitor-otel') {
     return { quality: window.otelQuality, validObservationIds: [] }
   }
 
   const supplied = window.otelQuality
-  const caveats = new Set<OtelEvidenceCaveat>(supplied?.caveats ?? [])
+  const caveats = new Set<OtelEvidenceCaveat>(
+    supplied?.caveats.filter((caveat) => freshness === undefined || caveat !== 'stale') ?? [],
+  )
   const validObservationIds: string[] = []
   const classifications = new Set<'live' | 'synthetic'>()
   const windowStartMs = Date.parse(window.windowStart)
   const windowEndMs = Date.parse(window.windowEnd)
+  const queriedAtMs = freshness === undefined ? Number.NaN : Date.parse(freshness.queriedAt)
+  const maximumFreshnessMs =
+    freshness === undefined ||
+    !Number.isInteger(freshness.maximumFreshnessHours) ||
+    freshness.maximumFreshnessHours < 1 ||
+    freshness.maximumFreshnessHours > 24 * 31
+      ? Number.NaN
+      : freshness.maximumFreshnessHours * 60 * 60 * 1000
+  const freshnessProvided = freshness !== undefined
+  const trustedFreshness =
+    freshnessProvided &&
+    Number.isFinite(queriedAtMs) &&
+    Number.isFinite(maximumFreshnessMs) &&
+    Number.isFinite(windowStartMs) &&
+    Number.isFinite(windowEndMs) &&
+    windowEndMs > windowStartMs &&
+    windowEndMs <= queriedAtMs
+  if (freshnessProvided) {
+    if (!trustedFreshness) caveats.add('invalid-record')
+    else if (queriedAtMs - windowEndMs > maximumFreshnessMs) caveats.add('stale')
+  }
 
   for (const observation of window.observations) {
     const parsed = runtimeOtelProvenanceSchema.safeParse(observation.otelProvenance)
@@ -128,9 +151,20 @@ export function assessRuntimeOtelQuality(window: ObservationWindow): RuntimeOtel
     ) {
       invalidate('invalid-record')
     }
+    if (freshnessProvided) {
+      if (!trustedFreshness) {
+        invalidate('invalid-record')
+      } else if (observedAtMs > queriedAtMs) {
+        invalidate('future-timestamp')
+      } else if (windowEndMs - observedAtMs > maximumFreshnessMs) {
+        invalidate('stale')
+      }
+    }
     const expectedClassification = observation.synthetic ? 'synthetic' : 'live'
     if (provenance.classification !== expectedClassification) {
       invalidate('mixed-classification')
+    } else {
+      classifications.add(provenance.classification)
     }
     if (
       provenance.evidenceIds.length !== 6 ||
@@ -140,7 +174,6 @@ export function assessRuntimeOtelQuality(window: ObservationWindow): RuntimeOtel
     }
     if (valid) {
       validObservationIds.push(observation.id)
-      classifications.add(provenance.classification)
     }
   }
 
@@ -163,10 +196,15 @@ export function assessRuntimeOtelQuality(window: ObservationWindow): RuntimeOtel
   ) {
     caveats.add('mixed-classification')
   }
-  if (supplied?.status === 'available') {
+  const wouldOtherwiseBecomeAvailable =
+    supplied !== undefined &&
+    (freshnessProvided || supplied.status === 'available') &&
+    caveats.size === 0 &&
+    validObservationIds.length === window.observations.length &&
+    window.observations.length > 0
+  if (wouldOtherwiseBecomeAvailable) {
     const expectedRecordCount = window.observations.length * 6
     if (
-      window.observations.length === 0 ||
       supplied.recordsReceived !== expectedRecordCount ||
       supplied.recordsAccepted !== expectedRecordCount ||
       supplied.duplicatesRemoved !== 0 ||
@@ -177,8 +215,11 @@ export function assessRuntimeOtelQuality(window: ObservationWindow): RuntimeOtel
   }
 
   const sortedCaveats = [...caveats].sort(compareCodeUnits)
+  const suppliedStatusAllowsAvailability = freshnessProvided
+    ? supplied !== undefined
+    : supplied?.status === 'available'
   const status: OtelWindowQuality['status'] =
-    supplied?.status === 'available' &&
+    suppliedStatusAllowsAvailability &&
     sortedCaveats.length === 0 &&
     validObservationIds.length === window.observations.length &&
     window.observations.length > 0

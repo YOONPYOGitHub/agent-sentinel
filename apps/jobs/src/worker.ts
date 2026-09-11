@@ -7,6 +7,7 @@ import type {
   ManifestIngestionRepository,
 } from '@agent-sentinel/connector-sdk'
 import type {
+  ConnectorSourceRepository,
   EstateContext,
   ExposureFindingRepository,
   SnapshotRepository,
@@ -14,16 +15,23 @@ import type {
 import { InMemoryDeduplicator, withIdempotency } from '@agent-sentinel/messaging'
 import {
   CosmosConnectorHealthRepository,
+  CosmosConnectorSourceRepository,
   CosmosExposureFindingRepository,
   CosmosManifestIngestionRepository,
   CosmosSnapshotRepository,
   InMemoryConnectorHealthRepository,
+  InMemoryConnectorSourceRepository,
   InMemoryExposureFindingRepository,
   InMemoryManifestIngestionRepository,
   InMemorySnapshotRepository,
 } from '@agent-sentinel/persistence'
 
-import { buildConnector } from './connector-factory.js'
+import {
+  buildConnector,
+  buildConnectorForEstate,
+  buildRuntimeTelemetryConnector,
+  validateJobsStartupConfiguration,
+} from './connector-factory.js'
 import { validateWorkerEventEstate } from './event-boundary.js'
 import { IngestionService, defaultLogger } from './ingestion-service.js'
 import { initTelemetry } from './telemetry.js'
@@ -65,6 +73,7 @@ function buildRepositories(
   exposures: ExposureFindingRepository
   manifestIngestions: ManifestIngestionRepository
   connectorHealth: ConnectorHealthRepository
+  connectorSources: ConnectorSourceRepository
 } {
   if (mode === 'mock') {
     return {
@@ -72,6 +81,7 @@ function buildRepositories(
       exposures: new InMemoryExposureFindingRepository(),
       manifestIngestions: new InMemoryManifestIngestionRepository(tenantId),
       connectorHealth: new InMemoryConnectorHealthRepository(),
+      connectorSources: new InMemoryConnectorSourceRepository(),
     }
   }
   const endpoint = required('COSMOS_ENDPOINT')
@@ -84,6 +94,10 @@ function buildRepositories(
     snapshots: new CosmosSnapshotRepository(client, databaseId),
     exposures: new CosmosExposureFindingRepository(client, databaseId),
     connectorHealth: new CosmosConnectorHealthRepository(client, databaseId),
+    connectorSources: new CosmosConnectorSourceRepository(client, {
+      databaseId,
+      containerId: process.env['COSMOS_CONNECTOR_SOURCES_CONTAINER']?.trim() || 'connector-sources',
+    }),
     manifestIngestions: new CosmosManifestIngestionRepository(client, {
       tenantId,
       databaseId,
@@ -131,18 +145,10 @@ async function main(): Promise<void> {
     process.env['DISCOVERY_INTERVAL_MS']?.trim() || String(DEFAULT_INTERVAL_MS),
     10,
   )
-  const connector = buildConnector(connectorMode, process.env)
-  const { snapshots, exposures, manifestIngestions, connectorHealth } = buildRepositories(
-    connectorMode,
-    tenantId,
-  )
-  const service = new IngestionService(connector, snapshots, exposures, {
-    estate,
-    sourceMode: connectorMode,
-    logger: defaultLogger,
-    manifestIngestions,
-    connectorHealthRepository: connectorHealth,
-  })
+  validateJobsStartupConfiguration(connectorMode, estate, process.env)
+  const runtimeTelemetryConnector = buildRuntimeTelemetryConnector(connectorMode, process.env)
+  const { snapshots, exposures, manifestIngestions, connectorHealth, connectorSources } =
+    buildRepositories(connectorMode, tenantId)
 
   let running = false
   let healthy = true
@@ -153,6 +159,18 @@ async function main(): Promise<void> {
     }
     running = true
     try {
+      const connector =
+        connectorMode === 'foundry'
+          ? await buildConnectorForEstate(estate, connectorSources, process.env)
+          : buildConnector('mock', process.env)
+      const service = new IngestionService(connector, snapshots, exposures, {
+        estate,
+        sourceMode: connectorMode,
+        logger: defaultLogger,
+        manifestIngestions,
+        connectorHealthRepository: connectorHealth,
+        ...(runtimeTelemetryConnector === undefined ? {} : { runtimeTelemetryConnector }),
+      })
       await service.run()
       healthy = true
     } catch (error) {

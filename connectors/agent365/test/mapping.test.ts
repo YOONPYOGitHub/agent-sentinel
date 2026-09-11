@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  classifyAgent365Package,
   isAgentPackage,
   mapAgent365PackagesToSnapshot,
   mergeAgent365Snapshots,
@@ -14,6 +15,15 @@ const source: Agent365SourceConfig = {
   name: 'Tenant A catalog',
   tenantId: '00000000-0000-0000-0000-000000000001',
   environment: 'production',
+  graphBaseUrl: 'https://graph.microsoft.com',
+  limits: {
+    maxPages: 20,
+    maxItems: 5_000,
+    requestTimeoutMs: 15_000,
+    maxRetries: 2,
+    maxRetryAfterMs: 30_000,
+    maxResponseBytes: 2_000_000,
+  },
 }
 
 const agent: CopilotPackage = {
@@ -82,6 +92,46 @@ describe('Agent 365 package mapping', () => {
     expect(snapshot.edges).toEqual([])
   })
 
+  it('classifies M365 and SharePoint declarative agents without classifying extensions', () => {
+    expect(
+      classifyAgent365Package({
+        id: 'P_m365',
+        displayName: 'M365 declarative agent',
+        supportedHosts: ['M365'],
+        elementTypes: ['DeclarativeAgent'],
+      }),
+    ).toEqual(['agent365-agent', 'm365-declarative-agent'])
+    expect(
+      classifyAgent365Package({
+        id: 'P_sharepoint',
+        displayName: 'SharePoint declarative agent',
+        supportedHosts: ['sharePoint'],
+        elementTypes: ['declarativeAgent'],
+      }),
+    ).toEqual(['agent365-agent', 'sharepoint-declarative-agent'])
+    expect(classifyAgent365Package(extension)).toEqual(['extension-package'])
+
+    const snapshot = mapAgent365PackagesToSnapshot(
+      [
+        {
+          id: 'P_m365',
+          displayName: 'M365 declarative agent',
+          supportedHosts: ['M365'],
+          elementTypes: ['DeclarativeAgent'],
+        },
+      ],
+      source,
+      '2026-09-09T00:00:00Z',
+    )
+    expect(snapshot.nodes[0]).toMatchObject({
+      kind: 'agent',
+      metadata: {
+        inventoryEntityType: 'agent-package',
+        packageClassifications: '["agent365-agent","m365-declarative-agent"]',
+      },
+    })
+  })
+
   it('does not infer trust, tools, identity, entitlements, access, private principals, or edges', () => {
     const snapshot = mapAgent365PackagesToSnapshot([agent], source)
     const node = snapshot.nodes[0]!
@@ -130,15 +180,89 @@ describe('Agent 365 configuration', () => {
       AGENT365_ENVIRONMENT: source.environment,
     })
     expect(config.graphBaseUrl).toBe('https://graph.microsoft.com')
-    expect(config.sources).toEqual([
-      {
-        id: 'primary',
-        name: 'Primary Microsoft Agent 365 tenant',
-        tenantId: source.tenantId,
-        environment: source.environment,
-      },
-    ])
+    expect(config.sources).toHaveLength(1)
+    expect(config.sources[0]).toMatchObject({
+      id: 'primary',
+      name: 'Primary Microsoft Agent 365 tenant',
+      tenantId: source.tenantId,
+      environment: source.environment,
+      graphBaseUrl: 'https://graph.microsoft.com',
+    })
+    expect(config.sources[0]?.limits).toMatchObject({
+      maxPages: 20,
+      maxItems: 5_000,
+    })
     expect(config.limits.maxItems).toBe(5_000)
+    expect(config.aggregation).toEqual({
+      maxConcurrency: 2,
+      maxDurationMs: 60_000,
+    })
+  })
+
+  it('parses bounded aggregate concurrency and duration', () => {
+    const config = parseAgent365Config({
+      AGENT365_TENANT_ID: source.tenantId,
+      AGENT365_ENVIRONMENT: source.environment,
+      AGENT365_MAX_CONCURRENCY: '1',
+      AGENT365_MAX_DURATION_MS: '5000',
+    })
+
+    expect(config.aggregation).toEqual({
+      maxConcurrency: 1,
+      maxDurationMs: 5_000,
+    })
+  })
+
+  it('enforces the same strict retry-after bound for environment configuration', () => {
+    expect(
+      parseAgent365Config({
+        AGENT365_TENANT_ID: source.tenantId,
+        AGENT365_ENVIRONMENT: source.environment,
+        AGENT365_MAX_RETRY_AFTER_MS: '60000',
+      }).limits.maxRetryAfterMs,
+    ).toBe(60_000)
+    expect(() =>
+      parseAgent365Config({
+        AGENT365_TENANT_ID: source.tenantId,
+        AGENT365_ENVIRONMENT: source.environment,
+        AGENT365_MAX_RETRY_AFTER_MS: '60001',
+      }),
+    ).toThrow()
+  })
+
+  it('accepts explicit managed identity and per-source execution limits', () => {
+    const config = parseAgent365Config({
+      AGENT365_SOURCES_JSON: JSON.stringify([
+        {
+          id: 'persisted',
+          name: 'Persisted Agent 365',
+          tenantId: source.tenantId,
+          environment: source.environment,
+          graphBaseUrl: 'https://graph.microsoft.com',
+          limits: {
+            maxPages: 3,
+            maxItems: 500,
+            requestTimeoutMs: 5_000,
+            maxRetries: 1,
+            maxRetryAfterMs: 1_000,
+            maxResponseBytes: 50_000,
+          },
+          credential: {
+            mode: 'managed-identity',
+            managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+          },
+        },
+      ]),
+    })
+
+    expect(config.sources[0]).toMatchObject({
+      graphBaseUrl: 'https://graph.microsoft.com',
+      limits: { maxPages: 3, maxItems: 500 },
+      credential: {
+        mode: 'managed-identity',
+        managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+      },
+    })
   })
 
   it('accepts up to 50 independent secretless sources and non-versioned Azure GUIDs', () => {

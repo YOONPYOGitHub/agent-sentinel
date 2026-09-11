@@ -18,6 +18,7 @@ export type Agent365ErrorCode =
   | 'license-required'
   | 'not-available'
   | 'bounds'
+  | 'cancelled'
   | 'timeout'
   | 'malformed-response'
   | 'network'
@@ -37,8 +38,38 @@ export class Agent365ConnectorError extends Error {
 
 export interface Agent365ClientOptions {
   fetcher?: typeof fetch
-  sleep?: (milliseconds: number) => Promise<void>
+  sleep?: (milliseconds: number, signal?: AbortSignal) => Promise<void>
   now?: () => number
+}
+
+export interface Agent365Collection {
+  readonly packages: CopilotPackage[]
+  readonly pages: number
+  readonly records: number
+  readonly responseBytes: number
+  readonly truncated: boolean
+}
+
+export interface Agent365ResponseByteBudget {
+  tryConsume(bytes: number): boolean
+}
+
+function cancelledError(): Agent365ConnectorError {
+  return new Agent365ConnectorError('cancelled', 'Agent 365 collection was cancelled.')
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted === true) throw cancelledError()
+}
+
+function throwIfRequestAborted(
+  externalSignal: AbortSignal | undefined,
+  requestSignal: AbortSignal,
+): void {
+  if (externalSignal?.aborted === true) throw cancelledError()
+  if (requestSignal.aborted) {
+    throw new Agent365ConnectorError('timeout', 'Microsoft Graph package request timed out.')
+  }
 }
 
 function retryAfterMilliseconds(value: string | null, now: number): number | undefined {
@@ -93,12 +124,59 @@ function statusError(status: number, body?: unknown): Agent365ConnectorError {
   )
 }
 
-async function readBoundedJson(response: Response, maximumBytes: number): Promise<unknown> {
+function cancelWithoutWaiting(cancel: () => Promise<void>): void {
+  try {
+    void cancel().then(
+      () => undefined,
+      () => undefined,
+    )
+  } catch {
+    // Response cleanup is best-effort and must never mask the request outcome.
+  }
+}
+
+function readWithAbort(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal?: AbortSignal,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (signal === undefined) return reader.read()
+  throwIfAborted(signal)
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      signal.removeEventListener('abort', onAbort)
+      cancelWithoutWaiting(() => reader.cancel())
+      reject(
+        signal.reason instanceof Error ? signal.reason : new DOMException('aborted', 'AbortError'),
+      )
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    void reader.read().then(
+      (result) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(result)
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(
+          error instanceof Error ? error : new Error('Microsoft Graph response body read failed.'),
+        )
+      },
+    )
+  })
+}
+
+async function readBoundedJson(
+  response: Response,
+  maximumBytes: number,
+  aggregateBudget?: Agent365ResponseByteBudget,
+  signal?: AbortSignal,
+): Promise<{ value: unknown; responseBytes: number }> {
   const declaredLength = response.headers.get('content-length')
   if (declaredLength !== null) {
     const parsed = Number(declaredLength)
     if (Number.isFinite(parsed) && parsed > maximumBytes) {
-      await response.body?.cancel()
+      const body = response.body
+      if (body !== null) cancelWithoutWaiting(() => body.cancel())
       throw new Agent365ConnectorError('bounds', 'Microsoft Graph response exceeded byte limits.')
     }
   }
@@ -109,11 +187,13 @@ async function readBoundedJson(response: Response, maximumBytes: number): Promis
   const chunks: Uint8Array[] = []
   let length = 0
   for (;;) {
-    const next = await reader.read()
+    const next = await readWithAbort(reader, signal)
     if (next.done) break
     length += next.value.byteLength
-    if (length > maximumBytes) {
-      await reader.cancel()
+    const withinAggregateBudget =
+      aggregateBudget === undefined || aggregateBudget.tryConsume(next.value.byteLength)
+    if (length > maximumBytes || !withinAggregateBudget) {
+      cancelWithoutWaiting(() => reader.cancel())
       throw new Agent365ConnectorError('bounds', 'Microsoft Graph response exceeded byte limits.')
     }
     chunks.push(next.value)
@@ -125,7 +205,10 @@ async function readBoundedJson(response: Response, maximumBytes: number): Promis
     offset += chunk.byteLength
   }
   try {
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+    return {
+      value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)),
+      responseBytes: length,
+    }
   } catch {
     throw new Agent365ConnectorError(
       'malformed-response',
@@ -173,7 +256,7 @@ function continuationUrl(value: string): URL {
 
 export class Agent365GraphClient {
   private readonly fetcher: typeof fetch
-  private readonly sleep: (milliseconds: number) => Promise<void>
+  private readonly sleep: (milliseconds: number, signal?: AbortSignal) => Promise<void>
   private readonly now: () => number
   private readonly listEndpoint = new URL(AGENT365_PACKAGES_PATH, AGENT365_GRAPH_ORIGIN)
 
@@ -186,15 +269,37 @@ export class Agent365GraphClient {
     this.fetcher = options.fetcher ?? fetch
     this.sleep =
       options.sleep ??
-      ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)))
+      ((milliseconds, signal) =>
+        new Promise((resolve, reject) => {
+          throwIfAborted(signal)
+          const onAbort = (): void => {
+            clearTimeout(timer)
+            reject(cancelledError())
+          }
+          const timer = setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort)
+            resolve()
+          }, milliseconds)
+          signal?.addEventListener('abort', onAbort, { once: true })
+        }))
     this.now = options.now ?? Date.now
   }
 
-  async probe(): Promise<void> {
-    await this.collect(1)
+  async probe(signal?: AbortSignal, aggregateBudget?: Agent365ResponseByteBudget): Promise<void> {
+    await this.collectMeasured(1, signal, 1, aggregateBudget)
   }
 
-  collect(maximum?: number): Promise<CopilotPackage[]> {
+  async collect(maximum?: number, signal?: AbortSignal): Promise<CopilotPackage[]> {
+    return (await this.collectMeasured(maximum, signal)).packages
+  }
+
+  collectMeasured(
+    maximum?: number,
+    signal?: AbortSignal,
+    maximumPages?: number,
+    aggregateBudget?: Agent365ResponseByteBudget,
+  ): Promise<Agent365Collection> {
+    throwIfAborted(signal)
     if (
       maximum !== undefined &&
       (!Number.isInteger(maximum) || maximum < 1 || maximum > this.limits.maxItems)
@@ -203,21 +308,35 @@ export class Agent365GraphClient {
         new Agent365ConnectorError('bounds', 'Collection maximum is outside configured limits.'),
       )
     }
-    return this.collectPages(maximum)
+    if (
+      maximumPages !== undefined &&
+      (!Number.isInteger(maximumPages) || maximumPages < 1 || maximumPages > this.limits.maxPages)
+    ) {
+      return Promise.reject(
+        new Agent365ConnectorError('bounds', 'Page maximum is outside configured limits.'),
+      )
+    }
+    return this.collectPages(maximum, signal, maximumPages, aggregateBudget)
   }
 
-  private async collectPages(maximum?: number): Promise<CopilotPackage[]> {
+  private async collectPages(
+    maximum?: number,
+    signal?: AbortSignal,
+    maximumPages?: number,
+    aggregateBudget?: Agent365ResponseByteBudget,
+  ): Promise<Agent365Collection> {
     const packages: CopilotPackage[] = []
     const seenLinks = new Set<string>()
     let nextUrl = this.listEndpoint
     let pages = 0
     let providerItems = 0
+    let responseBytes = 0
+    const pageLimit = maximumPages ?? this.limits.maxPages
     for (;;) {
-      if (pages >= this.limits.maxPages) {
-        throw new Agent365ConnectorError('bounds', 'Package catalog exceeded the page limit.')
-      }
-      const raw = await this.requestJson(nextUrl)
-      const parsed = copilotPackageCollectionSchema.safeParse(raw)
+      throwIfAborted(signal)
+      const response = await this.requestJson(nextUrl, signal, aggregateBudget)
+      responseBytes += response.responseBytes
+      const parsed = copilotPackageCollectionSchema.safeParse(response.value)
       if (!parsed.success) {
         throw new Agent365ConnectorError(
           'malformed-response',
@@ -230,20 +349,34 @@ export class Agent365GraphClient {
         throw new Agent365ConnectorError('bounds', 'Package catalog exceeded the item limit.')
       }
       packages.push(...parsed.data.value)
-      if (maximum !== undefined && packages.length >= maximum) return packages.slice(0, maximum)
       const link = parsed.data['@odata.nextLink']
-      if (link === undefined) return packages
-      const validated = continuationUrl(link)
-      const canonical = validated.toString()
-      if (seenLinks.has(canonical)) {
+      const validated = link === undefined ? undefined : continuationUrl(link)
+      const canonical = validated?.toString()
+      if (canonical !== undefined && seenLinks.has(canonical)) {
         throw new Agent365ConnectorError('bounds', 'Microsoft Graph repeated a nextLink.')
       }
-      seenLinks.add(canonical)
+      if (maximum !== undefined && packages.length >= maximum) {
+        return {
+          packages: packages.slice(0, maximum),
+          pages,
+          records: Math.min(providerItems, maximum),
+          responseBytes,
+          truncated: providerItems > maximum || validated !== undefined,
+        }
+      }
+      if (validated === undefined) {
+        return { packages, pages, records: providerItems, responseBytes, truncated: false }
+      }
+      if (pages >= pageLimit) {
+        return { packages, pages, records: providerItems, responseBytes, truncated: true }
+      }
+      seenLinks.add(validated.toString())
       nextUrl = validated
     }
   }
 
-  private async accessToken(): Promise<string> {
+  private async accessToken(externalSignal?: AbortSignal): Promise<string> {
+    throwIfAborted(externalSignal)
     const controller = new AbortController()
     let timedOut = false
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -256,10 +389,24 @@ export class Agent365GraphClient {
         )
       }, this.limits.requestTimeoutMs)
     })
+    let removeExternalAbort: (() => void) | undefined
+    const cancelled =
+      externalSignal === undefined
+        ? undefined
+        : new Promise<never>((_resolve, reject) => {
+            const onAbort = (): void => reject(cancelledError())
+            externalSignal.addEventListener('abort', onAbort, { once: true })
+            removeExternalAbort = () => externalSignal.removeEventListener('abort', onAbort)
+          })
+    const signal =
+      externalSignal === undefined
+        ? controller.signal
+        : AbortSignal.any([externalSignal, controller.signal])
     try {
       const result = await Promise.race([
-        this.credential.getToken(AGENT365_TOKEN_SCOPE, { abortSignal: controller.signal }),
+        this.credential.getToken(AGENT365_TOKEN_SCOPE, { abortSignal: signal }),
         timeout,
+        ...(cancelled === undefined ? [] : [cancelled]),
       ])
       if (result === null) {
         throw new Agent365ConnectorError(
@@ -275,31 +422,43 @@ export class Agent365GraphClient {
       }
       return result.token
     } catch (error) {
-      if (error instanceof Agent365ConnectorError) throw error
+      if (externalSignal?.aborted === true) throw cancelledError()
       if (timedOut || controller.signal.aborted) {
         throw new Agent365ConnectorError('timeout', 'Microsoft Graph token acquisition timed out.')
       }
+      if (error instanceof Agent365ConnectorError) throw error
       throw new Agent365ConnectorError(
         'authentication',
         'Microsoft Graph credential acquisition failed.',
       )
     } finally {
       if (timer !== undefined) clearTimeout(timer)
+      removeExternalAbort?.()
       controller.abort()
     }
   }
 
-  private async requestJson(url: URL): Promise<unknown> {
-    const token = await this.accessToken()
+  private async requestJson(
+    url: URL,
+    externalSignal?: AbortSignal,
+    aggregateBudget?: Agent365ResponseByteBudget,
+  ): Promise<{ value: unknown; responseBytes: number }> {
+    throwIfAborted(externalSignal)
+    const token = await this.accessToken(externalSignal)
     for (let attempt = 0; ; attempt += 1) {
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), this.limits.requestTimeoutMs)
+      const signal =
+        externalSignal === undefined
+          ? controller.signal
+          : AbortSignal.any([externalSignal, controller.signal])
       try {
         const response = await this.fetcher(url, {
           method: 'GET',
           headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-          signal: controller.signal,
+          signal,
         })
+        throwIfRequestAborted(externalSignal, controller.signal)
         if (!response.ok) {
           const retryAfter = retryAfterMilliseconds(response.headers.get('retry-after'), this.now())
           if (
@@ -309,24 +468,36 @@ export class Agent365GraphClient {
             attempt < this.limits.maxRetries
           ) {
             clearTimeout(timer)
-            await response.body?.cancel()
-            await this.sleep(retryAfter)
+            const body = response.body
+            if (body !== null) cancelWithoutWaiting(() => body.cancel())
+            if (externalSignal === undefined) await this.sleep(retryAfter)
+            else await this.sleep(retryAfter, externalSignal)
             continue
           }
           let body: unknown
           try {
-            body = await readBoundedJson(response, this.limits.maxResponseBytes)
+            body = (
+              await readBoundedJson(response, this.limits.maxResponseBytes, aggregateBudget, signal)
+            ).value
           } catch (error) {
+            throwIfRequestAborted(externalSignal, controller.signal)
             if (error instanceof Agent365ConnectorError && error.code === 'bounds') throw error
           }
+          throwIfRequestAborted(externalSignal, controller.signal)
           throw statusError(response.status, body)
         }
-        return await readBoundedJson(response, this.limits.maxResponseBytes)
+        return await readBoundedJson(
+          response,
+          this.limits.maxResponseBytes,
+          aggregateBudget,
+          signal,
+        )
       } catch (error) {
-        if (error instanceof Agent365ConnectorError) throw error
+        if (externalSignal?.aborted === true) throw cancelledError()
         if (controller.signal.aborted) {
           throw new Agent365ConnectorError('timeout', 'Microsoft Graph package request timed out.')
         }
+        if (error instanceof Agent365ConnectorError) throw error
         throw new Agent365ConnectorError(
           'network',
           'Microsoft Graph package request failed before a response.',

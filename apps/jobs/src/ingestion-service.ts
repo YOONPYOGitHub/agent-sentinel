@@ -4,8 +4,19 @@ import type {
   AgentConnector,
   ConnectorHealthReport,
   ConnectorHealthRepository,
+  LiveAggregationLimits,
   ManifestIngestionRecord,
   ManifestIngestionRepository,
+  RuntimeObservationWindows,
+  RuntimeTelemetryConnector,
+} from '@agent-sentinel/connector-sdk'
+import {
+  aggregateLiveSources,
+  computeSnapshotEvidenceDigest,
+  projectRuntimeEvidence,
+  runtimeObservationWindowsSchema,
+  runtimeTelemetryRequestForAgent,
+  validateRuntimeTelemetryProvenance,
 } from '@agent-sentinel/connector-sdk'
 import { ADAPTER_SOURCE_ID, mergeManifestSnapshots } from '@agent-sentinel/manifest-connector'
 import type {
@@ -15,6 +26,10 @@ import type {
   ExposureFindingRepository,
   SnapshotRepository,
 } from '@agent-sentinel/domain'
+import {
+  createLiveGraphTraversalContextForSnapshot,
+  trustedMockGraphTraversalContext,
+} from '@agent-sentinel/graph-engine'
 import { evaluateAllExposurePolicies } from '@agent-sentinel/policy-engine'
 
 export interface IngestionServiceOptions {
@@ -25,6 +40,10 @@ export interface IngestionServiceOptions {
   correlationIdFactory?: () => string
   manifestIngestions?: ManifestIngestionRepository
   connectorHealthRepository?: ConnectorHealthRepository
+  runtimeTelemetryConnector?: RuntimeTelemetryConnector
+  runtimeTelemetryLimits?: Partial<
+    Pick<LiveAggregationLimits, 'maxSources' | 'maxConcurrency' | 'maxDurationMs'>
+  >
 }
 
 export interface Logger {
@@ -59,6 +78,41 @@ export const defaultLogger: Logger = {
     console.error(JSON.stringify({ level: 'error', msg: message, ...(extra ?? {}) })),
 }
 
+export const JOBS_RUNTIME_TELEMETRY_LIMITS: LiveAggregationLimits = {
+  maxSources: 1_000,
+  maxConcurrency: 4,
+  maxDurationMs: 60_000,
+  maxPagesPerSource: 1,
+  maxRecordsPerSource: 10_000,
+}
+
+function jobsRuntimeTelemetryLimits(
+  overrides: IngestionServiceOptions['runtimeTelemetryLimits'],
+): LiveAggregationLimits {
+  return {
+    ...JOBS_RUNTIME_TELEMETRY_LIMITS,
+    ...(overrides?.maxSources === undefined
+      ? {}
+      : { maxSources: Math.min(overrides.maxSources, JOBS_RUNTIME_TELEMETRY_LIMITS.maxSources) }),
+    ...(overrides?.maxConcurrency === undefined
+      ? {}
+      : {
+          maxConcurrency: Math.min(
+            overrides.maxConcurrency,
+            JOBS_RUNTIME_TELEMETRY_LIMITS.maxConcurrency,
+          ),
+        }),
+    ...(overrides?.maxDurationMs === undefined
+      ? {}
+      : {
+          maxDurationMs: Math.min(
+            overrides.maxDurationMs,
+            JOBS_RUNTIME_TELEMETRY_LIMITS.maxDurationMs,
+          ),
+        }),
+  }
+}
+
 function snapshotIdFor(snapshot: EstateSnapshot): string {
   return `${snapshot.tenantId}-${snapshot.environment}-${snapshot.generatedAt}`
 }
@@ -80,7 +134,7 @@ export class IngestionService {
     try {
       discovered = await this.connector.discover()
     } catch (error) {
-      await this.persistConnectorHealth()
+      await this.persistConnectorHealth(this.connector.getConnectorHealth?.())
       throw error
     }
     if (discovered.tenantId !== this.options.estate.tenantId) {
@@ -91,7 +145,7 @@ export class IngestionService {
         'Discovered snapshot environment does not match the configured ingestion estate.',
       )
     }
-    const connectorHealth = await this.persistConnectorHealth()
+    const connectorHealth = this.connector.getConnectorHealth?.()
     const connectorDegraded = connectorHealth?.overall === 'degraded'
     const connectorPartial = connectorHealth?.partial === true
     let snapshot: EstateSnapshot = discovered
@@ -126,12 +180,102 @@ export class IngestionService {
         }
       }
     }
+    let runtimeTelemetryDegraded = false
+    if (this.options.runtimeTelemetryConnector !== undefined) {
+      const limits = jobsRuntimeTelemetryLimits(this.options.runtimeTelemetryLimits)
+      const eligible = snapshot.nodes
+        .filter((node) => node.kind === 'agent')
+        .flatMap((agent) => {
+          const request = runtimeTelemetryRequestForAgent(snapshot, agent, this.options.estate)
+          return request === undefined ? [] : [{ id: agent.id, agent, request }]
+        })
+      const selected = eligible.slice(0, limits.maxSources)
+      for (const { agent } of eligible.slice(limits.maxSources)) {
+        runtimeTelemetryDegraded = true
+        logger.warn('ingestion.runtime-evidence.degraded', {
+          correlationId,
+          agentId: agent.id,
+          reason: 'source-limit-exceeded',
+        })
+      }
+      const aggregation =
+        selected.length === 0
+          ? undefined
+          : await aggregateLiveSources<(typeof selected)[number], RuntimeObservationWindows>({
+              sources: selected,
+              limits,
+              execute: async (source, context) => {
+                const windows = validateRuntimeTelemetryProvenance(
+                  source.request,
+                  runtimeObservationWindowsSchema.parse(
+                    await this.options.runtimeTelemetryConnector!.readObservationWindows(
+                      source.request,
+                      { signal: context.signal },
+                    ),
+                  ),
+                )
+                const observations = [
+                  ...windows.baseline.observations,
+                  ...windows.observed.observations,
+                ]
+                return {
+                  state: observations.length === 0 ? ('empty' as const) : ('complete' as const),
+                  value: windows,
+                  pages: 1,
+                  records: observations.length,
+                  evidenceIds:
+                    observations.length === 0
+                      ? []
+                      : [windows.baselineEvidenceId, windows.observedEvidenceId],
+                  ...(observations.length === 0 ? { reason: 'empty' } : {}),
+                }
+              },
+              failureReason: () => 'query-or-provenance-failed',
+            })
+      for (const outcome of aggregation?.outcomes ?? []) {
+        const { agent, request } = outcome.source
+        if (
+          outcome.state === 'failed' ||
+          outcome.state === 'cancelled' ||
+          outcome.value === undefined
+        ) {
+          runtimeTelemetryDegraded = true
+          logger.warn('ingestion.runtime-evidence.degraded', {
+            correlationId,
+            agentId: agent.id,
+            reason: outcome.reason ?? 'query-or-provenance-failed',
+          })
+          continue
+        }
+        try {
+          const projection = projectRuntimeEvidence(snapshot, outcome.value, request)
+          snapshot = projection.snapshot
+          if (outcome.state !== 'complete' || projection.dataState.state !== 'complete') {
+            runtimeTelemetryDegraded = true
+          }
+        } catch {
+          runtimeTelemetryDegraded = true
+          logger.warn('ingestion.runtime-evidence.degraded', {
+            correlationId,
+            agentId: agent.id,
+            reason: 'projection-failed',
+          })
+        }
+      }
+    }
     const outcome =
-      connectorDegraded || manifestIngestion.status === 'degraded'
+      connectorDegraded || manifestIngestion.status === 'degraded' || runtimeTelemetryDegraded
         ? 'partially-succeeded'
         : 'succeeded'
     const snapshotId = snapshotIdFor(snapshot)
-    const evaluated = evaluateAllExposurePolicies(snapshot)
+    const traversalContext =
+      this.options.sourceMode === 'mock'
+        ? trustedMockGraphTraversalContext
+        : createLiveGraphTraversalContextForSnapshot(snapshot, {
+            estate: this.options.estate,
+            ...(this.options.clock === undefined ? {} : { clock: this.options.clock }),
+          })
+    const evaluated = evaluateAllExposurePolicies(snapshot, traversalContext)
     const nodeById = new Map(snapshot.nodes.map((node) => [node.id, node]))
     const findings: ExposureFinding[] = evaluated.map((finding) => {
       const sourceMode =
@@ -147,6 +291,7 @@ export class IngestionService {
     })
 
     if (connectorPartial) {
+      await this.persistConnectorHealth(connectorHealth)
       const sources = connectorHealth?.sources
         .filter((source) => source.readiness !== 'ready' && source.readiness !== 'disabled')
         .map((source) => ({
@@ -183,6 +328,7 @@ export class IngestionService {
 
     await this.snapshots.save(this.options.estate, snapshot)
     logger.info('ingestion.snapshot.saved', { correlationId, snapshotId })
+    await this.persistConnectorHealth(connectorHealth, snapshot)
     if (connectorDegraded) {
       const sources = connectorHealth?.sources
         .filter((source) => source.readiness !== 'ready' && source.readiness !== 'disabled')
@@ -234,8 +380,10 @@ export class IngestionService {
     }
   }
 
-  private async persistConnectorHealth(): Promise<ConnectorHealthReport | undefined> {
-    const connectorHealth = this.connector.getConnectorHealth?.()
+  private async persistConnectorHealth(
+    connectorHealth: ConnectorHealthReport | undefined,
+    snapshot?: EstateSnapshot,
+  ): Promise<ConnectorHealthReport | undefined> {
     if (connectorHealth === undefined || this.options.connectorHealthRepository === undefined) {
       return connectorHealth
     }
@@ -245,6 +393,17 @@ export class IngestionService {
       tenantId: this.options.estate.tenantId,
       environment: this.options.estate.environment,
       connectorId: this.connector.descriptor.id,
+      ...(connectorHealth.sourceSetFingerprint === undefined
+        ? {}
+        : { sourceSetFingerprint: connectorHealth.sourceSetFingerprint }),
+      ...(snapshot === undefined
+        ? {}
+        : {
+            snapshotBinding: {
+              snapshotGeneratedAt: snapshot.generatedAt,
+              evidenceDigest: computeSnapshotEvidenceDigest(snapshot),
+            },
+          }),
       measuredAt,
       health: connectorHealth,
     })

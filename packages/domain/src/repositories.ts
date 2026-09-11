@@ -8,8 +8,10 @@ import type {
 import type { ExposureFinding, ExposureFindingSeverity, ExposureFindingStatus } from './index.js'
 import type {
   ConnectorSourceAuditRecord,
+  ConnectorSourceAuditReadModel,
   ConnectorSourceCreateInput,
   ConnectorSourceDefinition,
+  ConnectorSourceReadModel,
   ConnectorSourceMutationContext,
   ConnectorSourceUpdateInput,
 } from './connector-source.js'
@@ -117,8 +119,8 @@ export type ConnectorSourceWriteResult =
     }
   | {
       status: 'idempotent'
-      source: ConnectorSourceDefinition | null
-      audit: ConnectorSourceAuditRecord
+      source: ConnectorSourceReadModel | null
+      audit: ConnectorSourceAuditReadModel
     }
   | {
       status: 'conflict'
@@ -126,6 +128,9 @@ export type ConnectorSourceWriteResult =
     }
   | {
       status: 'not_found' | 'immutable'
+    }
+  | {
+      status: 'migration_required'
     }
 
 export interface ConnectorSourceAuditCursor {
@@ -139,12 +144,12 @@ export interface ConnectorSourceRepository {
     input: ConnectorSourceCreateInput,
     mutation: ConnectorSourceMutationContext,
   ): Promise<ConnectorSourceWriteResult>
-  findById(estate: EstateContext, sourceId: string): Promise<ConnectorSourceDefinition | null>
+  findById(estate: EstateContext, sourceId: string): Promise<ConnectorSourceReadModel | null>
   list(
     estate: EstateContext,
     limit?: number,
     afterSourceId?: string,
-  ): Promise<ConnectorSourceDefinition[]>
+  ): Promise<ConnectorSourceReadModel[]>
   update(
     estate: EstateContext,
     sourceId: string,
@@ -163,5 +168,5 @@ export interface ConnectorSourceRepository {
     sourceId: string,
     limit?: number,
     after?: ConnectorSourceAuditCursor,
-  ): Promise<ConnectorSourceAuditRecord[]>
+  ): Promise<ConnectorSourceAuditReadModel[]>
 }

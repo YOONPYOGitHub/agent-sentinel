@@ -12,6 +12,7 @@ import { analyzeTokenEconomics } from '@agent-sentinel/behavior-engine'
 import { computeBaseline } from '@agent-sentinel/behavior-engine'
 import { MOCK_TOKEN_ECONOMICS_WINDOWS } from '@agent-sentinel/mock-connector'
 import {
+  recomputeRuntimeOtelQuality,
   runtimeObservationWindowsSchema,
   validateRuntimeTelemetryProvenance,
   withoutSyntheticObservations,
@@ -129,7 +130,7 @@ export function registerTokenEconomicsRoutes(
         if (opts.runtimeTelemetryConnector !== undefined) {
           try {
             const resolvedRequest = await opts.resolveTelemetryRequest?.(agentId, estate)
-            if (opts.resolveTelemetryRequest !== undefined && resolvedRequest === undefined) {
+            if (resolvedRequest === undefined) {
               const now = new Date().toISOString()
               const result: TokenEconomicsReport = tokenEconomicsReportSchema.parse({
                 reportId: unavailableReportId(agentId),
@@ -146,19 +147,15 @@ export function registerTokenEconomicsRoutes(
               })
               return reply.status(200).send(attachAttribution(result, attribution))
             }
-            const telemetryRequest = resolvedRequest ?? {
-              estateId: estate.id,
-              estateEnvironment: estate.environment,
-              tenantId,
-              agentId,
-            }
-            const windows = withoutSyntheticObservations(
-              validateRuntimeTelemetryProvenance(
-                telemetryRequest,
-                runtimeObservationWindowsSchema.parse(
-                  await opts.runtimeTelemetryConnector.readObservationWindows({
-                    ...telemetryRequest,
-                  }),
+            const windows = recomputeRuntimeOtelQuality(
+              withoutSyntheticObservations(
+                validateRuntimeTelemetryProvenance(
+                  resolvedRequest,
+                  runtimeObservationWindowsSchema.parse(
+                    await opts.runtimeTelemetryConnector.readObservationWindows({
+                      ...resolvedRequest,
+                    }),
+                  ),
                 ),
               ),
             )

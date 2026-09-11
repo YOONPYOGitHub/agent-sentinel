@@ -40,13 +40,30 @@ function containsIgnoreCase(values: readonly string[] | undefined, expected: str
   return values?.some((value) => value.toLowerCase() === expected.toLowerCase()) === true
 }
 
-export function isAgentPackage(item: CopilotPackage): boolean {
-  return (
+export type Agent365PackageClassification =
+  'agent365-agent' | 'm365-declarative-agent' | 'sharepoint-declarative-agent' | 'extension-package'
+
+export function classifyAgent365Package(item: CopilotPackage): Agent365PackageClassification[] {
+  const declarative = containsIgnoreCase(item.elementTypes, 'declarativeAgent')
+  const agent =
     containsIgnoreCase(item.supportedHosts, 'copilot') ||
     ['bot', 'bots', 'declarativeagent', 'customengineagent'].some((type) =>
       containsIgnoreCase(item.elementTypes, type),
     )
-  )
+  if (!agent) return ['extension-package']
+  return [
+    'agent365-agent',
+    ...(declarative && containsIgnoreCase(item.supportedHosts, 'm365')
+      ? (['m365-declarative-agent'] as const)
+      : []),
+    ...(declarative && containsIgnoreCase(item.supportedHosts, 'sharepoint')
+      ? (['sharepoint-declarative-agent'] as const)
+      : []),
+  ]
+}
+
+export function isAgentPackage(item: CopilotPackage): boolean {
+  return classifyAgent365Package(item)[0] !== 'extension-package'
 }
 
 export function mapAgent365PackagesToSnapshot(
@@ -77,7 +94,8 @@ export function mapAgent365PackagesToSnapshot(
     }
     aggregateIds.add(nodeId)
     aggregateIds.add(evidenceId)
-    const agent = isAgentPackage(item)
+    const classifications = classifyAgent365Package(item)
+    const agent = classifications[0] !== 'extension-package'
     const provenance = {
       sourceConnector: 'agent365-package-catalog',
       sourceConnectorId: source.id,
@@ -91,6 +109,7 @@ export function mapAgent365PackagesToSnapshot(
       sourceOfTruth: 'true',
       providerPackageId: item.id,
       inventoryEntityType: agent ? 'agent-package' : 'extension-package',
+      packageClassifications: JSON.stringify(classifications),
       ...provenance,
       ...compactMetadata({
         packageType: item.type,
@@ -141,6 +160,7 @@ export function mapAgent365PackagesToSnapshot(
         ...provenance,
         providerPackageId: item.id,
         inventoryEntityType: agent ? 'agent-package' : 'extension-package',
+        packageClassifications: JSON.stringify(classifications),
       },
     })
   }
@@ -174,9 +194,33 @@ export function mergeAgent365Snapshots(
       )
     }
   }
-  const nodes = [...base.nodes, ...additions.flatMap(({ snapshot }) => snapshot.nodes)]
+  const nodes = [
+    ...base.nodes,
+    ...additions.flatMap(({ snapshot }) =>
+      snapshot.nodes.map((node) => ({
+        ...node,
+        metadata: {
+          ...node.metadata,
+          estateTenantId: base.tenantId,
+          estateEnvironment: base.environment,
+        },
+      })),
+    ),
+  ]
   const edges = [...base.edges, ...additions.flatMap(({ snapshot }) => snapshot.edges)]
-  const evidence = [...base.evidence, ...additions.flatMap(({ snapshot }) => snapshot.evidence)]
+  const evidence = [
+    ...base.evidence,
+    ...additions.flatMap(({ snapshot }) =>
+      snapshot.evidence.map((item) => ({
+        ...item,
+        metadata: {
+          ...item.metadata,
+          estateTenantId: base.tenantId,
+          estateEnvironment: base.environment,
+        },
+      })),
+    ),
+  ]
   const ids = new Set<string>()
   for (const item of [...nodes, ...edges, ...evidence]) {
     if (ids.has(item.id)) {

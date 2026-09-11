@@ -103,6 +103,57 @@ describe('connectorsApi', () => {
       expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers)).toBeInstanceOf(Headers)
     })
 
+    it('parses an inactive migration-required legacy Azure Monitor source', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn<typeof fetch>().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              items: [
+                {
+                  ...source,
+                  sourceId: 'azure-monitor-primary',
+                  connectorType: 'azure-monitor-otel',
+                  displayName: 'Legacy runtime telemetry',
+                  enabled: false,
+                  configuration: {
+                    type: 'azure-monitor-otel',
+                    workspaceId: '11111111-1111-4111-8111-111111111111',
+                    logsBaseUrl: 'https://api.loganalytics.io',
+                    baselineWindowHours: 168,
+                    observedWindowHours: 24,
+                    requestTimeoutMs: 15_000,
+                    maxResponseBytes: 4_194_304,
+                  },
+                  migration: {
+                    status: 'migration-required',
+                    active: false,
+                    reason: 'missing-source-project-id',
+                    action: 'supply-exact-source-project-id',
+                  },
+                },
+              ],
+              page: { limit: 50, nextCursor: null },
+              mutationPolicy: {
+                enabled: true,
+                requiresAuthentication: true,
+                requiredCapability: 'configure',
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        ),
+      )
+
+      const result = await connectorSourcesApi.list()
+
+      expect(result.items[0]).toMatchObject({
+        sourceId: 'azure-monitor-primary',
+        enabled: false,
+        migration: { status: 'migration-required', active: false },
+      })
+    })
+
     it('sends idempotency and concurrency headers for create, update, and delete', async () => {
       const fetchMock = vi
         .fn<typeof fetch>()
@@ -160,6 +211,93 @@ describe('connectorsApi', () => {
       expect(updateHeaders.get('idempotency-key')).toBe('update-primary')
       expect(deleteHeaders.get('if-match')).toBe('"etag-two"')
       expect(deleteHeaders.get('idempotency-key')).toBe('delete-primary')
+    })
+
+    it('round-trips Agent 365 aggregation fields through list and create payloads', async () => {
+      const agent365Source = {
+        ...source,
+        sourceId: 'agent365-live',
+        connectorType: 'agent365',
+        displayName: 'Live Agent 365',
+        configuration: {
+          type: 'agent365',
+          graphBaseUrl: 'https://graph.microsoft.com',
+          limits: {
+            maxPages: 20,
+            maxItems: 5_000,
+            requestTimeoutMs: 15_000,
+            maxRetries: 2,
+            maxRetryAfterMs: 30_000,
+            maxResponseBytes: 2_000_000,
+          },
+          aggregation: {
+            maxConcurrency: 4,
+            maxDurationMs: 120_000,
+          },
+        },
+      } as const
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              items: [agent365Source],
+              page: { limit: 50, nextCursor: null },
+              mutationPolicy: {
+                enabled: true,
+                requiresAuthentication: true,
+                requiredCapability: 'configure',
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ replayed: false, source: agent365Source, audit: null }), {
+            status: 201,
+            headers: { 'Content-Type': 'application/json', ETag: '"etag-one"' },
+          }),
+        )
+      vi.stubGlobal('fetch', fetchMock)
+
+      const page = await connectorSourcesApi.list()
+      const listed = page.items[0]!
+      if (listed.configuration.type !== 'agent365') {
+        throw new Error('Expected the listed Agent 365 source configuration.')
+      }
+      await connectorSourcesApi.create(
+        {
+          sourceId: listed.sourceId,
+          connectorType: listed.connectorType,
+          displayName: listed.displayName,
+          enabled: listed.enabled,
+          configuration: listed.configuration,
+          credential: listed.credential,
+        },
+        'create-agent365-live',
+      )
+
+      expect(listed.configuration).toMatchObject({
+        type: 'agent365',
+        aggregation: {
+          maxConcurrency: 4,
+          maxDurationMs: 120_000,
+        },
+      })
+      const requestBody = fetchMock.mock.calls[1]?.[1]?.body
+      if (typeof requestBody !== 'string') {
+        throw new Error('Expected the create request body to be serialized JSON.')
+      }
+      const payload: unknown = JSON.parse(requestBody)
+      expect(payload).toMatchObject({
+        configuration: {
+          type: 'agent365',
+          aggregation: {
+            maxConcurrency: 4,
+            maxDurationMs: 120_000,
+          },
+        },
+      })
     })
 
     it('parses unknown connection evidence without manufacturing readiness', async () => {
@@ -231,6 +369,7 @@ describe('connectorsApi', () => {
             health: {
               overall: 'degraded',
               partial: true,
+              sourceSetFingerprint: 'a'.repeat(64),
               sources: [
                 {
                   id: 'project-a',
@@ -247,7 +386,20 @@ describe('connectorsApi', () => {
                   enabled: true,
                   configured: true,
                   readiness: 'unavailable',
+                  dataState: 'stale',
+                  pages: 2,
+                  records: 25,
+                  checkedAt: '2026-09-09T00:00:00.000Z',
                   reason: 'authentication-or-access',
+                  provenance: {
+                    estateTenantId: 'tenant-a',
+                    estateEnvironment: 'production',
+                    sourceConnectorId: 'project-b',
+                    sourceTenantId: 'tenant-b',
+                    sourceEnvironment: 'production',
+                    provider: 'microsoft-graph-agent365-package-catalog',
+                    providerObjectId: '/v1.0/copilot/admin/catalog/packages',
+                  },
                 },
               ],
             },
@@ -260,6 +412,17 @@ describe('connectorsApi', () => {
     const result = await connectorsApi.listConnectors()
     expect(result.active.lifecycleState).toBe('degraded')
     expect(result.health?.sources).toHaveLength(2)
+    expect(result.health?.sourceSetFingerprint).toBe('a'.repeat(64))
+    expect(result.health?.sources[1]).toMatchObject({
+      dataState: 'stale',
+      pages: 2,
+      records: 25,
+      checkedAt: '2026-09-09T00:00:00.000Z',
+      provenance: {
+        sourceConnectorId: 'project-b',
+        provider: 'microsoft-graph-agent365-package-catalog',
+      },
+    })
   })
 
   it('rejects an invalid lifecycle state', async () => {

@@ -1,14 +1,20 @@
 import type { AccessToken, TokenCredential } from '@azure/core-auth'
-import type { EvidenceType, Remediation } from '@agent-sentinel/domain'
+import {
+  SOURCE_PROJECT_ID_MAX_LENGTH,
+  type EvidenceType,
+  type Remediation,
+} from '@agent-sentinel/domain'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   FoundryAgentConnector,
   FoundryPortfolioIncompleteError,
+  FOUNDRY_API_VERSION,
   FOUNDRY_TRUST_REQUIRED_PLANES,
   MultiFoundryConnector,
   composeFoundryTrustAssessment,
   foundryAgentPageSchema,
   foundryConnectorConfigSchema,
+  foundrySourceProjectId,
   parseFoundryPortfolioConfig,
   mapAgentToSnapshot,
 } from '../src/index.js'
@@ -110,10 +116,29 @@ function connector(
 }
 afterEach(() => vi.unstubAllGlobals())
 describe('Foundry connector', () => {
+  it('derives the exact bounded project ID from a sanitized endpoint', () => {
+    const maximum = 'p'.repeat(200)
+
+    expect(
+      foundrySourceProjectId(` https://example.services.ai.azure.com/api/projects/${maximum}/ `),
+    ).toBe(maximum)
+    expect(() =>
+      foundrySourceProjectId(`https://example.services.ai.azure.com/api/projects/${maximum}x`),
+    ).toThrow()
+  })
+
   it('validates config', () => {
     expect(foundryConnectorConfigSchema.parse(config)).toEqual(config)
     expect(() =>
       foundryConnectorConfigSchema.parse({ ...config, projectEndpoint: 'bad' }),
+    ).toThrow()
+    expect(() =>
+      foundryConnectorConfigSchema.parse({
+        ...config,
+        projectEndpoint: `https://example.services.ai.azure.com/api/projects/${'p'.repeat(
+          SOURCE_PROJECT_ID_MAX_LENGTH + 1,
+        )}`,
+      }),
     ).toThrow()
   })
   it('preserves legacy environment configuration as one primary source', () => {
@@ -124,6 +149,7 @@ describe('Foundry connector', () => {
         FOUNDRY_ENVIRONMENT: config.environment,
       }),
     ).toMatchObject({
+      estateId: 'default',
       estateTenantId: 'tenant',
       estateEnvironment: 'validation',
       sources: [{ id: 'primary', tenantId: 'tenant' }],
@@ -152,8 +178,45 @@ describe('Foundry connector', () => {
       ]),
     })
     expect(portfolio.sources).toHaveLength(2)
+    expect(portfolio.estateId).toBe('default')
     expect(portfolio.estateTenantId).toBe('estate')
     expect(portfolio.estateEnvironment).toBe('portfolio')
+  })
+  it('rejects an overlong project segment before constructing portfolio connectors', () => {
+    const credentialFactory = vi.fn(() => new Credential())
+    const projectEndpoint = `https://example.services.ai.azure.com/api/projects/${'p'.repeat(
+      SOURCE_PROJECT_ID_MAX_LENGTH + 1,
+    )}`
+
+    expect(
+      () =>
+        new MultiFoundryConnector(
+          {
+            estateTenantId: 'tenant',
+            estateEnvironment: 'validation',
+            sources: [{ ...config, id: 'primary', name: 'Primary', projectEndpoint }],
+          },
+          credentialFactory,
+        ),
+    ).toThrow()
+    expect(credentialFactory).not.toHaveBeenCalled()
+
+    expect(() =>
+      parseFoundryPortfolioConfig({
+        FOUNDRY_PROJECT_ENDPOINT: projectEndpoint,
+        FOUNDRY_TENANT_ID: config.tenantId,
+        FOUNDRY_ENVIRONMENT: config.environment,
+      }),
+    ).toThrow()
+    expect(() =>
+      parseFoundryPortfolioConfig({
+        AGENT_SENTINEL_TENANT_ID: config.tenantId,
+        FOUNDRY_ENVIRONMENT: config.environment,
+        FOUNDRY_SOURCES_JSON: JSON.stringify([
+          { ...config, id: 'primary', name: 'Primary', projectEndpoint },
+        ]),
+      }),
+    ).toThrow()
   })
   it('rejects duplicate source ids and project endpoints', () => {
     const source = {
@@ -216,6 +279,29 @@ describe('Foundry connector', () => {
         'approvalRequired'
       ],
     ).toBe('unknown')
+  })
+  it('preserves explicit synthetic and test markers for downstream eligibility checks', () => {
+    const snapshot = mapAgentToSnapshot(
+      [
+        {
+          ...externalAgent,
+          id: 'synthetic-test-agent',
+          metadata: {
+            syntheticOnly: 'true',
+            testOnly: 'true',
+          },
+        },
+      ],
+      'v1',
+      config,
+    )
+
+    expect(
+      snapshot.nodes.find((node) => node.id === 'foundry-agent-synthetic-test-agent')?.metadata,
+    ).toMatchObject({
+      syntheticOnly: 'true',
+      testOnly: 'true',
+    })
   })
   it('discards a trust claim embedded in the raw Foundry inventory payload', () => {
     const snapshot = mapAgentToSnapshot(
@@ -745,6 +831,7 @@ describe('Foundry connector', () => {
 
 describe('multi-Foundry connector', () => {
   const portfolio = {
+    estateId: 'estate-a',
     estateTenantId: 'estate',
     estateEnvironment: 'portfolio',
     sources: [
@@ -974,11 +1061,70 @@ describe('multi-Foundry connector', () => {
       'tenant-a',
       'tenant-b',
     ])
-    expect(snapshot.evidence[0]?.metadata).toMatchObject({
+    const sourceGeneratedAt = snapshot.evidence[0]?.authority?.snapshotGeneratedAt
+    expect(sourceGeneratedAt).toBeDefined()
+    expect(agents[0]?.metadata).toMatchObject({
+      sourceOfTruth: 'true',
+      estateId: 'estate-a',
+      sourceId: 'foundry:tenant-a-project',
+      estateTenantId: 'estate',
+      estateEnvironment: 'portfolio',
       sourceConnectorId: 'tenant-a-project',
       sourceTenantId: 'tenant-a',
       sourceProjectId: 'project-a',
       sourceEnvironment: 'production',
+      provider: 'azure-ai-foundry-agent-service',
+      providerObjectId: 'a1',
+      sourceObjectId: 'a1',
+      snapshotGeneratedAt: sourceGeneratedAt,
+      sourceRelease: FOUNDRY_API_VERSION,
+    })
+    expect(snapshot.evidence[0]?.metadata).toMatchObject({
+      estateId: 'estate-a',
+      sourceId: 'foundry:tenant-a-project',
+      sourceOfTruth: 'true',
+      estateTenantId: 'estate',
+      estateEnvironment: 'portfolio',
+      sourceConnectorId: 'tenant-a-project',
+      sourceTenantId: 'tenant-a',
+      sourceProjectId: 'project-a',
+      sourceEnvironment: 'production',
+      provider: 'azure-ai-foundry-agent-service',
+      providerObjectId: 'a1',
+      sourceObjectId: 'a1',
+      snapshotGeneratedAt: sourceGeneratedAt,
+      sourceRelease: FOUNDRY_API_VERSION,
+    })
+    expect(snapshot.evidence[0]?.authority).toEqual({
+      estateId: 'estate-a',
+      sourceId: 'foundry:tenant-a-project',
+      tenantId: 'tenant-a',
+      environment: 'production',
+      provider: 'azure-ai-foundry-agent-service',
+      sourceObjectId: 'project-a',
+      providerObjectId: 'a1',
+      snapshotGeneratedAt: sourceGeneratedAt,
+      sourceRelease: FOUNDRY_API_VERSION,
+    })
+    expect(snapshot.evidence[1]?.authority).toEqual({
+      estateId: 'estate-a',
+      sourceId: 'foundry:tenant-b-project',
+      tenantId: 'tenant-b',
+      environment: 'validation',
+      provider: 'azure-ai-foundry-agent-service',
+      sourceObjectId: 'project-b',
+      providerObjectId: 'a1',
+      snapshotGeneratedAt: snapshot.evidence[1]?.authority?.snapshotGeneratedAt,
+      sourceRelease: FOUNDRY_API_VERSION,
+    })
+    expect(snapshot.evidence[1]?.metadata).toMatchObject({
+      estateId: 'estate-a',
+      estateTenantId: 'estate',
+      estateEnvironment: 'portfolio',
+      sourceConnectorId: 'tenant-b-project',
+      sourceTenantId: 'tenant-b',
+      sourceProjectId: 'project-b',
+      sourceEnvironment: 'validation',
     })
     expect(connector.getConnectorHealth()).toMatchObject({
       overall: 'ready',
@@ -1292,6 +1438,7 @@ describe('multi-Foundry connector', () => {
       sourceTenantId: 'tenant-a',
       sourceEnvironment: 'production',
     })
+    expect(trustEvidence?.authority).toBeUndefined()
   })
 
   it('fails when no configured source completes discovery', async () => {

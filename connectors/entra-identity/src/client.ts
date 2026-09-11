@@ -14,6 +14,7 @@ import {
 
 const GRAPH_SCOPE = 'https://graph.microsoft.com/.default'
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504])
+const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export type EntraGraphErrorCode =
   | 'authentication'
@@ -104,6 +105,23 @@ function statusError(status: number): EntraGraphError {
 
 function signalAborted(signal?: AbortSignal): boolean {
   return signal?.aborted === true
+}
+
+function canonicalGuid(value: unknown): string | undefined {
+  return typeof value === 'string' && GUID_PATTERN.test(value) ? value.toLowerCase() : undefined
+}
+
+function tokenTenantId(token: string): string | undefined {
+  const parts = token.split('.')
+  const payload = parts[1]
+  if (parts.length !== 3 || payload === undefined || payload.length > 16_384) return undefined
+  try {
+    const value: unknown = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+    return canonicalGuid((value as Record<string, unknown>)['tid'])
+  } catch {
+    return undefined
+  }
 }
 
 async function readResponseChunk(
@@ -422,6 +440,12 @@ export class EntraGraphClient {
         )
       }
       token = accessToken.token
+      if (tokenTenantId(token) !== canonicalGuid(this.config.tenantId)) {
+        throw new EntraGraphError(
+          'authentication',
+          'Microsoft Graph access token did not match the configured source tenant.',
+        )
+      }
     } catch (error) {
       if (error instanceof EntraGraphError) throw error
       if (signalAborted(externalSignal)) {

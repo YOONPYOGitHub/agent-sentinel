@@ -91,6 +91,7 @@ param agentSentinelEnvironment string = ''
 param entraConnectorEnabled bool = false
 param entraConnectorTenantId string = ''
 param entraSourcesJson string = ''
+param entraRunsAsBindingsJson string = ''
 param entraConnectorEnvironment string = ''
 param entraConnectorGraphBaseUrl string = 'https://graph.microsoft.com'
 param entraConnectorOwnersEnabled bool = false
@@ -116,6 +117,11 @@ param powerPlatformMaxRetryAfterMs string = '30000'
 param powerPlatformMaxResponseBytes string = '2000000'
 
 param agent365ConnectorEnabled bool = false
+@allowed([
+  ''
+  '59dbea72-1e91-403a-89cf-e02cdb8da350'
+])
+param agent365ManagedIdentityClientId string = ''
 param agent365SourcesJson string = ''
 param agent365TenantId string = ''
 param agent365Environment string = ''
@@ -181,6 +187,10 @@ param azureMonitorSourcesJson string = ''
 
 @description('Cosmos database id backing exposure findings and snapshots.')
 param cosmosDatabase string = 'agent-sentinel-db'
+
+@description('Manifest ingestion container selected only after reviewed copy validation.')
+@allowed(['manifest-ingestions', 'manifest-ingestions-v2'])
+param manifestIngestionsContainerName string = 'manifest-ingestions'
 
 @description('Ingestion worker discovery interval in milliseconds.')
 param discoveryIntervalMs string = '300000'
@@ -384,7 +394,7 @@ var env = [
   { name: 'AGENT_SENTINEL_TENANT_ID',             value: empty(agentSentinelTenantId) ? foundryTenantId : agentSentinelTenantId }
   { name: 'COSMOS_DATABASE',                      value: cosmosDatabase }
   { name: 'COSMOS_GOVERNANCE_CONTAINER',          value: 'governance-cases' }
-  { name: 'COSMOS_MANIFEST_INGESTIONS_CONTAINER', value: 'manifest-ingestions' }
+  { name: 'COSMOS_MANIFEST_INGESTIONS_CONTAINER', value: manifestIngestionsContainerName }
   { name: 'DISCOVERY_INTERVAL_MS',                value: discoveryIntervalMs }
   { name: 'AGENT_SENTINEL_CONNECTOR',             value: agentSentinelDataMode == 'live' ? 'foundry' : 'mock' }
   { name: 'AZURE_CLIENT_ID',                       value: uamiClientId }
@@ -401,6 +411,17 @@ var env = [
   { name: 'AUTH_READ_SCOPES',                      value: authReadScopes }
   { name: 'AUTH_WRITE_SCOPES',                     value: authWriteScopes }
   { name: 'API_UPSTREAM',                           value: 'api-as-${suffix}' }
+]
+
+var backendRuntimeEnv = [
+  {
+    name: 'AGENT365_MANAGED_IDENTITY_CLIENT_ID'
+    value: agent365ManagedIdentityClientId
+  }
+  {
+    name: 'ENTRA_RUNS_AS_BINDINGS_JSON'
+    value: entraRunsAsBindingsJson
+  }
 ]
 
 resource apps 'Microsoft.App/containerApps@2024-03-01' = [for app in appDefinitions: {
@@ -444,7 +465,7 @@ resource apps 'Microsoft.App/containerApps@2024-03-01' = [for app in appDefiniti
         {
           name: app.containerName
           image: format('{0}/{1}@{2}', acrLoginServer, app.containerName, app.imageDigest)
-          env: env
+          env: concat(env, app.slug == 'web' ? [] : backendRuntimeEnv)
           resources: {
             cpu: json('0.5')
             memory: '1Gi'

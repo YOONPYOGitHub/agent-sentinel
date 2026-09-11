@@ -116,9 +116,20 @@ Do not remove that block before every underlying service and cache is scoped.
   sources as read-only and supports gated user-source CRUD with strict
   non-secret schemas, ETags, idempotency, and immutable audit records. Its test
   surface reads stored evidence status only; it does not call providers or
-  manufacture readiness. Deployment-time JSON/Bicep source arrays remain the
-  active runtime configuration until a separately approved activation task.
-- Agent 365 connector code exists but entitlement activation is pending.
+  manufacture readiness. Agent 365 is an explicit exception to user-source
+  CRUD: only deployment-origin sources can activate, and API/web mutation
+  surfaces are closed while legacy user records remain visible and inactive.
+  Deployment-time Agent 365 JSON remains immutable compatibility input. Other
+  connector families remain on their existing runtime configuration paths.
+- Agent 365 entitlement and read permission are verified: `AGENT_365` has five
+  seats with one assigned, the connector UAMI has
+  `CopilotPackages.Read.All`, and a bounded managed-identity list call returned
+  HTTP 200 with 306 packages. API/jobs activation is restricted to the exact
+  approved UAMI through `AGENT365_MANAGED_IDENTITY_CLIENT_ID`; ambient,
+  arbitrary, federated, secret, Key Vault, delegated, and user-origin modes do
+  not activate. The change still requires independent review, deployment, and
+  persisted-snapshot validation; 306 packages must not be reported as 306
+  agents.
 - Power Platform unattended inventory remains blocked by unsupported app-only
   authorization.
 - OTel is connected, but representative baseline/observed samples and persisted

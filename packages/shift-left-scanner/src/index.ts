@@ -4,6 +4,7 @@ import type {
   SourceProvenance,
 } from '@agent-sentinel/connector-sdk'
 import type { Evidence, ExposureFinding } from '@agent-sentinel/domain'
+import { createLiveGraphTraversalContextForSnapshot } from '@agent-sentinel/graph-engine'
 import { acceptManifest, normalizeManifest } from '@agent-sentinel/manifest-connector'
 import { evaluateAllExposurePolicies, exposurePolicyCatalog } from '@agent-sentinel/policy-engine'
 
@@ -90,7 +91,15 @@ export function scanValidatedManifest(
   }
 
   const normalized = normalizeManifest(accepted.accepted.envelope, scope)
-  const findings = evaluateAllExposurePolicies(normalized.snapshot)
+  const traversalContext = createLiveGraphTraversalContextForSnapshot(normalized.snapshot, {
+    estate: {
+      id: 'shift-left',
+      tenantId: scope.tenantId,
+      environment: normalized.snapshot.environment,
+    },
+    clock: () => new Date(normalized.snapshot.generatedAt),
+  })
+  const findings = evaluateAllExposurePolicies(normalized.snapshot, traversalContext)
   const evidenceById = new Map(
     normalized.snapshot.evidence.map((evidence) => [evidence.id, evidence]),
   )

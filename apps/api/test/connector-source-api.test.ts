@@ -8,6 +8,7 @@ const jose = vi.hoisted(() => ({
 vi.mock('jose', () => jose)
 
 import {
+  type ConnectorSourceAuditRecord,
   type ConnectorSourceCreateInput,
   type ConnectorSourceDefinition,
   type ConnectorSourceMutationContext,
@@ -74,6 +75,29 @@ const createBody = {
     projectEndpoint: 'https://safe.services.ai.azure.com/api/projects/project-one',
   },
   credential: { mode: 'default' },
+} as const
+
+const agent365CreateBody = {
+  sourceId: 'agent365-user',
+  connectorType: 'agent365',
+  displayName: 'User Agent 365',
+  enabled: true,
+  configuration: {
+    type: 'agent365',
+    graphBaseUrl: 'https://graph.microsoft.com',
+    limits: {
+      maxPages: 20,
+      maxItems: 5_000,
+      requestTimeoutMs: 15_000,
+      maxRetries: 2,
+      maxRetryAfterMs: 30_000,
+      maxResponseBytes: 2_000_000,
+    },
+  },
+  credential: {
+    mode: 'managed-identity',
+    managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+  },
 } as const
 
 const apps: Awaited<ReturnType<typeof createApp>>[] = []
@@ -168,6 +192,95 @@ async function seed(
   return result.source
 }
 
+function legacyAzureMonitorSource(sourceId = 'azure-monitor-primary'): unknown {
+  return {
+    estateId: defaultEstate.id,
+    tenantId: defaultEstate.tenantId,
+    environment: defaultEstate.environment,
+    sourceId,
+    connectorType: 'azure-monitor-otel',
+    displayName: 'Legacy runtime telemetry',
+    enabled: true,
+    origin: 'user',
+    configuration: {
+      type: 'azure-monitor-otel',
+      workspaceId: '11111111-1111-4111-8111-111111111111',
+      logsBaseUrl: 'https://api.loganalytics.io',
+      baselineWindowHours: 168,
+      observedWindowHours: 24,
+      requestTimeoutMs: 15_000,
+      maxResponseBytes: 4_194_304,
+    },
+    credential: { mode: 'default' },
+    testStatus: {
+      status: 'passed',
+      evidenceBasis: 'provider-response',
+      evidenceIds: ['legacy-evidence'],
+      checkedAt: '2026-09-04T00:00:00.000Z',
+      checkedBy: { type: 'user', id: 'administrator-object-id' },
+      summary: 'Legacy provider response.',
+    },
+    version: 1,
+    etag: 'legacy-etag',
+    createdBy: { type: 'user', id: 'administrator-object-id' },
+    updatedBy: { type: 'user', id: 'administrator-object-id' },
+    createdAt: '2026-09-04T00:00:00.000Z',
+    updatedAt: '2026-09-04T00:00:00.000Z',
+  }
+}
+
+function legacyAzureMonitorAudit(sourceId = 'azure-monitor-primary'): unknown {
+  const after = legacyAzureMonitorSource(sourceId) as ConnectorSourceDefinition
+  return {
+    id: 'legacy-audit-create',
+    estateId: defaultEstate.id,
+    tenantId: defaultEstate.tenantId,
+    environment: defaultEstate.environment,
+    sourceId: after.sourceId,
+    operation: 'create',
+    actor: after.createdBy,
+    occurredAt: after.createdAt,
+    idempotencyKey: 'legacy-create',
+    before: null,
+    after,
+  } satisfies ConnectorSourceAuditRecord
+}
+
+function legacyAgent365Source(): unknown {
+  return {
+    estateId: defaultEstate.id,
+    tenantId: defaultEstate.tenantId,
+    environment: defaultEstate.environment,
+    sourceId: 'agent365-legacy-retry',
+    connectorType: 'agent365',
+    displayName: 'Legacy Agent 365 retry contract',
+    enabled: true,
+    origin: 'user',
+    configuration: {
+      ...agent365CreateBody.configuration,
+      limits: {
+        ...agent365CreateBody.configuration.limits,
+        maxRetryAfterMs: 120_000,
+      },
+    },
+    credential: agent365CreateBody.credential,
+    testStatus: {
+      status: 'passed',
+      evidenceBasis: 'provider-response',
+      evidenceIds: ['legacy-agent365-evidence'],
+      checkedAt: '2026-09-04T00:00:00.000Z',
+      checkedBy: { type: 'user', id: 'administrator-object-id' },
+      summary: 'Legacy provider response.',
+    },
+    version: 1,
+    etag: 'legacy-agent365-etag',
+    createdBy: { type: 'user', id: 'administrator-object-id' },
+    updatedBy: { type: 'user', id: 'administrator-object-id' },
+    createdAt: '2026-09-04T00:00:00.000Z',
+    updatedAt: '2026-09-04T00:00:00.000Z',
+  }
+}
+
 beforeEach(() => {
   jose.createRemoteJWKSet.mockClear()
   jose.jwtVerify.mockReset()
@@ -181,9 +294,160 @@ afterEach(async () => {
   delete process.env['AGENT_SENTINEL_ENVIRONMENT']
   delete process.env['FOUNDRY_ENVIRONMENT']
   delete process.env['FOUNDRY_SOURCES_JSON']
+  delete process.env['AGENT365_CONNECTOR_ENABLED']
+  delete process.env['AGENT365_MANAGED_IDENTITY_CLIENT_ID']
+  delete process.env['AGENT365_SOURCES_JSON']
 })
 
 describe('connector source API authorization and boundaries', () => {
+  it('lists legacy Azure Monitor sources as inactive migration-required records', async () => {
+    const repository = new InMemoryConnectorSourceRepository({
+      persistedSources: [legacyAzureMonitorSource()],
+    })
+    authenticate('Administrator')
+    const app = await makeApp(repository)
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/connector-sources',
+      headers: headers(),
+    })
+    const status = await app.inject({
+      method: 'GET',
+      url: '/api/connector-sources/azure-monitor-primary/connection-test-status',
+      headers: headers(),
+    })
+    const update = await app.inject({
+      method: 'PATCH',
+      url: '/api/connector-sources/azure-monitor-primary',
+      headers: headers({
+        'idempotency-key': 'legacy-update',
+        'if-match': '"legacy-etag"',
+      }),
+      payload: { enabled: true },
+    })
+
+    expect(listed.statusCode, listed.body).toBe(200)
+    expect(listed.json()).toMatchObject({
+      items: [
+        {
+          sourceId: 'azure-monitor-primary',
+          enabled: false,
+          testStatus: { status: 'not-tested' },
+          migration: {
+            status: 'migration-required',
+            active: false,
+            reason: 'missing-source-project-id',
+          },
+        },
+      ],
+    })
+    expect(status.statusCode).toBe(200)
+    expect(status.json()).toMatchObject({
+      status: 'unknown',
+      evidenceAvailability: 'unavailable',
+      summary: 'An exact source project ID is required before this source can be activated.',
+    })
+    expect(update.statusCode).toBe(409)
+    expect(update.json()).toMatchObject({ error: 'connector_source_migration_required' })
+  })
+
+  it('returns legacy Azure Monitor audit snapshots as migration-required without losing metadata', async () => {
+    const sourceId = 'legacy-azure-monitor-audit'
+    const repository = new InMemoryConnectorSourceRepository({
+      persistedSources: [legacyAzureMonitorSource(sourceId)],
+      persistedAudits: [legacyAzureMonitorAudit(sourceId)],
+    })
+
+    authenticate('Administrator')
+    const app = await makeApp(repository)
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/connector-sources/${sourceId}/audit`,
+      headers: headers(),
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      items: [
+        {
+          id: 'legacy-audit-create',
+          actor: { type: 'user', id: 'administrator-object-id' },
+          occurredAt: '2026-09-04T00:00:00.000Z',
+          before: null,
+          after: {
+            sourceId,
+            version: 1,
+            etag: 'legacy-etag',
+            enabled: false,
+            migration: {
+              status: 'migration-required',
+              active: false,
+              reason: 'missing-source-project-id',
+            },
+          },
+        },
+      ],
+    })
+  })
+
+  it('lists legacy Agent 365 retry contracts as inactive and rejects mutation', async () => {
+    const repository = new InMemoryConnectorSourceRepository({
+      persistedSources: [legacyAgent365Source()],
+    })
+    authenticate('Administrator')
+    const app = await makeApp(repository)
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/connector-sources',
+      headers: headers(),
+    })
+    const status = await app.inject({
+      method: 'GET',
+      url: '/api/connector-sources/agent365-legacy-retry/connection-test-status',
+      headers: headers(),
+    })
+    const update = await app.inject({
+      method: 'PATCH',
+      url: '/api/connector-sources/agent365-legacy-retry',
+      headers: headers({
+        'idempotency-key': 'legacy-agent365-update',
+        'if-match': '"legacy-agent365-etag"',
+      }),
+      payload: { enabled: true },
+    })
+
+    expect(listed.statusCode, listed.body).toBe(200)
+    expect(listed.json()).toMatchObject({
+      items: [
+        {
+          sourceId: 'agent365-legacy-retry',
+          enabled: false,
+          configuration: { limits: { maxRetryAfterMs: 120_000 } },
+          migration: {
+            status: 'migration-required',
+            reason: 'legacy-agent365-retry-after-limit',
+          },
+        },
+      ],
+    })
+    expect(status.statusCode).toBe(200)
+    const statusBody = status.json<{
+      status: string
+      evidenceAvailability: string
+      summary: string
+    }>()
+    expect(statusBody).toMatchObject({
+      status: 'unknown',
+      evidenceAvailability: 'unavailable',
+    })
+    expect(statusBody.summary).toContain('60000 ms or less')
+    expect(update.statusCode).toBe(409)
+    expect(update.json()).toMatchObject({ error: 'connector_source_migration_required' })
+  })
+
   it('requires JWT authentication, exact Administrator RBAC, and the explicit write gate', async () => {
     const repository = new InMemoryConnectorSourceRepository()
     const app = await makeApp(repository)
@@ -291,6 +555,87 @@ describe('connector source API authorization and boundaries', () => {
 })
 
 describe('connector source API contracts', () => {
+  it('keeps Agent 365 visible but rejects every user-origin mutation without audit writes', async () => {
+    const repository = new InMemoryConnectorSourceRepository()
+    const enabledSource = await seed(repository, defaultEstate, 'agent365-enabled', {
+      connectorType: 'agent365',
+      displayName: 'Legacy enabled Agent 365',
+      enabled: true,
+      origin: 'user',
+      configuration: agent365CreateBody.configuration,
+      credential: agent365CreateBody.credential,
+    })
+    const disabledSource = await seed(repository, defaultEstate, 'agent365-disabled', {
+      connectorType: 'agent365',
+      displayName: 'Legacy disabled Agent 365',
+      enabled: false,
+      origin: 'user',
+      configuration: agent365CreateBody.configuration,
+      credential: agent365CreateBody.credential,
+    })
+    authenticate('Administrator')
+    const app = await makeApp(repository)
+
+    const create = await app.inject({
+      method: 'POST',
+      url: '/api/connector-sources',
+      headers: headers({ 'idempotency-key': 'reject-agent365-create' }),
+      payload: agent365CreateBody,
+    })
+    const disable = await app.inject({
+      method: 'PATCH',
+      url: `/api/connector-sources/${enabledSource.sourceId}`,
+      headers: headers({
+        'idempotency-key': 'reject-agent365-disable',
+        'if-match': `"${enabledSource.etag}"`,
+      }),
+      payload: { enabled: false },
+    })
+    const enable = await app.inject({
+      method: 'PATCH',
+      url: `/api/connector-sources/${disabledSource.sourceId}`,
+      headers: headers({
+        'idempotency-key': 'reject-agent365-enable',
+        'if-match': `"${disabledSource.etag}"`,
+      }),
+      payload: { enabled: true },
+    })
+    const remove = await app.inject({
+      method: 'DELETE',
+      url: `/api/connector-sources/${enabledSource.sourceId}`,
+      headers: headers({
+        'idempotency-key': 'reject-agent365-delete',
+        'if-match': `"${enabledSource.etag}"`,
+      }),
+    })
+
+    for (const response of [create, disable, enable, remove]) {
+      expect(response.statusCode).toBe(409)
+      expect(response.json()).toMatchObject({
+        error: 'agent365_deployment_managed_only',
+      })
+    }
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/connector-sources',
+      headers: headers(),
+    })
+    expect(listed.statusCode).toBe(200)
+    expect(listed.json()).toMatchObject({
+      items: [
+        { sourceId: 'agent365-disabled', enabled: false, origin: 'user' },
+        { sourceId: 'agent365-enabled', enabled: true, origin: 'user' },
+      ],
+    })
+    await expect(repository.findById(defaultEstate, 'agent365-user')).resolves.toBeNull()
+    await expect(repository.listAudit(defaultEstate, enabledSource.sourceId)).resolves.toHaveLength(
+      1,
+    )
+    await expect(
+      repository.listAudit(defaultEstate, disabledSource.sourceId),
+    ).resolves.toHaveLength(1)
+  })
+
   it('lists, gets, updates, replays, deletes, and retains ordered immutable audit', async () => {
     authenticate('Administrator')
     const app = await makeApp()
@@ -422,6 +767,7 @@ describe('connector source API contracts', () => {
       { ...createBody, tenantId: 'other-tenant' },
       { ...createBody, environment: 'other-environment' },
       { ...createBody, origin: 'deployment' },
+      { ...createBody, runtimeBinding: { bindingSourceId: 'caller-controlled' } },
       {
         ...createBody,
         testStatus: {
@@ -459,6 +805,57 @@ describe('connector source API contracts', () => {
       expect(response.statusCode).toBe(400)
       expect(response.body).not.toContain('must-not-be-accepted')
     }
+  })
+
+  it('rejects overlong Foundry project segments before create or update persistence', async () => {
+    const repository = new InMemoryConnectorSourceRepository()
+    authenticate('Administrator')
+    const app = await makeApp(repository)
+    const overlongEndpoint = 'https://safe.services.ai.azure.com/api/projects/' + 'p'.repeat(201)
+
+    const rejectedCreate = await app.inject({
+      method: 'POST',
+      url: '/api/connector-sources',
+      headers: headers({ 'idempotency-key': 'reject-overlong-create' }),
+      payload: {
+        ...createBody,
+        configuration: {
+          type: 'foundry',
+          projectEndpoint: overlongEndpoint,
+        },
+      },
+    })
+
+    expect(rejectedCreate.statusCode).toBe(400)
+    expect(await repository.findById(defaultEstate, createBody.sourceId)).toBeNull()
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/connector-sources',
+      headers: headers({ 'idempotency-key': 'create-for-overlong-update' }),
+      payload: createBody,
+    })
+    const source = created.json<{ source: ConnectorSourceDefinition }>().source
+    const rejectedUpdate = await app.inject({
+      method: 'PATCH',
+      url: `/api/connector-sources/${createBody.sourceId}`,
+      headers: headers({
+        'idempotency-key': 'reject-overlong-update',
+        'if-match': `"${source.etag}"`,
+      }),
+      payload: {
+        configuration: {
+          type: 'foundry',
+          projectEndpoint: overlongEndpoint,
+        },
+      },
+    })
+
+    expect(rejectedUpdate.statusCode).toBe(400)
+    expect(await repository.findById(defaultEstate, createBody.sourceId)).toMatchObject({
+      version: 1,
+      configuration: createBody.configuration,
+    })
   })
 
   it('requires strong ETags and does not allow a reused key to change a mutation', async () => {
@@ -761,6 +1158,12 @@ describe('connector source API contracts', () => {
     expect(listed.json()).toMatchObject({
       items: [
         {
+          sourceId: 'foundry-lab',
+          origin: 'deployment',
+          enabled: false,
+          testStatus: { status: 'not-tested' },
+        },
+        {
           sourceId: 'foundry-primary',
           origin: 'deployment',
           enabled: false,
@@ -776,15 +1179,7 @@ describe('connector source API contracts', () => {
     })
     expect(lab.statusCode).toBe(200)
     expect(lab.json()).toMatchObject({
-      items: [
-        {
-          sourceId: 'foundry-lab',
-          estateId: 'lab',
-          tenantId: 'tenant-lab',
-          environment: 'validation',
-          origin: 'deployment',
-        },
-      ],
+      items: [],
     })
 
     const projected = listed.json<{ items: ConnectorSourceDefinition[] }>().items[0]!
@@ -818,6 +1213,51 @@ describe('connector source API contracts', () => {
       expect(response.json()).toMatchObject({ error: 'immutable_source' })
     }
     await expect(repository.list(defaultEstate)).resolves.toEqual([])
+  })
+
+  it('lists a cross-tenant Agent 365 deployment source under the portfolio estate boundary', async () => {
+    process.env['AGENT_SENTINEL_TENANT_ID'] = defaultEstate.tenantId
+    process.env['AGENT_SENTINEL_ENVIRONMENT'] = defaultEstate.environment
+    process.env['AGENT365_CONNECTOR_ENABLED'] = 'true'
+    process.env['AGENT365_MANAGED_IDENTITY_CLIENT_ID'] = '59dbea72-1e91-403a-89cf-e02cdb8da350'
+    process.env['AGENT365_SOURCES_JSON'] = JSON.stringify([
+      {
+        id: 'provider',
+        name: 'Provider Agent 365',
+        tenantId: '22222222-2222-4222-8222-222222222222',
+        environment: 'provider-production',
+      },
+    ])
+    authenticate('Administrator')
+    const app = await makeApp(new InMemoryConnectorSourceRepository())
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/connector-sources',
+      headers: headers(),
+    })
+
+    expect(listed.statusCode, listed.body).toBe(200)
+    expect(listed.json()).toMatchObject({
+      items: [
+        {
+          estateId: defaultEstate.id,
+          tenantId: defaultEstate.tenantId,
+          environment: defaultEstate.environment,
+          sourceId: 'agent365-provider',
+          runtimeBinding: {
+            bindingSourceId: 'provider',
+            sourceTenantId: '22222222-2222-4222-8222-222222222222',
+            sourceEnvironment: 'provider-production',
+          },
+          configuration: {
+            type: 'agent365',
+            sourceTenantId: '22222222-2222-4222-8222-222222222222',
+            sourceEnvironment: 'provider-production',
+          },
+        },
+      ],
+    })
   })
 
   it('keeps deployment-origin definitions immutable and non-deletable', async () => {

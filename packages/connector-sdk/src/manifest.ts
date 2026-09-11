@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto'
-
 import { estateSnapshotSchema, relationshipSchema, type Relationship } from '@agent-sentinel/domain'
 import { z } from 'zod'
+
+import { computeCanonicalSha256 } from './canonical-hash.js'
 
 // ─── Schema version ──────────────────────────────────────────────────────────
 
@@ -398,6 +398,9 @@ export const manifestEnvelopeSchema = envelopeShape.superRefine((envelope, conte
   }
 
   const seenEvidence = new Set<string>()
+  const generatedEvidenceIds = new Set(
+    [...declared.keys()].map((entityId) => `declared::${entityId}`),
+  )
   for (const [index, evidence] of envelope.evidence.entries()) {
     // Rule: evidence identifiers are unique.
     if (seenEvidence.has(evidence.id)) {
@@ -408,6 +411,15 @@ export const manifestEnvelopeSchema = envelopeShape.superRefine((envelope, conte
       })
     }
     seenEvidence.add(evidence.id)
+
+    if (generatedEvidenceIds.has(evidence.id)) {
+      const generatedEntityId = evidence.id.slice('declared::'.length)
+      context.addIssue({
+        code: 'custom',
+        message: `Operator evidence id ${evidence.id} collides with generated evidence for ${generatedEntityId}.`,
+        path: ['evidence', index, 'id'],
+      })
+    }
 
     // Rule: evidence subjects reference a declared entity.
     if (!declared.has(evidence.subjectId)) {
@@ -484,24 +496,9 @@ export function validateManifest(raw: unknown): ManifestValidationResult {
   return { ok: true, envelope: parsed.data }
 }
 
-// ─── Deterministic hashing ───────────────────────────────────────────────────
-
-function canonicalJson(value: unknown): string {
-  if (value === undefined) return 'null'
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
-  if (value !== null && typeof value === 'object') {
-    const record = value as Record<string, unknown>
-    const keys = Object.keys(record)
-      .filter((key) => record[key] !== undefined)
-      .sort()
-    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(',')}}`
-  }
-  return JSON.stringify(value) ?? 'null'
-}
-
 /** SHA-256 over a key-sorted canonical rendering. Stable across key ordering. */
 export function computeManifestHash(envelope: ManifestEnvelope): string {
-  return createHash('sha256').update(canonicalJson(envelope)).digest('hex')
+  return computeCanonicalSha256(envelope)
 }
 
 export const manifestIngestionRecordSchema = z
