@@ -20,6 +20,7 @@ import {
   projectAgent365SnapshotHealth,
   reconcileAgent365PersistedHealth,
   resolveAgent365Runtime,
+  synthesizeAgent365UnmeasuredHealth,
 } from '../src/index.js'
 import type { ConnectorHealthMeasurement } from '@agent-sentinel/connector-sdk'
 import type { ConnectorHealthReport } from '@agent-sentinel/connector-sdk'
@@ -125,6 +126,25 @@ function migrationRequiredOtelSource(
     updatedBy: { type: 'service-principal', id: 'configuration-api' },
     createdAt: '2026-09-09T00:00:00.000Z',
     updatedAt: '2026-09-09T00:00:00.000Z',
+  })
+}
+
+function migrationRequiredAgent365Source(
+  sourceId = 'agent365-legacy-retry',
+): ConnectorSourceReadModel {
+  const current = source(sourceId, { origin: 'user' })
+  if (current.configuration.type !== 'agent365') {
+    throw new Error('Expected an Agent 365 source fixture.')
+  }
+  return hydratePersistedConnectorSourceDefinition({
+    ...current,
+    configuration: {
+      ...current.configuration,
+      limits: {
+        ...current.configuration.limits,
+        maxRetryAfterMs: 120_000,
+      },
+    },
   })
 }
 
@@ -281,6 +301,41 @@ describe('Agent 365 runtime source resolution', () => {
 
     expect(resolved.bindings.map((binding) => binding.sourceId)).toEqual(['agent365-active'])
     expect(resolved.config?.sources.map((value) => value.id)).toEqual(['agent365-active'])
+  })
+
+  it('retains a legacy Agent 365 retry source as an explicit inactive runtime binding', async () => {
+    const runtime = await resolveAgent365Runtime(
+      repository([migrationRequiredAgent365Source()]),
+      estate,
+    )
+
+    expect(runtime.config).toBeUndefined()
+    expect(runtime.bindings).toEqual([
+      expect.objectContaining({
+        sourceId: 'agent365-legacy-retry',
+        sourceTenantId: estate.tenantId,
+        sourceEnvironment: estate.environment,
+        activation: { status: 'inactive', reason: 'migration-required' },
+      }),
+    ])
+    expect(
+      createAgent365RuntimeConnector(baseConnector(), runtime).getConnectorHealth?.(),
+    ).toMatchObject({
+      overall: 'degraded',
+      partial: true,
+      sources: [
+        expect.objectContaining({
+          id: 'base',
+        }),
+        expect.objectContaining({
+          id: 'agent365:agent365-legacy-retry',
+          enabled: false,
+          configured: false,
+          readiness: 'degraded',
+          reason: 'migration-required',
+        }),
+      ],
+    })
   })
 
   it('enforces estate checks before excluding legacy OTel sources', async () => {
@@ -454,6 +509,63 @@ describe('Agent 365 runtime source resolution', () => {
         maxDurationMs: 5_000,
       },
       sources: [{ limits: { maxRetryAfterMs: 60_000 } }],
+    })
+  })
+
+  it('retains a cross-tenant provider boundary through deployment runtime and provenance', async () => {
+    const providerTenantId = '22222222-2222-4222-8222-222222222222'
+    const deployment = buildDeploymentConnectorSources(
+      {
+        AGENT_SENTINEL_TENANT_ID: estate.tenantId,
+        AGENT_SENTINEL_ENVIRONMENT: estate.environment,
+        AGENT365_CONNECTOR_ENABLED: 'true',
+        AGENT365_SOURCES_JSON: JSON.stringify([
+          {
+            id: 'provider',
+            name: 'Provider Agent 365',
+            tenantId: providerTenantId,
+            environment: 'provider-production',
+          },
+        ]),
+        AGENT365_MANAGED_IDENTITY_CLIENT_ID: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+      },
+      { estates: [estate] },
+      'live',
+    )
+    const resolved = await resolveAgent365Runtime(
+      new DeploymentConnectorSourceRepository(repository([]), deployment),
+      estate,
+    )
+
+    expect(resolved.bindings).toMatchObject([
+      {
+        tenantId: estate.tenantId,
+        environment: estate.environment,
+        sourceTenantId: providerTenantId,
+        sourceEnvironment: 'provider-production',
+      },
+    ])
+    expect(resolved.config?.sources).toMatchObject([
+      {
+        tenantId: providerTenantId,
+        environment: 'provider-production',
+      },
+    ])
+    expect(synthesizeAgent365UnmeasuredHealth(resolved)).toMatchObject({
+      sources: [
+        expect.objectContaining({
+          id: 'agent365:provider',
+          provenance: {
+            estateTenantId: estate.tenantId,
+            estateEnvironment: estate.environment,
+            sourceConnectorId: 'provider',
+            sourceTenantId: providerTenantId,
+            sourceEnvironment: 'provider-production',
+            provider: 'microsoft-graph-agent365-package-catalog',
+            providerObjectId: '/v1.0/copilot/admin/catalog/packages',
+          },
+        }),
+      ],
     })
   })
 
@@ -1251,17 +1363,17 @@ describe('Agent 365 runtime source resolution', () => {
       new Date('2026-09-09T00:05:00.000Z'),
     )
 
-    expect(health.sources.filter((source) => source.id.startsWith('agent365:'))).toEqual([
-      expect.objectContaining({
+    expect(health.sources.filter((source) => source.id.startsWith('agent365:'))).toMatchObject([
+      {
         id: 'agent365:primary',
         name: 'Primary Agent 365',
         readiness: 'degraded',
         dataState: 'stale',
         reason: 'source-set-changed',
-        provenance: expect.objectContaining({
+        provenance: {
           sourceConnectorId: 'primary',
-        }),
-      }),
+        },
+      },
     ])
 
     const currentFingerprint = agent365SourceSetFingerprint([binding])
@@ -1279,14 +1391,14 @@ describe('Agent 365 runtime source resolution', () => {
       new Date('2026-09-09T00:00:00.001Z'),
     )
 
-    expect(expired.sources.filter((source) => source.id.startsWith('agent365:'))).toEqual([
-      expect.objectContaining({
+    expect(expired.sources.filter((source) => source.id.startsWith('agent365:'))).toMatchObject([
+      {
         id: 'agent365:primary',
         reason: 'measurement-expired',
-        provenance: expect.objectContaining({
+        provenance: {
           sourceConnectorId: 'primary',
-        }),
-      }),
+        },
+      },
     ])
   })
 

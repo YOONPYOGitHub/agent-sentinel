@@ -221,6 +221,15 @@ function sourceResponse(source: ConnectorSourceReadModel): ConnectorSourceReadMo
   })
 }
 
+function migrationSummary(source: ConnectorSourceReadModel): string {
+  if (!isConnectorSourceMigrationRequired(source)) {
+    throw new Error('Connector source migration summary requires a migration read model.')
+  }
+  return source.migration.reason === 'missing-source-project-id'
+    ? 'An exact source project ID is required before this source can be activated.'
+    : 'The legacy Agent 365 retry-after limit must be reduced to 60000 ms or less before this source can be activated.'
+}
+
 function auditResponse(auditValue: ConnectorSourceAuditReadModel) {
   const audit = connectorSourceAuditReadModelSchema.parse(auditValue)
   return {
@@ -345,7 +354,7 @@ async function sendWriteResult(
     await reply.status(409).send({
       error: 'connector_source_migration_required',
       message:
-        'An exact source project ID must be migrated before this connector source can be changed.',
+        'This connector source requires an explicit configuration migration before it can be changed.',
     })
     return
   }
@@ -479,7 +488,7 @@ export function registerConnectorSourceRoutes(
           evidenceIds: [],
           checkedAt: null,
           checkedBy: null,
-          summary: 'An exact source project ID is required before this source can be activated.',
+          summary: migrationSummary(source),
         })
       }
       if (source.testStatus.status === 'not-tested') {

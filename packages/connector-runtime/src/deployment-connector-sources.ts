@@ -142,6 +142,7 @@ function projectSource(
   source: ProjectableSource,
   configuration: unknown,
   estateBoundary: Pick<ProjectableSource, 'tenantId' | 'environment'> = source,
+  retainProviderBoundary = false,
 ): ConnectorSourceDefinition | undefined {
   const estate = registry.estates.find(
     (candidate) =>
@@ -163,6 +164,12 @@ function projectSource(
     credential: credentialMetadata(source.credential, environment),
     runtimeBinding: {
       bindingSourceId: source.id,
+      ...(retainProviderBoundary
+        ? {
+            sourceTenantId: source.tenantId,
+            sourceEnvironment: source.environment,
+          }
+        : {}),
     },
     testStatus: { status: 'not-tested' as const },
   }
@@ -189,6 +196,7 @@ export function buildDeploymentConnectorSources(
     sources: readonly T[],
     configuration: (source: T) => unknown,
     estateBoundary?: (source: T) => Pick<ProjectableSource, 'tenantId' | 'environment'>,
+    retainProviderBoundary = false,
   ): void => {
     for (const source of sources) {
       const definition = projectSource(
@@ -199,6 +207,7 @@ export function buildDeploymentConnectorSources(
         source,
         configuration(source),
         estateBoundary?.(source),
+        retainProviderBoundary,
       )
       if (definition !== undefined) definitions.push(definition)
     }
@@ -251,6 +260,16 @@ export function buildDeploymentConnectorSources(
     enabled(environment, 'AGENT365_CONNECTOR_ENABLED')
   ) {
     const config = parseAgent365Config(environment)
+    const estateTenantId = environment['AGENT_SENTINEL_TENANT_ID']?.trim()
+    const estateEnvironment = environment['AGENT_SENTINEL_ENVIRONMENT']?.trim()
+    if (
+      (estateTenantId === undefined || estateTenantId === '') !==
+      (estateEnvironment === undefined || estateEnvironment === '')
+    ) {
+      throw new Error(
+        'Agent 365 portfolio projection requires both AGENT_SENTINEL_TENANT_ID and AGENT_SENTINEL_ENVIRONMENT when either is configured.',
+      )
+    }
     add(
       'agent365',
       enabled(environment, 'AGENT365_CONNECTOR_ENABLED'),
@@ -258,9 +277,16 @@ export function buildDeploymentConnectorSources(
       (source) => ({
         type: 'agent365',
         graphBaseUrl: source.graphBaseUrl,
+        sourceTenantId: source.tenantId,
+        sourceEnvironment: source.environment,
         limits: connectorLimits(source.limits),
         aggregation: config.aggregation,
       }),
+      (source) =>
+        estateTenantId && estateEnvironment
+          ? { tenantId: estateTenantId, environment: estateEnvironment }
+          : source,
+      true,
     )
   }
   if (configured(environment, 'DEFENDER_CLOUD_APPS_SOURCES_JSON')) {

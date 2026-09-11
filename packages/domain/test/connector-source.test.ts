@@ -183,6 +183,44 @@ describe('connector source domain', () => {
     })
   })
 
+  it('hydrates prior-contract Agent 365 retry limits as inactive migration-required records', () => {
+    const legacy = {
+      ...DEFINITION,
+      sourceId: 'agent365-legacy-retry',
+      connectorType: 'agent365',
+      configuration: {
+        type: 'agent365',
+        graphBaseUrl: 'https://graph.microsoft.com',
+        limits: {
+          maxPages: 20,
+          maxItems: 5_000,
+          requestTimeoutMs: 15_000,
+          maxRetries: 2,
+          maxRetryAfterMs: 120_000,
+          maxResponseBytes: 2_000_000,
+        },
+      },
+    }
+
+    const hydrated = hydratePersistedConnectorSourceDefinition(legacy)
+
+    expect(connectorSourceReadModelSchema.parse(hydrated)).toMatchObject({
+      sourceId: 'agent365-legacy-retry',
+      connectorType: 'agent365',
+      enabled: false,
+      configuration: {
+        limits: { maxRetryAfterMs: 120_000 },
+      },
+      testStatus: { status: 'not-tested' },
+      migration: {
+        status: 'migration-required',
+        active: false,
+        reason: 'legacy-agent365-retry-after-limit',
+        action: 'reduce-max-retry-after-ms',
+      },
+    })
+  })
+
   it.each([
     {
       name: 'user-origin source',

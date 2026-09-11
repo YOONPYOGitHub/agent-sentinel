@@ -246,6 +246,41 @@ function legacyAzureMonitorAudit(sourceId = 'azure-monitor-primary'): unknown {
   } satisfies ConnectorSourceAuditRecord
 }
 
+function legacyAgent365Source(): unknown {
+  return {
+    estateId: defaultEstate.id,
+    tenantId: defaultEstate.tenantId,
+    environment: defaultEstate.environment,
+    sourceId: 'agent365-legacy-retry',
+    connectorType: 'agent365',
+    displayName: 'Legacy Agent 365 retry contract',
+    enabled: true,
+    origin: 'user',
+    configuration: {
+      ...agent365CreateBody.configuration,
+      limits: {
+        ...agent365CreateBody.configuration.limits,
+        maxRetryAfterMs: 120_000,
+      },
+    },
+    credential: agent365CreateBody.credential,
+    testStatus: {
+      status: 'passed',
+      evidenceBasis: 'provider-response',
+      evidenceIds: ['legacy-agent365-evidence'],
+      checkedAt: '2026-09-04T00:00:00.000Z',
+      checkedBy: { type: 'user', id: 'administrator-object-id' },
+      summary: 'Legacy provider response.',
+    },
+    version: 1,
+    etag: 'legacy-agent365-etag',
+    createdBy: { type: 'user', id: 'administrator-object-id' },
+    updatedBy: { type: 'user', id: 'administrator-object-id' },
+    createdAt: '2026-09-04T00:00:00.000Z',
+    updatedAt: '2026-09-04T00:00:00.000Z',
+  }
+}
+
 beforeEach(() => {
   jose.createRemoteJWKSet.mockClear()
   jose.jwtVerify.mockReset()
@@ -259,6 +294,9 @@ afterEach(async () => {
   delete process.env['AGENT_SENTINEL_ENVIRONMENT']
   delete process.env['FOUNDRY_ENVIRONMENT']
   delete process.env['FOUNDRY_SOURCES_JSON']
+  delete process.env['AGENT365_CONNECTOR_ENABLED']
+  delete process.env['AGENT365_MANAGED_IDENTITY_CLIENT_ID']
+  delete process.env['AGENT365_SOURCES_JSON']
 })
 
 describe('connector source API authorization and boundaries', () => {
@@ -320,6 +358,7 @@ describe('connector source API authorization and boundaries', () => {
       persistedSources: [legacyAzureMonitorSource(sourceId)],
       persistedAudits: [legacyAzureMonitorAudit(sourceId)],
     })
+
     authenticate('Administrator')
     const app = await makeApp(repository)
 
@@ -351,6 +390,62 @@ describe('connector source API authorization and boundaries', () => {
         },
       ],
     })
+  })
+
+  it('lists legacy Agent 365 retry contracts as inactive and rejects mutation', async () => {
+    const repository = new InMemoryConnectorSourceRepository({
+      persistedSources: [legacyAgent365Source()],
+    })
+    authenticate('Administrator')
+    const app = await makeApp(repository)
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/connector-sources',
+      headers: headers(),
+    })
+    const status = await app.inject({
+      method: 'GET',
+      url: '/api/connector-sources/agent365-legacy-retry/connection-test-status',
+      headers: headers(),
+    })
+    const update = await app.inject({
+      method: 'PATCH',
+      url: '/api/connector-sources/agent365-legacy-retry',
+      headers: headers({
+        'idempotency-key': 'legacy-agent365-update',
+        'if-match': '"legacy-agent365-etag"',
+      }),
+      payload: { enabled: true },
+    })
+
+    expect(listed.statusCode, listed.body).toBe(200)
+    expect(listed.json()).toMatchObject({
+      items: [
+        {
+          sourceId: 'agent365-legacy-retry',
+          enabled: false,
+          configuration: { limits: { maxRetryAfterMs: 120_000 } },
+          migration: {
+            status: 'migration-required',
+            reason: 'legacy-agent365-retry-after-limit',
+          },
+        },
+      ],
+    })
+    expect(status.statusCode).toBe(200)
+    const statusBody = status.json<{
+      status: string
+      evidenceAvailability: string
+      summary: string
+    }>()
+    expect(statusBody).toMatchObject({
+      status: 'unknown',
+      evidenceAvailability: 'unavailable',
+    })
+    expect(statusBody.summary).toContain('60000 ms or less')
+    expect(update.statusCode).toBe(409)
+    expect(update.json()).toMatchObject({ error: 'connector_source_migration_required' })
   })
 
   it('requires JWT authentication, exact Administrator RBAC, and the explicit write gate', async () => {
@@ -1118,6 +1213,51 @@ describe('connector source API contracts', () => {
       expect(response.json()).toMatchObject({ error: 'immutable_source' })
     }
     await expect(repository.list(defaultEstate)).resolves.toEqual([])
+  })
+
+  it('lists a cross-tenant Agent 365 deployment source under the portfolio estate boundary', async () => {
+    process.env['AGENT_SENTINEL_TENANT_ID'] = defaultEstate.tenantId
+    process.env['AGENT_SENTINEL_ENVIRONMENT'] = defaultEstate.environment
+    process.env['AGENT365_CONNECTOR_ENABLED'] = 'true'
+    process.env['AGENT365_MANAGED_IDENTITY_CLIENT_ID'] = '59dbea72-1e91-403a-89cf-e02cdb8da350'
+    process.env['AGENT365_SOURCES_JSON'] = JSON.stringify([
+      {
+        id: 'provider',
+        name: 'Provider Agent 365',
+        tenantId: '22222222-2222-4222-8222-222222222222',
+        environment: 'provider-production',
+      },
+    ])
+    authenticate('Administrator')
+    const app = await makeApp(new InMemoryConnectorSourceRepository())
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/connector-sources',
+      headers: headers(),
+    })
+
+    expect(listed.statusCode, listed.body).toBe(200)
+    expect(listed.json()).toMatchObject({
+      items: [
+        {
+          estateId: defaultEstate.id,
+          tenantId: defaultEstate.tenantId,
+          environment: defaultEstate.environment,
+          sourceId: 'agent365-provider',
+          runtimeBinding: {
+            bindingSourceId: 'provider',
+            sourceTenantId: '22222222-2222-4222-8222-222222222222',
+            sourceEnvironment: 'provider-production',
+          },
+          configuration: {
+            type: 'agent365',
+            sourceTenantId: '22222222-2222-4222-8222-222222222222',
+            sourceEnvironment: 'provider-production',
+          },
+        },
+      ],
+    })
   })
 
   it('keeps deployment-origin definitions immutable and non-deletable', async () => {

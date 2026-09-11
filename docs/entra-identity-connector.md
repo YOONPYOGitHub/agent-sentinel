@@ -120,7 +120,9 @@ fallback.
 
 For multiple Foundry tenant/project sources, set `ENTRA_SOURCES_JSON` for each
 directory inventory and `ENTRA_RUNS_AS_BINDINGS_JSON` for the explicit
-many-project-to-one-inventory relationships. Entra source IDs are independent
+many-project-to-one-inventory relationships. In Bicep deployments, use the
+`entraRunsAsBindingsJson` parameter; `platform.bicep` validates its JSON and
+projects it only to the API and jobs container apps. Entra source IDs are independent
 from Foundry source IDs. One estate-scoped Entra inventory is queried once and
 may be bound to multiple Foundry projects only when every binding names the
 complete exact same-tenant source boundary. Identity nodes and evidence are

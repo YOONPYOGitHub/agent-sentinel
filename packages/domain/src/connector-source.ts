@@ -7,9 +7,20 @@ const azureGuidSchema = z
   .string()
   .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
 export const connectorSourceIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)
-export const connectorRuntimeBindingSchema = z.strictObject({
-  bindingSourceId: connectorSourceIdSchema,
-})
+export const connectorRuntimeBindingSchema = z
+  .strictObject({
+    bindingSourceId: connectorSourceIdSchema,
+    sourceTenantId: z.string().trim().min(1).max(128).optional(),
+    sourceEnvironment: z.string().trim().min(1).max(128).optional(),
+  })
+  .superRefine((binding, context) => {
+    if ((binding.sourceTenantId === undefined) !== (binding.sourceEnvironment === undefined)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'A retained runtime provider boundary requires tenant and environment.',
+      })
+    }
+  })
 export type ConnectorRuntimeBinding = z.infer<typeof connectorRuntimeBindingSchema>
 const boundedIdentifierSchema = z.string().trim().min(1).max(256)
 const boundedEnvironmentSchema = z.string().trim().min(1).max(128)
@@ -236,15 +247,29 @@ export const connectorSourceConfigurationSchema = z.discriminatedUnion('type', [
     ).default('https://api.powerplatform.com'),
     limits: standardConnectorLimitsSchema,
   }),
-  z.strictObject({
-    type: z.literal('agent365'),
-    graphBaseUrl: exactHttpsOriginSchema(
-      'https://graph.microsoft.com',
-      'Microsoft Graph base',
-    ).default('https://graph.microsoft.com'),
-    limits: agent365ConnectorLimitsSchema,
-    aggregation: agent365AggregationSchema.optional(),
-  }),
+  z
+    .strictObject({
+      type: z.literal('agent365'),
+      graphBaseUrl: exactHttpsOriginSchema(
+        'https://graph.microsoft.com',
+        'Microsoft Graph base',
+      ).default('https://graph.microsoft.com'),
+      sourceTenantId: boundedIdentifierSchema.optional(),
+      sourceEnvironment: boundedEnvironmentSchema.optional(),
+      limits: agent365ConnectorLimitsSchema,
+      aggregation: agent365AggregationSchema.optional(),
+    })
+    .superRefine((configuration, context) => {
+      if (
+        (configuration.sourceTenantId === undefined) !==
+        (configuration.sourceEnvironment === undefined)
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'A retained Agent 365 provider boundary requires tenant and environment.',
+        })
+      }
+    }),
   z.strictObject({
     type: z.literal('defender-cloud-apps'),
     apiBaseUrl: defenderPortalSchema,
@@ -431,6 +456,20 @@ const connectorSourceCoreSchema = z
         message: 'Deployment runtime bindings are allowed only on deployment-origin sources.',
       })
     }
+    if (source.configuration.type === 'agent365' && source.runtimeBinding !== undefined) {
+      const configuredTenantId = source.configuration.sourceTenantId
+      const configuredEnvironment = source.configuration.sourceEnvironment
+      const boundTenantId = source.runtimeBinding.sourceTenantId
+      const boundEnvironment = source.runtimeBinding.sourceEnvironment
+      if (configuredTenantId !== boundTenantId || configuredEnvironment !== boundEnvironment) {
+        context.addIssue({
+          code: 'custom',
+          path: ['runtimeBinding'],
+          message:
+            'Agent 365 runtime binding provider boundary must match the retained configuration boundary.',
+        })
+      }
+    }
   })
 
 export const connectorSourceCreateInputSchema = connectorSourceCoreSchema
@@ -531,20 +570,120 @@ const legacyAzureMonitorConnectorSourceSchema = z
     }
   })
 
-export const connectorSourceMigrationSchema = z.strictObject({
-  status: z.literal('migration-required'),
-  active: z.literal(false),
-  reason: z.literal('missing-source-project-id'),
-  action: z.literal('supply-exact-source-project-id'),
-})
+const legacyAgent365ConfigurationSchema = z
+  .strictObject({
+    type: z.literal('agent365'),
+    graphBaseUrl: exactHttpsOriginSchema(
+      'https://graph.microsoft.com',
+      'Microsoft Graph base',
+    ).default('https://graph.microsoft.com'),
+    sourceTenantId: boundedIdentifierSchema.optional(),
+    sourceEnvironment: boundedEnvironmentSchema.optional(),
+    limits: standardConnectorLimitsSchema,
+    aggregation: agent365AggregationSchema.optional(),
+  })
+  .superRefine((configuration, context) => {
+    if (
+      (configuration.sourceTenantId === undefined) !==
+      (configuration.sourceEnvironment === undefined)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'A retained Agent 365 provider boundary requires tenant and environment.',
+      })
+    }
+    if (configuration.limits.maxRetryAfterMs <= AGENT365_MAX_RETRY_AFTER_MS) {
+      context.addIssue({
+        code: 'custom',
+        path: ['limits', 'maxRetryAfterMs'],
+        message: 'Legacy Agent 365 migration applies only above the current retry-after limit.',
+      })
+    }
+  })
+
+const legacyAgent365ConnectorSourceSchema = z
+  .strictObject({
+    estateId: estateIdSchema,
+    tenantId: z.string().trim().min(1).max(128),
+    environment: boundedEnvironmentSchema,
+    sourceId: connectorSourceIdSchema,
+    connectorType: z.literal('agent365'),
+    displayName: z.string().trim().min(1).max(100),
+    enabled: z.boolean(),
+    origin: z.enum(['deployment', 'user']),
+    configuration: legacyAgent365ConfigurationSchema,
+    credential: connectorCredentialMetadataSchema,
+    runtimeBinding: connectorRuntimeBindingSchema.optional(),
+    testStatus: connectorSourceTestStatusSchema,
+    version: z.number().int().min(1),
+    etag: z.string().trim().min(1).max(256),
+    createdBy: connectorSourceActorSchema,
+    updatedBy: connectorSourceActorSchema,
+    createdAt: normalizedTimestampSchema,
+    updatedAt: normalizedTimestampSchema,
+  })
+  .superRefine((source, context) => {
+    if (source.updatedAt < source.createdAt) {
+      context.addIssue({
+        code: 'custom',
+        path: ['updatedAt'],
+        message: 'updatedAt cannot precede createdAt.',
+      })
+    }
+    if (source.origin === 'deployment' && source.createdBy.type !== 'deployment') {
+      context.addIssue({
+        code: 'custom',
+        path: ['createdBy', 'type'],
+        message: 'Deployment sources must be created by a deployment actor.',
+      })
+    }
+    if (source.runtimeBinding !== undefined && source.origin !== 'deployment') {
+      context.addIssue({
+        code: 'custom',
+        path: ['runtimeBinding'],
+        message: 'Deployment runtime bindings are allowed only on deployment-origin sources.',
+      })
+    }
+  })
+
+export const connectorSourceMigrationSchema = z.discriminatedUnion('reason', [
+  z.strictObject({
+    status: z.literal('migration-required'),
+    active: z.literal(false),
+    reason: z.literal('missing-source-project-id'),
+    action: z.literal('supply-exact-source-project-id'),
+  }),
+  z.strictObject({
+    status: z.literal('migration-required'),
+    active: z.literal(false),
+    reason: z.literal('legacy-agent365-retry-after-limit'),
+    action: z.literal('reduce-max-retry-after-ms'),
+  }),
+])
 export type ConnectorSourceMigration = z.infer<typeof connectorSourceMigrationSchema>
 
-export const connectorSourceMigrationRequiredSchema =
+export const connectorSourceMigrationRequiredSchema = z.union([
   legacyAzureMonitorConnectorSourceSchema.safeExtend({
     enabled: z.literal(false),
     testStatus: z.strictObject({ status: z.literal('not-tested') }),
-    migration: connectorSourceMigrationSchema,
-  })
+    migration: z.strictObject({
+      status: z.literal('migration-required'),
+      active: z.literal(false),
+      reason: z.literal('missing-source-project-id'),
+      action: z.literal('supply-exact-source-project-id'),
+    }),
+  }),
+  legacyAgent365ConnectorSourceSchema.safeExtend({
+    enabled: z.literal(false),
+    testStatus: z.strictObject({ status: z.literal('not-tested') }),
+    migration: z.strictObject({
+      status: z.literal('migration-required'),
+      active: z.literal(false),
+      reason: z.literal('legacy-agent365-retry-after-limit'),
+      action: z.literal('reduce-max-retry-after-ms'),
+    }),
+  }),
+])
 export type ConnectorSourceMigrationRequired = z.infer<
   typeof connectorSourceMigrationRequiredSchema
 >
@@ -595,33 +734,48 @@ export function hydratePersistedConnectorSourceDefinition(
   const current = connectorSourceDefinitionSchema.safeParse(value)
   if (current.success) return current.data
 
-  const legacy = legacyAzureMonitorConnectorSourceSchema.parse(value)
-  const matches = authoritativeSources.filter((candidate) =>
-    exactAzureMonitorBinding(legacy, connectorSourceDefinitionSchema.parse(candidate)),
-  )
-  if (matches.length === 1) {
-    const binding = matches[0]!
-    if (binding.configuration.type !== 'azure-monitor-otel') {
-      throw new Error('Exact Azure Monitor source binding changed during hydration.')
+  const legacyAzureMonitor = legacyAzureMonitorConnectorSourceSchema.safeParse(value)
+  if (legacyAzureMonitor.success) {
+    const legacy = legacyAzureMonitor.data
+    const matches = authoritativeSources.filter((candidate) =>
+      exactAzureMonitorBinding(legacy, connectorSourceDefinitionSchema.parse(candidate)),
+    )
+    if (matches.length === 1) {
+      const binding = matches[0]!
+      if (binding.configuration.type !== 'azure-monitor-otel') {
+        throw new Error('Exact Azure Monitor source binding changed during hydration.')
+      }
+      return connectorSourceDefinitionSchema.parse({
+        ...legacy,
+        configuration: {
+          ...legacy.configuration,
+          sourceProjectId: binding.configuration.sourceProjectId,
+        },
+      })
     }
-    return connectorSourceDefinitionSchema.parse({
+    return connectorSourceMigrationRequiredSchema.parse({
       ...legacy,
-      configuration: {
-        ...legacy.configuration,
-        sourceProjectId: binding.configuration.sourceProjectId,
+      enabled: false,
+      testStatus: { status: 'not-tested' },
+      migration: {
+        status: 'migration-required',
+        active: false,
+        reason: 'missing-source-project-id',
+        action: 'supply-exact-source-project-id',
       },
     })
   }
 
+  const legacyAgent365 = legacyAgent365ConnectorSourceSchema.parse(value)
   return connectorSourceMigrationRequiredSchema.parse({
-    ...legacy,
+    ...legacyAgent365,
     enabled: false,
     testStatus: { status: 'not-tested' },
     migration: {
       status: 'migration-required',
       active: false,
-      reason: 'missing-source-project-id',
-      action: 'supply-exact-source-project-id',
+      reason: 'legacy-agent365-retry-after-limit',
+      action: 'reduce-max-retry-after-ms',
     },
   })
 }

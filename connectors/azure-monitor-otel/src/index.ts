@@ -12,9 +12,11 @@ import type {
 import {
   assessRuntimeOtelQuality,
   agentCorrelationsSchema,
+  observationWindowSchema,
   runtimeOtelProvenanceSchema,
   runtimeObservationSchema,
   sourceProjectIdSchema,
+  type ObservationWindow,
   type OtelEvidenceCaveat,
   type RuntimeObservation,
 } from '@agent-sentinel/domain'
@@ -50,7 +52,10 @@ export {
 
 const LOGS_SCOPE = 'https://api.loganalytics.io/.default'
 const LOGS_ORIGIN = 'https://api.loganalytics.io'
-const MAX_QUERY_ROWS = MAX_REPRESENTATIVE_OTEL_OBSERVATIONS * 2
+const MAX_QUERY_ROWS_PER_PAGE = MAX_REPRESENTATIVE_OTEL_OBSERVATIONS + 1
+const MAX_INITIAL_QUERY_ROWS = MAX_REPRESENTATIVE_OTEL_OBSERVATIONS * 2 + 1
+const MAX_QUERY_PAGES = 20
+const MAX_WINDOW_OBSERVATIONS = MAX_REPRESENTATIVE_OTEL_OBSERVATIONS * MAX_QUERY_PAGES
 const MAX_QUERY_HOURS = 24 * 31
 const WINDOW_ALIGNMENT_MS = 5 * 60 * 1_000
 const SAFE_BINDING = /^[A-Za-z0-9][A-Za-z0-9._:/ -]{0,199}$/
@@ -126,7 +131,7 @@ async function readBoundedJson(
   response: Response,
   maximumBytes: number,
   signal: AbortSignal,
-): Promise<unknown> {
+): Promise<{ body: unknown; bytesRead: number }> {
   const declaredLength = response.headers.get('content-length')
   if (declaredLength !== null) {
     if (!/^\d+$/.test(declaredLength)) {
@@ -168,7 +173,10 @@ async function readBoundedJson(
     offset += chunk.byteLength
   }
   try {
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+    return {
+      body: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)),
+      bytesRead,
+    }
   } catch {
     throw new AzureMonitorOtelConnectorError('Azure Monitor Logs returned a non-JSON response.')
   }
@@ -288,7 +296,7 @@ const queryTableSchema = z.strictObject({
       }),
     )
     .length(expectedColumns.length),
-  rows: z.array(z.array(z.unknown()).length(expectedColumns.length)).max(MAX_QUERY_ROWS + 1),
+  rows: z.array(z.array(z.unknown()).length(expectedColumns.length)).max(MAX_INITIAL_QUERY_ROWS),
 })
 
 export const azureMonitorLogsQueryResponseSchema = z.strictObject({
@@ -452,9 +460,9 @@ function parseAzureMonitorRows(
   const table = response.tables[0]
   if (table === undefined)
     throw new AzureMonitorOtelConnectorError('Azure Monitor returned no table.')
-  if (table.rows.length > MAX_QUERY_ROWS + 1) {
+  if (table.rows.length > MAX_INITIAL_QUERY_ROWS) {
     throw new AzureMonitorOtelConnectorError(
-      `Azure Monitor returned more than ${MAX_QUERY_ROWS} rows for the bounded window.`,
+      `Azure Monitor returned more than ${MAX_INITIAL_QUERY_ROWS - 1} rows for one bounded query page.`,
     )
   }
 
@@ -534,10 +542,10 @@ function canonicalizeAzureMonitorRows(rows: readonly ProjectedRow[]): CanonicalA
 function assertWindowObservationLimit(
   kind: 'baseline' | 'observed',
   rows: readonly ProjectedRow[],
-): void {
-  if (rows.length > MAX_REPRESENTATIVE_OTEL_OBSERVATIONS) {
+) {
+  if (rows.length > MAX_WINDOW_OBSERVATIONS) {
     throw new AzureMonitorOtelConnectorError(
-      `Azure Monitor ${kind} window returned more than ${MAX_REPRESENTATIVE_OTEL_OBSERVATIONS} canonical observations.`,
+      `Azure Monitor ${kind} window returned more than ${MAX_WINDOW_OBSERVATIONS} canonical observations.`,
     )
   }
 }
@@ -762,13 +770,68 @@ function normalizeAzureMonitorWindow(
   binding: RepresentativeOtelWindowBinding,
   exactBoundary: boolean,
 ) {
-  const normalized = normalizeRepresentativeOtelEvidence(
-    representativePages(
-      rows.flatMap((row) => representativeRecordsForRow(row, binding, exactBoundary)),
+  const batches =
+    rows.length === 0
+      ? [[]]
+      : Array.from(
+          { length: Math.ceil(rows.length / MAX_REPRESENTATIVE_OTEL_OBSERVATIONS) },
+          (_, index) =>
+            rows.slice(
+              index * MAX_REPRESENTATIVE_OTEL_OBSERVATIONS,
+              (index + 1) * MAX_REPRESENTATIVE_OTEL_OBSERVATIONS,
+            ),
+        )
+  const diagnostics = normalizationDiagnosticsForRows(originalRows, rows, canonicalization)
+  const normalizedBatches = batches.map((batch, index) =>
+    normalizeRepresentativeOtelEvidence(
+      representativePages(
+        batch.flatMap((row) => representativeRecordsForRow(row, binding, exactBoundary)),
+      ),
+      binding,
+      index === 0 ? diagnostics : {},
     ),
-    binding,
-    normalizationDiagnosticsForRows(originalRows, rows, canonicalization),
   )
+  const evidence = normalizedBatches.flatMap((normalized) => normalized.evidence)
+  const observations = normalizedBatches.flatMap((normalized) => normalized.window.observations)
+  const caveats = [...new Set(normalizedBatches.flatMap((normalized) => normalized.caveats))].sort()
+  const classifications = new Set(
+    normalizedBatches
+      .map((normalized) => normalized.window.otelQuality?.classification)
+      .filter((value) => value !== undefined && value !== 'unknown'),
+  )
+  const classification =
+    classifications.size === 0
+      ? 'unknown'
+      : classifications.size === 1
+        ? [...classifications][0]!
+        : 'mixed'
+  if (classification === 'mixed' && !caveats.includes('mixed-classification')) {
+    caveats.push('mixed-classification')
+    caveats.sort()
+  }
+  const quality: NonNullable<ObservationWindow['otelQuality']> = {
+    status: originalRows.length === 0 ? 'unknown' : caveats.length === 0 ? 'available' : 'degraded',
+    classification,
+    caveats,
+    recordsReceived: normalizedBatches.reduce(
+      (total, normalized) => total + (normalized.window.otelQuality?.recordsReceived ?? 0),
+      0,
+    ),
+    recordsAccepted: normalizedBatches.reduce(
+      (total, normalized) => total + (normalized.window.otelQuality?.recordsAccepted ?? 0),
+      0,
+    ),
+    duplicatesRemoved: normalizedBatches.reduce(
+      (total, normalized) => total + (normalized.window.otelQuality?.duplicatesRemoved ?? 0),
+      0,
+    ),
+    pagesProcessed: normalizedBatches.reduce(
+      (total, normalized) => total + (normalized.window.otelQuality?.pagesProcessed ?? 0),
+      0,
+    ),
+  }
+  const { queriedAt, ...stableBinding } = binding
+  void queriedAt
   const rowsByObservationId = new Map<string, ProjectedRow>()
   for (const row of rows) {
     const observationId = exactObservationId(row.ObservationId)
@@ -777,10 +840,37 @@ function normalizeAzureMonitorWindow(
     }
   }
   return {
-    ...normalized,
-    window: {
-      ...normalized.window,
-      observations: normalized.window.observations.map((observation) => {
+    evidenceId: `otel-evidence-${createHash('sha256')
+      .update(
+        JSON.stringify({
+          binding: stableBinding,
+          quality,
+          evidence: evidence.map((item) => item.id),
+          observations: observations.map((item) => item.id),
+        }),
+      )
+      .digest('hex')
+      .slice(0, 32)}`,
+    status: quality.status,
+    liveReadiness:
+      quality.status === 'available' && quality.classification === 'live' && observations.length > 0
+        ? ('live-ready' as const)
+        : quality.status === 'available' &&
+            quality.classification === 'synthetic' &&
+            observations.length > 0
+          ? ('synthetic-only' as const)
+          : ('insufficient-data' as const),
+    caveats,
+    evidence,
+    window: observationWindowSchema.parse({
+      windowId: binding.windowId,
+      tenantId: binding.estateTenantId,
+      agentId: binding.agentId,
+      environment: binding.sourceEnvironment,
+      source: 'azure-monitor-otel',
+      windowStart: binding.windowStart,
+      windowEnd: binding.windowEnd,
+      observations: observations.map((observation) => {
         const row = rowsByObservationId.get(observation.id)
         return row === undefined
           ? observation
@@ -790,7 +880,8 @@ function normalizeAzureMonitorWindow(
               toolCallNames: parseToolCallNames(row.ToolCallNames),
             })
       }),
-    },
+      otelQuality: quality,
+    }),
   }
 }
 
@@ -819,8 +910,8 @@ export function buildAzureMonitorOtelQuery(binding: {
         .number()
         .int()
         .min(1)
-        .max(MAX_QUERY_ROWS + 1)
-        .default(MAX_QUERY_ROWS + 1),
+        .max(MAX_INITIAL_QUERY_ROWS)
+        .default(MAX_INITIAL_QUERY_ROWS),
     })
     .parse(binding)
   return [
@@ -964,81 +1055,141 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
     }
 
     const url = new URL(`/v1/workspaces/${this.config.workspaceId}/query`, LOGS_ORIGIN)
-    let response: Response
-    try {
-      response = await this.fetcher(url, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          Authorization: 'Bearer ' + token.token,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          query: buildAzureMonitorOtelQuery({
-            tenantId: sourceTenantId,
-            agentId: sourceAgentId,
-            environment: sourceEnvironment,
-            sourceProjectId,
+    let pagesRead = 0
+    let bytesRead = 0
+    const queryPage = async (
+      windowStart: string,
+      windowEnd: string,
+      maximumRows: number,
+    ): Promise<ProjectedRow[]> => {
+      if (pagesRead >= MAX_QUERY_PAGES) {
+        throw new AzureMonitorOtelConnectorError(
+          `Azure Monitor Logs exceeded the ${MAX_QUERY_PAGES}-page query limit.`,
+        )
+      }
+      pagesRead += 1
+      let response: Response
+      try {
+        response = await this.fetcher(url, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            Authorization: 'Bearer ' + token.token,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            query: buildAzureMonitorOtelQuery({
+              tenantId: sourceTenantId,
+              agentId: sourceAgentId,
+              environment: sourceEnvironment,
+              sourceProjectId,
+              maximumRows,
+            }),
+            timespan: `${windowStart}/${windowEnd}`,
           }),
-          timespan: `${baselineStart}/${observedEnd}`,
-        }),
-        signal,
-      })
-    } catch {
-      if (options.signal?.aborted === true) {
+          signal,
+        })
+      } catch {
+        if (options.signal?.aborted === true) {
+          throw new AzureMonitorOtelConnectorError(
+            'Azure Monitor Logs query was cancelled.',
+            'cancelled',
+          )
+        }
+        if (timeoutSignal.aborted) {
+          throw new AzureMonitorOtelConnectorError('Azure Monitor Logs query timed out.', 'timeout')
+        }
         throw new AzureMonitorOtelConnectorError(
-          'Azure Monitor Logs query was cancelled.',
-          'cancelled',
+          'Azure Monitor Logs query failed before a response was received.',
         )
       }
-      if (timeoutSignal.aborted) {
-        throw new AzureMonitorOtelConnectorError('Azure Monitor Logs query timed out.', 'timeout')
+
+      let body: unknown
+      try {
+        const remainingBytes = this.config.maxResponseBytes - bytesRead
+        if (remainingBytes <= 0) {
+          throw new AzureMonitorOtelConnectorError(
+            `Azure Monitor Logs responses exceeded the ${this.config.maxResponseBytes} byte operation limit.`,
+            'response-too-large',
+          )
+        }
+        const bounded = await readBoundedJson(response, remainingBytes, signal)
+        body = bounded.body
+        bytesRead += bounded.bytesRead
+      } catch (error) {
+        if (error instanceof AzureMonitorOtelConnectorError) throw error
+        if (options.signal?.aborted === true) {
+          throw new AzureMonitorOtelConnectorError(
+            'Azure Monitor Logs query was cancelled.',
+            'cancelled',
+          )
+        }
+        if (timeoutSignal.aborted) {
+          throw new AzureMonitorOtelConnectorError(
+            'Azure Monitor Logs response timed out.',
+            'timeout',
+          )
+        }
+        throw new AzureMonitorOtelConnectorError('Azure Monitor Logs returned a non-JSON response.')
       }
-      throw new AzureMonitorOtelConnectorError(
-        'Azure Monitor Logs query failed before a response was received.',
-      )
+      if (!response.ok) throw errorFromBody(body, response.status)
+
+      const parsedRows = parseAzureMonitorRows(
+        body,
+        {
+          tenantId: sourceTenantId,
+          agentId: sourceAgentId,
+          sourceProjectId,
+          environment: sourceEnvironment,
+          windowStart,
+          windowEnd,
+        },
+        false,
+      ).rows
+      return parsedRows
     }
 
-    let body: unknown
-    try {
-      body = await readBoundedJson(response, this.config.maxResponseBytes, signal)
-    } catch (error) {
-      if (error instanceof AzureMonitorOtelConnectorError) throw error
-      if (options.signal?.aborted === true) {
-        throw new AzureMonitorOtelConnectorError(
-          'Azure Monitor Logs query was cancelled.',
-          'cancelled',
-        )
-      }
-      if (timeoutSignal.aborted) {
-        throw new AzureMonitorOtelConnectorError(
-          'Azure Monitor Logs response timed out.',
-          'timeout',
-        )
-      }
-      throw new AzureMonitorOtelConnectorError('Azure Monitor Logs returned a non-JSON response.')
-    }
-    if (!response.ok) throw errorFromBody(body, response.status)
+    const readPartition = async (
+      kind: 'baseline' | 'observed',
+      windowStart: string,
+      windowEnd: string,
+    ): Promise<ProjectedRow[]> => {
+      const parsedRows = await queryPage(windowStart, windowEnd, MAX_QUERY_ROWS_PER_PAGE)
+      if (parsedRows.length <= MAX_REPRESENTATIVE_OTEL_OBSERVATIONS) return parsedRows
 
-    const parsedRows = parseAzureMonitorRows(
-      body,
-      {
-        tenantId: sourceTenantId,
-        agentId: sourceAgentId,
-        sourceProjectId,
-        environment: sourceEnvironment,
-        windowStart: baselineStart,
-        windowEnd: observedEnd,
-      },
-      false,
-    )
-    const canonicalization = canonicalizeAzureMonitorRows(parsedRows.rows)
-    const baselineOriginalRows = parsedRows.rows.filter(
+      const startMs = Date.parse(windowStart)
+      const endMs = Date.parse(windowEnd)
+      const midpointMs = Math.floor((startMs + endMs) / 2)
+      if (midpointMs <= startMs || midpointMs >= endMs) {
+        throw new AzureMonitorOtelConnectorError(
+          `Azure Monitor ${kind} window cannot be partitioned below the 500-observation validation bound.`,
+        )
+      }
+      const midpoint = new Date(midpointMs).toISOString()
+      return [
+        ...(await readPartition(kind, windowStart, midpoint)),
+        ...(await readPartition(kind, midpoint, windowEnd)),
+      ]
+    }
+
+    const initialRows = await queryPage(baselineStart, observedEnd, MAX_INITIAL_QUERY_ROWS)
+    const initialBaselineRows = initialRows.filter(
       (row) => new Date(row.ObservedAt).getTime() < new Date(baselineEnd).getTime(),
     )
-    const observedOriginalRows = parsedRows.rows.filter(
+    const initialObservedRows = initialRows.filter(
       (row) => new Date(row.ObservedAt).getTime() >= new Date(observedStart).getTime(),
     )
+    const initialPageTruncated = initialRows.length === MAX_INITIAL_QUERY_ROWS
+    const baselineOriginalRows =
+      initialPageTruncated || initialBaselineRows.length > MAX_REPRESENTATIVE_OTEL_OBSERVATIONS
+        ? await readPartition('baseline', baselineStart, baselineEnd)
+        : initialBaselineRows
+    const observedOriginalRows =
+      initialPageTruncated || initialObservedRows.length > MAX_REPRESENTATIVE_OTEL_OBSERVATIONS
+        ? await readPartition('observed', observedStart, observedEnd)
+        : initialObservedRows
+    const parsedRows = [...baselineOriginalRows, ...observedOriginalRows]
+    const canonicalization = canonicalizeAzureMonitorRows(parsedRows)
     const baselineRows = canonicalization.rows.filter(
       (row) => new Date(row.ObservedAt).getTime() < new Date(baselineEnd).getTime(),
     )

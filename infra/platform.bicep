@@ -62,6 +62,8 @@ param entraConnectorEnabled bool = false
 param entraConnectorTenantId string = ''
 @description('Optional JSON array of Entra sources matched by id to Foundry sources.')
 param entraSourcesJson string = ''
+@description('Optional JSON array of explicit estate-scoped Foundry-to-Entra inventory authority bindings.')
+param entraRunsAsBindingsJson string = ''
 @description('Environment boundary for Entra identity enrichment. Must exactly match Foundry.')
 param entraConnectorEnvironment string = ''
 @description('Microsoft Graph resource base. Restricted by connector validation to the public Graph host.')
@@ -231,6 +233,7 @@ var effectiveApplicationIdentityName = empty(applicationIdentityName) ? 'id-agen
 var effectiveConnectorIdentityName = empty(connectorIdentityName) ? 'id-agent-sentinel-connectors-${suffix}' : connectorIdentityName
 var effectiveTeamsIdentityName = empty(teamsIdentityName) ? 'id-agent-sentinel-teams-${suffix}' : teamsIdentityName
 var effectiveFoundryAccountName = empty(foundryAccountName) ? 'ais-agent-sentinel-${suffix}' : foundryAccountName
+var validatedEntraRunsAsBindingsJson = string(empty(entraRunsAsBindingsJson) ? [] : json(entraRunsAsBindingsJson))
 
 module network './modules/network.bicep' = {
   name: 'network'
@@ -391,6 +394,7 @@ module containerApps './modules/container-apps.bicep' = {
     entraConnectorEnabled: entraConnectorEnabled
     entraConnectorTenantId: entraConnectorTenantId
     entraSourcesJson: entraSourcesJson
+    entraRunsAsBindingsJson: validatedEntraRunsAsBindingsJson
     entraConnectorEnvironment: entraConnectorEnvironment
     entraConnectorGraphBaseUrl: entraConnectorGraphBaseUrl
     entraConnectorOwnersEnabled: entraConnectorOwnersEnabled

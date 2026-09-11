@@ -329,6 +329,40 @@ describe('jobs connector selection', () => {
     )
   })
 
+  it('keeps a cross-tenant Agent 365 provider source in the portfolio jobs runtime', async () => {
+    const providerTenantId = '22222222-2222-4222-8222-222222222222'
+    const connector = await buildConnectorForEstate(runtimeEstate, runtimeRepository([]), {
+      AGENT_SENTINEL_CONNECTOR: 'foundry',
+      AGENT_SENTINEL_TENANT_ID: runtimeEstate.tenantId,
+      AGENT_SENTINEL_ENVIRONMENT: runtimeEstate.environment,
+      FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
+      FOUNDRY_TENANT_ID: runtimeEstate.tenantId,
+      FOUNDRY_ENVIRONMENT: runtimeEstate.environment,
+      AGENT365_CONNECTOR_ENABLED: 'true',
+      AGENT365_MANAGED_IDENTITY_CLIENT_ID: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+      AGENT365_SOURCES_JSON: JSON.stringify([
+        {
+          id: 'provider',
+          name: 'Provider Agent 365',
+          tenantId: providerTenantId,
+          environment: 'provider-production',
+        },
+      ]),
+    })
+
+    expect(
+      connector.getConnectorHealth?.().sources.find((source) => source.id === 'agent365:provider'),
+    ).toMatchObject({
+      provenance: {
+        estateTenantId: runtimeEstate.tenantId,
+        estateEnvironment: runtimeEstate.environment,
+        sourceConnectorId: 'provider',
+        sourceTenantId: providerTenantId,
+        sourceEnvironment: 'provider-production',
+      },
+    })
+  })
+
   it('activates Agent 365 when a migration-required legacy OTel source coexists in the jobs repository', async () => {
     const connector = await buildConnectorForEstate(
       runtimeEstate,
@@ -454,43 +488,6 @@ describe('jobs connector selection', () => {
       {
         credentialFactory: () => ({ getToken: () => Promise.resolve(null) }),
         agent365Runtime: fallbackRuntime,
-      },
-    )
-
-    expect(
-      connector
-        .getConnectorHealth?.()
-        .sources.filter((source) => source.id.startsWith('agent365:')),
-    ).toEqual([])
-  })
-
-  it('does not reactivate an out-of-estate Agent 365 deployment in the estate jobs factory', async () => {
-    const connector = await buildConnectorForEstate(
-      runtimeEstate,
-      runtimeRepository([]),
-      {
-        AGENT_SENTINEL_CONNECTOR: 'foundry',
-        AGENT_SENTINEL_TENANT_ID: runtimeEstate.tenantId,
-        AGENT_SENTINEL_ENVIRONMENT: runtimeEstate.environment,
-        FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/test',
-        FOUNDRY_TENANT_ID: runtimeEstate.tenantId,
-        FOUNDRY_ENVIRONMENT: runtimeEstate.environment,
-        AGENT365_CONNECTOR_ENABLED: 'true',
-        AGENT365_SOURCES_JSON: JSON.stringify([
-          {
-            id: 'other-estate',
-            name: 'Other estate Agent 365',
-            tenantId: '22222222-2222-4222-8222-222222222222',
-            environment: 'production',
-            credential: {
-              mode: 'managed-identity',
-              managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
-            },
-          },
-        ]),
-      },
-      {
-        credentialFactory: () => ({ getToken: () => Promise.resolve(null) }),
       },
     )
 

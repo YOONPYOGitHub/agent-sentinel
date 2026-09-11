@@ -123,6 +123,46 @@ function exactInvocationRows(
   })
 }
 
+function distributedInvocationRows(
+  count: number,
+  windowStart: string,
+  windowEnd: string,
+  idOffset: number,
+  agentId = 'agent-a',
+): unknown[][] {
+  const start = Date.parse(windowStart)
+  const end = Date.parse(windowEnd)
+  return Array.from({ length: count }, (_, index) => {
+    const id = idOffset + index + 1
+    const observedAt = new Date(start + Math.floor(((index + 1) * (end - start)) / (count + 1)))
+    return exactInvocationRow(
+      id.toString(16).padStart(16, '0'),
+      id.toString(16).padStart(32, '0'),
+      observedAt.toISOString(),
+      index,
+      agentId,
+    )
+  })
+}
+
+function partitioningFetcher(rows: readonly unknown[][]): ReturnType<typeof vi.fn<typeof fetch>> {
+  return vi.fn<typeof fetch>().mockImplementation((_input, init) => {
+    if (typeof init?.body !== 'string') throw new Error('Expected a JSON request body.')
+    const body = JSON.parse(init.body) as { query: string; timespan: string }
+    const [start, end] = body.timespan.split('/')
+    const take = Number(/\| take (\d+)/.exec(body.query)?.[1])
+    const pageRows = rows
+      .filter((candidate) => {
+        const observedAt = String(candidate[1])
+        return observedAt >= start! && observedAt <= end!
+      })
+      .slice(0, take)
+    return Promise.resolve(
+      Response.json({ tables: [{ name: 'PrimaryResult', columns, rows: pageRows }] }),
+    )
+  })
+}
+
 describe('Azure Monitor OTel connector', () => {
   it('uses the shared source project ID length boundary', () => {
     const maximum = 'p'.repeat(200)
@@ -336,41 +376,119 @@ describe('Azure Monitor OTel connector', () => {
     })
   })
 
-  it.each([
-    ['baseline', 501, 300],
-    ['observed', 300, 501],
-  ])(
-    'rejects the %s window when it exceeds 500 canonical observations',
-    async (kind, baselineCount, observedCount) => {
-      const baselineRows = exactInvocationRows(baselineCount, '2026-08-23T00:00:00.000Z', 0)
-      const observedRows = exactInvocationRows(observedCount, '2026-08-24T00:00:00.000Z', 1_000)
-      const connector = new AzureMonitorOtelConnector(
-        config,
-        new Credential(),
-        vi.fn<typeof fetch>().mockResolvedValue(
-          Response.json({
-            tables: [{ name: 'PrimaryResult', columns, rows: [...baselineRows, ...observedRows] }],
-          }),
-        ),
-        () => new Date('2026-08-24T12:00:00.000Z'),
-      )
+  it('retrieves more than 500 observations per window through bounded time partitions', async () => {
+    const baselineRows = distributedInvocationRows(
+      600,
+      '2026-08-22T12:00:00.000Z',
+      '2026-08-23T12:00:00.000Z',
+      0,
+    )
+    const observedRows = distributedInvocationRows(
+      600,
+      '2026-08-23T12:00:00.000Z',
+      '2026-08-24T12:00:00.000Z',
+      1_000,
+    )
+    const fetcher = partitioningFetcher([...baselineRows, ...observedRows])
+    const connector = new AzureMonitorOtelConnector(
+      config,
+      new Credential(),
+      fetcher,
+      () => new Date('2026-08-24T12:00:00.000Z'),
+    )
 
-      await expect(
-        connector.readObservationWindows({
-          snapshotGeneratedAt: '2026-08-24T12:00:00.000Z',
-          estateId: 'estate-a',
-          estateEnvironment: 'portfolio',
-          tenantId: 'tenant-a',
-          agentId: 'agent-a',
-          sourceConnectorId: 'direct',
-          sourceTenantId: 'tenant-a',
-          sourceProjectId: 'project-a',
-          sourceAgentId: 'agent-a',
-          sourceEnvironment: 'production',
-        }),
-      ).rejects.toThrow(new RegExp(`${kind} window.*500`))
-    },
-  )
+    const windows = await connector.readObservationWindows({
+      snapshotGeneratedAt: '2026-08-24T12:00:00.000Z',
+      estateId: 'estate-a',
+      estateEnvironment: 'portfolio',
+      tenantId: 'tenant-a',
+      agentId: 'agent-a',
+      sourceConnectorId: 'direct',
+      sourceTenantId: 'tenant-a',
+      sourceProjectId: 'project-a',
+      sourceAgentId: 'agent-a',
+      sourceEnvironment: 'production',
+    })
+
+    expect(windows.baseline.observations).toHaveLength(600)
+    expect(windows.observed.observations).toHaveLength(600)
+    expect(windows.baseline.otelQuality?.status).toBe('available')
+    expect(windows.observed.otelQuality?.status).toBe('available')
+    expect(fetcher.mock.calls.length).toBeGreaterThan(2)
+    expect(fetcher.mock.calls.length).toBeLessThanOrEqual(20)
+  })
+
+  it('canonicalizes duplicate observation IDs across partition pages', async () => {
+    const midpoint = '2026-08-23T00:00:00.000Z'
+    const baselineRows = distributedInvocationRows(
+      600,
+      '2026-08-22T12:00:00.000Z',
+      '2026-08-23T12:00:00.000Z',
+      0,
+    )
+    baselineRows[299]![1] = midpoint
+    const fetcher = partitioningFetcher(baselineRows)
+    const connector = new AzureMonitorOtelConnector(
+      config,
+      new Credential(),
+      fetcher,
+      () => new Date('2026-08-24T12:00:00.000Z'),
+    )
+
+    const windows = await connector.readObservationWindows({
+      snapshotGeneratedAt: '2026-08-24T12:00:00.000Z',
+      estateId: 'estate-a',
+      estateEnvironment: 'portfolio',
+      tenantId: 'tenant-a',
+      agentId: 'agent-a',
+      sourceConnectorId: 'direct',
+      sourceTenantId: 'tenant-a',
+      sourceProjectId: 'project-a',
+      sourceAgentId: 'agent-a',
+      sourceEnvironment: 'production',
+    })
+
+    expect(windows.baseline.observations).toHaveLength(600)
+    expect(windows.baseline.otelQuality).toMatchObject({
+      status: 'degraded',
+      duplicatesRemoved: 6,
+    })
+    expect(windows.baseline.otelQuality?.caveats).toContain('duplicate-record')
+  })
+
+  it('fails closed when dense partitions exhaust the global page limit', async () => {
+    const rows = distributedInvocationRows(
+      1_001,
+      '2026-08-22T12:00:00.000Z',
+      '2026-08-24T12:00:00.000Z',
+      0,
+    )
+    const connector = new AzureMonitorOtelConnector(
+      { ...config, maxResponseBytes: 64 * 1024 * 1024 },
+      new Credential(),
+      vi
+        .fn<typeof fetch>()
+        .mockImplementation(() =>
+          Promise.resolve(Response.json({ tables: [{ name: 'PrimaryResult', columns, rows }] })),
+        ),
+      () => new Date('2026-08-24T12:00:00.000Z'),
+    )
+
+    await expect(
+      connector.readObservationWindows({
+        snapshotGeneratedAt: '2026-08-24T12:00:00.000Z',
+        estateId: 'estate-a',
+        estateEnvironment: 'portfolio',
+        tenantId: 'tenant-a',
+        agentId: 'agent-a',
+        sourceConnectorId: 'direct',
+        sourceTenantId: 'tenant-a',
+        sourceProjectId: 'project-a',
+        sourceAgentId: 'agent-a',
+        sourceEnvironment: 'production',
+      }),
+    ).rejects.toThrow('20-page query limit')
+  })
 
   it('requires and filters the exact authoritative Foundry project ID', () => {
     const query = buildAzureMonitorOtelQuery({

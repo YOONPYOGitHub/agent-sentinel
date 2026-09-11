@@ -35,12 +35,14 @@ import {
 } from '@agent-sentinel/domain'
 
 export type Agent365RuntimeInactiveReason =
-  Agent365SourcePolicyInactiveReason | 'duplicate-tenant-boundary'
+  Agent365SourcePolicyInactiveReason | 'duplicate-tenant-boundary' | 'migration-required'
 
 export interface Agent365RuntimeBinding {
   readonly estateId: string
   readonly tenantId: string
   readonly environment: string
+  readonly sourceTenantId?: string
+  readonly sourceEnvironment?: string
   readonly sourceId: string
   readonly bindingSourceId: string
   readonly displayName: string
@@ -98,6 +100,14 @@ function inactiveHealth(
         dataState: 'unsupported',
         reason,
       }
+    case 'migration-required':
+      return {
+        enabled: false,
+        configured: false,
+        readiness: 'degraded',
+        dataState: 'unsupported',
+        reason,
+      }
   }
 }
 
@@ -107,6 +117,8 @@ export function agent365SourceSetFingerprint(bindings: readonly Agent365RuntimeB
       estateId: binding.estateId,
       tenantId: binding.tenantId,
       environment: binding.environment,
+      sourceTenantId: binding.sourceTenantId ?? binding.tenantId,
+      sourceEnvironment: binding.sourceEnvironment ?? binding.environment,
       sourceId: binding.sourceId,
       bindingSourceId: binding.bindingSourceId,
       origin: binding.origin,
@@ -188,8 +200,8 @@ export function reconcileAgent365PersistedHealth(
         estateTenantId: binding.tenantId,
         estateEnvironment: binding.environment,
         sourceConnectorId: binding.bindingSourceId,
-        sourceTenantId: binding.tenantId,
-        sourceEnvironment: binding.environment,
+        sourceTenantId: binding.sourceTenantId ?? binding.tenantId,
+        sourceEnvironment: binding.sourceEnvironment ?? binding.environment,
         provider: 'microsoft-graph-agent365-package-catalog' as const,
         providerObjectId: AGENT365_PACKAGES_PATH,
       },
@@ -221,8 +233,8 @@ export function reconcileAgent365PersistedHealth(
         estateTenantId: binding.tenantId,
         estateEnvironment: binding.environment,
         sourceConnectorId: binding.bindingSourceId,
-        sourceTenantId: binding.tenantId,
-        sourceEnvironment: binding.environment,
+        sourceTenantId: binding.sourceTenantId ?? binding.tenantId,
+        sourceEnvironment: binding.sourceEnvironment ?? binding.environment,
         provider: 'microsoft-graph-agent365-package-catalog',
         providerObjectId: AGENT365_PACKAGES_PATH,
       },
@@ -255,8 +267,8 @@ export function synthesizeAgent365UnmeasuredHealth(
       estateTenantId: binding.tenantId,
       estateEnvironment: binding.environment,
       sourceConnectorId: binding.bindingSourceId,
-      sourceTenantId: binding.tenantId,
-      sourceEnvironment: binding.environment,
+      sourceTenantId: binding.sourceTenantId ?? binding.tenantId,
+      sourceEnvironment: binding.sourceEnvironment ?? binding.environment,
       provider: 'microsoft-graph-agent365-package-catalog',
       providerObjectId: AGENT365_PACKAGES_PATH,
     },
@@ -310,6 +322,28 @@ class Agent365RuntimeConnector implements OperationAwareAgentConnector {
       partial: false,
       sources: [],
     }
+    const activeBindingByHealthId = new Map<string, Agent365RuntimeBinding>(
+      this.bindings
+        .filter((binding) => binding.activation.status === 'active')
+        .map((binding) => [`agent365:${binding.bindingSourceId}`, binding] as const),
+    )
+    const activeSources = health.sources.map((source) => {
+      const binding = activeBindingByHealthId.get(source.id)
+      return binding === undefined
+        ? source
+        : {
+            ...source,
+            provenance: {
+              estateTenantId: binding.tenantId,
+              estateEnvironment: binding.environment,
+              sourceConnectorId: binding.bindingSourceId,
+              sourceTenantId: binding.sourceTenantId ?? binding.tenantId,
+              sourceEnvironment: binding.sourceEnvironment ?? binding.environment,
+              provider: 'microsoft-graph-agent365-package-catalog' as const,
+              providerObjectId: AGENT365_PACKAGES_PATH,
+            },
+          }
+    })
     const inactive = this.bindings
       .filter(
         (
@@ -330,13 +364,15 @@ class Agent365RuntimeConnector implements OperationAwareAgentConnector {
           estateTenantId: binding.tenantId,
           estateEnvironment: binding.environment,
           sourceConnectorId: binding.bindingSourceId,
-          sourceTenantId: binding.tenantId,
-          sourceEnvironment: binding.environment,
+          sourceTenantId: binding.sourceTenantId ?? binding.tenantId,
+          sourceEnvironment: binding.sourceEnvironment ?? binding.environment,
           provider: 'microsoft-graph-agent365-package-catalog',
           providerObjectId: AGENT365_PACKAGES_PATH,
         },
       }))
-    const enabledInactive = inactive.some((source) => source.enabled)
+    const enabledInactive = inactive.some(
+      (source) => source.enabled || source.reason === 'migration-required',
+    )
     return composeConnectorHealthReport(health, {
       sourceSetFingerprint: this.sourceSetFingerprint,
       overall:
@@ -346,7 +382,7 @@ class Agent365RuntimeConnector implements OperationAwareAgentConnector {
             ? 'degraded'
             : health.overall,
       partial: health.partial || enabledInactive,
-      sources: [...health.sources, ...inactive],
+      sources: [...activeSources, ...inactive],
     })
   }
 
@@ -401,8 +437,8 @@ function sourceConfig(
   return {
     id: bindingSourceId,
     name: source.displayName,
-    tenantId: source.tenantId,
-    environment: source.environment,
+    tenantId: source.configuration.sourceTenantId ?? source.tenantId,
+    environment: source.configuration.sourceEnvironment ?? source.environment,
     graphBaseUrl: source.configuration.graphBaseUrl,
     limits: source.configuration.limits,
     credential: {
@@ -420,6 +456,7 @@ export async function resolveAgent365Runtime(
   const pageSize = positiveInteger(options.pageSize ?? 100, 'pageSize', 1_000)
   const maxSources = positiveInteger(options.maxSources ?? 1_000, 'maxSources', 1_000)
   const sources: ConnectorSourceDefinition[] = []
+  const migrationBindings: Agent365RuntimeBinding[] = []
   const seen = new Set<string>()
   let sourceCount = 0
   let cursor: string | undefined
@@ -453,7 +490,25 @@ export async function resolveAgent365Runtime(
       if (sourceCount > maxSources) {
         throw new Error(`Connector source count exceeds the runtime maximum of ${maxSources}.`)
       }
-      if (isConnectorSourceMigrationRequired(readModel)) continue
+      if (isConnectorSourceMigrationRequired(readModel)) {
+        if (readModel.connectorType === 'agent365' && readModel.configuration.type === 'agent365') {
+          migrationBindings.push({
+            estateId: readModel.estateId,
+            tenantId: readModel.tenantId,
+            environment: readModel.environment,
+            sourceTenantId: readModel.configuration.sourceTenantId ?? readModel.tenantId,
+            sourceEnvironment: readModel.configuration.sourceEnvironment ?? readModel.environment,
+            sourceId: readModel.sourceId,
+            bindingSourceId: readModel.runtimeBinding?.bindingSourceId ?? readModel.sourceId,
+            displayName: readModel.displayName,
+            origin: readModel.origin,
+            sourceVersion: readModel.version,
+            sourceEtag: readModel.etag,
+            activation: { status: 'inactive', reason: 'migration-required' },
+          })
+        }
+        continue
+      }
       sources.push(connectorSourceDefinitionSchema.parse(readModel))
     }
 
@@ -471,12 +526,19 @@ export async function resolveAgent365Runtime(
   const deploymentTenants = new Set(
     agent365Sources
       .filter((source) => source.origin === 'deployment')
-      .map((source) => source.tenantId.toLowerCase()),
+      .map((source) =>
+        source.configuration.type === 'agent365'
+          ? (source.configuration.sourceTenantId ?? source.tenantId).toLowerCase()
+          : source.tenantId.toLowerCase(),
+      ),
   )
   const activeTenants = new Set<string>()
   const resolvedSources = agent365Sources.map((source) => {
     let activation = activationFor(source)
-    const tenantId = source.tenantId.toLowerCase()
+    const tenantId =
+      source.configuration.type === 'agent365'
+        ? (source.configuration.sourceTenantId ?? source.tenantId).toLowerCase()
+        : source.tenantId.toLowerCase()
     if (activation.status === 'active') {
       if (
         activeTenants.has(tenantId) ||
@@ -489,18 +551,29 @@ export async function resolveAgent365Runtime(
     }
     return { source, activation }
   })
-  const bindings = resolvedSources.map(({ source, activation }): Agent365RuntimeBinding => ({
-    estateId: source.estateId,
-    tenantId: source.tenantId,
-    environment: source.environment,
-    sourceId: source.sourceId,
-    bindingSourceId: source.runtimeBinding?.bindingSourceId ?? source.sourceId,
-    displayName: source.displayName,
-    origin: source.origin,
-    sourceVersion: source.version,
-    sourceEtag: source.etag,
-    activation,
-  }))
+  const bindings = [
+    ...resolvedSources.map(({ source, activation }): Agent365RuntimeBinding => ({
+      estateId: source.estateId,
+      tenantId: source.tenantId,
+      environment: source.environment,
+      sourceTenantId:
+        source.configuration.type === 'agent365'
+          ? (source.configuration.sourceTenantId ?? source.tenantId)
+          : source.tenantId,
+      sourceEnvironment:
+        source.configuration.type === 'agent365'
+          ? (source.configuration.sourceEnvironment ?? source.environment)
+          : source.environment,
+      sourceId: source.sourceId,
+      bindingSourceId: source.runtimeBinding?.bindingSourceId ?? source.sourceId,
+      displayName: source.displayName,
+      origin: source.origin,
+      sourceVersion: source.version,
+      sourceEtag: source.etag,
+      activation,
+    })),
+    ...migrationBindings,
+  ].toSorted((left, right) => left.sourceId.localeCompare(right.sourceId))
   const activeResolvedSources = resolvedSources.filter(
     (
       value,

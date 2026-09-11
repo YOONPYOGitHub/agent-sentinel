@@ -624,7 +624,7 @@ describe('connector selection', () => {
     ).toEqual([])
   })
 
-  it('does not reactivate an out-of-estate Agent 365 deployment in the estate API factory', async () => {
+  it('keeps a cross-tenant Agent 365 deployment in the portfolio API runtime', async () => {
     const result = await createConfiguredConnectorForEstate(
       runtimeEstate,
       runtimeRepository([]),
@@ -657,8 +657,16 @@ describe('connector selection', () => {
     expect(
       result.connector
         .getConnectorHealth?.()
-        .sources.filter((source) => source.id.startsWith('agent365:')),
-    ).toEqual([])
+        .sources.find((source) => source.id === 'agent365:other-estate'),
+    ).toMatchObject({
+      provenance: {
+        estateTenantId: runtimeEstate.tenantId,
+        estateEnvironment: runtimeEstate.environment,
+        sourceConnectorId: 'other-estate',
+        sourceTenantId: '22222222-2222-4222-8222-222222222222',
+        sourceEnvironment: 'production',
+      },
+    })
   })
 
   it('preserves projected Agent 365 concurrency and duration through API runtime resolution', async () => {

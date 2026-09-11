@@ -118,6 +118,38 @@ function withoutAuditSourceProjectIds(auditValue: ConnectorSourceAuditRecord): u
   return value
 }
 
+function agent365Source(
+  estate: EstateContext,
+  maxRetryAfterMs = 60_000,
+): ConnectorSourceCreateInput {
+  return source(estate, {
+    sourceId: 'agent365-primary',
+    connectorType: 'agent365',
+    displayName: 'Agent 365 source',
+    configuration: {
+      type: 'agent365',
+      graphBaseUrl: 'https://graph.microsoft.com',
+      limits: {
+        maxPages: 20,
+        maxItems: 5_000,
+        requestTimeoutMs: 15_000,
+        maxRetries: 2,
+        maxRetryAfterMs,
+        maxResponseBytes: 2_000_000,
+      },
+    },
+  })
+}
+
+function withLegacyAgent365Retry(sourceValue: ConnectorSourceDefinition): unknown {
+  const value = structuredClone(sourceValue)
+  if (value.configuration.type !== 'agent365') {
+    throw new Error('Expected an Agent 365 source fixture.')
+  }
+  value.configuration.limits.maxRetryAfterMs = 120_000
+  return value
+}
+
 function rejectedError(result: PromiseSettledResult<ConnectorSourceWriteResult>): Error {
   if (result.status !== 'rejected') {
     throw new Error('Expected a rejected connector source operation.')
@@ -665,6 +697,95 @@ describe('legacy Azure Monitor connector source hydration', () => {
     const repository = new InMemoryConnectorSourceRepository({
       persistedSources: [withoutSourceProjectId(after)],
       persistedAudits: [withoutAuditSourceProjectIds(audit)],
+    })
+
+    describe('legacy Agent 365 retry hydration', () => {
+      it('keeps in-memory records visible, inactive, and mutation-blocked without clamping', async () => {
+        const current = {
+          ...agent365Source(ESTATE_A),
+          version: 1,
+          etag: 'legacy-agent365-etag',
+          createdBy: { type: 'user', id: 'administrator@example.test' } as const,
+          updatedBy: { type: 'user', id: 'administrator@example.test' } as const,
+          createdAt: '2026-09-04T00:00:00.000Z',
+          updatedAt: '2026-09-04T00:00:00.000Z',
+        } satisfies ConnectorSourceDefinition
+        const repository = new InMemoryConnectorSourceRepository({
+          persistedSources: [withLegacyAgent365Retry(current)],
+        })
+
+        const [listed] = await repository.list(ESTATE_A)
+
+        expect(listed).toMatchObject({
+          sourceId: 'agent365-primary',
+          enabled: false,
+          configuration: { limits: { maxRetryAfterMs: 120_000 } },
+          migration: {
+            status: 'migration-required',
+            reason: 'legacy-agent365-retry-after-limit',
+          },
+        })
+        await expect(
+          repository.update(
+            ESTATE_A,
+            'agent365-primary',
+            'legacy-agent365-etag',
+            { enabled: true },
+            mutation('legacy-agent365-update', '2026-09-04T00:01:00.000Z'),
+          ),
+        ).resolves.toEqual({ status: 'migration_required' })
+        await expect(
+          repository.delete(
+            ESTATE_A,
+            'agent365-primary',
+            'legacy-agent365-etag',
+            mutation('legacy-agent365-delete', '2026-09-04T00:01:00.000Z'),
+          ),
+        ).resolves.toEqual({ status: 'migration_required' })
+      })
+
+      it('keeps Cosmos records visible, inactive, and mutation-blocked without clamping', async () => {
+        const store = new FakeCosmosStore()
+        const repository = new CosmosConnectorSourceRepository(store.client)
+        const created = requireSource(
+          await repository.create(ESTATE_A, agent365Source(ESTATE_A), mutation('agent365-cosmos')),
+        )
+        store.mutate(
+          (document) => document.documentType === 'connector-source',
+          (document) => {
+            document.source = withLegacyAgent365Retry(document.source as ConnectorSourceDefinition)
+          },
+        )
+
+        const [listed] = await repository.list(ESTATE_A)
+
+        expect(listed).toMatchObject({
+          sourceId: 'agent365-primary',
+          enabled: false,
+          configuration: { limits: { maxRetryAfterMs: 120_000 } },
+          migration: {
+            status: 'migration-required',
+            reason: 'legacy-agent365-retry-after-limit',
+          },
+        })
+        await expect(
+          repository.update(
+            ESTATE_A,
+            created.sourceId,
+            created.etag,
+            { enabled: true },
+            mutation('legacy-agent365-cosmos-update', '2026-09-04T00:01:00.000Z'),
+          ),
+        ).resolves.toEqual({ status: 'migration_required' })
+        await expect(
+          repository.delete(
+            ESTATE_A,
+            created.sourceId,
+            created.etag,
+            mutation('legacy-agent365-cosmos-delete', '2026-09-04T00:01:00.000Z'),
+          ),
+        ).resolves.toEqual({ status: 'migration_required' })
+      })
     })
 
     const [listed] = await repository.listAudit(ESTATE_A, after.sourceId)

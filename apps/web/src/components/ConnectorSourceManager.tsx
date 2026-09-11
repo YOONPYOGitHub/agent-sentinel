@@ -385,6 +385,13 @@ function evidenceBasisLabel(basis: 'provider-response' | 'synthetic' | null | un
   return 'Unknown / no evidence'
 }
 
+function migrationNotice(source: ConnectorSourceReadModel): string {
+  if (!isConnectorSourceMigrationRequired(source)) return ''
+  return source.migration.reason === 'missing-source-project-id'
+    ? 'Add the exact authoritative source project ID before activating this connector.'
+    : 'Reduce the legacy Agent 365 maximum retry-after value to 60000 ms or less before activating this connector.'
+}
+
 function mutationError(error: unknown): string {
   if (
     (error instanceof ConnectorSourceApiError && error.code === 'etag_mismatch') ||
@@ -1021,7 +1028,7 @@ function ConnectorSourceCard({
       </dl>
       {migrationRequired ? (
         <div className="connector-source-test-result" role="status">
-          Add the exact authoritative source project ID before activating this connector.
+          {migrationNotice(source)}
         </div>
       ) : null}
       <div className="connector-source-card__actions">

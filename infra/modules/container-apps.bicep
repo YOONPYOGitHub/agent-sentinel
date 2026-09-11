@@ -91,6 +91,7 @@ param agentSentinelEnvironment string = ''
 param entraConnectorEnabled bool = false
 param entraConnectorTenantId string = ''
 param entraSourcesJson string = ''
+param entraRunsAsBindingsJson string = ''
 param entraConnectorEnvironment string = ''
 param entraConnectorGraphBaseUrl string = 'https://graph.microsoft.com'
 param entraConnectorOwnersEnabled bool = false
@@ -412,10 +413,14 @@ var env = [
   { name: 'API_UPSTREAM',                           value: 'api-as-${suffix}' }
 ]
 
-var agent365IdentityEnv = [
+var backendRuntimeEnv = [
   {
     name: 'AGENT365_MANAGED_IDENTITY_CLIENT_ID'
     value: agent365ManagedIdentityClientId
+  }
+  {
+    name: 'ENTRA_RUNS_AS_BINDINGS_JSON'
+    value: entraRunsAsBindingsJson
   }
 ]
 
@@ -460,7 +465,7 @@ resource apps 'Microsoft.App/containerApps@2024-03-01' = [for app in appDefiniti
         {
           name: app.containerName
           image: format('{0}/{1}@{2}', acrLoginServer, app.containerName, app.imageDigest)
-          env: concat(env, app.slug == 'web' ? [] : agent365IdentityEnv)
+          env: concat(env, app.slug == 'web' ? [] : backendRuntimeEnv)
           resources: {
             cpu: json('0.5')
             memory: '1Gi'

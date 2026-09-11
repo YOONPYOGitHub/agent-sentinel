@@ -162,6 +162,44 @@ describe('deployment Azure Monitor OTel source projection', () => {
     })
   })
 
+  it('projects cross-tenant Agent 365 under the portfolio estate and retains provider boundaries', () => {
+    const [projected] = buildDeploymentConnectorSources(
+      {
+        AGENT_SENTINEL_TENANT_ID: estate.tenantId,
+        AGENT_SENTINEL_ENVIRONMENT: estate.environment,
+        AGENT365_CONNECTOR_ENABLED: 'true',
+        AGENT365_SOURCES_JSON: JSON.stringify([
+          {
+            id: 'provider',
+            name: 'Provider Agent 365',
+            tenantId: '22222222-2222-4222-8222-222222222222',
+            environment: 'provider-production',
+          },
+        ]),
+        AGENT365_MANAGED_IDENTITY_CLIENT_ID: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+      },
+      registry,
+      'live',
+    )
+
+    expect(projected).toMatchObject({
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      sourceId: 'agent365-provider',
+      runtimeBinding: {
+        bindingSourceId: 'provider',
+        sourceTenantId: '22222222-2222-4222-8222-222222222222',
+        sourceEnvironment: 'provider-production',
+      },
+      configuration: {
+        type: 'agent365',
+        sourceTenantId: '22222222-2222-4222-8222-222222222222',
+        sourceEnvironment: 'provider-production',
+      },
+    })
+  })
+
   it('rejects enabled Agent 365 deployment without a source boundary', () => {
     expect(() =>
       buildDeploymentConnectorSources(

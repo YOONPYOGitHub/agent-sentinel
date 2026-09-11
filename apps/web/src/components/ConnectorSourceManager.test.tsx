@@ -132,6 +132,27 @@ const migrationRequiredSource = {
   },
 } satisfies ConnectorSourceReadModel
 
+const legacyAgent365MigrationSource = {
+  ...agent365Source,
+  sourceId: 'agent365-legacy-retry',
+  displayName: 'Legacy Agent 365 retry contract',
+  enabled: false,
+  configuration: {
+    ...agent365Configuration,
+    limits: {
+      ...agent365Configuration.limits,
+      maxRetryAfterMs: 120_000,
+    },
+  },
+  testStatus: { status: 'not-tested' },
+  migration: {
+    status: 'migration-required',
+    active: false,
+    reason: 'legacy-agent365-retry-after-limit',
+    action: 'reduce-max-retry-after-ms',
+  },
+} satisfies ConnectorSourceReadModel
+
 const writablePage: ConnectorSourcePage = {
   items: [userSource, deploymentSource],
   page: { limit: 50, nextCursor: null },
@@ -730,6 +751,24 @@ describe('ConnectorSourceManager', () => {
     expect(within(card).getByRole('status')).toHaveTextContent(
       'Add the exact authoritative source project ID before activating this connector.',
     )
+    expect(within(card).queryByRole('button', { name: 'Edit' })).toBeNull()
+    expect(within(card).queryByRole('button', { name: 'Enable' })).toBeNull()
+    expect(within(card).queryByRole('button', { name: 'Check test evidence' })).toBeNull()
+  })
+
+  it('renders legacy Agent 365 retry records inactive without exposing mutation actions', async () => {
+    vi.mocked(connectorSourcesApi.list).mockResolvedValueOnce({
+      ...writablePage,
+      items: [legacyAgent365MigrationSource],
+    })
+
+    render(<ConnectorSourceManager />)
+
+    const card = await screen.findByRole('article', {
+      name: 'Legacy Agent 365 retry contract',
+    })
+    expect(within(card).getByText('Migration required')).toBeVisible()
+    expect(within(card).getByRole('status')).toHaveTextContent('60000 ms or less')
     expect(within(card).queryByRole('button', { name: 'Edit' })).toBeNull()
     expect(within(card).queryByRole('button', { name: 'Enable' })).toBeNull()
     expect(within(card).queryByRole('button', { name: 'Check test evidence' })).toBeNull()

@@ -87,8 +87,13 @@ Agent 365 source health visible but exposes no create, edit, enable, disable, or
 delete controls.
 
 `AGENT365_SOURCES_JSON` accepts 1–50 deployment source objects with unique
-tenant IDs. The catalog is tenant-wide, so the same tenant cannot be configured twice under
-different local environment labels:
+tenant IDs. API/jobs project each deployment source under the configured
+`AGENT_SENTINEL_TENANT_ID` and `AGENT_SENTINEL_ENVIRONMENT` portfolio estate
+while retaining the provider tenant and environment for Graph authentication,
+health, and evidence provenance. This permits explicit cross-tenant inventory
+without relabeling provider data as estate-local. The catalog is tenant-wide,
+so the same tenant cannot be configured twice under different local environment
+labels:
 
 ```json
 [
@@ -111,6 +116,10 @@ an Agent 365 fallback. Invalid persisted legacy records remain visible with
 typed reasons such as `deployment-origin-required`,
 `managed-identity-required`, and
 `managed-identity-client-id-not-approved`; they are not silently migrated.
+Persisted sources from the earlier retry contract with
+`maxRetryAfterMs > 60000` are likewise returned inactive as
+`migration-required` and retain their stored value until an operator explicitly
+reduces it; the runtime never clamps or activates them silently.
 Legacy scalar configuration requires `AGENT365_TENANT_ID`,
 `AGENT365_ENVIRONMENT`, and `AGENT365_MANAGED_IDENTITY_CLIENT_ID`; it creates
 source `primary` when JSON is absent. `AGENT365_GRAPH_BASE_URL` accepts exactly

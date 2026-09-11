@@ -25,6 +25,7 @@ param acaEnvDomain = 'kindflower-ef2d40f6.koreacentral.azurecontainerapps.io'
 param entraConnectorEnabled = true
 param entraConnectorTenantId = 'ef7d55d6-c61d-4085-9064-4e83adf15ee3'
 param entraConnectorEnvironment = 'replacement-validation'
+param entraRunsAsBindingsJson = '[{"estateId":"default","foundry":{"sourceId":"foundry:primary","tenantId":"ef7d55d6-c61d-4085-9064-4e83adf15ee3","environment":"replacement-validation","provider":"azure-ai-foundry-agent-service","sourceObjectId":"agent-sentinel-pjt"},"entra":{"sourceId":"entra:primary","tenantId":"ef7d55d6-c61d-4085-9064-4e83adf15ee3","environment":"replacement-validation","provider":"microsoft-entra","sourceObjectId":"ef7d55d6-c61d-4085-9064-4e83adf15ee3"}}]'
 param powerPlatformConnectorEnabled = false
 param agent365ConnectorEnabled = true
 param agent365ManagedIdentityClientId = '59dbea72-1e91-403a-89cf-e02cdb8da350'

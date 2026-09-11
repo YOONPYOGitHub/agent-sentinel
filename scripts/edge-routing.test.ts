@@ -200,11 +200,39 @@ describe('public edge routing safety', () => {
     expect(containerApps).toContain('param agent365ManagedIdentityClientId string')
     expect(containerApps).toContain("name: 'AGENT365_MANAGED_IDENTITY_CLIENT_ID'")
     expect(containerApps).toMatch(
-      /env:\s*concat\(\s*env,\s*app\.slug == 'web'\s*\?\s*\[\]\s*:\s*agent365IdentityEnv\s*\)/,
+      /env:\s*concat\(\s*env,\s*app\.slug == 'web'\s*\?\s*\[\]\s*:\s*backendRuntimeEnv\s*\)/,
     )
     expect(replacementParameters).toContain(
       "param agent365ManagedIdentityClientId = '59dbea72-1e91-403a-89cf-e02cdb8da350'",
     )
     expect(replacementParameters).not.toMatch(/agent365SourcesJson\s*=.*managedIdentityClientId/)
+  })
+
+  it('validates and projects explicit Entra RUNS_AS authority only to API and jobs', () => {
+    const platform = rootFile('infra/platform.bicep')
+    const containerApps = rootFile('infra/modules/container-apps.bicep')
+    const replacementParameters = rootFile(
+      'infra/environments/mngenvmcap098047.parameters.bicepparam',
+    )
+
+    expect(platform).toContain('param entraRunsAsBindingsJson string')
+    expect(platform).toContain(
+      'validatedEntraRunsAsBindingsJson = string(empty(entraRunsAsBindingsJson) ? [] : json(entraRunsAsBindingsJson))',
+    )
+    expect(platform).toContain('entraRunsAsBindingsJson: validatedEntraRunsAsBindingsJson')
+    expect(containerApps).toContain('param entraRunsAsBindingsJson string')
+    expect(containerApps).toMatch(
+      /var backendRuntimeEnv = \[.*name: 'ENTRA_RUNS_AS_BINDINGS_JSON'.*value: entraRunsAsBindingsJson.*\]/s,
+    )
+    expect(containerApps).toMatch(
+      /env:\s*concat\(\s*env,\s*app\.slug == 'web'\s*\?\s*\[\]\s*:\s*backendRuntimeEnv\s*\)/,
+    )
+    expect(replacementParameters).toContain('"estateId":"default"')
+    expect(replacementParameters).toContain('"sourceId":"foundry:primary"')
+    expect(replacementParameters).toContain('"sourceObjectId":"agent-sentinel-pjt"')
+    expect(replacementParameters).toContain('"sourceId":"entra:primary"')
+    expect(replacementParameters).toContain(
+      '"sourceObjectId":"ef7d55d6-c61d-4085-9064-4e83adf15ee3"',
+    )
   })
 })
