@@ -425,6 +425,13 @@ export class Agent365GraphClient {
               .value
           } catch (error) {
             if (error instanceof Agent365ConnectorError && error.code === 'bounds') throw error
+            if (externalSignal?.aborted === true) throw cancelledError()
+            if (controller.signal.aborted) {
+              throw new Agent365ConnectorError(
+                'timeout',
+                'Microsoft Graph package request timed out.',
+              )
+            }
           }
           throw statusError(response.status, body)
         }

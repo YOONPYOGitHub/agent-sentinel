@@ -453,6 +453,64 @@ describe('Agent365GraphClient', () => {
     ).rejects.toMatchObject({ code: 'timeout' })
   })
 
+  it('preserves timeout when a non-2xx response body stalls until request abort', async () => {
+    const timeoutLimits = agent365LimitsSchema.parse({ ...limits, requestTimeoutMs: 100 })
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, init) => {
+      const signal = init?.signal
+      return Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              signal?.addEventListener(
+                'abort',
+                () => controller.error(new DOMException('aborted', 'AbortError')),
+                { once: true },
+              )
+            },
+          }),
+          { status: 403 },
+        ),
+      )
+    })
+
+    await expect(
+      new Agent365GraphClient(timeoutLimits, new TestCredential(), TENANT_ID, {
+        fetcher,
+      }).collect(),
+    ).rejects.toMatchObject({ code: 'timeout' })
+  })
+
+  it('preserves caller cancellation when a non-2xx response body aborts', async () => {
+    const controller = new AbortController()
+    let responseStarted = false
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, init) => {
+      const signal = init?.signal
+      return Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(streamController) {
+              responseStarted = true
+              signal?.addEventListener(
+                'abort',
+                () => streamController.error(new DOMException('aborted', 'AbortError')),
+                { once: true },
+              )
+            },
+          }),
+          { status: 403 },
+        ),
+      )
+    })
+    const result = new Agent365GraphClient(limits, new TestCredential(), TENANT_ID, {
+      fetcher,
+    }).collect(undefined, controller.signal)
+    await vi.waitFor(() => expect(responseStarted).toBe(true))
+
+    controller.abort()
+
+    await expect(result).rejects.toMatchObject({ code: 'cancelled' })
+  })
+
   it('rejects malformed envelopes and undocumented enum values', async () => {
     for (const body of [
       { items: [item] },
