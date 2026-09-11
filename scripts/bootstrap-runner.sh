@@ -6,6 +6,7 @@
 # Environment variables expected (injected at run-command call time):
 #   GH_RUNNER_TOKEN  - short-lived registration token from `gh api` (1-hour TTL)
 #   GH_RUNNER_NAME   - runner name (defaults to hostname)
+#   GH_RUNNER_LABELS - comma-separated labels (defaults to the historical private label)
 #   RUNNER_VERSION   - GitHub Actions runner version (e.g. 2.319.1)
 #
 # Usage (operator runs from WSL / CI host ? NOT from within the VM):
@@ -46,7 +47,7 @@ RUNNER_USER="actions-runner"
 RUNNER_VERSION="${RUNNER_VERSION:-2.319.1}"
 RUNNER_NAME="${GH_RUNNER_NAME:-$(hostname)}"
 REPO_URL="https://github.com/YOONPYOGitHub/agent-sentinel"
-LABELS="self-hosted,linux,x64,agent-sentinel-private"
+RUNNER_LABELS="${GH_RUNNER_LABELS:-self-hosted,linux,x64,agent-sentinel-private}"
 RUNNER_ARCH="linux-x64"
 
 log() { echo "[bootstrap] $*"; }
@@ -54,7 +55,7 @@ log() { echo "[bootstrap] $*"; }
 log "=== Agent Sentinel CI Runner Bootstrap ==="
 log "Runner version : ${RUNNER_VERSION}"
 log "Runner name    : ${RUNNER_NAME}"
-log "Labels         : ${LABELS}"
+log "Labels         : ${RUNNER_LABELS}"
 
 # ?? 1. OS hardening & dependencies ?????????????????????????????????????????
 log "Installing system dependencies..."
@@ -126,7 +127,7 @@ sudo -u "${RUNNER_USER}" "${RUNNER_HOME}/config.sh" \
   --url "${REPO_URL}" \
   --token "${GH_RUNNER_TOKEN}" \
   --name "${RUNNER_NAME}" \
-  --labels "${LABELS}" \
+  --labels "${RUNNER_LABELS}" \
   --runnergroup "Default" \
   --work "_work" \
   --unattended \

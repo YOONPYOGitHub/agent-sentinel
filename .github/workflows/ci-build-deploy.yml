@@ -1,10 +1,10 @@
 # ci-build-deploy.yml
 # Private CI/CD pipeline using self-hosted runner inside the Agent Sentinel VNet.
 #
-# Runner: self-hosted,linux,x64,agent-sentinel-private
+# Runner: self-hosted,linux,x64 plus the repository variable PRIVATE_RUNNER_LABEL
 # Azure auth: az login --identity using runner UAMI (no OIDC, no secrets stored)
 # ACR push: az acr login (identity) then docker push to private ACR via private endpoint
-# Deploy: environment protection on "production" environment requires manual approval
+# Deploy: selected GitHub environment must have required reviewers before deployment is enabled
 #
 # Triggers:
 #   - push to feature/** (build + validate only)
@@ -22,8 +22,24 @@ on:
         description: 'Exact 40-hex commit SHA to validate, build, and deploy'
         required: true
         type: string
+      targetEnvironment:
+        description: 'Approved GitHub deployment environment'
+        required: false
+        default: 'none'
+        type: choice
+        options:
+          - 'none'
+          - 'replacement-validation'
+      parameterFile:
+        description: 'Approved platform parameter file'
+        required: false
+        default: 'none'
+        type: choice
+        options:
+          - 'none'
+          - 'infra/environments/mngenvmcap098047.parameters.bicepparam'
       deployPlatform:
-        description: 'Deploy platform Bicep after building images?'
+        description: 'Run the protected platform deployment after what-if approval?'
         required: false
         default: 'false'
         type: choice
@@ -32,15 +48,18 @@ on:
           - 'true'
 
 env:
-  ACR_NAME: acr260814
-  ACR_LOGIN_SERVER: acr260814.azurecr.io
-  RG: rg-agent-sentinel
-  RUNNER_UAMI_CLIENT_ID: feb1bf96-738d-4b5c-8b75-4b617bbe9f93
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+  AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  ACR_LOGIN_SERVER: ${{ format('{0}.azurecr.io', vars.ACR_NAME) }}
+  RUNNER_UAMI_CLIENT_ID: ${{ vars.RUNNER_UAMI_CLIENT_ID }}
+  TARGET_ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.targetEnvironment || 'none' }}
+  PLATFORM_PARAMETER_FILE: ${{ github.event_name == 'workflow_dispatch' && inputs.parameterFile || 'none' }}
 
 jobs:
   resolve:
     name: Resolve immutable commit
-    runs-on: [self-hosted, linux, x64, agent-sentinel-private]
+    runs-on: [self-hosted, linux, x64, '${{ vars.PRIVATE_RUNNER_LABEL }}']
     outputs:
       commitSha: ${{ steps.resolve.outputs.commitSha }}
     steps:
@@ -55,6 +74,55 @@ jobs:
           fi
           NORMALIZED_SHA="${REQUESTED_SHA,,}"
           echo "commitSha=${NORMALIZED_SHA}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate approved deployment configuration
+        env:
+          DEPLOY_PLATFORM: ${{ github.event_name == 'workflow_dispatch' && inputs.deployPlatform || 'false' }}
+          PRIVATE_RUNNER_LABEL: ${{ vars.PRIVATE_RUNNER_LABEL }}
+        run: |
+          require_match() {
+            local name="$1"
+            local value="$2"
+            local pattern="$3"
+            if [[ ! "${value}" =~ ${pattern} ]]; then
+              echo "ERROR: ${name} is missing or invalid"
+              exit 1
+            fi
+          }
+
+          require_match AZURE_RESOURCE_GROUP "${AZURE_RESOURCE_GROUP}" '^[A-Za-z0-9._()-]{1,90}$'
+          if [[ "${AZURE_RESOURCE_GROUP}" == *'..'* ]]; then
+            echo "ERROR: AZURE_RESOURCE_GROUP contains a forbidden path-like value"
+            exit 1
+          fi
+          require_match AZURE_SUBSCRIPTION_ID "${AZURE_SUBSCRIPTION_ID}" '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+          require_match ACR_NAME "${ACR_NAME}" '^[a-z0-9]{5,50}$'
+          require_match RUNNER_UAMI_CLIENT_ID "${RUNNER_UAMI_CLIENT_ID}" '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+          require_match PRIVATE_RUNNER_LABEL "${PRIVATE_RUNNER_LABEL}" '^[A-Za-z0-9._-]{1,63}$'
+
+          case "${TARGET_ENVIRONMENT}:${PLATFORM_PARAMETER_FILE}" in
+            none:none)
+              if [ "${DEPLOY_PLATFORM}" = 'true' ]; then
+                echo "ERROR: deployment requires an approved target environment and parameter file"
+                exit 1
+              fi
+              ;;
+            replacement-validation:infra/environments/mngenvmcap098047.parameters.bicepparam)
+              if [ "${ACR_NAME}" != 'acrm098047' ]; then
+                echo "ERROR: replacement-validation requires ACR_NAME=acrm098047"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "ERROR: unapproved target environment or parameter file"
+              exit 1
+              ;;
+          esac
+
+          if [[ "${PLATFORM_PARAMETER_FILE}" == /* || "${PLATFORM_PARAMETER_FILE}" == *'..'* ]]; then
+            echo "ERROR: parameter file path traversal is forbidden"
+            exit 1
+          fi
 
       - name: Checkout requested commit
         uses: actions/checkout@v5
@@ -77,7 +145,7 @@ jobs:
   validate:
     name: Validate (lint / typecheck / test / bicep-build)
     needs: resolve
-    runs-on: [self-hosted, linux, x64, agent-sentinel-private]
+    runs-on: [self-hosted, linux, x64, '${{ vars.PRIVATE_RUNNER_LABEL }}']
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -118,12 +186,21 @@ jobs:
         run: |
           az bicep build -f infra/platform.bicep
           az bicep build -f infra/ci-foundation.bicep
+          az bicep build -f infra/connector-sources.bicep
+          ADMIN_SSH_PUBLIC_KEY='offline-validation-placeholder' \
+            az bicep build-params -f infra/environments/mngenvmcap098047-ci-foundation.parameters.bicepparam --stdout >/dev/null
+          az bicep build-params -f infra/environments/mngenvmcap098047-connector-sources.parameters.bicepparam --stdout >/dev/null
+          az bicep build-params -f infra/environments/mngenvmcap098047-foundry.parameters.bicepparam --stdout >/dev/null
+          WEB_IMAGE_DIGEST='sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+          API_IMAGE_DIGEST='sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' \
+          JOBS_IMAGE_DIGEST='sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc' \
+            az bicep build-params -f infra/environments/mngenvmcap098047.parameters.bicepparam --stdout >/dev/null
 
   # Job 2: Build & Push Images
   build-push:
     name: Build & Push Container Images
     needs: [resolve, validate]
-    runs-on: [self-hosted, linux, x64, agent-sentinel-private]
+    runs-on: [self-hosted, linux, x64, '${{ vars.PRIVATE_RUNNER_LABEL }}']
     outputs:
       webDigest: ${{ steps.verify-images.outputs.webDigest }}
       apiDigest: ${{ steps.verify-images.outputs.apiDigest }}
@@ -149,7 +226,7 @@ jobs:
       - name: Login to Azure (managed identity)
         run: |
           az login --identity --client-id "${{ env.RUNNER_UAMI_CLIENT_ID }}" --allow-no-subscriptions
-          az account set --subscription "$(az account list --query '[0].id' -o tsv)"
+          az account set --subscription "${AZURE_SUBSCRIPTION_ID}"
 
       - name: Login to ACR (identity ? no password)
         run: az acr login --name "${{ env.ACR_NAME }}"
@@ -216,8 +293,8 @@ jobs:
   what-if:
     name: Bicep What-If
     needs: [resolve, build-push]
-    if: inputs.deployPlatform == 'true' || github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, linux, x64, agent-sentinel-private]
+    if: github.event_name == 'workflow_dispatch' && inputs.targetEnvironment != 'none'
+    runs-on: [self-hosted, linux, x64, '${{ vars.PRIVATE_RUNNER_LABEL }}']
     env:
       WEB_IMAGE_DIGEST: ${{ needs.build-push.outputs.webDigest }}
       API_IMAGE_DIGEST: ${{ needs.build-push.outputs.apiDigest }}
@@ -229,14 +306,16 @@ jobs:
           ref: ${{ needs.resolve.outputs.commitSha }}
 
       - name: Login to Azure
-        run: az login --identity --client-id "${{ env.RUNNER_UAMI_CLIENT_ID }}" --allow-no-subscriptions
+        run: |
+          az login --identity --client-id "${{ env.RUNNER_UAMI_CLIENT_ID }}" --allow-no-subscriptions
+          az account set --subscription "${AZURE_SUBSCRIPTION_ID}"
 
       - name: Bicep what-if
         run: |
           az deployment group what-if \
-            -g "${{ env.RG }}" \
+            -g "${AZURE_RESOURCE_GROUP}" \
             -f infra/platform.bicep \
-            -p infra/environments/dev.parameters.bicepparam \
+            -p "${PLATFORM_PARAMETER_FILE}" \
             -p webImageDigest="${WEB_IMAGE_DIGEST}" \
             -p apiImageDigest="${API_IMAGE_DIGEST}" \
             -p jobsImageDigest="${JOBS_IMAGE_DIGEST}" \
@@ -246,9 +325,9 @@ jobs:
   deploy:
     name: Deploy Platform
     needs: [resolve, build-push, what-if]
-    if: inputs.deployPlatform == 'true'
-    runs-on: [self-hosted, linux, x64, agent-sentinel-private]
-    environment: production # Requires manual approval via GitHub environment protection
+    if: github.event_name == 'workflow_dispatch' && inputs.deployPlatform == 'true' && inputs.targetEnvironment != 'none'
+    runs-on: [self-hosted, linux, x64, '${{ vars.PRIVATE_RUNNER_LABEL }}']
+    environment: ${{ inputs.targetEnvironment }} # Configure required reviewers before enabling deployment.
     env:
       WEB_IMAGE_DIGEST: ${{ needs.build-push.outputs.webDigest }}
       API_IMAGE_DIGEST: ${{ needs.build-push.outputs.apiDigest }}
@@ -260,14 +339,16 @@ jobs:
           ref: ${{ needs.resolve.outputs.commitSha }}
 
       - name: Login to Azure
-        run: az login --identity --client-id "${{ env.RUNNER_UAMI_CLIENT_ID }}" --allow-no-subscriptions
+        run: |
+          az login --identity --client-id "${{ env.RUNNER_UAMI_CLIENT_ID }}" --allow-no-subscriptions
+          az account set --subscription "${AZURE_SUBSCRIPTION_ID}"
 
       - name: Deploy platform.bicep
         run: |
           DEPLOYMENT_OUTPUTS="$(az deployment group create \
-            -g "${{ env.RG }}" \
+            -g "${AZURE_RESOURCE_GROUP}" \
             -f infra/platform.bicep \
-            -p infra/environments/dev.parameters.bicepparam \
+            -p "${PLATFORM_PARAMETER_FILE}" \
             -p webImageDigest="${WEB_IMAGE_DIGEST}" \
             -p apiImageDigest="${API_IMAGE_DIGEST}" \
             -p jobsImageDigest="${JOBS_IMAGE_DIGEST}" \
@@ -299,7 +380,7 @@ jobs:
 
             mapfile -t active_revisions < <(
               az containerapp revision list \
-                -g "${{ env.RG }}" \
+                -g "${AZURE_RESOURCE_GROUP}" \
                 -n "${app_name}" \
                 --query '[?properties.active].name' \
                 -o tsv
@@ -309,7 +390,7 @@ jobs:
               exit 1
             fi
             running_image="$(az containerapp revision show \
-              -g "${{ env.RG }}" \
+              -g "${AZURE_RESOURCE_GROUP}" \
               -n "${app_name}" \
               --revision "${active_revisions[0]}" \
               --query "properties.template.containers[?name == '${container_name}'].image | [0]" \

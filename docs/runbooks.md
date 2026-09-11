@@ -252,6 +252,43 @@ to deliver platform console logs. That control-plane sink is not exposed as an
 application environment variable and is not used by the OTel query connector;
 connector reads authenticate only through the UAMI role above.
 
+## RB-013A: Surgical connector-sources readiness (not executed)
+
+Use `infra/connector-sources.bicep` only when the existing target account is
+`cosmos-as-m098047` and the existing SQL database is `agent-sentinel-db`. The
+entrypoint declares both parents as `existing` and creates only their
+`connector-sources` child.
+
+```bash
+export TARGET_RG='<approved-replacement-resource-group>'
+
+# Offline structural compile.
+az bicep build --file infra/connector-sources.bicep --stdout >/dev/null
+az bicep build-params \
+  --file infra/environments/mngenvmcap098047-connector-sources.parameters.bicepparam \
+  --stdout >/dev/null
+
+# Approval gate: expected change is one container only.
+az deployment group what-if \
+  --resource-group "${TARGET_RG}" \
+  --template-file infra/connector-sources.bicep \
+  --parameters infra/environments/mngenvmcap098047-connector-sources.parameters.bicepparam \
+  --result-format FullResourcePayloads
+
+# Run only after the reviewed what-if proves there are no unrelated changes.
+az deployment group create \
+  --resource-group "${TARGET_RG}" \
+  --template-file infra/connector-sources.bicep \
+  --parameters infra/environments/mngenvmcap098047-connector-sources.parameters.bicepparam \
+  --mode Incremental
+```
+
+Approve only `/estateId`, the checked-in included/excluded paths, and the two
+checked-in composite indexes. Stop if the what-if contains an account/database
+write, throughput change, another container, private endpoint, identity, or role
+assignment. These commands are readiness instructions and are not evidence of a
+completed deployment.
+
 ## RB-014: Private CI Build Runner
 
 ### Architecture
@@ -289,7 +326,82 @@ labels: `self-hosted,linux,x64,agent-sentinel-private`.
 | `acr260814.azurecr.io`             | Via VNet private endpoint (no internet)  |
 | OS mirrors (port 80)               | `archive.ubuntu.com`, CRL endpoints      |
 
-### Initial Provisioning
+### Replacement-tenant runner readiness (not executed)
+
+The target foundation parameter file is
+`infra/environments/mngenvmcap098047-ci-foundation.parameters.bicepparam`. With
+suffix `m098047`, `ci-foundation.bicep` resolves the existing
+`vnet-as-m098047/build` subnet, existing `acrm098047`, and new
+`id-ci-runner-m098047`. It contains no subscription ID, client ID, token, secret,
+or SSH key material.
+
+Required approvals, in order:
+
+1. An operator confirms the active Azure tenant/subscription and sets
+   `TARGET_RG` to the approved replacement resource group.
+2. Network and registry owners confirm `vnet-as-m098047/build` and `acrm098047`
+   already exist in that resource group.
+3. Security reviews the what-if. Expected creates are the runner UAMI, its
+   `AcrPush` assignment scoped only to `acrm098047`, runner NSG/NIC, and VM. Stop
+   on changes to the VNet, ACR, application identities, or broader role scope.
+4. An operator supplies an approved SSH public key only for compilation and
+   deployment. Never commit it or place it in a parameter file.
+5. A repository administrator approves registration of the runner with label
+   `agent-sentinel-private-m098047` and configures the protected
+   `replacement-validation` GitHub environment with required reviewers.
+6. Any Azure permission beyond the template's ACR-scoped `AcrPush` assignment
+   (including resource-group what-if or deployment rights) is a separate
+   least-privilege role review. Do not infer or auto-assign it from this runbook.
+
+```bash
+export TARGET_RG='<approved-replacement-resource-group>'
+export ADMIN_SSH_PUBLIC_KEY="$(cat '<approved-public-key>.pub')"
+
+# Offline compile first.
+az bicep build-params \
+  --file infra/environments/mngenvmcap098047-ci-foundation.parameters.bicepparam \
+  --stdout >/dev/null
+
+# Review only; no resource is created by what-if.
+az deployment group what-if \
+  --resource-group "${TARGET_RG}" \
+  --template-file infra/ci-foundation.bicep \
+  --parameters infra/environments/mngenvmcap098047-ci-foundation.parameters.bicepparam \
+  --result-format FullResourcePayloads
+
+# Run create only after approvals 1-4 are recorded.
+az deployment group create \
+  --resource-group "${TARGET_RG}" \
+  --template-file infra/ci-foundation.bicep \
+  --parameters infra/environments/mngenvmcap098047-ci-foundation.parameters.bicepparam \
+  --mode Incremental
+```
+
+After the VM exists, a repository administrator obtains a fresh registration
+token and passes it directly to Run Command. The example intentionally contains
+no token value:
+
+```bash
+TOKEN="$(gh api -X POST \
+  /repos/YOONPYOGitHub/agent-sentinel/actions/runners/registration-token \
+  --jq .token)"
+az vm run-command invoke \
+  --resource-group "${TARGET_RG}" \
+  --name vm-ci-runner-as \
+  --command-id RunShellScript \
+  --scripts @scripts/bootstrap-runner.sh \
+  --parameters \
+    "GH_RUNNER_TOKEN=${TOKEN}" \
+    'GH_RUNNER_LABELS=self-hosted,linux,x64,agent-sentinel-private-m098047' \
+    'RUNNER_VERSION=2.319.1'
+unset TOKEN
+```
+
+Confirm the runner is online with the exact target label before enabling any
+workflow dispatch. This section records readiness instructions only; it is not
+evidence that the runner or role assignment exists.
+
+### Historical development runner provisioning
 
 ```bash
 # 1. Deploy build subnet (if not already present via platform.bicep deploy):
@@ -326,7 +438,7 @@ or stored secrets are required. The runner is inside Azure; IMDS provides tokens
 - name: Login to Azure (managed identity)
   run: az login --identity --client-id "${{ env.RUNNER_UAMI_CLIENT_ID }}"
 - name: Login to ACR (identity - no password)
-  run: az acr login --name acr260814
+  run: az acr login --name "${{ env.ACR_NAME }}"
 ```
 
 ### Runner Rotation / Re-registration
@@ -357,10 +469,18 @@ az vm run-command invoke \
   --parameters "GH_RUNNER_TOKEN=${NEW_TOKEN}" "RUNNER_VERSION=2.319.1"
 ```
 
-### GitHub Environment Protection (production)
+### GitHub environment protection
 
-The `deploy` job in `.github/workflows/ci-build-deploy.yml` targets the `production` environment.
-Configure a required reviewer in Settings > Environments > production to enforce manual approval.
+The workflow dispatch allowlists `replacement-validation`; the deploy job binds
+to the selected GitHub environment. Configure required reviewers in
+Settings > Environments > replacement-validation before setting
+`deployPlatform=true`. Repository variables must be reviewed at the same gate:
+`AZURE_RESOURCE_GROUP`, `AZURE_SUBSCRIPTION_ID`, `ACR_NAME` (`acrm098047`),
+`RUNNER_UAMI_CLIENT_ID`, and `PRIVATE_RUNNER_LABEL`
+(`agent-sentinel-private-m098047`). The workflow rejects missing/invalid names,
+a mismatched target ACR, unapproved parameter paths, and path traversal. Its
+input defaults are `targetEnvironment=none`, `parameterFile=none`, and
+`deployPlatform=false`.
 
 ### VM Decommission
 

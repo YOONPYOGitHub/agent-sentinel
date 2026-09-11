@@ -58,6 +58,60 @@ parameter files:
   platform with a new suffix and tenant boundary. Writes and authentication
   remain disabled; its explicitly enabled read connectors require the separate
   permissions and validation described below.
+- `infra/environments/mngenvmcap098047-connector-sources.parameters.bicepparam`
+  targets only `connector-sources` in the existing `cosmos-as-m098047` /
+  `agent-sentinel-db` hierarchy.
+- `infra/environments/mngenvmcap098047-ci-foundation.parameters.bicepparam`
+  targets the existing `vnet-as-m098047/build` subnet and `acrm098047`; the SSH
+  public key is supplied through `ADMIN_SSH_PUBLIC_KEY`, never source control.
+
+## Hackathon deployment-readiness sequence (not executed)
+
+This repository change prepares, but does not perform, deployment. Every create,
+role assignment, runner registration, image push, and Container App update below
+requires an operator approval at the indicated gate.
+
+1. **Approve and provision `connector-sources`.** Compile the target parameter
+   file offline, then run a resource-group what-if for
+   `infra/connector-sources.bicep`. Approve only if the payload creates exactly
+   `cosmos-as-m098047/agent-sentinel-db/connector-sources`, with partition key
+   `/estateId` and the checked-in indexing policy. Stop on any account, database,
+   network, identity, role, or unrelated container change. Only then may an
+   operator run the incremental create.
+2. **Approve and provision the target runner.** Confirm the target account,
+   subscription, resource group, `vnet-as-m098047/build`, and `acrm098047` before
+   reviewing the `infra/ci-foundation.bicep` what-if with
+   `mngenvmcap098047-ci-foundation.parameters.bicepparam`. Its managed identity,
+   `AcrPush` assignment, NSG, NIC, and VM all require explicit infrastructure and
+   security approval. Supply only an SSH _public_ key at invocation time.
+3. **Approve and boot the runner.** Use a fresh one-hour GitHub registration
+   token and the target-only label `agent-sentinel-private-m098047`. Confirm the
+   runner is online, then configure the repository variables documented in
+   [Supply chain](supply-chain.md). Never store the token in GitHub variables,
+   parameter files, shell history, or repository files.
+4. **Validate the exact release SHA.** Dispatch the private workflow with the
+   full 40-hex commit SHA, `targetEnvironment=replacement-validation`, the
+   allowlisted replacement parameter file, and `deployPlatform=false`. Review
+   validation, offline Bicep builds, image import checks, and canonical ACR
+   digests. The default `none` target and `false` deployment cannot deploy.
+5. **Build and publish API/jobs; web is optional.** API and jobs are the required
+   hackathon artifacts. Publish web only when its code or edge configuration
+   changed. Every published tag is the exact full SHA and every rollout uses the
+   resolved digest, never the tag.
+6. **Deploy API, validate, then deploy jobs.** After the protected GitHub
+   environment reviewer approves the exact SHA, digests, target resource group,
+   parameter file, and what-if, update the API revision first. Verify one active
+   revision, digest equality, health, connector status, and blocked anonymous
+   mutation before updating jobs. Verify the jobs revision and one bounded
+   ingestion cycle. Roll out web last only when approved and required.
+7. **Rollback on any failed gate.** Restore the previously recorded API digest
+   before changing jobs. If jobs has changed, restore its previous digest next;
+   restore web only if it was changed. Re-run the same active-revision and smoke
+   checks, and record both attempted and restored digests. Do not retag images.
+
+The existing workflow's full-platform deployment switch remains a separate,
+protected operation for a completely reviewed Bicep what-if. It is not the
+approval to bypass the staged API-then-jobs hackathon rollout above.
 
 Do not run either deployment from an Azure CLI context that still targets the
 historical tenant. Confirm the exact tenant, subscription, and account first.
@@ -253,12 +307,15 @@ See [Architecture: Azure Front Door Status](architecture.md#azure-front-door-sta
 
 ## Container Image Build and Push
 
-The ACR (`acr260814`) has `publicNetworkAccess: Disabled` with private endpoint.
-Do not enable public registry access for builds. Use the private self-hosted
-runner and `.github/workflows/ci-build-deploy.yml`. A manual dispatch requires
-one exact 40-hex commit SHA; the workflow validates and resolves that commit
-once, checks out the same resolved SHA for validation, image builds, what-if,
-and deployment, and never interpolates the dispatch input directly into a
+Each target ACR has `publicNetworkAccess: Disabled` with a private endpoint.
+Do not enable public registry access for builds. Use the target private
+self-hosted runner and `.github/workflows/ci-build-deploy.yml`. Resource group,
+subscription, ACR, runner managed-identity client ID, and private runner label
+come from validated GitHub repository variables; the target environment and
+parameter file are allowlisted dispatch choices. A manual dispatch requires one
+exact 40-hex commit SHA; the workflow validates and resolves that commit once,
+checks out the same resolved SHA for validation, image builds, what-if, and any
+protected deployment, and never interpolates the dispatch input directly into a
 shell command.
 
 All three images are tagged with the full resolved commit SHA for traceability.
@@ -268,7 +325,7 @@ After each push, the workflow resolves the tag through
 the three verified component digests as `webImageDigest`, `apiImageDigest`, and
 `jobsImageDigest`. Bicep combines only those digests with the private ACR login
 server and component repository names, so each Container App revision uses an
-immutable `acr260814.azurecr.io/<repository>@sha256:<digest>` reference rather
+immutable `<target-acr>.azurecr.io/<repository>@sha256:<digest>` reference rather
 than a tag.
 
 After deployment, the workflow requires exactly one active revision per
