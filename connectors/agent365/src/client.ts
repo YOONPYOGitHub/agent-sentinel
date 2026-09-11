@@ -145,7 +145,9 @@ function readWithAbort(
     const onAbort = (): void => {
       signal.removeEventListener('abort', onAbort)
       cancelWithoutWaiting(() => reader.cancel())
-      reject(signal.reason ?? new DOMException('aborted', 'AbortError'))
+      reject(
+        signal.reason instanceof Error ? signal.reason : new DOMException('aborted', 'AbortError'),
+      )
     }
     signal.addEventListener('abort', onAbort, { once: true })
     void reader.read().then(
@@ -155,7 +157,9 @@ function readWithAbort(
       },
       (error: unknown) => {
         signal.removeEventListener('abort', onAbort)
-        reject(error)
+        reject(
+          error instanceof Error ? error : new Error('Microsoft Graph response body read failed.'),
+        )
       },
     )
   })
