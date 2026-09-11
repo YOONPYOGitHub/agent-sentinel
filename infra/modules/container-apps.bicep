@@ -182,6 +182,10 @@ param azureMonitorSourcesJson string = ''
 @description('Cosmos database id backing exposure findings and snapshots.')
 param cosmosDatabase string = 'agent-sentinel-db'
 
+@description('Manifest ingestion container selected only after reviewed copy validation.')
+@allowed(['manifest-ingestions', 'manifest-ingestions-v2'])
+param manifestIngestionsContainerName string = 'manifest-ingestions'
+
 @description('Ingestion worker discovery interval in milliseconds.')
 param discoveryIntervalMs string = '300000'
 
@@ -384,7 +388,7 @@ var env = [
   { name: 'AGENT_SENTINEL_TENANT_ID',             value: empty(agentSentinelTenantId) ? foundryTenantId : agentSentinelTenantId }
   { name: 'COSMOS_DATABASE',                      value: cosmosDatabase }
   { name: 'COSMOS_GOVERNANCE_CONTAINER',          value: 'governance-cases' }
-  { name: 'COSMOS_MANIFEST_INGESTIONS_CONTAINER', value: 'manifest-ingestions' }
+  { name: 'COSMOS_MANIFEST_INGESTIONS_CONTAINER', value: manifestIngestionsContainerName }
   { name: 'DISCOVERY_INTERVAL_MS',                value: discoveryIntervalMs }
   { name: 'AGENT_SENTINEL_CONNECTOR',             value: agentSentinelDataMode == 'live' ? 'foundry' : 'mock' }
   { name: 'AZURE_CLIENT_ID',                       value: uamiClientId }

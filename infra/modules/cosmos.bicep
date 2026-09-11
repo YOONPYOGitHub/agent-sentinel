@@ -89,6 +89,34 @@ resource manifestIngestionsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlD
   }
 }
 
+resource manifestIngestionsV2Container 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
+  parent: database
+  name: 'manifest-ingestions-v2'
+  properties: {
+    resource: {
+      id: 'manifest-ingestions-v2'
+      partitionKey: {
+        paths: ['/tenantId']
+        kind: 'Hash'
+      }
+      uniqueKeyPolicy: {
+        uniqueKeys: [
+          {
+            paths: [
+              '/source/estateId'
+              '/source/sourceId'
+              '/source/version'
+              '/source/etag'
+              '/manifestId'
+              '/envelope/producedAt'
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
+
 resource governanceContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
   parent: database
   name: 'governance-cases'

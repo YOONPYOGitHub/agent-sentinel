@@ -584,7 +584,7 @@ describe('connector selection', () => {
     expect(
       result.connector
         .getConnectorHealth?.()
-        .sources.find((source) => source.id === 'agent365:agent365-primary'),
+        .sources.find((source) => source.id === 'agent365:primary'),
     ).toMatchObject({
       enabled: true,
       configured: false,
@@ -729,7 +729,7 @@ describe('connector selection', () => {
     expect(
       result.connector
         .getConnectorHealth?.()
-        .sources.find((source) => source.id === 'agent365:agent365-primary'),
+        .sources.find((source) => source.id === 'agent365:primary'),
     ).toMatchObject({
       readiness: 'unavailable',
       dataState: 'cancelled',

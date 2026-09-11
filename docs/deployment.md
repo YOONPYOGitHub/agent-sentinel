@@ -131,10 +131,13 @@ az deployment group create \
 
 Same command ? Bicep is idempotent for Incremental mode.
 
-Cosmos includes the dedicated `manifest-ingestions` container with `/tenantId` partitioning and a
-unique key across `/manifestId` plus `/envelope/producedAt`. Set
-`COSMOS_MANIFEST_INGESTIONS_CONTAINER=manifest-ingestions` on API and jobs. Provision this container
-before deploying a jobs image that lists authenticated manifest versions.
+Cosmos keeps the deployed `manifest-ingestions` container with `/tenantId`
+partitioning and its existing unique key across `/manifestId` plus
+`/envelope/producedAt`. Desired state also declares
+`manifest-ingestions-v2`, whose unique key includes immutable source generation
+fields. `manifestIngestionsContainerName` defaults to the legacy container and
+must not be changed until an operator has provisioned v2, copied and validated
+the retained records, reviewed a what-if, and approved the manual cutover.
 
 For multi-project Foundry discovery, set `agentSentinelTenantId` and
 `agentSentinelEnvironment` as stable aggregate persistence boundaries and pass
@@ -163,15 +166,17 @@ are explicitly unsupported for inventory access, and an environment query
 filter is not an authorization boundary. See
 [Power Platform connector](power-platform-connector.md).
 
-Microsoft Agent 365 package catalog inventory is independently disabled by
-`agent365ConnectorEnabled=false`. Configure `agent365SourcesJson`, or the legacy
+Microsoft Agent 365 package catalog inventory is independently controlled by
+`agent365ConnectorEnabled`. Configure `agent365SourcesJson`, or the legacy
 `agent365TenantId` and `agent365Environment` pair. The only accepted base is
 `https://graph.microsoft.com`; all requests use the fixed v1.0 list endpoint and
 bounded continuation links. Do not enable it until the tenant has a Microsoft
 Agent 365 license and tenant-admin `CopilotPackages.Read.All` **application**
-consent. The Bicep parameters only inject disabled configuration: they do not
-grant a Graph app role, assign a license, or create tenant resources. See
-[Agent 365 connector](agent365-connector.md).
+consent. The reviewed replacement-environment candidate enables one source with
+existing connector UAMI `59dbea72-1e91-403a-89cf-e02cdb8da350`; it does not
+grant a Graph app role, broaden permissions, assign a license, or create tenant
+resources. Deployment and live persisted-snapshot validation remain manual.
+See [Agent 365 connector](agent365-connector.md).
 
 Microsoft Defender for Cloud Apps evidence remains independently default-disabled
 by `defenderCloudAppsConnectorEnabled=false`. Configure

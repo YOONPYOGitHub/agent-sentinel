@@ -188,6 +188,10 @@ param azureMonitorSourcesJson string = ''
 @description('Cosmos database id backing exposure findings.')
 param cosmosDatabase string = 'agent-sentinel-db'
 
+@description('Manifest ingestion container selected after reviewed copy validation. Keep the legacy container until cutover is approved.')
+@allowed(['manifest-ingestions', 'manifest-ingestions-v2'])
+param manifestIngestionsContainerName string = 'manifest-ingestions'
+
 @description('Ingestion worker discovery interval in milliseconds.')
 param discoveryIntervalMs string = '300000'
 @description('API authentication mode. Keep disabled until Entra and WAF configuration are approved.')
@@ -462,6 +466,7 @@ module containerApps './modules/container-apps.bicep' = {
     azureMonitorConnectorEnabled: azureMonitorConnectorEnabled
     azureMonitorSourcesJson: azureMonitorSourcesJson
     cosmosDatabase: cosmosDatabase
+    manifestIngestionsContainerName: manifestIngestionsContainerName
     discoveryIntervalMs: discoveryIntervalMs
     authMode: authMode
     authTenantId: authTenantId

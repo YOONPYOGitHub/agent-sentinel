@@ -69,6 +69,15 @@ estate tenant, so explicitly registered cross-tenant and custom-estate sources
 remain valid. The authority index is built once and reused for policy, path,
 blast-radius, and simulation analysis.
 
+### Evidence source status
+
+Evidence may carry typed `sourceStatus` with `status`
+(`live|stale|unknown`), exact source ID, readiness, data state, checked time,
+and sanitized reason. Agent 365 retained package evidence is projected with
+this status on every API snapshot read. `live` requires the exact current
+source to be both `ready` and `complete`; all other or missing source states set
+evidence freshness to `stale` and cannot establish live graph authority.
+
 ### Finding
 
 - `id`, `title`, `summary`, `severity` (low|medium|high|critical)
@@ -99,7 +108,11 @@ The dormant configuration-plane record for one connector source preserves
 `estateId`, data tenant/environment, stable source ID, connector type, immutable
 deployment/user origin, strict non-secret configuration, safe credential
 identity/reference metadata, evidence-bound test status, version/ETag, actors,
-and timestamps. Deployment-origin records are immutable.
+and timestamps. Deployment-origin records may include an immutable
+`runtimeBinding.bindingSourceId` so configuration-plane namespacing does not
+change provider-facing IDs, evidence IDs, health IDs, or provenance.
+Deployment-origin records are immutable, and user-origin records cannot assert
+deployment runtime bindings.
 
 The `connector-sources` container stores one immutable tenant/environment binding
 plus source, append-only audit, and idempotency documents under each `/estateId`

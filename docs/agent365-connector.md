@@ -118,6 +118,10 @@ rejected.
 
 Persisted sources are read through bounded, advancing pagination. Deployment
 sources are overlaid through the same repository contract and remain immutable.
+Their namespaced configuration-plane IDs retain an immutable runtime binding to
+the original configured source ID, so existing package IDs, health IDs, and
+provenance do not change when deployment sources are projected into the shared
+repository.
 If a deployment and user source target the same tenant-wide catalog, the
 deployment source remains authoritative and the duplicate user source is
 inactive.
@@ -137,16 +141,23 @@ metadata and exact estate/source tenant/environment/package provenance. It
 emits no edges and infers no runtime behavior, trust, tools, identity,
 entitlements, principals, or effective access.
 
-Every record has confidence `1` and freshness `live` because it is a direct
-package-catalog observation. IDs are deterministic SHA-256-derived,
-source-namespaced values. At most two sources execute concurrently by default,
-with a bounded aggregate duration and per-source page, item, response-byte,
-retry, and request-timeout limits. `AGENT365_MAX_RESPONSE_BYTES` is enforced
-both for each response and as one concurrency-safe aggregate budget across all
-Agent 365 sources and pages in an operation. The aggregate uses measured body
-bytes rather than `Content-Length`, and exhaustion is terminal for queued
-sources. Caller cancellation reaches token acquisition, HTTP requests, and
-retry waits.
+Each newly collected record has confidence `1` and freshness `live` because it
+is a direct package-catalog observation. Read-model projection retains `live`
+only while the exact source-linked current health is both `ready` and
+`complete`. A failed, partial, empty, cancelled, source-changed, expired, or
+otherwise unavailable refresh leaves the last complete package record visible
+as historical evidence but exposes typed `stale` or `unknown` source status,
+sets freshness to `stale`, and prevents authoritative graph traversal. IDs are
+deterministic SHA-256-derived, source-namespaced values. At most two sources
+execute concurrently by default, with a bounded aggregate duration and
+per-source page, item, response-byte, retry, and request-timeout limits.
+`AGENT365_MAX_RESPONSE_BYTES` is enforced both for each response and as one
+concurrency-safe aggregate budget across all Agent 365 sources and pages in an
+operation. The aggregate uses measured body bytes rather than `Content-Length`,
+and exhaustion is terminal for queued sources. Caller cancellation reaches
+token acquisition, HTTP requests, response-body reads, and retry waits;
+timeout/cancellation while reading a non-2xx body is never relabeled as an
+authorization failure.
 
 Source health records exact source IDs, catalog endpoint provenance, page and
 record counts, and typed `complete`, `empty`, `failed`, or `cancelled` states. A
@@ -160,3 +171,11 @@ Persisted health reconciliation first expires every enabled connector source
 when the measurement is stale. It then applies Agent 365 source-set fingerprint
 changes only to `agent365:` sources, so an Agent 365 mismatch cannot leave an
 expired non-Agent365 source ready.
+
+The replacement-environment parameter file contains a reviewed, undeployed
+candidate using only connector UAMI
+`59dbea72-1e91-403a-89cf-e02cdb8da350` and the already consented
+`CopilotPackages.Read.All` application permission. It adds no secret, delegated
+permission, license assignment, role assignment, or cloud mutation. Deployment
+and source-linked persisted-snapshot validation remain manual integration-owner
+steps.

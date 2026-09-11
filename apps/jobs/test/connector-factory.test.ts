@@ -425,9 +425,7 @@ describe('jobs connector selection', () => {
 
     expect(connector.getConnectorHealth?.().partial).toBe(true)
     expect(
-      connector
-        .getConnectorHealth?.()
-        .sources.find((source) => source.id === 'agent365:agent365-primary'),
+      connector.getConnectorHealth?.().sources.find((source) => source.id === 'agent365:primary'),
     ).toMatchObject({
       enabled: true,
       configured: false,
@@ -555,9 +553,7 @@ describe('jobs connector selection', () => {
 
     expect(fetcher).toHaveBeenCalledOnce()
     expect(
-      connector
-        .getConnectorHealth?.()
-        .sources.find((source) => source.id === 'agent365:agent365-primary'),
+      connector.getConnectorHealth?.().sources.find((source) => source.id === 'agent365:primary'),
     ).toMatchObject({
       readiness: 'unavailable',
       dataState: 'cancelled',

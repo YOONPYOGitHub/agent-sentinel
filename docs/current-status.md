@@ -48,9 +48,10 @@ Latest Entra migration facts were revalidated on **2026-09-04**:
   `AppCatalog.Read.All`. Global Reader is the only active directory role.
 - Agent 365 entitlement is verified with one assigned `AGENT_365` seat. The
   connector UAMI has `CopilotPackages.Read.All`, and a bounded managed-identity
-  list call returned HTTP 200 with 306 packages. Reviewed deployment and
-  persisted snapshot validation remain pending; 306 packages must not be
-  reported as 306 agents.
+  list call returned HTTP 200 with 306 packages. A reviewed replacement
+  configuration candidate now selects only that UAMI; deployment and persisted
+  snapshot validation remain pending, and 306 packages must not be reported as
+  306 agents.
 - Power Platform remains disabled because Microsoft does not support unattended
   ResourceQuery inventory authorization. The manifest adapter remains
   write/auth-gated, and the business-outcome connector has no authoritative
@@ -226,21 +227,21 @@ These boundaries are what keep the product honest. They are enforced in code, no
 
 ## Last evidenced Azure state
 
-| Component                 | State from the latest sanitized documentation boundary                                                                                                                       |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Container Apps            | `web` (external within the internal ACA environment), `api` (environment-internal only), `jobs` (no ingress). Reviewed surgical revisions are active.                        |
-| ACA environment           | Internal, VNet-integrated, private.                                                                                                                                          |
-| Data services             | Cosmos DB, PostgreSQL Flexible Server, Azure AI Search, Service Bus — all behind private endpoints or a delegated subnet.                                                    |
-| Manifest persistence      | Cosmos `manifest-ingestions` exists with `/tenantId` partitioning and unique `(manifestId, envelope.producedAt)` versions. No live manifest has been admitted.               |
-| Platform services         | Key Vault, Azure Container Registry (public network access disabled), Application Insights.                                                                                  |
-| Public edge — App Gateway | **Diagnostic and currently stopped.** WAF v2 remains available for bounded regional HTTP diagnostics when explicitly started.                                                |
-| Public edge — Front Door  | **Active.** Routes web and API over HTTPS and is the registered SPA redirect and logout origin.                                                                              |
-| Data mode                 | `live` — the API and jobs use the Foundry connector against Cosmos.                                                                                                          |
-| Auth mode                 | `disabled`; JWT/RBAC/MSAL exist in code but are not activated in the replacement deployment.                                                                                 |
-| Write posture             | `writeEnabled=false`; Front Door WAF remains in Prevention mode and blocks pre-auth API mutations.                                                                           |
-| Advisory model            | `gpt-5.6-terra`, `GlobalStandard`, `NoAutoUpgrade`. Advisory output on the public edge remains **mock** until the grounded provider path is activated.                       |
-| Build path                | Private self-hosted GitHub Actions runner inside the VNet. May be deallocated and must be started before a build.                                                            |
-| Deploy path               | Last evidenced deployed tag is `7458b3e`; repository code from `ae531c2` onward is not claimed deployed. Full Bicep remains gated by production approval and what-if review. |
+| Component                 | State from the latest sanitized documentation boundary                                                                                                                                                                                                     |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Container Apps            | `web` (external within the internal ACA environment), `api` (environment-internal only), `jobs` (no ingress). Reviewed surgical revisions are active.                                                                                                      |
+| ACA environment           | Internal, VNet-integrated, private.                                                                                                                                                                                                                        |
+| Data services             | Cosmos DB, PostgreSQL Flexible Server, Azure AI Search, Service Bus — all behind private endpoints or a delegated subnet.                                                                                                                                  |
+| Manifest persistence      | Cosmos `manifest-ingestions` remains the default compatibility container. Desired state declares `manifest-ingestions-v2` with source-generation uniqueness, but cutover requires manual copy validation and approval. No live manifest has been admitted. |
+| Platform services         | Key Vault, Azure Container Registry (public network access disabled), Application Insights.                                                                                                                                                                |
+| Public edge — App Gateway | **Diagnostic and currently stopped.** WAF v2 remains available for bounded regional HTTP diagnostics when explicitly started.                                                                                                                              |
+| Public edge — Front Door  | **Active.** Routes web and API over HTTPS and is the registered SPA redirect and logout origin.                                                                                                                                                            |
+| Data mode                 | `live` — the API and jobs use the Foundry connector against Cosmos.                                                                                                                                                                                        |
+| Auth mode                 | `disabled`; JWT/RBAC/MSAL exist in code but are not activated in the replacement deployment.                                                                                                                                                               |
+| Write posture             | `writeEnabled=false`; Front Door WAF remains in Prevention mode and blocks pre-auth API mutations.                                                                                                                                                         |
+| Advisory model            | `gpt-5.6-terra`, `GlobalStandard`, `NoAutoUpgrade`. Advisory output on the public edge remains **mock** until the grounded provider path is activated.                                                                                                     |
+| Build path                | Private self-hosted GitHub Actions runner inside the VNet. May be deallocated and must be started before a build.                                                                                                                                          |
+| Deploy path               | Last evidenced deployed tag is `7458b3e`; repository code from `ae531c2` onward is not claimed deployed. Full Bicep remains gated by production approval and what-if review.                                                                               |
 
 Endpoint host names, resource names, and operational commands are in [deployment.md](deployment.md) and [runbooks.md](runbooks.md). No subscription, tenant, or credential values are recorded in documentation.
 
@@ -325,6 +326,8 @@ Tracks 1–3 are identity- or edge-dependent; OneRAI onboarding is independent. 
 - `AGENT_365` entitlement is verified with one assigned seat, the connector UAMI has tenant-admin-consented `CopilotPackages.Read.All`, and a bounded managed-identity list call returned HTTP 200 with 306 packages.
 - Persisted-source API/jobs activation is implemented, but the reviewed image has not been deployed and no source-linked persisted snapshot has been validated. The 306 packages are provider catalog records, not a verified count of 306 agents.
 - Aggregate record slicing and a remaining valid Graph `nextLink` at either the configured record or page cap preserve measured pages and records as `partial` bounds health, so jobs does not promote the bounded result as an authoritative snapshot. Repeated, cross-origin, or cross-path continuations still fail closed. Composed API/jobs health preserves the exact Agent 365 source-set fingerprint through Defender, Purview, Azure Resource Graph, and Teams wrappers, and the catalog reports connected only for complete healthy Agent 365 data. Invalid enabled deployment configuration fails jobs startup before recurring tick error handling, while API catalog reads with no stored measurement expose configuration-derived unavailable or authorization-required source health without claiming provider readiness.
+- Retained package snapshots are projected through exact current source health on every API snapshot read. Only `ready` plus `complete` remains `live`; failed, partial, empty, cancelled, source-changed, expired, missing, or mismatched source health is exposed as typed stale/unknown evidence and cannot establish live graph authority.
+- Deployment source IDs preserve an immutable binding to their original configured IDs, and timeout/cancellation during non-2xx response-body reads remains timeout/cancellation rather than being synthesized as authorization-required.
 - IaC grants no Microsoft Graph app role or license; the verified entitlement and UAMI permission remain external deployment prerequisites.
 
 ## Microsoft Defender for Cloud Apps evidence foundation
