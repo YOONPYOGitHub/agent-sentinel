@@ -1,5 +1,5 @@
 import type { TokenCredential } from '@azure/core-auth'
-import { ClientAssertionCredential, ManagedIdentityCredential } from '@azure/identity'
+import { ManagedIdentityCredential } from '@azure/identity'
 import { z } from 'zod'
 
 import { aggregateLiveSources, composeConnectorHealthReport } from '@agent-sentinel/connector-sdk'
@@ -16,7 +16,13 @@ import type {
   LiveSourceDataState,
   OperationAwareAgentConnector,
 } from '@agent-sentinel/connector-sdk'
-import type { EstateSnapshot, Evidence, Remediation } from '@agent-sentinel/domain'
+import {
+  evaluateAgent365SourcePolicy,
+  type ConnectorCredentialMetadata,
+  type EstateSnapshot,
+  type Evidence,
+  type Remediation,
+} from '@agent-sentinel/domain'
 
 import {
   Agent365ConnectorError,
@@ -43,31 +49,36 @@ import {
 
 export type Agent365CredentialFactory = (source: Agent365SourceConfig) => TokenCredential
 
+function assertAgent365SourceCredentialPolicy(source: Agent365SourceConfig): void {
+  const credential: ConnectorCredentialMetadata =
+    source.credential?.mode === 'managed-identity' || source.credential?.mode === 'federated-app'
+      ? source.credential
+      : { mode: 'default' }
+  const decision = evaluateAgent365SourcePolicy({
+    connectorType: 'agent365',
+    origin: 'deployment',
+    enabled: true,
+    credential,
+  })
+  if (decision.status !== 'active' || source.credential?.mode !== 'managed-identity') {
+    const reason = decision.status === 'inactive' ? decision.reason : 'managed-identity-required'
+    throw new Agent365ConnectorError(
+      'authentication',
+      reason === 'managed-identity-required'
+        ? 'Agent 365 sources require an explicit user-assigned managed identity client ID.'
+        : `Agent 365 source policy: ${reason}.`,
+    )
+  }
+}
+
 export function createAgent365SourceCredential(source: Agent365SourceConfig): TokenCredential {
-  if (source.credential?.mode === 'managed-identity') {
-    return new ManagedIdentityCredential({
-      clientId: source.credential.managedIdentityClientId,
-    })
+  assertAgent365SourceCredentialPolicy(source)
+  if (source.credential?.mode !== 'managed-identity') {
+    throw new Agent365ConnectorError('authentication', 'Agent 365 managed identity is missing.')
   }
-  if (source.credential?.mode === 'federated-app') {
-    const assertionCredential = new ManagedIdentityCredential({
-      clientId: source.credential.managedIdentityClientId,
-    })
-    return new ClientAssertionCredential(source.tenantId, source.credential.clientId, async () => {
-      const assertion = await assertionCredential.getToken('api://AzureADTokenExchange/.default')
-      if (assertion === null) {
-        throw new Agent365ConnectorError(
-          'authentication',
-          'Managed identity did not return a workload identity federation assertion.',
-        )
-      }
-      return assertion.token
-    })
-  }
-  throw new Agent365ConnectorError(
-    'authentication',
-    'Agent 365 sources require an explicit user-assigned managed identity client ID.',
-  )
+  return new ManagedIdentityCredential({
+    clientId: source.credential.managedIdentityClientId,
+  })
 }
 
 function envBoolean(environment: NodeJS.ProcessEnv, name: string): boolean {
@@ -99,6 +110,7 @@ function limitsFromEnvironment(environment: NodeJS.ProcessEnv): Agent365Limits {
 export function parseAgent365Config(environment: NodeJS.ProcessEnv = process.env): Agent365Config {
   let sources: unknown
   const sourcesJson = environment['AGENT365_SOURCES_JSON']?.trim()
+  const managedIdentityClientId = environment['AGENT365_MANAGED_IDENTITY_CLIENT_ID']?.trim()
   if (sourcesJson !== undefined && sourcesJson !== '') {
     try {
       sources = JSON.parse(sourcesJson)
@@ -108,7 +120,6 @@ export function parseAgent365Config(environment: NodeJS.ProcessEnv = process.env
   } else {
     const tenantId = environment['AGENT365_TENANT_ID']?.trim()
     const sourceEnvironment = environment['AGENT365_ENVIRONMENT']?.trim()
-    const managedIdentityClientId = environment['AGENT365_MANAGED_IDENTITY_CLIENT_ID']?.trim()
     if (!tenantId || !sourceEnvironment) {
       throw new Error(
         'AGENT365_TENANT_ID and AGENT365_ENVIRONMENT are required when no source JSON is supplied.',
@@ -141,6 +152,14 @@ export function parseAgent365Config(environment: NodeJS.ProcessEnv = process.env
           ...record,
           graphBaseUrl: record['graphBaseUrl'] ?? graphBaseUrl,
           limits: record['limits'] ?? limits,
+          credential:
+            record['credential'] ??
+            (managedIdentityClientId
+              ? {
+                  mode: 'managed-identity',
+                  managedIdentityClientId,
+                }
+              : undefined),
         }
       })
     : sources
@@ -345,6 +364,7 @@ export class Agent365CompositionConnector implements OperationAwareAgentConnecto
     const credentialFactory = options.credentialFactory ?? createAgent365SourceCredential
     this.sources = (config?.sources ?? []).map((source) => {
       try {
+        assertAgent365SourceCredentialPolicy(source)
         return {
           id: source.id,
           source,

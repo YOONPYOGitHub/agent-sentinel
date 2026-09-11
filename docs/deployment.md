@@ -172,10 +172,16 @@ Microsoft Agent 365 package catalog inventory is independently controlled by
 `https://graph.microsoft.com`; all requests use the fixed v1.0 list endpoint and
 bounded continuation links. Do not enable it until the tenant has a Microsoft
 Agent 365 license and tenant-admin `CopilotPackages.Read.All` **application**
-consent. The reviewed replacement-environment candidate enables one source with
-existing connector UAMI `59dbea72-1e91-403a-89cf-e02cdb8da350`; it does not
-grant a Graph app role, broaden permissions, assign a license, or create tenant
-resources. Deployment and live persisted-snapshot validation remain manual.
+consent. Agent 365 sources are deployment-managed and read-only: API-created
+records are rejected, and legacy user-origin records remain visible but
+inactive. API/jobs receive the dedicated
+`AGENT365_MANAGED_IDENTITY_CLIENT_ID`; activation accepts only the existing
+connector UAMI `59dbea72-1e91-403a-89cf-e02cdb8da350`, never
+`AZURE_CLIENT_ID`, federation, Key Vault, secrets, delegated credentials, or an
+arbitrary managed identity. The reviewed replacement-environment candidate does
+not grant a Graph app role, broaden permissions, assign a license, or create
+tenant resources. Deployment and live persisted-snapshot validation remain
+manual.
 See [Agent 365 connector](agent365-connector.md).
 
 Microsoft Defender for Cloud Apps evidence remains independently default-disabled

@@ -23,7 +23,9 @@ import {
   agent365AggregationSchema,
   connectorSourceDefinitionSchema,
   connectorSourceReadModelSchema,
+  evaluateAgent365SourcePolicy,
   isConnectorSourceMigrationRequired,
+  type Agent365SourcePolicyInactiveReason,
   type ConnectorSourceDefinition,
   type ConnectorSourceRepository,
   type EstateContext,
@@ -33,7 +35,7 @@ import {
 } from '@agent-sentinel/domain'
 
 export type Agent365RuntimeInactiveReason =
-  'source-disabled' | 'dedicated-workload-identity-required' | 'duplicate-tenant-boundary'
+  Agent365SourcePolicyInactiveReason | 'duplicate-tenant-boundary'
 
 export interface Agent365RuntimeBinding {
   readonly estateId: string
@@ -78,7 +80,9 @@ function inactiveHealth(
         dataState: 'unsupported',
         reason,
       }
-    case 'dedicated-workload-identity-required':
+    case 'deployment-origin-required':
+    case 'managed-identity-required':
+    case 'managed-identity-client-id-not-approved':
       return {
         enabled: true,
         configured: false,
@@ -176,7 +180,7 @@ export function reconcileAgent365PersistedHealth(
       provenance: {
         estateTenantId: binding.tenantId,
         estateEnvironment: binding.environment,
-        sourceConnectorId: binding.sourceId,
+        sourceConnectorId: binding.bindingSourceId,
         sourceTenantId: binding.tenantId,
         sourceEnvironment: binding.environment,
         provider: 'microsoft-graph-agent365-package-catalog' as const,
@@ -370,14 +374,11 @@ function positiveInteger(value: number, name: string, maximum: number): number {
 }
 
 function activationFor(source: ConnectorSourceDefinition): Agent365RuntimeBinding['activation'] {
-  if (!source.enabled) return { status: 'inactive', reason: 'source-disabled' }
-  if (source.credential.mode !== 'managed-identity' && source.credential.mode !== 'federated-app') {
-    return {
-      status: 'inactive',
-      reason: 'dedicated-workload-identity-required',
-    }
+  const decision = evaluateAgent365SourcePolicy(source)
+  if (decision.status === 'not-applicable') {
+    throw new Error(`Connector source ${source.sourceId} is not an Agent 365 source.`)
   }
-  return { status: 'active' }
+  return decision
 }
 
 function sourceConfig(
@@ -387,21 +388,8 @@ function sourceConfig(
   if (source.configuration.type !== 'agent365') {
     throw new Error(`Connector source ${source.sourceId} is not an Agent 365 source.`)
   }
-  const credential =
-    source.credential.mode === 'managed-identity'
-      ? {
-          mode: 'managed-identity' as const,
-          managedIdentityClientId: source.credential.managedIdentityClientId,
-        }
-      : source.credential.mode === 'federated-app'
-        ? {
-            mode: 'federated-app' as const,
-            clientId: source.credential.clientId,
-            managedIdentityClientId: source.credential.managedIdentityClientId,
-          }
-        : undefined
-  if (credential === undefined) {
-    throw new Error(`Connector source ${source.sourceId} has no runtime workload identity.`)
+  if (source.credential.mode !== 'managed-identity') {
+    throw new Error(`Connector source ${source.sourceId} has no approved managed identity.`)
   }
   return {
     id: bindingSourceId,
@@ -410,7 +398,10 @@ function sourceConfig(
     environment: source.environment,
     graphBaseUrl: source.configuration.graphBaseUrl,
     limits: source.configuration.limits,
-    credential,
+    credential: {
+      mode: 'managed-identity',
+      managedIdentityClientId: source.credential.managedIdentityClientId,
+    },
   }
 }
 

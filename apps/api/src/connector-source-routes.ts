@@ -10,7 +10,9 @@ import {
   connectorSourceIdSchema,
   connectorSourceReadModelSchema,
   connectorTypeSchema,
+  evaluateAgent365SourcePolicy,
   isConnectorSourceMigrationRequired,
+  type Agent365SourcePolicyInput,
   type ConnectorSourceActor,
   type ConnectorSourceAuditCursor,
   type ConnectorSourceAuditReadModel,
@@ -294,6 +296,23 @@ async function requireWritable(
   return false
 }
 
+async function rejectUserOriginAgent365Mutation(
+  reply: FastifyReply,
+  source: Omit<Agent365SourcePolicyInput, 'origin'>,
+): Promise<void> {
+  const decision = evaluateAgent365SourcePolicy({
+    ...source,
+    origin: 'user',
+  })
+  if (decision.status !== 'inactive' || decision.reason !== 'deployment-origin-required') {
+    throw new Error('Agent 365 user-origin mutation policy did not fail closed.')
+  }
+  await reply.status(409).send({
+    error: 'agent365_deployment_managed_only',
+    message: 'Microsoft Agent 365 sources are deployment-managed and read-only.',
+  })
+}
+
 async function sendWriteResult(
   reply: FastifyReply,
   result: ConnectorSourceWriteResult,
@@ -500,6 +519,10 @@ export function registerConnectorSourceRoutes(
       if (principal === undefined) return
       const body = createBodySchema.parse(request.body)
       noSensitiveTextSchema.parse(body)
+      if (body.connectorType === 'agent365') {
+        await rejectUserOriginAgent365Mutation(reply, body)
+        return
+      }
       const key = idempotencyKey(request)
       const actor = sourceActor(principal)
       const mutation = mutationContext(key, actor, clock, null)
@@ -532,10 +555,16 @@ export function registerConnectorSourceRoutes(
       const { sourceId } = sourceParamsSchema.parse(request.params)
       const body = updateBodySchema.parse(request.body)
       noSensitiveTextSchema.parse(body)
-      const etag = expectedEtag(request)
-      const key = idempotencyKey(request)
-      const actor = sourceActor(principal)
       const source = await available.findById(estate, sourceId)
+      if (
+        source !== null &&
+        !isConnectorSourceMigrationRequired(source) &&
+        source.connectorType === 'agent365' &&
+        source.origin === 'user'
+      ) {
+        await rejectUserOriginAgent365Mutation(reply, source)
+        return
+      }
       if (
         source !== null &&
         body.configuration !== undefined &&
@@ -543,6 +572,9 @@ export function registerConnectorSourceRoutes(
       ) {
         z.literal(source.connectorType).parse(body.configuration.type)
       }
+      const etag = expectedEtag(request)
+      const key = idempotencyKey(request)
+      const actor = sourceActor(principal)
       const mutation = mutationContext(key, actor, clock, source)
       const result = await available.update(estate, sourceId, etag, body, mutation)
       await sendWriteResult(reply, result, 200)
@@ -560,10 +592,19 @@ export function registerConnectorSourceRoutes(
       const principal = request.authPrincipal
       if (principal === undefined) return
       const { sourceId } = sourceParamsSchema.parse(request.params)
+      const source = await available.findById(estate, sourceId)
+      if (
+        source !== null &&
+        !isConnectorSourceMigrationRequired(source) &&
+        source.connectorType === 'agent365' &&
+        source.origin === 'user'
+      ) {
+        await rejectUserOriginAgent365Mutation(reply, source)
+        return
+      }
       const etag = expectedEtag(request)
       const key = idempotencyKey(request)
       const actor = sourceActor(principal)
-      const source = await available.findById(estate, sourceId)
       const mutation = mutationContext(key, actor, clock, source)
       const result = await available.delete(estate, sourceId, etag, mutation)
       await sendWriteResult(reply, result, 200)

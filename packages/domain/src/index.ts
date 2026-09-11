@@ -14,6 +14,7 @@ export { estateContextSchema, estateIdSchema } from './estate.js'
 export type { EstateContext } from './estate.js'
 
 export {
+  AGENT365_APPROVED_MANAGED_IDENTITY_CLIENT_ID,
   AGENT365_MAX_RETRY_AFTER_MS,
   agent365AggregationSchema,
   connectorTypeSchema,
@@ -33,9 +34,13 @@ export {
   connectorSourceMutationContextSchema,
   connectorSourceAuditRecordSchema,
   connectorSourceAuditReadModelSchema,
+  evaluateAgent365SourcePolicy,
   hydratePersistedConnectorSourceAuditRecord,
 } from './connector-source.js'
 export type {
+  Agent365SourcePolicyDecision,
+  Agent365SourcePolicyInactiveReason,
+  Agent365SourcePolicyInput,
   ConnectorType,
   ConnectorSourceConfiguration,
   ConnectorCredentialMetadata,

@@ -47,6 +47,11 @@ function source(
 ): ConnectorSourceDefinition {
   const boundary = options.estate ?? estate
   const connectorType = options.connectorType ?? 'agent365'
+  const origin = options.origin ?? 'deployment'
+  const actor =
+    origin === 'deployment'
+      ? ({ type: 'deployment', id: 'deployment-json' } as const)
+      : ({ type: 'service-principal', id: 'configuration-api' } as const)
   return {
     estateId: boundary.id,
     tenantId: boundary.tenantId,
@@ -55,7 +60,7 @@ function source(
     connectorType,
     displayName: `${sourceId} display`,
     enabled: options.enabled ?? true,
-    origin: options.origin ?? 'user',
+    origin,
     configuration:
       connectorType === 'agent365'
         ? {
@@ -82,8 +87,8 @@ function source(
     testStatus: { status: 'not-tested' },
     version: 2,
     etag: `etag-${sourceId}`,
-    createdBy: { type: 'service-principal', id: 'configuration-api' },
-    updatedBy: { type: 'service-principal', id: 'configuration-api' },
+    createdBy: actor,
+    updatedBy: actor,
     createdAt: '2026-09-09T00:00:00.000Z',
     updatedAt: '2026-09-09T00:00:00.000Z',
   }
@@ -349,7 +354,7 @@ describe('Agent 365 runtime source resolution', () => {
         sourceId: 'agent365-default',
         activation: {
           status: 'inactive',
-          reason: 'dedicated-workload-identity-required',
+          reason: 'managed-identity-required',
         },
       },
       {
@@ -369,11 +374,62 @@ describe('Agent 365 runtime source resolution', () => {
         managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
       },
     })
+
     expect(resolved.config?.sources[0]?.limits).toMatchObject({
       maxPages: 3,
       maxItems: 500,
     })
     expect(resolved.sourceSetFingerprint).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it.each([
+    {
+      name: 'user-origin source',
+      value: source('agent365-user', { origin: 'user' }),
+      reason: 'deployment-origin-required',
+    },
+    {
+      name: 'federated application',
+      value: source('agent365-federated', {
+        credential: {
+          mode: 'federated-app',
+          clientId: '00000000-0000-4000-8000-000000000003',
+          managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+        },
+      }),
+      reason: 'managed-identity-required',
+    },
+    {
+      name: 'Key Vault reference',
+      value: source('agent365-key-vault', {
+        credential: {
+          mode: 'key-vault-secret-reference',
+          vaultUri: 'https://safe.vault.azure.net',
+          secretName: 'agent365',
+        },
+      }),
+      reason: 'managed-identity-required',
+    },
+    {
+      name: 'unapproved managed identity',
+      value: source('agent365-unapproved', {
+        credential: {
+          mode: 'managed-identity',
+          managedIdentityClientId: '00000000-0000-4000-8000-000000000004',
+        },
+      }),
+      reason: 'managed-identity-client-id-not-approved',
+    },
+  ])('keeps persisted $name visible but inactive', async ({ value, reason }) => {
+    const resolved = await resolveAgent365Runtime(repository([value]), estate)
+
+    expect(resolved.config).toBeUndefined()
+    expect(resolved.bindings).toMatchObject([
+      {
+        sourceId: value.sourceId,
+        activation: { status: 'inactive', reason },
+      },
+    ])
   })
 
   it('resolves API-valid retry and projected aggregation limits without replacing them', async () => {
@@ -421,7 +477,7 @@ describe('Agent 365 runtime source resolution', () => {
       'live',
     )
     const combined = new DeploymentConnectorSourceRepository(
-      repository([source('agent365-user')]),
+      repository([source('agent365-user', { origin: 'user' })]),
       deployment,
     )
 
@@ -436,7 +492,7 @@ describe('Agent 365 runtime source resolution', () => {
     })
     expect(resolved.bindings[1]?.activation).toEqual({
       status: 'inactive',
-      reason: 'duplicate-tenant-boundary',
+      reason: 'deployment-origin-required',
     })
     expect(resolved.config?.sources.map((value) => value.id)).toEqual(['deployment'])
   })
@@ -475,14 +531,14 @@ describe('Agent 365 runtime source resolution', () => {
           },
         ]),
       },
-      expectedReason: 'dedicated-workload-identity-required',
+      expectedReason: 'managed-identity-required',
     },
   ])(
     'reserves a deployment-owned tenant boundary when the deployment source is $name',
     async ({ environment, expectedReason }) => {
       const deployment = buildDeploymentConnectorSources(environment, { estates: [estate] }, 'live')
       const combined = new DeploymentConnectorSourceRepository(
-        repository([source('agent365-user')]),
+        repository([source('agent365-user', { origin: 'user' })]),
         deployment,
       )
 
@@ -497,7 +553,7 @@ describe('Agent 365 runtime source resolution', () => {
         {
           sourceId: 'agent365-user',
           origin: 'user',
-          activation: { status: 'inactive', reason: 'duplicate-tenant-boundary' },
+          activation: { status: 'inactive', reason: 'deployment-origin-required' },
         },
       ])
       expect(resolved.config).toBeUndefined()
@@ -575,7 +631,7 @@ describe('Agent 365 runtime source resolution', () => {
       configured: false,
       readiness: 'authorization-required',
       dataState: 'unsupported',
-      reason: 'dedicated-workload-identity-required',
+      reason: 'managed-identity-required',
     })
     expect(health?.sourceSetFingerprint).toBe(runtime.sourceSetFingerprint)
     await expect(connector.testConnection()).resolves.toMatchObject({
@@ -638,7 +694,7 @@ describe('Agent 365 runtime source resolution', () => {
           enabled: true,
           configured: false,
           readiness: 'authorization-required',
-          reason: 'dedicated-workload-identity-required',
+          reason: 'managed-identity-required',
         }),
       ]),
     )
@@ -772,7 +828,7 @@ describe('Agent 365 runtime source resolution', () => {
       enabled: true,
       configured: false,
       readiness: 'authorization-required',
-      reason: 'dedicated-workload-identity-required',
+      reason: 'managed-identity-required',
     })
   })
 
@@ -797,7 +853,10 @@ describe('Agent 365 runtime source resolution', () => {
       'live',
     )
     const runtime = await resolveAgent365Runtime(
-      new DeploymentConnectorSourceRepository(repository([source('agent365-user')]), deployment),
+      new DeploymentConnectorSourceRepository(
+        repository([source('agent365-user', { origin: 'user' })]),
+        deployment,
+      ),
       estate,
     )
 
@@ -808,9 +867,9 @@ describe('Agent 365 runtime source resolution', () => {
     expect(duplicate).toMatchObject({
       enabled: true,
       configured: false,
-      readiness: 'degraded',
+      readiness: 'authorization-required',
       dataState: 'unsupported',
-      reason: 'duplicate-tenant-boundary',
+      reason: 'deployment-origin-required',
     })
   })
 
@@ -1034,6 +1093,71 @@ describe('Agent 365 runtime source resolution', () => {
       ).toBe(true)
     },
   )
+
+  it('keeps deployment runtime provenance on bindingSourceId during health reconciliation', () => {
+    const measuredAt = '2026-09-09T00:00:00.000Z'
+    const binding = {
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      sourceId: 'agent365-primary',
+      bindingSourceId: 'primary',
+      displayName: 'Primary Agent 365',
+      origin: 'deployment' as const,
+      sourceVersion: 1,
+      sourceEtag: 'deployment-etag',
+      activation: { status: 'active' as const },
+    }
+    const measurement: ConnectorHealthMeasurement = {
+      estateId: estate.id,
+      tenantId: estate.tenantId,
+      environment: estate.environment,
+      connectorId: 'base',
+      measuredAt,
+      sourceSetFingerprint: '0'.repeat(64),
+      health: {
+        overall: 'ready',
+        partial: false,
+        sourceSetFingerprint: '0'.repeat(64),
+        sources: [
+          {
+            id: 'agent365:primary',
+            name: 'Old name',
+            role: 'discovery',
+            enabled: true,
+            configured: true,
+            readiness: 'ready',
+            dataState: 'complete',
+            checkedAt: measuredAt,
+            provenance: {
+              estateTenantId: estate.tenantId,
+              estateEnvironment: estate.environment,
+              sourceConnectorId: 'primary',
+              sourceTenantId: estate.tenantId,
+              sourceEnvironment: estate.environment,
+              provider: 'microsoft-graph-agent365-package-catalog',
+              providerObjectId: '/v1.0/copilot/admin/catalog/packages',
+            },
+          },
+        ],
+      },
+    }
+
+    const health = reconcileAgent365PersistedHealth(
+      measurement,
+      [binding],
+      new Date('2026-09-09T00:05:00.000Z'),
+    )
+
+    expect(health.sources[0]).toMatchObject({
+      id: 'agent365:primary',
+      name: 'Primary Agent 365',
+      provenance: {
+        sourceConnectorId: 'primary',
+      },
+    })
+    expect(health.sources[0]?.provenance?.sourceConnectorId).not.toBe('agent365-primary')
+  })
 
   it('expires every enabled source before applying Agent365 source-set mismatch', () => {
     const measuredAt = '2026-09-07T00:00:00.000Z'

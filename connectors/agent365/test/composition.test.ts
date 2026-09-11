@@ -82,12 +82,20 @@ const sources = [
     name: 'Tenant A',
     tenantId: '00000000-0000-0000-0000-000000000001',
     environment: 'agent365-a',
+    credential: {
+      mode: 'managed-identity' as const,
+      managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+    },
   },
   {
     id: 'tenant-b',
     name: 'Tenant B',
     tenantId: '00000000-0000-0000-0000-000000000002',
     environment: 'agent365-b',
+    credential: {
+      mode: 'managed-identity' as const,
+      managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+    },
   },
 ]
 
@@ -186,6 +194,96 @@ describe('Agent365 composition', () => {
       mode: 'managed-identity',
       managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
     })
+  })
+
+  it('applies the dedicated Agent 365 managed identity to deployment JSON without ambient fallback', () => {
+    const config = parseAgent365Config({
+      AZURE_CLIENT_ID: '11111111-1111-4111-8111-111111111111',
+      AGENT365_MANAGED_IDENTITY_CLIENT_ID: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+      AGENT365_SOURCES_JSON: JSON.stringify([
+        {
+          id: sources[0]!.id,
+          name: sources[0]!.name,
+          tenantId: sources[0]!.tenantId,
+          environment: sources[0]!.environment,
+        },
+      ]),
+    })
+
+    expect(config.sources[0]?.credential).toEqual({
+      mode: 'managed-identity',
+      managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+    })
+  })
+
+  it.each([
+    {
+      name: 'federated application',
+      credential: {
+        mode: 'federated-app' as const,
+        clientId: '22222222-2222-4222-8222-222222222222',
+        managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+      },
+    },
+    {
+      name: 'unapproved managed identity',
+      credential: {
+        mode: 'managed-identity' as const,
+        managedIdentityClientId: '11111111-1111-4111-8111-111111111111',
+      },
+    },
+  ])('rejects $name before creating an Agent 365 credential', ({ credential }) => {
+    expect(() =>
+      createAgent365SourceCredential({
+        ...sources[0]!,
+        graphBaseUrl: 'https://graph.microsoft.com',
+        limits: {
+          maxPages: 20,
+          maxItems: 5_000,
+          requestTimeoutMs: 15_000,
+          maxRetries: 2,
+          maxRetryAfterMs: 30_000,
+          maxResponseBytes: 2_000_000,
+        },
+        credential,
+      }),
+    ).toThrow()
+  })
+
+  it('enforces the Agent 365 credential policy before an injected factory can activate a source', async () => {
+    const credentialFactory = vi.fn(() => tokenCredential(sources[0]!.tenantId))
+    const config = parseAgent365Config({
+      AGENT365_SOURCES_JSON: JSON.stringify([
+        {
+          ...sources[0],
+          credential: {
+            mode: 'federated-app',
+            clientId: '22222222-2222-4222-8222-222222222222',
+            managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+          },
+        },
+      ]),
+    })
+    const connector = new Agent365CompositionConnector(baseConnector(), config, {
+      credentialFactory,
+      clientFactory: () => ({
+        fetcher: () => Promise.resolve(Response.json({ value: [] })),
+      }),
+    })
+
+    await connector.discover()
+
+    expect(credentialFactory).not.toHaveBeenCalled()
+    expect(connector.getConnectorHealth?.().sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'agent365:tenant-a',
+          readiness: 'authorization-required',
+          dataState: 'failed',
+          reason: 'authentication',
+        }),
+      ]),
+    )
   })
 
   it('preserves base and successful additions while marking partial source failure', async () => {
@@ -334,6 +432,7 @@ describe('Agent365 composition', () => {
         AGENT365_CONNECTOR_ENABLED: 'true',
         AGENT365_TENANT_ID: sources[0]!.tenantId,
         AGENT365_ENVIRONMENT: sources[0]!.environment,
+        AGENT365_MANAGED_IDENTITY_CLIENT_ID: '59dbea72-1e91-403a-89cf-e02cdb8da350',
       },
       {
         credential: tokenCredential(sources[0]!.tenantId),
@@ -368,6 +467,7 @@ describe('Agent365 composition', () => {
         AGENT365_CONNECTOR_ENABLED: 'true',
         AGENT365_TENANT_ID: sources[0]!.tenantId,
         AGENT365_ENVIRONMENT: sources[0]!.environment,
+        AGENT365_MANAGED_IDENTITY_CLIENT_ID: '59dbea72-1e91-403a-89cf-e02cdb8da350',
       },
       {
         credential: tokenCredential(sources[0]!.tenantId),
@@ -416,6 +516,7 @@ describe('Agent365 composition', () => {
     ]
     const config = parseAgent365Config({
       AGENT365_SOURCES_JSON: JSON.stringify(threeSources),
+      AGENT365_MANAGED_IDENTITY_CLIENT_ID: '59dbea72-1e91-403a-89cf-e02cdb8da350',
       AGENT365_MAX_CONCURRENCY: '2',
     })
     let active = 0
@@ -693,6 +794,7 @@ describe('Agent365 composition', () => {
     ]
     const config = parseAgent365Config({
       AGENT365_SOURCES_JSON: JSON.stringify(threeSources),
+      AGENT365_MANAGED_IDENTITY_CLIENT_ID: '59dbea72-1e91-403a-89cf-e02cdb8da350',
       AGENT365_MAX_RESPONSE_BYTES: '1024',
       AGENT365_MAX_CONCURRENCY: '1',
     })
@@ -740,6 +842,7 @@ describe('Agent365 composition', () => {
     }))
     const config = parseAgent365Config({
       AGENT365_SOURCES_JSON: JSON.stringify(fiftySources),
+      AGENT365_MANAGED_IDENTITY_CLIENT_ID: '59dbea72-1e91-403a-89cf-e02cdb8da350',
       AGENT365_MAX_CONCURRENCY: '2',
       AGENT365_MAX_DURATION_MS: '100',
     })
@@ -798,6 +901,7 @@ describe('Agent365 composition', () => {
         AGENT365_CONNECTOR_ENABLED: 'true',
         AGENT365_TENANT_ID: sources[0]!.tenantId,
         AGENT365_ENVIRONMENT: sources[0]!.environment,
+        AGENT365_MANAGED_IDENTITY_CLIENT_ID: '59dbea72-1e91-403a-89cf-e02cdb8da350',
         AGENT365_MAX_DURATION_MS: '100',
       },
       {
@@ -841,6 +945,7 @@ describe('Agent365 composition', () => {
           AGENT365_CONNECTOR_ENABLED: 'true',
           AGENT365_TENANT_ID: sources[0]!.tenantId,
           AGENT365_ENVIRONMENT: 'agent365-a',
+          AGENT365_MANAGED_IDENTITY_CLIENT_ID: '59dbea72-1e91-403a-89cf-e02cdb8da350',
         },
         {
           credential: tokenCredential(sources[0]!.tenantId),

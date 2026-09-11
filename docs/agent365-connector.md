@@ -2,13 +2,15 @@
 
 The `@agent-sentinel/agent365-connector` package is a read-only,
 disabled-by-default, multi-tenant inventory connector for the official
-Microsoft Graph v1.0 Agent 365 Package Management API. Enabled persisted
-connector-source records are resolved for the exact estate by both API and jobs;
-deployment JSON remains an immutable compatibility source. Estate-scoped
-factories always pass that exact resolved runtime, including an empty runtime,
-so environment configuration cannot reactivate a source outside the requested
-estate. Environment-only fallback remains available only to non-estate entry
-points.
+Microsoft Graph v1.0 Agent 365 Package Management API. Enabled
+deployment-origin connector-source records are resolved for the exact estate by both
+API and jobs; deployment JSON remains the immutable compatibility source.
+User-origin Agent 365 records remain visible for health and readiness review but
+cannot be created, changed, enabled, disabled, deleted, or activated.
+Estate-scoped factories always pass the exact resolved runtime, including an
+empty runtime, so environment configuration cannot reactivate a source outside
+the requested estate. Environment-only fallback remains available only to
+non-estate entry points and is subject to the same credential policy.
 
 ## Verified GA contract (2026-08-28)
 
@@ -39,9 +41,8 @@ Each enabled source requires:
 
 1. A Microsoft Agent 365 license for the tenant.
 2. Microsoft Graph **application** permission `CopilotPackages.Read.All` with tenant-admin consent.
-3. An explicit user-assigned managed identity client ID. Cross-tenant sources
-   additionally require a secretless federated-app client ID bound to the exact
-   source tenant.
+3. Deployment origin and the exact approved existing user-assigned managed
+   identity client ID `59dbea72-1e91-403a-89cf-e02cdb8da350`.
 
 The integration owner verified on 2026-09-09 that the `AGENT_365` subscription
 has five seats with one assigned, connector UAMI client ID
@@ -76,18 +77,17 @@ AGENT365_MAX_DURATION_MS=60000
 ```
 
 `AGENT365_MAX_RETRY_AFTER_MS` has a strict maximum of `60000`. The same bound
-is enforced by deployment environment parsing, persisted connector-source API
-validation, the web input, and runtime resolution; persisted API-valid values
-therefore cannot widen Agent 365 Graph retry behavior. Deployment projection
+is enforced by deployment environment parsing, connector-source schema
+validation, and runtime resolution; persisted values therefore cannot widen
+Agent 365 Graph retry behavior. Deployment projection
 also preserves `AGENT365_MAX_CONCURRENCY` (1–10) and
 `AGENT365_MAX_DURATION_MS` (100–300000) for repository-backed runtime
-resolution rather than replacing operator values with defaults. The web
-connector-source create and edit form exposes both aggregation limits, restores
-persisted values during edit, and applies the same numeric bounds before the
-strict API schema validates the request.
+resolution rather than replacing operator values with defaults. The web keeps
+Agent 365 source health visible but exposes no create, edit, enable, disable, or
+delete controls.
 
-`AGENT365_SOURCES_JSON` accepts 1–50 source objects with unique tenant IDs. The
-catalog is tenant-wide, so the same tenant cannot be configured twice under
+`AGENT365_SOURCES_JSON` accepts 1–50 deployment source objects with unique
+tenant IDs. The catalog is tenant-wide, so the same tenant cannot be configured twice under
 different local environment labels:
 
 ```json
@@ -96,22 +96,24 @@ different local environment labels:
     "id": "tenant-a",
     "name": "Tenant A Agent 365",
     "tenantId": "00000000-0000-0000-0000-000000000000",
-    "environment": "production",
-    "credential": {
-      "mode": "federated-app",
-      "clientId": "00000000-0000-0000-0000-000000000000",
-      "managedIdentityClientId": "00000000-0000-0000-0000-000000000000"
-    }
+    "environment": "production"
   }
 ]
 ```
 
-Runtime configuration accepts only explicit `managed-identity` or
-`federated-app` credentials. Persisted records without a dedicated workload
-identity remain visible but inactive. No secret field is accepted. Legacy
-scalar configuration requires `AGENT365_TENANT_ID`, `AGENT365_ENVIRONMENT`, and
-`AGENT365_MANAGED_IDENTITY_CLIENT_ID`; it creates source `primary` when JSON is
-absent. `AGENT365_GRAPH_BASE_URL` accepts exactly
+API/jobs deployment configuration supplies
+`AGENT365_MANAGED_IDENTITY_CLIENT_ID`; JSON sources without credential metadata
+are bound to that dedicated value. Activation accepts only deployment-origin
+`managed-identity` credentials with the exact approved client ID. User-origin,
+default/ambient, arbitrary managed identity, federated-app, Key Vault, secret,
+and delegated modes remain inactive or are rejected. `AZURE_CLIENT_ID` is never
+an Agent 365 fallback. Invalid persisted legacy records remain visible with
+typed reasons such as `deployment-origin-required`,
+`managed-identity-required`, and
+`managed-identity-client-id-not-approved`; they are not silently migrated.
+Legacy scalar configuration requires `AGENT365_TENANT_ID`,
+`AGENT365_ENVIRONMENT`, and `AGENT365_MANAGED_IDENTITY_CLIENT_ID`; it creates
+source `primary` when JSON is absent. `AGENT365_GRAPH_BASE_URL` accepts exactly
 `https://graph.microsoft.com` (an optional trailing slash is normalized);
 credentials, ports, paths, query strings, fragments, and alternate clouds are
 rejected.
@@ -122,9 +124,8 @@ Their namespaced configuration-plane IDs retain an immutable runtime binding to
 the original configured source ID, so existing package IDs, health IDs, and
 provenance do not change when deployment sources are projected into the shared
 repository.
-If a deployment and user source target the same tenant-wide catalog, the
-deployment source remains authoritative and the duplicate user source is
-inactive.
+All user-origin Agent 365 sources are inactive regardless of tenant uniqueness.
+The API rejects their mutation before repository writes or audit creation.
 
 ## Evidence and composition
 
@@ -173,7 +174,8 @@ changes only to `agent365:` sources, so an Agent 365 mismatch cannot leave an
 expired non-Agent365 source ready.
 
 The replacement-environment parameter file contains a reviewed, undeployed
-candidate using only connector UAMI
+candidate that injects `AGENT365_MANAGED_IDENTITY_CLIENT_ID` into API/jobs only
+and uses only connector UAMI
 `59dbea72-1e91-403a-89cf-e02cdb8da350` and the already consented
 `CopilotPackages.Read.All` application permission. It adds no secret, delegated
 permission, license assignment, role assignment, or cloud mutation. Deployment

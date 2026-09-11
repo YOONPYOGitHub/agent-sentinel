@@ -15,6 +15,7 @@ const boundedIdentifierSchema = z.string().trim().min(1).max(256)
 const boundedEnvironmentSchema = z.string().trim().min(1).max(128)
 const boundedSummarySchema = z.string().trim().min(1).max(500)
 export const AGENT365_MAX_RETRY_AFTER_MS = 60_000
+export const AGENT365_APPROVED_MANAGED_IDENTITY_CLIENT_ID = '59dbea72-1e91-403a-89cf-e02cdb8da350'
 const normalizedTimestampSchema = z.iso
   .datetime({ offset: true })
   .transform((value) => new Date(value).toISOString())
@@ -324,6 +325,50 @@ export const connectorCredentialMetadataSchema = z.discriminatedUnion('mode', [
   }),
 ])
 export type ConnectorCredentialMetadata = z.infer<typeof connectorCredentialMetadataSchema>
+
+export type Agent365SourcePolicyInactiveReason =
+  | 'deployment-origin-required'
+  | 'source-disabled'
+  | 'managed-identity-required'
+  | 'managed-identity-client-id-not-approved'
+
+export type Agent365SourcePolicyDecision =
+  | { readonly status: 'not-applicable' }
+  | { readonly status: 'active' }
+  | {
+      readonly status: 'inactive'
+      readonly reason: Agent365SourcePolicyInactiveReason
+    }
+
+export interface Agent365SourcePolicyInput {
+  readonly connectorType: ConnectorType
+  readonly origin: 'deployment' | 'user'
+  readonly enabled: boolean
+  readonly credential: ConnectorCredentialMetadata
+}
+
+export function evaluateAgent365SourcePolicy(
+  source: Agent365SourcePolicyInput,
+): Agent365SourcePolicyDecision {
+  if (source.connectorType !== 'agent365') return { status: 'not-applicable' }
+  if (source.origin !== 'deployment') {
+    return { status: 'inactive', reason: 'deployment-origin-required' }
+  }
+  if (!source.enabled) return { status: 'inactive', reason: 'source-disabled' }
+  if (source.credential.mode !== 'managed-identity') {
+    return { status: 'inactive', reason: 'managed-identity-required' }
+  }
+  if (
+    source.credential.managedIdentityClientId.toLowerCase() !==
+    AGENT365_APPROVED_MANAGED_IDENTITY_CLIENT_ID
+  ) {
+    return {
+      status: 'inactive',
+      reason: 'managed-identity-client-id-not-approved',
+    }
+  }
+  return { status: 'active' }
+}
 
 export const connectorSourceActorSchema = z.strictObject({
   type: z.enum(['user', 'service-principal', 'deployment']),

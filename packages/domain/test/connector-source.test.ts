@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  AGENT365_APPROVED_MANAGED_IDENTITY_CLIENT_ID,
   SOURCE_PROJECT_ID_MAX_LENGTH,
   connectorSourceAuditRecordSchema,
   connectorSourceCreateInputSchema,
   connectorSourceDefinitionSchema,
   connectorSourceReadModelSchema,
   connectorSourceTestStatusSchema,
+  evaluateAgent365SourcePolicy,
   hydratePersistedConnectorSourceDefinition,
   sourceProjectIdSchema,
 } from '../src/index.js'
@@ -179,6 +181,111 @@ describe('connector source domain', () => {
       type: 'defender-cloud-apps',
       limits: { maxRetryAfterMs: 120_000 },
     })
+  })
+
+  it.each([
+    {
+      name: 'user-origin source',
+      input: {
+        connectorType: 'agent365' as const,
+        origin: 'user' as const,
+        enabled: true,
+        credential: {
+          mode: 'managed-identity' as const,
+          managedIdentityClientId: AGENT365_APPROVED_MANAGED_IDENTITY_CLIENT_ID,
+        },
+      },
+      reason: 'deployment-origin-required',
+    },
+    {
+      name: 'default credential',
+      input: {
+        connectorType: 'agent365' as const,
+        origin: 'deployment' as const,
+        enabled: true,
+        credential: { mode: 'default' as const },
+      },
+      reason: 'managed-identity-required',
+    },
+    {
+      name: 'federated application',
+      input: {
+        connectorType: 'agent365' as const,
+        origin: 'deployment' as const,
+        enabled: true,
+        credential: {
+          mode: 'federated-app' as const,
+          clientId: '00000000-0000-4000-8000-000000000003',
+          managedIdentityClientId: AGENT365_APPROVED_MANAGED_IDENTITY_CLIENT_ID,
+        },
+      },
+      reason: 'managed-identity-required',
+    },
+    {
+      name: 'Key Vault reference',
+      input: {
+        connectorType: 'agent365' as const,
+        origin: 'deployment' as const,
+        enabled: true,
+        credential: {
+          mode: 'key-vault-secret-reference' as const,
+          vaultUri: 'https://safe.vault.azure.net',
+          secretName: 'agent365',
+        },
+      },
+      reason: 'managed-identity-required',
+    },
+    {
+      name: 'unapproved managed identity',
+      input: {
+        connectorType: 'agent365' as const,
+        origin: 'deployment' as const,
+        enabled: true,
+        credential: {
+          mode: 'managed-identity' as const,
+          managedIdentityClientId: '00000000-0000-4000-8000-000000000004',
+        },
+      },
+      reason: 'managed-identity-client-id-not-approved',
+    },
+  ])('keeps $name inactive under the Agent 365 source policy', ({ input, reason }) => {
+    expect(evaluateAgent365SourcePolicy(input)).toEqual({
+      status: 'inactive',
+      reason,
+    })
+  })
+
+  it('activates only an enabled deployment source using the exact approved Agent 365 UAMI', () => {
+    expect(
+      evaluateAgent365SourcePolicy({
+        connectorType: 'agent365',
+        origin: 'deployment',
+        enabled: true,
+        credential: {
+          mode: 'managed-identity',
+          managedIdentityClientId: AGENT365_APPROVED_MANAGED_IDENTITY_CLIENT_ID,
+        },
+      }),
+    ).toEqual({ status: 'active' })
+    expect(
+      evaluateAgent365SourcePolicy({
+        connectorType: 'agent365',
+        origin: 'deployment',
+        enabled: false,
+        credential: {
+          mode: 'managed-identity',
+          managedIdentityClientId: AGENT365_APPROVED_MANAGED_IDENTITY_CLIENT_ID,
+        },
+      }),
+    ).toEqual({ status: 'inactive', reason: 'source-disabled' })
+    expect(
+      evaluateAgent365SourcePolicy({
+        connectorType: 'foundry',
+        origin: 'user',
+        enabled: true,
+        credential: { mode: 'default' },
+      }),
+    ).toEqual({ status: 'not-applicable' })
   })
 
   it('keeps Azure Monitor writes strict when sourceProjectId is missing', () => {

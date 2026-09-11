@@ -187,4 +187,24 @@ describe('public edge routing safety', () => {
       "effectiveAccountName = empty(accountName) ? 'ais-agent-sentinel-${suffix}'",
     )
   })
+
+  it('wires the approved Agent 365 UAMI only into API and jobs deployment configuration', () => {
+    const platform = rootFile('infra/platform.bicep')
+    const containerApps = rootFile('infra/modules/container-apps.bicep')
+    const replacementParameters = rootFile(
+      'infra/environments/mngenvmcap098047.parameters.bicepparam',
+    )
+
+    expect(platform).toContain('param agent365ManagedIdentityClientId string')
+    expect(platform).toContain('agent365ManagedIdentityClientId: agent365ManagedIdentityClientId')
+    expect(containerApps).toContain('param agent365ManagedIdentityClientId string')
+    expect(containerApps).toContain("name: 'AGENT365_MANAGED_IDENTITY_CLIENT_ID'")
+    expect(containerApps).toMatch(
+      /env:\s*concat\(\s*env,\s*app\.slug == 'web'\s*\?\s*\[\]\s*:\s*agent365IdentityEnv\s*\)/,
+    )
+    expect(replacementParameters).toContain(
+      "param agent365ManagedIdentityClientId = '59dbea72-1e91-403a-89cf-e02cdb8da350'",
+    )
+    expect(replacementParameters).not.toMatch(/agent365SourcesJson\s*=.*managedIdentityClientId/)
+  })
 })

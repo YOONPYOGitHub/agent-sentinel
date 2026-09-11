@@ -32,7 +32,7 @@ function agent365RuntimeSource(): ConnectorSourceDefinition {
     connectorType: 'agent365',
     displayName: 'Live Agent 365',
     enabled: true,
-    origin: 'user',
+    origin: 'deployment',
     configuration: {
       type: 'agent365',
       graphBaseUrl: 'https://graph.microsoft.com',
@@ -52,8 +52,8 @@ function agent365RuntimeSource(): ConnectorSourceDefinition {
     testStatus: { status: 'not-tested' },
     version: 1,
     etag: 'etag-agent365-live',
-    createdBy: { type: 'service-principal', id: 'configuration-api' },
-    updatedBy: { type: 'service-principal', id: 'configuration-api' },
+    createdBy: { type: 'deployment', id: 'deployment-json' },
+    updatedBy: { type: 'deployment', id: 'deployment-json' },
     createdAt: '2026-09-09T00:00:00.000Z',
     updatedAt: '2026-09-09T00:00:00.000Z',
   }
@@ -453,7 +453,7 @@ describe('connector selection', () => {
     ])
   })
 
-  it('activates persisted enabled Agent 365 sources for the exact API estate', async () => {
+  it('activates an approved persisted deployment Agent 365 source for the exact API estate', async () => {
     const result = await createConfiguredConnectorForEstate(
       runtimeEstate,
       runtimeRepository([agent365RuntimeSource()]),
@@ -590,7 +590,7 @@ describe('connector selection', () => {
       configured: false,
       readiness: 'authorization-required',
       dataState: 'unsupported',
-      reason: 'dedicated-workload-identity-required',
+      reason: 'managed-identity-required',
     })
   })
 

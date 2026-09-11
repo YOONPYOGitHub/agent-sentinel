@@ -116,6 +116,11 @@ param powerPlatformMaxRetryAfterMs string = '30000'
 param powerPlatformMaxResponseBytes string = '2000000'
 
 param agent365ConnectorEnabled bool = false
+@allowed([
+  ''
+  '59dbea72-1e91-403a-89cf-e02cdb8da350'
+])
+param agent365ManagedIdentityClientId string = ''
 param agent365SourcesJson string = ''
 param agent365TenantId string = ''
 param agent365Environment string = ''
@@ -407,6 +412,13 @@ var env = [
   { name: 'API_UPSTREAM',                           value: 'api-as-${suffix}' }
 ]
 
+var agent365IdentityEnv = [
+  {
+    name: 'AGENT365_MANAGED_IDENTITY_CLIENT_ID'
+    value: agent365ManagedIdentityClientId
+  }
+]
+
 resource apps 'Microsoft.App/containerApps@2024-03-01' = [for app in appDefinitions: {
   name: format('{0}-as-{1}', app.slug, suffix)
   location: location
@@ -448,7 +460,7 @@ resource apps 'Microsoft.App/containerApps@2024-03-01' = [for app in appDefiniti
         {
           name: app.containerName
           image: format('{0}/{1}@{2}', acrLoginServer, app.containerName, app.imageDigest)
-          env: env
+          env: concat(env, app.slug == 'web' ? [] : agent365IdentityEnv)
           resources: {
             cpu: json('0.5')
             memory: '1Gi'

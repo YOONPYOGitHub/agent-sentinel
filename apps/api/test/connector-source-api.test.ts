@@ -77,6 +77,29 @@ const createBody = {
   credential: { mode: 'default' },
 } as const
 
+const agent365CreateBody = {
+  sourceId: 'agent365-user',
+  connectorType: 'agent365',
+  displayName: 'User Agent 365',
+  enabled: true,
+  configuration: {
+    type: 'agent365',
+    graphBaseUrl: 'https://graph.microsoft.com',
+    limits: {
+      maxPages: 20,
+      maxItems: 5_000,
+      requestTimeoutMs: 15_000,
+      maxRetries: 2,
+      maxRetryAfterMs: 30_000,
+      maxResponseBytes: 2_000_000,
+    },
+  },
+  credential: {
+    mode: 'managed-identity',
+    managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
+  },
+} as const
+
 const apps: Awaited<ReturnType<typeof createApp>>[] = []
 
 function authenticate(role: 'Viewer' | 'Analyst' | 'Administrator'): void {
@@ -437,6 +460,87 @@ describe('connector source API authorization and boundaries', () => {
 })
 
 describe('connector source API contracts', () => {
+  it('keeps Agent 365 visible but rejects every user-origin mutation without audit writes', async () => {
+    const repository = new InMemoryConnectorSourceRepository()
+    const enabledSource = await seed(repository, defaultEstate, 'agent365-enabled', {
+      connectorType: 'agent365',
+      displayName: 'Legacy enabled Agent 365',
+      enabled: true,
+      origin: 'user',
+      configuration: agent365CreateBody.configuration,
+      credential: agent365CreateBody.credential,
+    })
+    const disabledSource = await seed(repository, defaultEstate, 'agent365-disabled', {
+      connectorType: 'agent365',
+      displayName: 'Legacy disabled Agent 365',
+      enabled: false,
+      origin: 'user',
+      configuration: agent365CreateBody.configuration,
+      credential: agent365CreateBody.credential,
+    })
+    authenticate('Administrator')
+    const app = await makeApp(repository)
+
+    const create = await app.inject({
+      method: 'POST',
+      url: '/api/connector-sources',
+      headers: headers({ 'idempotency-key': 'reject-agent365-create' }),
+      payload: agent365CreateBody,
+    })
+    const disable = await app.inject({
+      method: 'PATCH',
+      url: `/api/connector-sources/${enabledSource.sourceId}`,
+      headers: headers({
+        'idempotency-key': 'reject-agent365-disable',
+        'if-match': `"${enabledSource.etag}"`,
+      }),
+      payload: { enabled: false },
+    })
+    const enable = await app.inject({
+      method: 'PATCH',
+      url: `/api/connector-sources/${disabledSource.sourceId}`,
+      headers: headers({
+        'idempotency-key': 'reject-agent365-enable',
+        'if-match': `"${disabledSource.etag}"`,
+      }),
+      payload: { enabled: true },
+    })
+    const remove = await app.inject({
+      method: 'DELETE',
+      url: `/api/connector-sources/${enabledSource.sourceId}`,
+      headers: headers({
+        'idempotency-key': 'reject-agent365-delete',
+        'if-match': `"${enabledSource.etag}"`,
+      }),
+    })
+
+    for (const response of [create, disable, enable, remove]) {
+      expect(response.statusCode).toBe(409)
+      expect(response.json()).toMatchObject({
+        error: 'agent365_deployment_managed_only',
+      })
+    }
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/connector-sources',
+      headers: headers(),
+    })
+    expect(listed.statusCode).toBe(200)
+    expect(listed.json()).toMatchObject({
+      items: [
+        { sourceId: 'agent365-disabled', enabled: false, origin: 'user' },
+        { sourceId: 'agent365-enabled', enabled: true, origin: 'user' },
+      ],
+    })
+    await expect(repository.findById(defaultEstate, 'agent365-user')).resolves.toBeNull()
+    await expect(repository.listAudit(defaultEstate, enabledSource.sourceId)).resolves.toHaveLength(
+      1,
+    )
+    await expect(
+      repository.listAudit(defaultEstate, disabledSource.sourceId),
+    ).resolves.toHaveLength(1)
+  })
+
   it('lists, gets, updates, replays, deletes, and retains ordered immutable audit', async () => {
     authenticate('Administrator')
     const app = await makeApp()
@@ -568,6 +672,7 @@ describe('connector source API contracts', () => {
       { ...createBody, tenantId: 'other-tenant' },
       { ...createBody, environment: 'other-environment' },
       { ...createBody, origin: 'deployment' },
+      { ...createBody, runtimeBinding: { bindingSourceId: 'caller-controlled' } },
       {
         ...createBody,
         testStatus: {
@@ -958,6 +1063,12 @@ describe('connector source API contracts', () => {
     expect(listed.json()).toMatchObject({
       items: [
         {
+          sourceId: 'foundry-lab',
+          origin: 'deployment',
+          enabled: false,
+          testStatus: { status: 'not-tested' },
+        },
+        {
           sourceId: 'foundry-primary',
           origin: 'deployment',
           enabled: false,
@@ -973,15 +1084,7 @@ describe('connector source API contracts', () => {
     })
     expect(lab.statusCode).toBe(200)
     expect(lab.json()).toMatchObject({
-      items: [
-        {
-          sourceId: 'foundry-lab',
-          estateId: 'lab',
-          tenantId: 'tenant-lab',
-          environment: 'validation',
-          origin: 'deployment',
-        },
-      ],
+      items: [],
     })
 
     const projected = listed.json<{ items: ConnectorSourceDefinition[] }>().items[0]!

@@ -49,6 +49,7 @@ const CONNECTOR_TYPE_LABELS: Record<ConnectorType, string> = {
 }
 
 const CONNECTOR_TYPES = Object.keys(CONNECTOR_TYPE_LABELS) as ConnectorType[]
+const MUTABLE_CONNECTOR_TYPES = CONNECTOR_TYPES.filter((type) => type !== 'agent365')
 
 type CredentialMode = ConnectorCredentialMetadata['mode']
 
@@ -611,7 +612,7 @@ function SourceForm({
                 setField('connectorType', event.currentTarget.value as ConnectorType)
               }
             >
-              {CONNECTOR_TYPES.map((value) => (
+              {MUTABLE_CONNECTOR_TYPES.map((value) => (
                 <option key={value} value={value}>
                   {CONNECTOR_TYPE_LABELS[value]}
                 </option>
@@ -947,6 +948,7 @@ function ConnectorSourceCard({
   const [testError, setTestError] = useState<string>()
   const [testing, setTesting] = useState(false)
   const deploymentManaged = source.origin === 'deployment'
+  const agent365ReadOnly = source.connectorType === 'agent365'
   const migrationRequired = isConnectorSourceMigrationRequired(source)
   const sourceStatus = source.testStatus.status
   const sourceEvidenceBasis =
@@ -977,7 +979,11 @@ function ConnectorSourceCard({
             {source.enabled ? 'Enabled' : 'Disabled'}
           </Badge>
           <Badge appearance="outline">
-            {deploymentManaged ? 'Deployment managed' : 'User managed'}
+            {deploymentManaged
+              ? 'Deployment managed'
+              : agent365ReadOnly
+                ? 'Legacy user record'
+                : 'User managed'}
           </Badge>
           {migrationRequired ? (
             <Badge appearance="tint" color="warning">
@@ -1029,7 +1035,7 @@ function ConnectorSourceCard({
             {testing ? 'Checking...' : 'Check test evidence'}
           </Button>
         ) : null}
-        {!migrationRequired && !deploymentManaged && canConfigure ? (
+        {!migrationRequired && !deploymentManaged && !agent365ReadOnly && canConfigure ? (
           <>
             <Button
               appearance="secondary"
@@ -1072,7 +1078,13 @@ function ConnectorSourceCard({
           </>
         ) : null}
       </div>
-      {deploymentManaged ? (
+      {agent365ReadOnly ? (
+        <p className="connector-source-card__notice">
+          <LockClosedRegular aria-hidden="true" />
+          Agent 365 sources are deployment managed and read-only. This record remains visible for
+          health and readiness evidence.
+        </p>
+      ) : deploymentManaged ? (
         <p className="connector-source-card__notice">
           <LockClosedRegular aria-hidden="true" />
           Deployment-defined sources are visible for compatibility and cannot be edited or deleted
@@ -1375,8 +1387,8 @@ export function ConnectorSourceManager() {
             Connector source configuration
           </h2>
           <p>
-            Estate-scoped, non-secret source definitions. Enabled Agent 365 sources activate
-            persisted live discovery; deployment-defined boundaries remain immutable.
+            Estate-scoped, non-secret source definitions. Agent 365 sources are deployment managed
+            and read-only; all other supported provider controls retain their existing policy.
           </p>
         </div>
         <div className="connector-source-section-header__actions">

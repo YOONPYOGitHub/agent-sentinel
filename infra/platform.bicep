@@ -98,6 +98,12 @@ param powerPlatformMaxResponseBytes string = '2000000'
 
 @description('Enable read-only Microsoft Agent 365 Graph v1.0 package catalog inventory. Keep false until licensing and tenant-admin application consent are approved.')
 param agent365ConnectorEnabled bool = false
+@description('Approved existing Agent 365 connector UAMI client ID. Empty keeps Agent 365 inactive.')
+@allowed([
+  ''
+  '59dbea72-1e91-403a-89cf-e02cdb8da350'
+])
+param agent365ManagedIdentityClientId string = ''
 @description('Optional JSON array of up to 50 independent Microsoft Agent 365 tenant sources.')
 param agent365SourcesJson string = ''
 @description('Legacy primary Agent 365 tenant ID. Empty while disabled or when source JSON is used.')
@@ -408,6 +414,7 @@ module containerApps './modules/container-apps.bicep' = {
     powerPlatformMaxRetryAfterMs: powerPlatformMaxRetryAfterMs
     powerPlatformMaxResponseBytes: powerPlatformMaxResponseBytes
     agent365ConnectorEnabled: agent365ConnectorEnabled
+    agent365ManagedIdentityClientId: agent365ManagedIdentityClientId
     agent365SourcesJson: agent365SourcesJson
     agent365TenantId: agent365TenantId
     agent365Environment: agent365Environment

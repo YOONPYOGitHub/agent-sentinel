@@ -188,7 +188,7 @@ describe('ConnectorSourceManager', () => {
     render(<ConnectorSourceManager />)
 
     expect(
-      await screen.findByText(/enabled Agent 365 sources activate persisted live discovery/i),
+      await screen.findByText(/Agent 365 sources are deployment managed and read-only/i),
     ).toBeVisible()
 
     const userCard = screen.getByRole('article', { name: 'Primary Foundry' })
@@ -348,119 +348,64 @@ describe('ConnectorSourceManager', () => {
     expect(idempotencyKey).toMatch(/^connector-source-create-/)
   })
 
-  it('uses the strict Agent 365 retry-after input bound', async () => {
-    const user = userEvent.setup()
-    render(<ConnectorSourceManager />)
-
-    await user.click(await screen.findByRole('button', { name: 'Add connector source' }))
-    const dialog = screen.getByRole('dialog', { name: 'Add connector source' })
-    await user.selectOptions(within(dialog).getByLabelText('Connector type'), 'agent365')
-    const retryAfter = within(dialog).getByLabelText('Maximum retry-after (ms)')
-
-    expect(retryAfter).toHaveAttribute('max', '60000')
-    fireEvent.change(retryAfter, { target: { value: '60001' } })
-    expect(retryAfter).toBeInvalid()
-  })
-
-  it('creates Agent 365 sources with explicit aggregation bounds', async () => {
-    const user = userEvent.setup()
-    vi.mocked(connectorSourcesApi.create).mockResolvedValue({
-      replayed: false,
-      source: agent365Source,
-    })
-    render(<ConnectorSourceManager />)
-
-    await user.click(await screen.findByRole('button', { name: 'Add connector source' }))
-    const dialog = screen.getByRole('dialog', { name: 'Add connector source' })
-    await user.type(within(dialog).getByLabelText('Source ID'), 'agent365-new')
-    await user.type(within(dialog).getByLabelText('Display name'), 'New Agent 365')
-    await user.selectOptions(within(dialog).getByLabelText('Connector type'), 'agent365')
-    fireEvent.change(within(dialog).getByLabelText('Maximum concurrent sources'), {
-      target: { value: '3' },
-    })
-    fireEvent.change(within(dialog).getByLabelText('Maximum operation duration (ms)'), {
-      target: { value: '180000' },
-    })
-    await user.click(within(dialog).getByRole('button', { name: 'Create source' }))
-
-    await waitFor(() => expect(connectorSourcesApi.create).toHaveBeenCalledOnce())
-    expect(vi.mocked(connectorSourcesApi.create).mock.calls[0]?.[0]).toMatchObject({
-      sourceId: 'agent365-new',
-      connectorType: 'agent365',
-      configuration: {
-        type: 'agent365',
-        aggregation: {
-          maxConcurrency: 3,
-          maxDurationMs: 180_000,
-        },
-      },
-    })
-  })
-
-  it('hydrates and edits Agent 365 aggregation bounds', async () => {
+  it('keeps Agent 365 visible and read-only while excluding it from Add Source', async () => {
     const user = userEvent.setup()
     vi.mocked(connectorSourcesApi.list).mockResolvedValue({
       ...writablePage,
-      items: [agent365Source],
-    })
-    vi.mocked(connectorSourcesApi.update).mockResolvedValue({
-      replayed: false,
-      source: {
-        ...agent365Source,
-        configuration: {
-          ...agent365Configuration,
-          aggregation: {
-            maxConcurrency: 6,
-            maxDurationMs: 240_000,
-          },
+      items: [
+        agent365Source,
+        {
+          ...agent365Source,
+          sourceId: 'agent365-deployment',
+          displayName: 'Deployment Agent 365',
+          origin: 'deployment',
+          runtimeBinding: { bindingSourceId: 'primary' },
+          createdBy: { type: 'deployment', id: 'deployment-json' },
+          updatedBy: { type: 'deployment', id: 'deployment-json' },
         },
-      },
+      ],
     })
-    render(<ConnectorSourceManager />)
-
-    const card = await screen.findByRole('article', { name: 'Live Agent 365' })
-    await user.click(within(card).getByRole('button', { name: 'Edit' }))
-    const dialog = screen.getByRole('dialog', { name: 'Edit Live Agent 365' })
-    const concurrency = within(dialog).getByLabelText('Maximum concurrent sources')
-    const duration = within(dialog).getByLabelText('Maximum operation duration (ms)')
-    expect(concurrency).toHaveValue(4)
-    expect(duration).toHaveValue(120_000)
-
-    fireEvent.change(concurrency, { target: { value: '6' } })
-    fireEvent.change(duration, { target: { value: '240000' } })
-    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
-
-    await waitFor(() => expect(connectorSourcesApi.update).toHaveBeenCalledOnce())
-    expect(vi.mocked(connectorSourcesApi.update).mock.calls[0]?.[1]).toMatchObject({
-      configuration: {
-        type: 'agent365',
-        aggregation: {
-          maxConcurrency: 6,
-          maxDurationMs: 240_000,
-        },
-      },
+    vi.mocked(connectorSourcesApi.getConnectionTestStatus).mockResolvedValue({
+      estateId: agent365Source.estateId,
+      tenantId: agent365Source.tenantId,
+      environment: agent365Source.environment,
+      sourceId: agent365Source.sourceId,
+      connectorType: 'agent365',
+      readOnly: true,
+      status: 'authorization-required',
+      evidenceAvailability: 'unavailable',
+      evidenceBasis: null,
+      evidenceIds: [],
+      checkedAt: null,
+      checkedBy: null,
+      summary: 'The persisted legacy source is inactive because deployment origin is required.',
     })
-  })
-
-  it('enforces Agent 365 aggregation input bounds', async () => {
-    const user = userEvent.setup()
     render(<ConnectorSourceManager />)
 
     await user.click(await screen.findByRole('button', { name: 'Add connector source' }))
     const dialog = screen.getByRole('dialog', { name: 'Add connector source' })
-    await user.selectOptions(within(dialog).getByLabelText('Connector type'), 'agent365')
-    const concurrency = within(dialog).getByLabelText('Maximum concurrent sources')
-    const duration = within(dialog).getByLabelText('Maximum operation duration (ms)')
+    expect(
+      within(dialog).queryByRole('option', { name: 'Microsoft Agent 365' }),
+    ).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
 
-    expect(concurrency).toHaveAttribute('min', '1')
-    expect(concurrency).toHaveAttribute('max', '10')
-    expect(duration).toHaveAttribute('min', '100')
-    expect(duration).toHaveAttribute('max', '300000')
+    for (const name of ['Live Agent 365', 'Deployment Agent 365']) {
+      const card = screen.getByRole('article', { name })
+      expect(within(card).queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+      expect(within(card).queryByRole('button', { name: 'Enable' })).not.toBeInTheDocument()
+      expect(within(card).queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument()
+      expect(within(card).queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+      expect(
+        within(card).getByText(/Agent 365 sources are deployment managed and read-only/i),
+      ).toBeVisible()
+    }
 
-    fireEvent.change(concurrency, { target: { value: '11' } })
-    fireEvent.change(duration, { target: { value: '300001' } })
-    expect(concurrency).toBeInvalid()
-    expect(duration).toBeInvalid()
+    const legacyCard = screen.getByRole('article', { name: 'Live Agent 365' })
+    expect(legacyCard).toHaveTextContent('Legacy user record')
+    await user.click(within(legacyCard).getByRole('button', { name: 'Check test evidence' }))
+    expect(await within(legacyCard).findByRole('status')).toHaveTextContent(
+      'deployment origin is required',
+    )
   })
 
   it('hydrates and updates the bounded Azure Monitor source project ID', async () => {

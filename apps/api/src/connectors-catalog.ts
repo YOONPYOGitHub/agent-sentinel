@@ -32,7 +32,7 @@ const BASE_CATALOG: readonly CatalogConnectorEntry[] = [
     sourceOfTruth: true,
     ownershipModel: 'consumes',
     prerequisiteNote:
-      'Read-only Global Graph v1.0 inventory. Enabled persisted sources activate discovery and each source requires Microsoft Agent 365 licensing, tenant-admin CopilotPackages.Read.All application consent, and an explicit managed identity client ID. Readiness is shown only from fresh health bound to the exact source generation.',
+      'Read-only Global Graph v1.0 inventory. Sources are deployment-managed and activate only with Microsoft Agent 365 licensing, tenant-admin CopilotPackages.Read.All application consent, and approved managed identity client ID 59dbea72-1e91-403a-89cf-e02cdb8da350. Readiness is shown only from fresh health bound to the exact source generation.',
     unlocksScorecard: ['governance', 'lifecycle'],
   },
   {

@@ -46,10 +46,6 @@ describe('deployment Azure Monitor OTel source projection', () => {
             name: 'Live Agent 365',
             tenantId: entraEstate.tenantId,
             environment: entraEstate.environment,
-            credential: {
-              mode: 'managed-identity',
-              managedIdentityClientId: '59dbea72-1e91-403a-89cf-e02cdb8da350',
-            },
             limits: {
               maxPages: 4,
               maxItems: 600,
@@ -60,6 +56,7 @@ describe('deployment Azure Monitor OTel source projection', () => {
             },
           },
         ]),
+        AGENT365_MANAGED_IDENTITY_CLIENT_ID: '59dbea72-1e91-403a-89cf-e02cdb8da350',
         AGENT365_MAX_CONCURRENCY: '1',
         AGENT365_MAX_DURATION_MS: '5000',
       },

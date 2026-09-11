@@ -162,7 +162,7 @@ function agent365Source(etag = 'etag-current'): ConnectorSourceDefinition {
     connectorType: 'agent365',
     displayName: 'Current Agent 365',
     enabled: true,
-    origin: 'user',
+    origin: 'deployment',
     configuration: {
       type: 'agent365',
       graphBaseUrl: 'https://graph.microsoft.com',
@@ -182,8 +182,8 @@ function agent365Source(etag = 'etag-current'): ConnectorSourceDefinition {
     testStatus: { status: 'not-tested' },
     version: 2,
     etag,
-    createdBy: { type: 'service-principal', id: 'configuration-api' },
-    updatedBy: { type: 'service-principal', id: 'configuration-api' },
+    createdBy: { type: 'deployment', id: 'deployment-json' },
+    updatedBy: { type: 'deployment', id: 'deployment-json' },
     createdAt: '2026-09-09T00:00:00.000Z',
     updatedAt: '2026-09-09T00:00:00.000Z',
   }
@@ -282,11 +282,13 @@ describe('GET /api/connectors', () => {
   it('marks Agent 365 as authorization-required', async () => {
     const app = await createApp()
     apps.push(app)
-    const body: { catalog: Array<{ id: string; lifecycleState: string }> } = (
-      await app.inject({ method: 'GET', url: '/api/connectors' })
-    ).json()
+    const body: {
+      catalog: Array<{ id: string; lifecycleState: string; prerequisiteNote: string }>
+    } = (await app.inject({ method: 'GET', url: '/api/connectors' })).json()
     const agent365 = body.catalog.find((e) => e.id === 'm365-agent-registry')
     expect(agent365?.lifecycleState).toBe('authorization-required')
+    expect(agent365?.prerequisiteNote).toContain('deployment-managed')
+    expect(agent365?.prerequisiteNote).toContain('59dbea72-1e91-403a-89cf-e02cdb8da350')
   })
 
   it('does not expose secrets or credentials in the response', async () => {
@@ -550,7 +552,7 @@ describe('GET /api/connectors', () => {
           configured: false,
           readiness: 'authorization-required',
           dataState: 'unsupported',
-          reason: 'dedicated-workload-identity-required',
+          reason: 'managed-identity-required',
         },
       ],
     })
