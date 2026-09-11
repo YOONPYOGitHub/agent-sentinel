@@ -195,6 +195,11 @@ param manifestIngestionsContainerName string = 'manifest-ingestions'
 @description('Ingestion worker discovery interval in milliseconds.')
 param discoveryIntervalMs string = '300000'
 
+@description('Immutable 40-character source commit deployed across web, API, and jobs.')
+@minLength(40)
+@maxLength(40)
+param deploymentCommitSha string
+
 @description('Required canonical SHA-256 digest for the web image.')
 @minLength(71)
 @maxLength(71)
@@ -290,6 +295,13 @@ var effectiveTeamsDistributionSourcesJson = teamsDistributionConnectorEnabled &&
 ]) : teamsDistributionSourcesJson
 
 var env = [
+  { name: 'AGENT_SENTINEL_BUILD_SHA',              value: deploymentCommitSha }
+  { name: 'AGENT_SENTINEL_WEB_SHA',                value: deploymentCommitSha }
+  { name: 'AGENT_SENTINEL_API_SHA',                value: deploymentCommitSha }
+  { name: 'AGENT_SENTINEL_JOBS_SHA',               value: deploymentCommitSha }
+  { name: 'AGENT_SENTINEL_WEB_IMAGE_DIGEST',       value: webImageDigest }
+  { name: 'AGENT_SENTINEL_API_IMAGE_DIGEST',       value: apiImageDigest }
+  { name: 'AGENT_SENTINEL_JOBS_IMAGE_DIGEST',      value: jobsImageDigest }
   { name: 'COSMOS_ENDPOINT',                       value: cosmosEndpoint }
   { name: 'PG_HOST',                               value: pgHost }
   { name: 'SEARCH_ENDPOINT',                       value: searchEndpoint }

@@ -18,6 +18,11 @@ param tags object = {
   'data-classification': 'synthetic'
 }
 
+@description('Immutable 40-character source commit deployed across web, API, and jobs.')
+@minLength(40)
+@maxLength(40)
+param deploymentCommitSha string
+
 @description('Required canonical SHA-256 digest for the web image.')
 @minLength(71)
 @maxLength(71)
@@ -377,6 +382,7 @@ module containerApps './modules/container-apps.bicep' = {
     searchEndpoint: search.outputs.endpoint
     sbFqdn: serviceBus.outputs.fqdn
     appInsightsConnectionString: observability.outputs.appInsightsConnectionString
+    deploymentCommitSha: deploymentCommitSha
     webImageDigest: webImageDigest
     apiImageDigest: apiImageDigest
     jobsImageDigest: jobsImageDigest

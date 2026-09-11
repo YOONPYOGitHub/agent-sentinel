@@ -54,6 +54,9 @@ describe('public edge routing safety', () => {
     expect(workflow.match(/ref: \$\{\{ needs\.resolve\.outputs\.commitSha \}\}/g)).toHaveLength(4)
     expect(workflow).toContain('HEAD_SHA="$(git rev-parse HEAD)"')
     expect(workflow).toContain('echo "IMAGE_TAG=${EXPECTED_SHA}" >> "${GITHUB_ENV}"')
+    expect(
+      workflow.match(/DEPLOYMENT_COMMIT_SHA: \$\{\{ needs\.resolve\.outputs\.commitSha \}\}/g),
+    ).toHaveLength(2)
     expect(workflow).not.toContain('SHORT_TAG')
     expect(workflow).not.toContain('${TAG:0:7}')
     expect(workflow).toContain('--image "${repository}:${IMAGE_TAG}"')
@@ -62,6 +65,9 @@ describe('public edge routing safety', () => {
     expect(workflow.match(/-p webImageDigest="\$\{WEB_IMAGE_DIGEST\}"/g)).toHaveLength(2)
     expect(workflow.match(/-p apiImageDigest="\$\{API_IMAGE_DIGEST\}"/g)).toHaveLength(2)
     expect(workflow.match(/-p jobsImageDigest="\$\{JOBS_IMAGE_DIGEST\}"/g)).toHaveLength(2)
+    expect(
+      workflow.match(/-p deploymentCommitSha="\$\{\{ needs\.resolve\.outputs\.commitSha \}\}"/g),
+    ).toHaveLength(2)
   })
 
   it('deploys private ACR images by component digest and verifies active revisions', () => {
@@ -76,6 +82,9 @@ describe('public edge routing safety', () => {
     expect(platform).toContain('webImageDigest: webImageDigest')
     expect(platform).toContain('apiImageDigest: apiImageDigest')
     expect(platform).toContain('jobsImageDigest: jobsImageDigest')
+    expect(platform).toContain('deploymentCommitSha: deploymentCommitSha')
+    expect(containerApps).toContain("{ name: 'AGENT_SENTINEL_BUILD_SHA',")
+    expect(containerApps).toContain("{ name: 'AGENT_SENTINEL_API_IMAGE_DIGEST',")
     expect(workflow).toContain('Verify active revision image digests')
     expect(workflow).toContain('az containerapp revision list')
     expect(workflow).toContain('az containerapp revision show')

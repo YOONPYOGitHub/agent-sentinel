@@ -296,6 +296,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.targetEnvironment != 'none'
     runs-on: [self-hosted, linux, x64, '${{ vars.PRIVATE_RUNNER_LABEL }}']
     env:
+      DEPLOYMENT_COMMIT_SHA: ${{ needs.resolve.outputs.commitSha }}
       WEB_IMAGE_DIGEST: ${{ needs.build-push.outputs.webDigest }}
       API_IMAGE_DIGEST: ${{ needs.build-push.outputs.apiDigest }}
       JOBS_IMAGE_DIGEST: ${{ needs.build-push.outputs.jobsDigest }}
@@ -316,6 +317,7 @@ jobs:
             -g "${AZURE_RESOURCE_GROUP}" \
             -f infra/platform.bicep \
             -p "${PLATFORM_PARAMETER_FILE}" \
+            -p deploymentCommitSha="${{ needs.resolve.outputs.commitSha }}" \
             -p webImageDigest="${WEB_IMAGE_DIGEST}" \
             -p apiImageDigest="${API_IMAGE_DIGEST}" \
             -p jobsImageDigest="${JOBS_IMAGE_DIGEST}" \
@@ -329,6 +331,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, '${{ vars.PRIVATE_RUNNER_LABEL }}']
     environment: ${{ inputs.targetEnvironment }} # Configure required reviewers before enabling deployment.
     env:
+      DEPLOYMENT_COMMIT_SHA: ${{ needs.resolve.outputs.commitSha }}
       WEB_IMAGE_DIGEST: ${{ needs.build-push.outputs.webDigest }}
       API_IMAGE_DIGEST: ${{ needs.build-push.outputs.apiDigest }}
       JOBS_IMAGE_DIGEST: ${{ needs.build-push.outputs.jobsDigest }}
@@ -349,6 +352,7 @@ jobs:
             -g "${AZURE_RESOURCE_GROUP}" \
             -f infra/platform.bicep \
             -p "${PLATFORM_PARAMETER_FILE}" \
+            -p deploymentCommitSha="${{ needs.resolve.outputs.commitSha }}" \
             -p webImageDigest="${WEB_IMAGE_DIGEST}" \
             -p apiImageDigest="${API_IMAGE_DIGEST}" \
             -p jobsImageDigest="${JOBS_IMAGE_DIGEST}" \

@@ -363,6 +363,18 @@ describe('GET /api/auth/config', () => {
   })
 })
 
+describe('public operational endpoints', () => {
+  it.each(['/health', '/api/health', '/api/status'])(
+    'allows anonymous GET %s in jwt mode',
+    async (url) => {
+      const app = await createApp(undefined, jwtConfig)
+      apps.push(app)
+      const response = await app.inject({ method: 'GET', url })
+      expect(response.statusCode).toBe(200)
+    },
+  )
+})
+
 describe('GET /api/auth/me', () => {
   it('returns 401 when auth mode is disabled', async () => {
     const app = await createApp(undefined, { mode: 'disabled' })

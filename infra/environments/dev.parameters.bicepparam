@@ -5,6 +5,7 @@ param applicationIdentityName = 'id-agent-sentinel-260814'
 param connectorIdentityName = 'id-agent-sentinel-connectors-260829'
 param teamsIdentityName = 'id-agent-sentinel-teams-260829'
 param foundryAccountName = 'ais-agent-sentinel-260814'
+param deploymentCommitSha = readEnvironmentVariable('DEPLOYMENT_COMMIT_SHA')
 param webImageDigest = readEnvironmentVariable('WEB_IMAGE_DIGEST')
 param apiImageDigest = readEnvironmentVariable('API_IMAGE_DIGEST')
 param jobsImageDigest = readEnvironmentVariable('JOBS_IMAGE_DIGEST')

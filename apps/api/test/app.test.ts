@@ -15,9 +15,33 @@ afterEach(async () => {
   await Promise.all(apps.splice(0).map(async (app) => app.close()))
   delete process.env['AGENT_SENTINEL_CONNECTOR']
   delete process.env['AGENT_SENTINEL_WRITE_ENABLED']
+  delete process.env['AGENT_SENTINEL_BUILD_SHA']
+  delete process.env['AGENT_SENTINEL_API_IMAGE_DIGEST']
 })
 
 describe('demo API', () => {
+  it('serves public API health and sanitized immutable deployment status', async () => {
+    process.env['AGENT_SENTINEL_BUILD_SHA'] = 'a'.repeat(40)
+    process.env['AGENT_SENTINEL_API_IMAGE_DIGEST'] = `sha256:${'b'.repeat(64)}`
+    const app = await createApp()
+    apps.push(app)
+
+    const health = await app.inject({ method: 'GET', url: '/api/health' })
+    expect(health.statusCode).toBe(200)
+    expect(health.json()).toMatchObject({ status: 'ok', service: 'agent-sentinel-api' })
+
+    const status = await app.inject({ method: 'GET', url: '/api/status' })
+    expect(status.statusCode).toBe(200)
+    expect(status.headers['x-agent-sentinel-api-sha']).toBe('a'.repeat(40))
+    expect(status.headers['x-agent-sentinel-api-image-digest']).toBe(`sha256:${'b'.repeat(64)}`)
+    expect(status.json()).toMatchObject({
+      status: 'ok',
+      components: {
+        api: { sha: 'a'.repeat(40), digest: `sha256:${'b'.repeat(64)}` },
+      },
+    })
+  })
+
   it('reports the connector source and mode via the status endpoint', async () => {
     process.env['AGENT_SENTINEL_WRITE_ENABLED'] = 'false'
     const app = await createApp()
