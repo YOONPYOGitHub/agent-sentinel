@@ -7,6 +7,7 @@ import {
   CheckmarkCircleRegular,
   ChevronRightRegular,
   DataUsageRegular,
+  DesktopPulseRegular,
   HomeRegular,
   LockClosedRegular,
   NavigationRegular,
@@ -44,6 +45,7 @@ const navigation = [
   { label: 'Lifecycle', icon: ArrowResetRegular, to: '/lifecycle', end: false },
   { label: 'Trust catalog', icon: CheckmarkCircleRegular, to: '/trust-catalog', end: false },
   { label: 'Connectors', icon: PlugConnectedRegular, to: '/connectors', end: false },
+  { label: 'Demo readiness', icon: DesktopPulseRegular, to: '/demo-readiness', end: false },
 ]
 
 function AuthShellMenu() {

@@ -9,11 +9,15 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./demo-readiness": {
+      "types": "./dist/demo-readiness.d.ts",
+      "import": "./dist/demo-readiness.js"
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --clean",
-    "dev": "tsup src/index.ts --format esm --dts --watch",
+    "build": "tsup src/index.ts src/demo-readiness.ts --format esm --dts --clean",
+    "dev": "tsup src/index.ts src/demo-readiness.ts --format esm --dts --watch",
     "lint": "eslint src",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"

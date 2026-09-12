@@ -30,7 +30,8 @@
     "release-evidence:validate": "pnpm --filter @agent-sentinel/scripts release-evidence:validate",
     "manifest:validate": "pnpm --filter @agent-sentinel/tools validate-manifest",
     "manifest:scan": "pnpm --filter @agent-sentinel/tools scan-manifest",
-    "validate": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "validate": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "demo:verify": "pnpm --filter @agent-sentinel/scripts verify-demo-readiness"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",

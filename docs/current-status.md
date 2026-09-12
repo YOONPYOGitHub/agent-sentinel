@@ -381,3 +381,7 @@ Tracks 1–3 are identity- or edge-dependent; OneRAI onboarding is independent. 
 - The primary API/jobs source has approved `AppCatalog.Read.All` and reports
   `ready`. Its bounded organization-catalog result is valid-empty with zero
   entries.
+
+## Hackathon live demo verifier
+
+The repository now includes a bounded read-only post-deployment verifier (`pnpm demo:verify`) and an accessible **Demo readiness** web page. Both use the shared readiness evaluator and require complete live `agent365:primary` evidence for a ready result. Package totals are evidence counts, not a fixed expected number. Empty, unknown, synthetic, or stale evidence cannot pass. Exact `RUNS_AS` and OTel trace/span/token/cost provenance are reported separately with last-observed timestamps and actionable requirements. See RB-013 in [runbooks.md](runbooks.md).

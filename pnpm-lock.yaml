@@ -241,6 +241,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@agent-sentinel/connector-sdk':
+        specifier: workspace:*
+        version: link:../../packages/connector-sdk
       '@agent-sentinel/domain':
         specifier: workspace:*
         version: link:../../packages/domain
@@ -702,6 +705,12 @@ importers:
 
   scripts:
     dependencies:
+      '@agent-sentinel/connector-sdk':
+        specifier: workspace:*
+        version: link:../packages/connector-sdk
+      '@agent-sentinel/domain':
+        specifier: workspace:*
+        version: link:../packages/domain
       '@agent-sentinel/foundry-connector':
         specifier: workspace:*
         version: link:../connectors/foundry

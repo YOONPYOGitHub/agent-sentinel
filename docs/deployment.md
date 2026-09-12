@@ -165,9 +165,11 @@ safety gate, and absence of an authoritative source.
 
 ### Phase A ? Foundation (Network, Identity, Observability, KV, ACR)
 
-Set `WEB_IMAGE_DIGEST`, `API_IMAGE_DIGEST`, and `JOBS_IMAGE_DIGEST` to the
-canonical digests verified in the private ACR before compiling a checked-in
-`.bicepparam` file or running this reference command.
+Set `DEPLOYMENT_COMMIT_SHA` to the validated full 40-character commit and set
+`WEB_IMAGE_DIGEST`, `API_IMAGE_DIGEST`, and `JOBS_IMAGE_DIGEST` to the canonical
+digests verified in the private ACR before compiling a checked-in `.bicepparam`
+file or running this reference command. These values are exposed only through
+the sanitized read-only `/api/status` contract for post-deployment verification.
 
 ```bash
 az deployment group create \
@@ -175,6 +177,7 @@ az deployment group create \
   --resource-group rg-agent-sentinel \
   --template-file infra/platform.bicep \
   --parameters infra/environments/dev.parameters.bicepparam \
+  --parameters deploymentCommitSha="${DEPLOYMENT_COMMIT_SHA}" \
   --parameters webImageDigest="${WEB_IMAGE_DIGEST}" \
   --parameters apiImageDigest="${API_IMAGE_DIGEST}" \
   --parameters jobsImageDigest="${JOBS_IMAGE_DIGEST}" \

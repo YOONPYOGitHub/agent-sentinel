@@ -17,6 +17,7 @@ import { AgentDetailPage } from './pages/AgentDetailPage'
 import { AgentInventoryPage } from './pages/AgentInventoryPage'
 import { CloudResourcesPage } from './pages/CloudResourcesPage'
 import { ConnectorsPage } from './pages/ConnectorsPage'
+import { DemoReadinessPageRoute } from './pages/DemoReadinessPage'
 import { ExposureDetailPage } from './pages/ExposureDetailPage'
 import { ExposurePage } from './pages/ExposurePage'
 import { GovernancePage } from './pages/GovernancePage'
@@ -89,6 +90,7 @@ function RoutedApplication() {
         <Route path="lifecycle" element={<LifecyclePage />} />
         <Route path="trust-catalog" element={<TrustCatalogPage />} />
         <Route path="connectors" element={<ConnectorsPage />} />
+        <Route path="demo-readiness" element={<DemoReadinessPageRoute />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

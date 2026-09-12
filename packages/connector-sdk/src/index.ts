@@ -496,6 +496,19 @@ export interface ConnectorsCollectionResponse {
   readonly health?: ConnectorHealthReport
 }
 
+export {
+  assessDemoReadiness,
+  connectorsCollectionResponseSchema,
+  parseConnectorsCollectionResponse,
+  DEMO_AGENT365_CONFIGURATION_SOURCE_ID,
+  DEMO_AGENT365_HEALTH_SOURCE_ID,
+} from './demo-readiness.js'
+export type {
+  DemoReadinessAssessment,
+  DemoReadinessCategory,
+  DemoReadinessStatus,
+} from './demo-readiness.js'
+
 export { computeCanonicalSha256, computeSnapshotEvidenceDigest } from './canonical-hash.js'
 
 // ─── Universal Custom Manifest Adapter contract ──────────────────────────────

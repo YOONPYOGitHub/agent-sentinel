@@ -2,6 +2,7 @@ using '../platform.bicep'
 
 param location = 'koreacentral'
 param suffix = 'm098047'
+param deploymentCommitSha = readEnvironmentVariable('DEPLOYMENT_COMMIT_SHA')
 param webImageDigest = readEnvironmentVariable('WEB_IMAGE_DIGEST')
 param apiImageDigest = readEnvironmentVariable('API_IMAGE_DIGEST')
 param jobsImageDigest = readEnvironmentVariable('JOBS_IMAGE_DIGEST')

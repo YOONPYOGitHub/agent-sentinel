@@ -81,6 +81,7 @@ import { authorizedEstates, createEstateMiddleware } from './estate-auth.js'
 import { requireEstateContext } from './estate-auth.js'
 import { buildEstateRegistry, type EstateRegistry } from './estate-config.js'
 import { registerConnectorSourceRoutes } from './connector-source-routes.js'
+import { deploymentStatus } from './deployment-status.js'
 
 const localApprovalSchema = z.object({
   approvedBy: z.string().trim().min(2).max(100),
@@ -502,11 +503,22 @@ export async function createApp(
     }
   }
 
-  app.get('/health', () => ({
-    status: 'ok',
-    service: 'agent-sentinel-api',
+  const healthResponse = () => ({
+    status: 'ok' as const,
+    service: 'agent-sentinel-api' as const,
     timestamp: new Date().toISOString(),
-  }))
+  })
+  app.get('/health', healthResponse)
+  app.get('/api/health', healthResponse)
+  app.get('/api/status', (_request, reply) => {
+    const status = deploymentStatus()
+    const apiVersion = status.components.api
+    if (apiVersion.sha !== undefined) void reply.header('x-agent-sentinel-api-sha', apiVersion.sha)
+    if (apiVersion.digest !== undefined) {
+      void reply.header('x-agent-sentinel-api-image-digest', apiVersion.digest)
+    }
+    return status
+  })
 
   app.get('/api/demo/state', async () => stateService.getState())
   app.get('/api/connector/status', async () => resolvedService.getConnectorStatus())
