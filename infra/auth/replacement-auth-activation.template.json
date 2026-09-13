@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "1.0.0",
+  "environment": "replacement-validation",
+  "production": true,
+  "tenantId": "<tenant-uuid>",
+  "apiClientId": "<api-application-client-uuid>",
+  "spaClientId": "<spa-application-client-uuid>",
+  "audience": "api://<api-application-client-uuid>",
+  "frontDoorOrigin": "https://<replacement-front-door-host>",
+  "redirectUri": "https://<replacement-front-door-host>/auth-redirect.html",
+  "postLogoutRedirectUri": "https://<replacement-front-door-host>/",
+  "scopes": {
+    "read": ["AgentSentinel.Read"],
+    "write": ["AgentSentinel.Write"],
+    "spa": ["api://<api-application-client-uuid>/AgentSentinel.Read"]
+  },
+  "roles": [
+    "AgentSentinel.Viewer",
+    "AgentSentinel.Analyst",
+    "AgentSentinel.Approver",
+    "AgentSentinel.Administrator"
+  ],
+  "estateGrants": [
+    {
+      "id": "default",
+      "name": "Replacement validation estate",
+      "tenantId": "<estate-tenant-uuid>",
+      "environment": "replacement-validation",
+      "isDefault": true,
+      "allowedAuthTenantIds": ["<tenant-uuid>"]
+    }
+  ],
+  "writesEnabled": false,
+  "waf": {
+    "policyMode": "Prevention",
+    "mutationRuleName": "BlockApiMutationPreAuth",
+    "mutationRuleAction": "Block",
+    "unchanged": true
+  },
+  "deployment": {
+    "commitSha": "<40-hex-reviewed-commit>",
+    "apiImageDigest": "sha256:<64-hex-api-digest>",
+    "webImageDigest": "sha256:<64-hex-web-digest>"
+  }
+}

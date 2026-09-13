@@ -8,6 +8,8 @@
     "node": ">=22.0.0"
   },
   "scripts": {
+    "auth:preflight": "pnpm --filter @agent-sentinel/scripts auth:preflight",
+    "auth:deploy": "pnpm --filter @agent-sentinel/scripts auth:deploy",
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
     "format": "prettier --write .",

@@ -38,12 +38,45 @@ const principalSchema = z.object({
   roles: z.array(z.string()),
   capabilities: z.array(z.enum(AUTH_VALIDATION_CAPABILITIES)),
 })
+const shaSchema = z.string().regex(/^[0-9a-f]{40}$/i)
+const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/i)
+const deploymentStatusSchema = z.strictObject({
+  status: z.literal('ok'),
+  service: z.literal('agent-sentinel-api'),
+  observedAt: z.iso.datetime(),
+  revision: z.string().optional(),
+  components: z.strictObject({
+    web: z.strictObject({ sha: shaSchema.optional(), digest: digestSchema.optional() }),
+    api: z.strictObject({ sha: shaSchema.optional(), digest: digestSchema.optional() }),
+    jobs: z.strictObject({ sha: shaSchema.optional(), digest: digestSchema.optional() }),
+  }),
+})
+const publicAuthConfigSchema = z.strictObject({
+  enabled: z.literal(true),
+  tenantId: z.string().uuid(),
+  clientId: z.string().uuid(),
+  authority: z.url(),
+  scopes: z.array(z.string().min(1)).min(1),
+  redirectUri: z.url(),
+  postLogoutRedirectUri: z.url(),
+})
+
+type DeploymentComponent = 'web' | 'api' | 'jobs'
+type ExpectedDeploymentComponent = {
+  readonly sha?: string
+  readonly digest?: string
+}
 
 export interface AuthLiveValidationConfig {
   baseUrl: string
   phase: 'read' | 'write'
   tokens: Record<AuthValidationRole, string>
   timeoutMs: number
+  maxResponseBytes: number
+  expected?: {
+    redirectOrigin?: string
+    deployment?: Partial<Record<DeploymentComponent, ExpectedDeploymentComponent>>
+  }
   write?: {
     method: 'POST' | 'PUT' | 'PATCH' | 'DELETE'
     path: string
@@ -56,6 +89,8 @@ export interface AuthLiveValidationResult {
   anonymousStatus: 401
   insufficientRoleStatus: 403
   rolesValidated: readonly AuthValidationRole[]
+  redirectConfigurationValidated?: true
+  deploymentStatusValidated?: true
   anonymousWriteStatus?: 401
   writeStatus?: number
 }
@@ -109,6 +144,41 @@ function parseWritePath(value: string): string {
   return value
 }
 
+function optionalExpectedValue(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  pattern: RegExp,
+): string | undefined {
+  const value = env[name]?.trim()
+  if (value === undefined || value.length === 0) return undefined
+  if (!pattern.test(value)) throw new Error(`${name} is malformed.`)
+  return value.toLowerCase()
+}
+
+function expectedDeployment(
+  env: NodeJS.ProcessEnv,
+): Partial<Record<DeploymentComponent, ExpectedDeploymentComponent>> | undefined {
+  const expected = Object.fromEntries(
+    (['web', 'api', 'jobs'] as const).flatMap((component) => {
+      const prefix = `AUTH_VALIDATION_EXPECTED_${component.toUpperCase()}`
+      const sha = optionalExpectedValue(env, `${prefix}_SHA`, /^[0-9a-f]{40}$/i)
+      const digest = optionalExpectedValue(env, `${prefix}_IMAGE_DIGEST`, /^sha256:[0-9a-f]{64}$/i)
+      return sha === undefined && digest === undefined
+        ? []
+        : [
+            [
+              component,
+              {
+                ...(sha === undefined ? {} : { sha }),
+                ...(digest === undefined ? {} : { digest }),
+              },
+            ],
+          ]
+    }),
+  ) as Partial<Record<DeploymentComponent, ExpectedDeploymentComponent>>
+  return Object.keys(expected).length === 0 ? undefined : expected
+}
+
 export function buildAuthLiveValidationConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): AuthLiveValidationConfig {
@@ -126,6 +196,26 @@ export function buildAuthLiveValidationConfig(
     1_000,
     60_000,
   )
+  const maxResponseBytes = parseInteger(
+    env['AUTH_VALIDATION_MAX_RESPONSE_BYTES'],
+    256 * 1024,
+    'AUTH_VALIDATION_MAX_RESPONSE_BYTES',
+    1_024,
+    1024 * 1024,
+  )
+  const redirectOriginValue = env['AUTH_VALIDATION_EXPECTED_REDIRECT_ORIGIN']?.trim()
+  const redirectOrigin =
+    redirectOriginValue === undefined || redirectOriginValue.length === 0
+      ? undefined
+      : parseBaseUrl(redirectOriginValue)
+  const deployment = expectedDeployment(env)
+  const expected =
+    redirectOrigin === undefined && deployment === undefined
+      ? undefined
+      : {
+          ...(redirectOrigin === undefined ? {} : { redirectOrigin }),
+          ...(deployment === undefined ? {} : { deployment }),
+        }
 
   if (phase === 'read') {
     return {
@@ -133,6 +223,8 @@ export function buildAuthLiveValidationConfig(
       phase,
       tokens,
       timeoutMs,
+      maxResponseBytes,
+      ...(expected === undefined ? {} : { expected }),
     }
   }
 
@@ -154,6 +246,8 @@ export function buildAuthLiveValidationConfig(
     phase,
     tokens,
     timeoutMs,
+    maxResponseBytes,
+    ...(expected === undefined ? {} : { expected }),
     write: {
       method,
       path: parseWritePath(requiredEnvironment(env, 'AUTH_VALIDATION_WRITE_PATH')),
@@ -167,6 +261,67 @@ export function buildAuthLiveValidationConfig(
       ),
     },
   }
+}
+
+async function validateDeploymentStatus(
+  config: AuthLiveValidationConfig,
+  fetchImplementation: typeof fetch,
+): Promise<true | undefined> {
+  const expected = config.expected?.deployment
+  if (expected === undefined) return undefined
+  const response = await request(config, fetchImplementation, '/api/status')
+  assertStatus('/api/status', response.status, 200)
+  const status = deploymentStatusSchema.parse(await responseJson(config, response, '/api/status'))
+  for (const component of ['web', 'api', 'jobs'] as const) {
+    const componentExpected = expected[component]
+    if (componentExpected === undefined) continue
+    const actual = status.components[component]
+    if (
+      componentExpected.sha !== undefined &&
+      actual.sha?.toLowerCase() !== componentExpected.sha
+    ) {
+      throw new Error(`/api/status ${component} SHA did not match the expected immutable SHA.`)
+    }
+    if (
+      componentExpected.digest !== undefined &&
+      actual.digest?.toLowerCase() !== componentExpected.digest
+    ) {
+      throw new Error(
+        `/api/status ${component} digest did not match the expected immutable digest.`,
+      )
+    }
+  }
+  return true
+}
+
+async function validateRedirectConfiguration(
+  config: AuthLiveValidationConfig,
+  fetchImplementation: typeof fetch,
+): Promise<true | undefined> {
+  const origin = config.expected?.redirectOrigin
+  if (origin === undefined) return undefined
+  if (config.baseUrl !== origin) {
+    throw new Error('Expected redirect origin must exactly match AUTH_VALIDATION_BASE_URL.')
+  }
+  const response = await request(config, fetchImplementation, '/api/auth/config')
+  assertStatus('/api/auth/config', response.status, 200)
+  const auth = publicAuthConfigSchema.parse(
+    await responseJson(config, response, '/api/auth/config'),
+  )
+  const expectedRedirect = `${origin}/auth-redirect.html`
+  const expectedLogout = `${origin}/`
+  if (auth.redirectUri !== expectedRedirect || auth.postLogoutRedirectUri !== expectedLogout) {
+    throw new Error(
+      'Public auth redirect/logout configuration does not match the exact origin paths.',
+    )
+  }
+  if (
+    new URL(auth.redirectUri).origin !== origin ||
+    new URL(auth.postLogoutRedirectUri).origin !== origin
+  ) {
+    throw new Error('Public auth redirect/logout configuration is not same-origin.')
+  }
+  return true
 }
 
 function sameMembers(actual: readonly string[], expected: readonly string[]): boolean {
@@ -196,10 +351,35 @@ function assertStatus(path: string, actual: number, expected: number): void {
     throw new Error(`${path} returned status ${String(actual)}; expected ${String(expected)}.`)
 }
 
+async function responseJson(
+  config: AuthLiveValidationConfig,
+  response: Response,
+  path: string,
+): Promise<unknown> {
+  const declaredLength = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declaredLength) && declaredLength > config.maxResponseBytes) {
+    throw new Error(`${path} response exceeded the configured size limit.`)
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  if (bytes.byteLength > config.maxResponseBytes) {
+    throw new Error(`${path} response exceeded the configured size limit.`)
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes)) as unknown
+  } catch {
+    throw new Error(`${path} returned invalid JSON.`)
+  }
+}
+
 export async function runAuthLiveValidation(
   config: AuthLiveValidationConfig,
   fetchImplementation: typeof fetch = fetch,
 ): Promise<AuthLiveValidationResult> {
+  const deploymentStatusValidated = await validateDeploymentStatus(config, fetchImplementation)
+  const redirectConfigurationValidated = await validateRedirectConfiguration(
+    config,
+    fetchImplementation,
+  )
   const anonymous = await request(config, fetchImplementation, '/api/auth/me')
   assertStatus('/api/auth/me (anonymous)', anonymous.status, 401)
 
@@ -208,7 +388,9 @@ export async function runAuthLiveValidation(
     const token = config.tokens[role]
     const principalResponse = await request(config, fetchImplementation, '/api/auth/me', token)
     assertStatus(`/api/auth/me (${role})`, principalResponse.status, 200)
-    const principal = principalSchema.parse(await principalResponse.json())
+    const principal = principalSchema.parse(
+      await responseJson(config, principalResponse, `/api/auth/me (${role})`),
+    )
     if (!principal.roles.includes(role))
       throw new Error(`/api/auth/me (${role}) did not contain the expected app role.`)
     if (!sameMembers(principal.capabilities, EXPECTED_CAPABILITIES[role]))
@@ -231,6 +413,8 @@ export async function runAuthLiveValidation(
       anonymousStatus: 401,
       insufficientRoleStatus,
       rolesValidated: AUTH_VALIDATION_ROLES,
+      ...(redirectConfigurationValidated === undefined ? {} : { redirectConfigurationValidated }),
+      ...(deploymentStatusValidated === undefined ? {} : { deploymentStatusValidated }),
     }
   }
 
@@ -257,6 +441,8 @@ export async function runAuthLiveValidation(
     anonymousStatus: 401,
     insufficientRoleStatus,
     rolesValidated: AUTH_VALIDATION_ROLES,
+    ...(redirectConfigurationValidated === undefined ? {} : { redirectConfigurationValidated }),
+    ...(deploymentStatusValidated === undefined ? {} : { deploymentStatusValidated }),
     anonymousWriteStatus: 401,
     writeStatus: writeResponse.status,
   }

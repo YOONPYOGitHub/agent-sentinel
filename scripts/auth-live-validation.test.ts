@@ -56,6 +56,7 @@ describe('buildAuthLiveValidationConfig', () => {
       baseUrl: 'https://sentinel.example',
       phase: 'read',
       timeoutMs: 15_000,
+      maxResponseBytes: 256 * 1024,
       tokens: {
         Viewer: 'viewer-token',
         Administrator: 'administrator-token',
@@ -122,5 +123,113 @@ describe('runAuthLiveValidation', () => {
     const validation = runAuthLiveValidation(config, failingFetch)
     await expect(validation).rejects.toThrow(/expected 401/)
     await expect(validation).rejects.not.toThrow(/viewer-token/)
+  })
+
+  it('validates immutable deployment metadata and exact redirects before token probes', async () => {
+    const sha = 'a'.repeat(40)
+    const apiDigest = `sha256:${'b'.repeat(64)}`
+    const webDigest = `sha256:${'c'.repeat(64)}`
+    const config = buildAuthLiveValidationConfig({
+      ...completeEnvironment,
+      AUTH_VALIDATION_EXPECTED_REDIRECT_ORIGIN: 'https://sentinel.example',
+      AUTH_VALIDATION_EXPECTED_API_SHA: sha,
+      AUTH_VALIDATION_EXPECTED_API_IMAGE_DIGEST: apiDigest,
+      AUTH_VALIDATION_EXPECTED_WEB_SHA: sha,
+      AUTH_VALIDATION_EXPECTED_WEB_IMAGE_DIGEST: webDigest,
+    })
+    const requestedPaths: string[] = []
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url)
+      requestedPaths.push(url.pathname)
+      const authorization = new Headers(init?.headers).get('Authorization') ?? ''
+      const role = roleForToken(authorization)
+      if (url.pathname === '/api/status') {
+        return response(
+          200,
+          JSON.stringify({
+            status: 'ok',
+            service: 'agent-sentinel-api',
+            observedAt: '2026-09-13T00:00:00.000Z',
+            components: {
+              web: { sha, digest: webDigest },
+              api: { sha, digest: apiDigest },
+              jobs: {},
+            },
+          }),
+        )
+      }
+      if (url.pathname === '/api/auth/config') {
+        return response(
+          200,
+          JSON.stringify({
+            enabled: true,
+            tenantId: '11111111-1111-4111-8111-111111111111',
+            clientId: '22222222-2222-4222-8222-222222222222',
+            authority: 'https://login.microsoftonline.com/11111111-1111-4111-8111-111111111111',
+            scopes: ['api://33333333-3333-4333-8333-333333333333/AgentSentinel.Read'],
+            redirectUri: 'https://sentinel.example/auth-redirect.html',
+            postLogoutRedirectUri: 'https://sentinel.example/',
+          }),
+        )
+      }
+      if (url.pathname === '/api/auth/me' && role === undefined) return response(401)
+      if (url.pathname === '/api/auth/me' && role !== undefined) {
+        return response(200, JSON.stringify({ roles: [role], capabilities: capabilities[role] }))
+      }
+      if (url.pathname.startsWith('/api/auth/capabilities/') && role !== undefined) {
+        const capability = url.pathname.slice('/api/auth/capabilities/'.length)
+        return response(capabilities[role].includes(capability) ? 200 : 403)
+      }
+      return response(500)
+    })
+
+    await expect(runAuthLiveValidation(config, fetchMock)).resolves.toMatchObject({
+      deploymentStatusValidated: true,
+      redirectConfigurationValidated: true,
+    })
+    expect(requestedPaths.slice(0, 3)).toEqual(['/api/status', '/api/auth/config', '/api/auth/me'])
+  })
+
+  it('blocks token probes when redirect configuration is not exact', async () => {
+    const config = buildAuthLiveValidationConfig({
+      ...completeEnvironment,
+      AUTH_VALIDATION_EXPECTED_REDIRECT_ORIGIN: 'https://sentinel.example',
+    })
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      response(
+        200,
+        JSON.stringify({
+          enabled: true,
+          tenantId: '11111111-1111-4111-8111-111111111111',
+          clientId: '22222222-2222-4222-8222-222222222222',
+          authority: 'https://login.microsoftonline.com/11111111-1111-4111-8111-111111111111',
+          scopes: ['api://33333333-3333-4333-8333-333333333333/AgentSentinel.Read'],
+          redirectUri: 'https://sentinel.example/wrong',
+          postLogoutRedirectUri: 'https://sentinel.example/',
+        }),
+      ),
+    )
+
+    await expect(runAuthLiveValidation(config, fetchMock)).rejects.toThrow(/exact origin paths/)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('bounds optional deployment status responses before token probes', async () => {
+    const config = buildAuthLiveValidationConfig({
+      ...completeEnvironment,
+      AUTH_VALIDATION_MAX_RESPONSE_BYTES: '1024',
+      AUTH_VALIDATION_EXPECTED_API_SHA: 'a'.repeat(40),
+    })
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        new Response('{}', {
+          status: 200,
+          headers: { 'Content-Length': '2048', 'Content-Type': 'application/json' },
+        }),
+      ),
+    )
+
+    await expect(runAuthLiveValidation(config, fetchMock)).rejects.toThrow(/size limit/)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
