@@ -1,0 +1,206 @@
+name: Read-only authentication activation
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      commitSha:
+        description: 'Exact reviewed 40-hex commit SHA'
+        required: true
+        type: string
+      targetEnvironment:
+        description: 'Protected replacement environment'
+        required: true
+        default: 'replacement-validation'
+        type: choice
+        options:
+          - 'replacement-validation'
+      activationInputJson:
+        description: 'Sanitized auth activation JSON (no secrets or tokens)'
+        required: true
+        type: string
+      operation:
+        description: 'Dry-run is the default and performs no Azure mutation'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - 'plan'
+          - 'apply'
+      protectedApproval:
+        description: 'Apply only: explicit approval phrase'
+        required: true
+        default: 'NOT_APPROVED'
+        type: choice
+        options:
+          - 'NOT_APPROVED'
+          - 'APPROVE_READ_ONLY_AUTH_ACTIVATION'
+
+env:
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+  AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  ACR_LOGIN_SERVER: ${{ format('{0}.azurecr.io', vars.ACR_NAME) }}
+  RUNNER_UAMI_CLIENT_ID: ${{ vars.RUNNER_UAMI_CLIENT_ID }}
+  API_CONTAINER_APP_NAME: ${{ vars.API_CONTAINER_APP_NAME }}
+  WEB_CONTAINER_APP_NAME: ${{ vars.WEB_CONTAINER_APP_NAME }}
+
+concurrency:
+  group: auth-activation-${{ inputs.targetEnvironment }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve immutable activation commit
+    runs-on: [self-hosted, linux, x64, '${{ vars.PRIVATE_RUNNER_LABEL }}']
+    outputs:
+      commitSha: ${{ steps.resolve.outputs.commitSha }}
+    steps:
+      - name: Validate dispatch boundary
+        env:
+          REQUESTED_SHA: ${{ inputs.commitSha }}
+          OPERATION: ${{ inputs.operation }}
+          APPROVAL: ${{ inputs.protectedApproval }}
+          PRIVATE_RUNNER_LABEL: ${{ vars.PRIVATE_RUNNER_LABEL }}
+        run: |
+          set -euo pipefail
+          require_match() {
+            local name="$1"
+            local value="$2"
+            local pattern="$3"
+            if [[ ! "${value}" =~ ${pattern} ]]; then
+              echo "ERROR: ${name} is missing or invalid"
+              exit 1
+            fi
+          }
+          require_match commitSha "${REQUESTED_SHA}" '^[0-9a-fA-F]{40}$'
+          require_match AZURE_RESOURCE_GROUP "${AZURE_RESOURCE_GROUP}" '^[A-Za-z0-9._()-]{1,90}$'
+          require_match AZURE_SUBSCRIPTION_ID "${AZURE_SUBSCRIPTION_ID}" '^[0-9a-fA-F-]{36}$'
+          require_match ACR_NAME "${ACR_NAME}" '^[a-z0-9]{5,50}$'
+          require_match RUNNER_UAMI_CLIENT_ID "${RUNNER_UAMI_CLIENT_ID}" '^[0-9a-fA-F-]{36}$'
+          require_match PRIVATE_RUNNER_LABEL "${PRIVATE_RUNNER_LABEL}" '^[A-Za-z0-9._-]{1,63}$'
+          require_match API_CONTAINER_APP_NAME "${API_CONTAINER_APP_NAME}" '^[a-z][a-z0-9-]{1,30}[a-z0-9]$'
+          require_match WEB_CONTAINER_APP_NAME "${WEB_CONTAINER_APP_NAME}" '^[a-z][a-z0-9-]{1,30}[a-z0-9]$'
+          if [ "${OPERATION}" = 'apply' ] && [ "${APPROVAL}" != 'APPROVE_READ_ONLY_AUTH_ACTIVATION' ]; then
+            echo "ERROR: apply requires the explicit protected approval phrase"
+            exit 1
+          fi
+
+      - name: Checkout requested commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.commitSha }}
+
+      - name: Resolve checked-out commit
+        id: resolve
+        env:
+          REQUESTED_SHA: ${{ inputs.commitSha }}
+        run: |
+          set -euo pipefail
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "${HEAD_SHA,,}" != "${REQUESTED_SHA,,}" ]; then
+            echo "ERROR: checked-out HEAD does not match commitSha"
+            exit 1
+          fi
+          echo "commitSha=${HEAD_SHA,,}" >> "${GITHUB_OUTPUT}"
+
+  plan:
+    name: Offline activation preflight and dry-run
+    needs: resolve
+    runs-on: [self-hosted, linux, x64, '${{ vars.PRIVATE_RUNNER_LABEL }}']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.commitSha }}
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@10.15.1 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Materialize sanitized input
+        env:
+          ACTIVATION_INPUT_JSON: ${{ inputs.activationInputJson }}
+        run: |
+          node -e "const fs=require('node:fs'); JSON.parse(process.env.ACTIVATION_INPUT_JSON); fs.writeFileSync(process.env.RUNNER_TEMP + '/auth-activation-input.json', process.env.ACTIVATION_INPUT_JSON, {mode:0o600})"
+
+      - name: Run offline preflight
+        run: |
+          pnpm auth:preflight -- \
+            --input "${RUNNER_TEMP}/auth-activation-input.json" \
+            --output "${RUNNER_TEMP}/auth-activation-plan.json"
+
+      - name: Render dry-run deployment plan
+        run: |
+          pnpm auth:deploy -- \
+            --input "${RUNNER_TEMP}/auth-activation-input.json" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --api-app "${API_CONTAINER_APP_NAME}" \
+            --web-app "${WEB_CONTAINER_APP_NAME}" \
+            --acr-login-server "${ACR_LOGIN_SERVER}" \
+            --expected-commit-sha "${{ needs.resolve.outputs.commitSha }}"
+
+  apply:
+    name: Protected API then web activation
+    needs: [resolve, plan]
+    if: inputs.operation == 'apply' && inputs.protectedApproval == 'APPROVE_READ_ONLY_AUTH_ACTIVATION'
+    runs-on: [self-hosted, linux, x64, '${{ vars.PRIVATE_RUNNER_LABEL }}']
+    environment: ${{ inputs.targetEnvironment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.commitSha }}
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@10.15.1 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Materialize sanitized input
+        env:
+          ACTIVATION_INPUT_JSON: ${{ inputs.activationInputJson }}
+        run: |
+          node -e "const fs=require('node:fs'); JSON.parse(process.env.ACTIVATION_INPUT_JSON); fs.writeFileSync(process.env.RUNNER_TEMP + '/auth-activation-input.json', process.env.ACTIVATION_INPUT_JSON, {mode:0o600})"
+
+      - name: Login to Azure with private-runner identity
+        run: |
+          az login --identity --client-id "${RUNNER_UAMI_CLIENT_ID}" --allow-no-subscriptions
+          az account set --subscription "${AZURE_SUBSCRIPTION_ID}"
+
+      - name: Apply API then web authentication configuration
+        run: |
+          pnpm auth:deploy -- \
+            --input "${RUNNER_TEMP}/auth-activation-input.json" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --api-app "${API_CONTAINER_APP_NAME}" \
+            --web-app "${WEB_CONTAINER_APP_NAME}" \
+            --acr-login-server "${ACR_LOGIN_SERVER}" \
+            --expected-commit-sha "${{ needs.resolve.outputs.commitSha }}" \
+            --rollback-output "${RUNNER_TEMP}/auth-activation-rollback.json" \
+            --apply \
+            --approval "${{ inputs.protectedApproval }}"
+
+      - name: Preserve sanitized rollback capture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auth-activation-rollback-${{ needs.resolve.outputs.commitSha }}
+          path: ${{ runner.temp }}/auth-activation-rollback.json
+          if-no-files-found: warn
+          retention-days: 14

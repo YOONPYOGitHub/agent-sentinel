@@ -176,20 +176,26 @@ Rollback order is WAF block, writes false, last known-good Container Apps revisi
 ## RB-012: Auth Activation and Live Validation
 
 The API and SPA registrations exist, including delegated read/write scopes and the four exact app
-roles. The active Front Door HTTPS redirect/logout origin and read-only JWT deployment are live.
-Employee login, logout, anonymous `401`, Viewer `403`, and `/api/auth/me` are validated. Remaining
-role assignments and every write-path change require separate approval. OneRAI and service
-onboarding are independent and do not block this engineering sequence.
+roles. Replacement redirect registration, JWT deployment, employee sign-in/logout, and live role
+validation remain pending. Do not infer activation from repository code or historical deployment
+evidence. OneRAI and service onboarding are independent and do not block this engineering sequence.
 
-1. Revalidate the registered Front Door HTTPS origin; the Application Gateway remains HTTP-only.
-2. Preserve the deployed JWT configuration, writes-false switch, and RB-011 WAF block.
-3. Assign isolated test principals/groups to Analyst, Approver, and Administrator.
-4. Confirm `/api/auth/config` contains the expected public tenant, client, scope, and redirect
+1. Copy `infra/auth/replacement-auth-activation.template.json` outside the repository, fill only
+   approved non-secret values, and run `pnpm auth:preflight -- --input <path>`.
+2. Review the machine JSON and sanitized API-then-web plan. A blocked result must stop the run.
+3. Run `.github/workflows/auth-activation.yml` in its default `plan` mode. Applying requires the
+   exact approval phrase plus the protected `replacement-validation` environment approval.
+4. Revalidate the Front Door HTTPS origin and Entra redirect registration; the Application Gateway
+   remains HTTP-only. Preserve writes false and the RB-011 WAF block.
+5. Confirm `/api/auth/config` contains the expected public tenant, client, scope, and redirect
    values without secrets.
-5. Supply short-lived role tokens as process environment variables and run
-   `pnpm auth:validate-live`. It validates anonymous `401`, insufficient-role `403`, sanitized
-   principals, and every read-only capability probe.
-6. Follow RB-011 for private write validation and the separate WAF change. Run the validator with
+6. Supply short-lived role tokens as process environment variables and run
+   `pnpm auth:validate-live`. Set optional expected SHA/digest variables and
+   `AUTH_VALIDATION_EXPECTED_REDIRECT_ORIGIN` so deployment and redirect checks finish before token
+   probes.
+7. Assign isolated test principals/groups to Analyst, Approver, and Administrator only through the
+   approved identity process, then validate all four role boundaries.
+8. Follow RB-011 for private write validation and the separate WAF change. Run the validator with
    `AUTH_VALIDATION_PHASE=write` only against the explicitly approved mutation target.
 
 The validator never acquires, stores, or prints tokens. Do not place token values in shell history,
@@ -197,8 +203,9 @@ Git, logs, screenshots, or reports. Record only pass/fail status and correlation
 
 ## RB-013: HTTPS Origin and App Registration
 
-The active Front Door HTTPS route and exact registered redirect/logout URLs are evidenced. The
-Application Gateway remains HTTP-only and must not be used as an authentication origin.
+The active Front Door HTTPS route is the intended authentication origin. Exact replacement
+redirect/logout registration remains a human-approved prerequisite. The Application Gateway
+remains HTTP-only and must not be used as an authentication origin.
 
 Revalidate the Front Door default hostname with read-only inspection before each auth activation:
 
@@ -476,8 +483,8 @@ to the selected GitHub environment. Configure required reviewers in
 Settings > Environments > replacement-validation before setting
 `deployPlatform=true`. Repository variables must be reviewed at the same gate:
 `AZURE_RESOURCE_GROUP`, `AZURE_SUBSCRIPTION_ID`, `ACR_NAME` (`acrm098047`),
-`RUNNER_UAMI_CLIENT_ID`, and `PRIVATE_RUNNER_LABEL`
-(`agent-sentinel-private-m098047`). The workflow rejects missing/invalid names,
+`RUNNER_UAMI_CLIENT_ID`, `PRIVATE_RUNNER_LABEL` (`agent-sentinel-private-m098047`),
+`API_CONTAINER_APP_NAME`, and `WEB_CONTAINER_APP_NAME`. The workflow rejects missing/invalid names,
 a mismatched target ACR, unapproved parameter paths, and path traversal. Its
 input defaults are `targetEnvironment=none`, `parameterFile=none`, and
 `deployPlatform=false`.

@@ -64,6 +64,21 @@ route health alone does not establish authentication.
 
 Each stage is a separate approved change. Stop and roll back on any mismatch.
 
+Before stage 1, copy `infra/auth/replacement-auth-activation.template.json` outside the repository,
+replace every placeholder with approved non-secret values, and run:
+
+```bash
+pnpm auth:preflight -- --input /secure/local/path/auth-activation.json \
+  --output auth-activation-plan.json
+```
+
+The input contract is checked in at `infra/auth/auth-activation-input.schema.json`. The command is
+offline, rejects secret/token-shaped fields, validates the exact Front Door origin, redirect and
+logout paths, tenant-derived v2 issuer/JWKS, disjoint scopes, four exact roles, estate grants,
+writes-false, WAF-block posture, commit SHA, and immutable API/web digests. Exit code `0` means the
+sanitized plan is ready for human review; exit code `2` means blocked. It does not inspect or mutate
+Entra or Azure.
+
 1. **Read-only activation — pending in the replacement deployment.** Register
    the exact replacement HTTPS redirect/logout URIs, inject the fail-closed JWT
    settings with writes false, then prove anonymous `401`, Viewer `403`,
@@ -94,8 +109,19 @@ AUTH_VALIDATION_VIEWER_TOKEN=<short-lived-token> \
 AUTH_VALIDATION_ANALYST_TOKEN=<short-lived-token> \
 AUTH_VALIDATION_APPROVER_TOKEN=<short-lived-token> \
 AUTH_VALIDATION_ADMINISTRATOR_TOKEN=<short-lived-token> \
+AUTH_VALIDATION_EXPECTED_REDIRECT_ORIGIN=https://<approved-host> \
+AUTH_VALIDATION_EXPECTED_API_SHA=<40-hex-sha> \
+AUTH_VALIDATION_EXPECTED_API_IMAGE_DIGEST=sha256:<64-hex-digest> \
+AUTH_VALIDATION_EXPECTED_WEB_SHA=<40-hex-sha> \
+AUTH_VALIDATION_EXPECTED_WEB_IMAGE_DIGEST=sha256:<64-hex-digest> \
 pnpm auth:validate-live
 ```
+
+Expected web/API/jobs SHA and digest variables are optional and independently selectable. When
+present, `/api/status` must match them. When `AUTH_VALIDATION_EXPECTED_REDIRECT_ORIGIN` is present,
+the validator checks `/api/auth/config` for exactly `<origin>/auth-redirect.html` and
+`<origin>/` before sending any token-bearing probes. JSON responses are capped at 256 KiB by
+default; `AUTH_VALIDATION_MAX_RESPONSE_BYTES` may be set from 1024 through 1048576.
 
 For the approved write phase, additionally set `AUTH_VALIDATION_PHASE=write`,
 `AUTH_VALIDATION_WRITE_METHOD`, `AUTH_VALIDATION_WRITE_PATH`, optional JSON

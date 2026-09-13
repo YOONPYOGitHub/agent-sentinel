@@ -406,17 +406,33 @@ Future activation requires a reviewed surgical revision and the following approv
   `authSpaPostLogoutRedirectUri`
 - exact `authReadScopes` and `authWriteScopes`
 
-The active Front Door default HTTPS hostname passed the required route, origin-health, and SPA/API
-smoke checks and is registered as the exact SPA redirect/logout origin. The Application Gateway is
-still HTTP-only and must not be used for authentication. A custom domain is separate hardening.
+Create the sanitized input from `infra/auth/replacement-auth-activation.template.json`, then run
+`pnpm auth:preflight -- --input <path> --output auth-activation-plan.json`. Do not commit the
+environment-specific copy. The checked-in schema rejects extra fields, localhost production
+origins, write enablement, WAF relaxation, mutable images, and secret/token-shaped keys.
+
+`.github/workflows/auth-activation.yml` is the only deployment path for this stage. It defaults to
+an offline `plan`, uses the private runner variables from the existing deployment workflow, and
+never invokes `infra/platform.bicep`. `apply` requires both the exact
+`APPROVE_READ_ONLY_AUTH_ACTIVATION` dispatch input and approval of the protected
+`replacement-validation` GitHub environment. It captures the prior API/web revisions, images, and
+bounded auth environment values, updates and verifies API before web, and restores web then API if
+the operation fails. The workflow does not call Entra or WAF APIs.
+
+The active Front Door default HTTPS hostname is the intended origin, but its exact SPA
+redirect/logout registration and replacement JWT activation remain pending human approval and
+fresh evidence. The Application Gateway is still HTTP-only and must not be used for authentication.
+A custom domain is separate hardening.
 
 Deployment order:
 
 1. Preserve the exact redirect/logout registration, write-disabled switch, and WAF block.
-2. Reconcile approved JWT values into a reviewed deployment input without applying unrelated what-if changes.
-3. Run the read phase in [security-authentication.md](security-authentication.md) after every revision.
-4. After separate approval, enable writes only for a private authenticated reversible test.
-5. Narrow the WAF separately, then run the complete public-edge validation and anonymous denial
+2. Produce and review the offline preflight plan; keep the workflow in its default `plan` mode.
+3. After protected approval, use the surgical auth workflow. It updates API before web with
+   immutable image digests, writes false, and WAF unchanged.
+4. Run the read phase in [security-authentication.md](security-authentication.md) after every revision.
+5. After separate approval, enable writes only for a private authenticated reversible test.
+6. Narrow the WAF separately, then run the complete public-edge validation and anonymous denial
    test.
 
 Rollback restores the mutation block first, then writes false, then the last known-good Container

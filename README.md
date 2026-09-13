@@ -207,6 +207,13 @@ agent가 아닙니다. Agent 365의 306개 package도 306개 agent를 의미하�
 따라서 현재 공개 환경은 로그인과 실제 remediation 실행을 제공하지 않습니다.
 인증 활성화와 쓰기 활성화는 서로 다른 승인 단계입니다.
 
+승인 전에는 placeholder 템플릿
+`infra/auth/replacement-auth-activation.template.json`을 저장소 밖에서 복사해
+비밀이 아닌 값만 채운 뒤 `pnpm auth:preflight -- --input <path>`를 실행합니다.
+이 명령은 Azure/Entra를 변경하지 않으며 API → web 순서의 read-only 배포 계획만
+출력합니다. 실제 적용은 보호된 `.github/workflows/auth-activation.yml` 승인 후에만
+가능합니다.
+
 상세 절차는 [Security and authentication](docs/security-authentication.md)을
 참고하십시오.
 
@@ -253,6 +260,9 @@ pnpm validate
 추가 운영 검증:
 
 ```bash
+# Entra 인증 활성화 전 오프라인 입력·배포 계획 검증
+pnpm auth:preflight -- --input <sanitized-auth-activation.json>
+
 # Foundry synthetic validation agent 검증
 pnpm foundry:validate
 
