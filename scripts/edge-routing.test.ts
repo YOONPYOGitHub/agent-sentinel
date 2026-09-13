@@ -97,9 +97,10 @@ describe('public edge routing safety', () => {
   it('keeps live connector reads distinct from the synthetic validation portfolio', () => {
     const readme = rootFile('README.md')
 
-    expect(readme).toContain('live bounded provider reads')
-    expect(readme).toContain('six purpose-built synthetic validation agents')
-    expect(readme).toContain('Live provider execution over synthetic probes')
+    expect(readme).toContain('코드 구현 상태')
+    expect(readme).toContain('현재 Azure에서 검증된 상태')
+    expect(readme).toContain('6개 에이전트는 제품 검증용 synthetic agent')
+    expect(readme).toContain('실제 provider 검증 스크립트는 자동 CI에서 실행하지 않으며')
     expect(readme).not.toContain(
       'Agent 365 · Defender · Purview · Teams catalog<br/>(implemented; activation pending)',
     )
