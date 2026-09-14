@@ -61,7 +61,7 @@ Use a dedicated Microsoft 365 group rather than a personal address.
 The verified private group is:
 
 - Display name: `Agent Sentinel Hackathon`
-- Primary SMTP address: `agent-sentinel-hackathon@microsoft.com`
+- Primary SMTP address: retained only in the private onboarding record
 
 Use this group for the IcM service email and the default Triage, Incident
 Manager, and Executive Incident Manager team email fields. Membership and

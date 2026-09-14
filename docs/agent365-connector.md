@@ -42,12 +42,11 @@ Each enabled source requires:
 1. A Microsoft Agent 365 license for the tenant.
 2. Microsoft Graph **application** permission `CopilotPackages.Read.All` with tenant-admin consent.
 3. Deployment origin and the exact approved existing user-assigned managed
-   identity client ID `59dbea72-1e91-403a-89cf-e02cdb8da350`.
+   identity client ID supplied through approved deployment configuration outside Git.
 
 The integration owner verified on 2026-09-09 that the `AGENT_365` subscription
-has five seats with one assigned, connector UAMI client ID
-`59dbea72-1e91-403a-89cf-e02cdb8da350` has the
-`CopilotPackages.Read.All` application permission, and one bounded
+has five seats with one assigned. The approved connector managed identity has
+the `CopilotPackages.Read.All` application permission, and one bounded
 managed-identity request to the list endpoint returned HTTP 200 with 306
 packages. This is provider-access evidence, not proof that this commit is
 deployed, that ingestion has persisted those packages, or that all 306 packages
@@ -184,8 +183,7 @@ expired non-Agent365 source ready.
 
 The replacement-environment parameter file contains a reviewed, undeployed
 candidate that injects `AGENT365_MANAGED_IDENTITY_CLIENT_ID` into API/jobs only
-and uses only connector UAMI
-`59dbea72-1e91-403a-89cf-e02cdb8da350` and the already consented
+and uses only the approved connector managed identity and the already consented
 `CopilotPackages.Read.All` application permission. It adds no secret, delegated
 permission, license assignment, role assignment, or cloud mutation. Deployment
 and source-linked persisted-snapshot validation remain manual integration-owner

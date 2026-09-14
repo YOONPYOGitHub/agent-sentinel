@@ -116,7 +116,7 @@ az cdn profile list -g rg-agent-sentinel --query '[].name' -o tsv
 
 # Check Front Door origin status
 az rest --method GET \
-  --url "https://management.azure.com/subscriptions/66679423-9d1a-4f45-8ae3-3078b8b62e99/resourceGroups/rg-agent-sentinel/providers/Microsoft.Cdn/profiles/fd-as-260814/originGroups?api-version=2024-02-01"
+  --url "https://management.azure.com/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Cdn/profiles/${FRONT_DOOR_PROFILE}/originGroups?api-version=2024-02-01"
 
 # Check ACA environment private link connections
 az network private-endpoint-connection list \
