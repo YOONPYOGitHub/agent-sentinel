@@ -1,4 +1,6 @@
 import {
+  MAX_RUNTIME_OTEL_QUALITY_RECORDS,
+  OTEL_CLAIMS_PER_OBSERVATION,
   assessRuntimeOtelQuality,
   authoritativeRuntimeAgentBinding,
   estateSnapshotSchema,
@@ -73,7 +75,9 @@ export function validateRuntimeTelemetryProvenance(
   const sourceProjectId = request.sourceProjectId
   const sourceEnvironment = request.sourceEnvironment ?? windows.observed.environment
   const sourceAgentId = request.sourceAgentId ?? request.agentId
+  const sourceSetFingerprint = request.sourceSetFingerprint
   const provenance = windows.provenance
+  const provenanceContract = provenance?.contract
   if (
     windows.baseline.tenantId !== request.tenantId ||
     windows.observed.tenantId !== request.tenantId ||
@@ -91,7 +95,14 @@ export function validateRuntimeTelemetryProvenance(
     sourceProjectId === undefined ||
     provenance.sourceProjectId !== sourceProjectId ||
     provenance.sourceEnvironment !== sourceEnvironment ||
-    provenance.providerAgentId !== sourceAgentId
+    provenance.providerAgentId !== sourceAgentId ||
+    (sourceSetFingerprint !== undefined &&
+      provenance.sourceSetFingerprint !== sourceSetFingerprint) ||
+    (provenance.measuredAt !== undefined && provenance.measuredAt !== windows.queriedAt) ||
+    (provenanceContract !== undefined &&
+      (provenanceContract.version !== 1 ||
+        provenanceContract.recordType !== 'agent_invocation' ||
+        provenanceContract.requestName !== 'agent.invoke'))
   ) {
     throw new Error('Runtime telemetry response provenance does not match the exact request.')
   }
@@ -115,6 +126,19 @@ export function validateRuntimeTelemetryProvenance(
         nested.data.provider !== provenance.provider ||
         nested.data.providerResourceId !== provenance.providerResourceId ||
         nested.data.providerAgentId !== provenance.providerAgentId ||
+        (nested.data.sourceSetFingerprint !== undefined &&
+          nested.data.sourceSetFingerprint !== provenance.sourceSetFingerprint) ||
+        (nested.data.measuredAt !== undefined &&
+          nested.data.measuredAt !== provenance.measuredAt) ||
+        (nested.data.contract !== undefined &&
+          (provenanceContract === undefined ||
+            nested.data.contract.version !== provenanceContract.version ||
+            nested.data.contract.recordType !== provenanceContract.recordType ||
+            nested.data.contract.applicationRoleName !== provenanceContract.applicationRoleName ||
+            nested.data.contract.requestName !== provenanceContract.requestName ||
+            nested.data.contract.outcome !== (observation.success ? 'success' : 'error'))) ||
+        (nested.data.providerInvocationId !== undefined &&
+          nested.data.providerInvocationId !== observation.id) ||
         nested.data.observedAt !== observation.observedAt ||
         nested.data.classification !== expectedClassification
       ) {
@@ -433,8 +457,17 @@ function degradeOtelWindow(
     observations,
     otelQuality: {
       recordsReceived:
-        existing?.recordsReceived ?? Math.min(window.observations.length * 6, 10_000),
-      recordsAccepted: existing?.recordsAccepted ?? Math.min(observations.length * 6, 10_000),
+        existing?.recordsReceived ??
+        Math.min(
+          window.observations.length * OTEL_CLAIMS_PER_OBSERVATION,
+          MAX_RUNTIME_OTEL_QUALITY_RECORDS,
+        ),
+      recordsAccepted:
+        existing?.recordsAccepted ??
+        Math.min(
+          observations.length * OTEL_CLAIMS_PER_OBSERVATION,
+          MAX_RUNTIME_OTEL_QUALITY_RECORDS,
+        ),
       duplicatesRemoved: existing?.duplicatesRemoved ?? 0,
       pagesProcessed: existing?.pagesProcessed ?? 0,
       status: 'degraded',
@@ -510,6 +543,18 @@ function hasExactOtelProvenance(
     provenance.provider === observation.source &&
     provenance.providerResourceId === expectedProvenance.providerResourceId &&
     provenance.providerAgentId === sourceAgentId &&
+    provenance.sourceSetFingerprint !== undefined &&
+    provenance.sourceSetFingerprint === expectedProvenance.sourceSetFingerprint &&
+    provenance.measuredAt !== undefined &&
+    provenance.measuredAt === expectedProvenance.measuredAt &&
+    provenance.contract !== undefined &&
+    expectedProvenance.contract !== undefined &&
+    provenance.contract.version === expectedProvenance.contract.version &&
+    provenance.contract.recordType === expectedProvenance.contract.recordType &&
+    provenance.contract.applicationRoleName === expectedProvenance.contract.applicationRoleName &&
+    provenance.contract.requestName === expectedProvenance.contract.requestName &&
+    provenance.contract.outcome === (observation.success ? 'success' : 'error') &&
+    provenance.providerInvocationId === observation.id &&
     provenance.observedAt === observation.observedAt &&
     provenance.classification === expectedClassification &&
     provenance.estateTenantId === expectedProvenance.estateTenantId &&
@@ -553,7 +598,15 @@ function enforceExactOtelProvenance(
         nested.sourceEnvironment === provenance.sourceEnvironment &&
         nested.provider === provenance.provider &&
         nested.providerResourceId === provenance.providerResourceId &&
-        nested.providerAgentId === provenance.providerAgentId,
+        nested.providerAgentId === provenance.providerAgentId &&
+        nested.sourceSetFingerprint === provenance.sourceSetFingerprint &&
+        nested.measuredAt === provenance.measuredAt &&
+        nested.contract !== undefined &&
+        provenance.contract !== undefined &&
+        nested.contract.version === provenance.contract.version &&
+        nested.contract.recordType === provenance.contract.recordType &&
+        nested.contract.applicationRoleName === provenance.contract.applicationRoleName &&
+        nested.contract.requestName === provenance.contract.requestName,
     )
   const expectedProvenance =
     provenance !== undefined &&
@@ -570,7 +623,13 @@ function enforceExactOtelProvenance(
     provenance.sourceProjectId === sourceProjectId &&
     provenance.sourceEnvironment === sourceEnvironment &&
     provenance.provider === 'azure-monitor-otel' &&
-    provenance.providerAgentId === sourceAgentId
+    provenance.providerAgentId === sourceAgentId &&
+    provenance.sourceSetFingerprint !== undefined &&
+    provenance.measuredAt !== undefined &&
+    provenance.contract !== undefined &&
+    provenance.contract.version === 1 &&
+    provenance.contract.recordType === 'agent_invocation' &&
+    provenance.contract.requestName === 'agent.invoke'
       ? provenance
       : undefined
 

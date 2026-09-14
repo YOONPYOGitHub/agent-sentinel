@@ -219,8 +219,17 @@ function emptyRuntimeWindows(
       sourceProjectId: request.sourceProjectId!,
       sourceEnvironment: request.sourceEnvironment!,
       provider: 'azure-monitor-otel',
-      providerResourceId: '/subscriptions/example/resource',
+      providerResourceId:
+        '/subscriptions/11111111-1111-4111-8111-111111111111/resourcegroups/rg-test/providers/microsoft.insights/components/app-test',
       providerAgentId: request.sourceAgentId!,
+      sourceSetFingerprint: request.sourceSetFingerprint ?? 'f'.repeat(64),
+      measuredAt: '2026-09-06T00:00:00.000Z',
+      contract: {
+        version: 1,
+        recordType: 'agent_invocation',
+        applicationRoleName: 'agent-runtime',
+        requestName: 'agent.invoke',
+      },
     },
   })
 }
@@ -1174,6 +1183,103 @@ describe('IngestionService', () => {
           evidence.otel?.quality.status === 'degraded',
       ),
     ).toBe(true)
+  })
+
+  it('composes and persists runtime telemetry source health with discovery health', async () => {
+    const snapshots = new InMemorySnapshotRepository()
+    const exposures = new InMemoryExposureFindingRepository()
+    const connectorHealth = new InMemoryConnectorHealthRepository()
+    const discovered = fullSnapshot()
+    const agent = discovered.nodes.find((node) => node.kind === 'agent')
+    if (agent === undefined) throw new Error('Expected an agent fixture.')
+    authorizeRuntimeAgent(discovered, agent)
+    const discoveryHealth: ConnectorHealthReport = {
+      overall: 'ready',
+      partial: false,
+      sourceSetFingerprint: 'a'.repeat(64),
+      sources: [
+        {
+          id: 'foundry:primary',
+          name: 'Primary Foundry',
+          role: 'discovery',
+          enabled: true,
+          configured: true,
+          readiness: 'ready',
+          dataState: 'complete',
+        },
+      ],
+    }
+    const runtimeTelemetryConnector: RuntimeTelemetryConnector = {
+      id: 'azure-monitor-otel',
+      readObservationWindows(request) {
+        return Promise.resolve(
+          emptyRuntimeWindows(request, {
+            status: 'unknown',
+            classification: 'unknown',
+            caveats: ['empty'],
+            recordsReceived: 0,
+            recordsAccepted: 0,
+            duplicatesRemoved: 0,
+            pagesProcessed: 1,
+          }),
+        )
+      },
+      getConnectorHealth() {
+        return {
+          overall: 'degraded',
+          partial: false,
+          sources: [
+            {
+              id: 'otel:primary',
+              name: 'Primary Foundry · Azure Monitor',
+              role: 'enrichment',
+              enabled: true,
+              configured: true,
+              readiness: 'degraded',
+              dataState: 'empty',
+              checkedAt: '2026-09-06T00:00:00.000Z',
+              reason: 'empty',
+            },
+          ],
+        }
+      },
+    }
+    const service = new IngestionService(
+      makeConnector(discovered, discoveryHealth),
+      snapshots,
+      exposures,
+      {
+        estate: testEstate,
+        sourceMode: 'foundry',
+        clock: () => new Date('2026-09-06T00:05:00.000Z'),
+        connectorHealthRepository: connectorHealth,
+        runtimeTelemetryConnector,
+      },
+    )
+
+    const result = await service.run()
+
+    expect(result).toMatchObject({
+      outcome: 'partially-succeeded',
+      persisted: true,
+      connectorHealth: {
+        overall: 'degraded',
+        partial: false,
+        sourceSetFingerprint: 'a'.repeat(64),
+        sources: [
+          { id: 'foundry:primary', readiness: 'ready' },
+          { id: 'otel:primary', readiness: 'degraded', dataState: 'empty', reason: 'empty' },
+        ],
+      },
+    })
+    await expect(connectorHealth.findLatest(testEstate, 'fake')).resolves.toMatchObject({
+      sourceSetFingerprint: 'a'.repeat(64),
+      snapshotBinding: {
+        snapshotGeneratedAt: result.snapshot.generatedAt,
+        evidenceDigest: computeSnapshotEvidenceDigest(result.snapshot),
+      },
+      health: result.connectorHealth,
+    })
   })
 
   it('replaces prior exact-source runtime evidence with the current empty result', async () => {

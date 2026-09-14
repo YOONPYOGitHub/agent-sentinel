@@ -4,6 +4,7 @@ import type { EstateContext } from './estate.js'
 import { evidenceSchema, evidenceTypeSchema, type Evidence } from './evidence.js'
 import { runsAsBindingSchema } from './evidence-authority.js'
 import {
+  MAX_RUNTIME_OTEL_OBSERVATIONS,
   otelWindowQualitySchema,
   runtimeOtelEvidenceItemSchema,
   runtimeOtelProvenanceSchema,
@@ -67,6 +68,12 @@ export type { AgentCorrelationKind, AgentCorrelation } from './correlation.js'
 export { SOURCE_PROJECT_ID_MAX_LENGTH, sourceProjectIdSchema } from './source-project.js'
 export type { SourceProjectId } from './source-project.js'
 
+export {
+  AZURE_PROVIDER_RESOURCE_ID_MAX_LENGTH,
+  azureApplicationInsightsResourceIdSchema,
+} from './provider-resource.js'
+export type { AzureApplicationInsightsResourceId } from './provider-resource.js'
+
 export { evidenceSchema, evidenceTypeSchema } from './evidence.js'
 export type { Evidence, EvidenceType } from './evidence.js'
 
@@ -74,6 +81,14 @@ export { evidenceAuthoritySchema, runsAsBindingSchema } from './evidence-authori
 export type { EvidenceAuthority, RunsAsBinding } from './evidence-authority.js'
 
 export {
+  MAX_RUNTIME_OTEL_OBSERVATIONS,
+  MAX_RUNTIME_OTEL_QUALITY_RECORDS,
+  MAX_RUNTIME_OTEL_QUALITY_PAGES,
+  OTEL_CLAIMS_PER_OBSERVATION,
+  otelTraceIdSchema,
+  otelSpanIdSchema,
+  otelTelemetryContractIdentitySchema,
+  otelTelemetryContractSchema,
   otelEvidenceStatusSchema,
   otelEvidenceClassificationSchema,
   otelSignalTypeSchema,
@@ -102,6 +117,8 @@ export type {
   RuntimeOtelProvenance,
   RuntimeOtelEvidenceItem,
   OtelEvidenceDetails,
+  OtelTelemetryContractIdentity,
+  OtelTelemetryContract,
 } from './otel-evidence.js'
 
 export const nodeKindSchema = z.enum([
@@ -394,7 +411,7 @@ const legacyRuntimeEvidenceSchema = z.object({
   ...evidenceSchema.shape,
   otel: z.strictObject({
     quality: otelWindowQualitySchema,
-    invocations: z.array(legacyRuntimeOtelEvidenceItemSchema).max(500),
+    invocations: z.array(legacyRuntimeOtelEvidenceItemSchema).max(MAX_RUNTIME_OTEL_OBSERVATIONS),
   }),
 })
 

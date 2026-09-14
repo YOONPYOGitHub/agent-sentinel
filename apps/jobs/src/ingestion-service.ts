@@ -113,6 +113,27 @@ function jobsRuntimeTelemetryLimits(
   }
 }
 
+function composeRuntimeTelemetryHealth(
+  discovery: ConnectorHealthReport | undefined,
+  runtime: ConnectorHealthReport | undefined,
+): ConnectorHealthReport | undefined {
+  if (runtime === undefined) return discovery
+  if (discovery === undefined) return runtime
+  return {
+    overall:
+      discovery.overall === 'unavailable'
+        ? 'unavailable'
+        : discovery.overall === 'degraded' || runtime.overall !== 'ready'
+          ? 'degraded'
+          : 'ready',
+    partial: discovery.partial || runtime.partial,
+    ...(discovery.sourceSetFingerprint === undefined
+      ? {}
+      : { sourceSetFingerprint: discovery.sourceSetFingerprint }),
+    sources: [...discovery.sources, ...runtime.sources],
+  }
+}
+
 function snapshotIdFor(snapshot: EstateSnapshot): string {
   return `${snapshot.tenantId}-${snapshot.environment}-${snapshot.generatedAt}`
 }
@@ -145,8 +166,7 @@ export class IngestionService {
         'Discovered snapshot environment does not match the configured ingestion estate.',
       )
     }
-    const connectorHealth = this.connector.getConnectorHealth?.()
-    const connectorDegraded = connectorHealth?.overall === 'degraded'
+    let connectorHealth = this.connector.getConnectorHealth?.()
     const connectorPartial = connectorHealth?.partial === true
     let snapshot: EstateSnapshot = discovered
     let manifestIngestion: IngestionResult['manifestIngestion'] =
@@ -210,7 +230,11 @@ export class IngestionService {
                   runtimeObservationWindowsSchema.parse(
                     await this.options.runtimeTelemetryConnector!.readObservationWindows(
                       source.request,
-                      { signal: context.signal },
+                      {
+                        signal: context.signal,
+                        maxPages: context.maxPages,
+                        maxRecords: context.maxRecords,
+                      },
                     ),
                   ),
                 )
@@ -221,8 +245,8 @@ export class IngestionService {
                 return {
                   state: observations.length === 0 ? ('empty' as const) : ('complete' as const),
                   value: windows,
-                  pages: 1,
-                  records: observations.length,
+                  pages: windows.queryDiagnostics?.providerPages ?? 1,
+                  records: windows.queryDiagnostics?.rawRows ?? observations.length,
                   evidenceIds:
                     observations.length === 0
                       ? []
@@ -262,7 +286,15 @@ export class IngestionService {
           })
         }
       }
+      connectorHealth = composeRuntimeTelemetryHealth(
+        connectorHealth,
+        this.options.runtimeTelemetryConnector.getConnectorHealth?.(),
+      )
+      if (connectorHealth !== undefined && connectorHealth.overall !== 'ready') {
+        runtimeTelemetryDegraded = true
+      }
     }
+    const connectorDegraded = connectorHealth !== undefined && connectorHealth.overall !== 'ready'
     const outcome =
       connectorDegraded || manifestIngestion.status === 'degraded' || runtimeTelemetryDegraded
         ? 'partially-succeeded'

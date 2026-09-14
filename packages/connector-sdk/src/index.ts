@@ -291,6 +291,8 @@ export interface ConnectorOperationRequest {
   readonly signal?: AbortSignal
   readonly maxPages?: number
   readonly maxRecords?: number
+  readonly maxBytes?: number
+  readonly deadlineAt?: string
 }
 
 export interface AgentConnector {
@@ -321,6 +323,7 @@ export interface RuntimeTelemetryRequest {
   sourceProjectId?: SourceProjectId
   sourceAgentId?: string
   sourceEnvironment?: string
+  sourceSetFingerprint?: string
 }
 
 const liveObservationWindowSchema = observationWindowSchema.extend({
@@ -337,8 +340,21 @@ const runtimeTelemetrySourceProvenanceSchema = z.strictObject({
   sourceProjectId: sourceProjectIdSchema,
   sourceEnvironment: z.string().min(1).max(200),
   provider: z.literal('azure-monitor-otel'),
-  providerResourceId: z.string().min(1).max(500),
+  providerResourceId: z.string().min(1).max(2_048),
   providerAgentId: z.string().min(1).max(200),
+  sourceSetFingerprint: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
+  measuredAt: z.iso.datetime().optional(),
+  contract: z
+    .strictObject({
+      version: z.literal(1),
+      recordType: z.literal('agent_invocation'),
+      applicationRoleName: z.string().trim().min(1).max(200),
+      requestName: z.literal('agent.invoke'),
+    })
+    .optional(),
 })
 
 export const runtimeObservationWindowsSchema = z
@@ -355,6 +371,16 @@ export const runtimeObservationWindowsSchema = z
       .max(24 * 31)
       .optional(),
     provenance: runtimeTelemetrySourceProvenanceSchema.optional(),
+    queryDiagnostics: z
+      .strictObject({
+        providerRequests: z.number().int().min(0),
+        providerPages: z.number().int().min(0),
+        rawRows: z.number().int().min(0),
+        canonicalRows: z.number().int().min(0),
+        acceptedInvocations: z.number().int().min(0),
+        responseBytes: z.number().int().min(0),
+      })
+      .optional(),
   })
   .superRefine((windows, context) => {
     for (const [kind, window] of [
@@ -403,6 +429,7 @@ export type RuntimeObservationWindows = z.infer<typeof runtimeObservationWindows
  */
 export interface RuntimeTelemetryConnector {
   readonly id: string
+  readonly sourceSetFingerprint?: string
   readObservationWindows(
     request: RuntimeTelemetryRequest,
     options?: ConnectorOperationRequest,

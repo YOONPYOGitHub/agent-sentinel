@@ -18,8 +18,11 @@ import {
   resolveAzureMonitorOtelRuntimeActivation,
 } from '../src/index.js'
 
+const providerResourceId =
+  '/subscriptions/11111111-1111-4111-8111-111111111111/resourceGroups/rg-test/providers/Microsoft.Insights/components/app-test'
+
 const columns = [
-  ['ObservationId', 'string'],
+  ['ProviderInvocationId', 'string'],
   ['ObservedAt', 'datetime'],
   ['TenantId', 'string'],
   ['AgentId', 'string'],
@@ -39,6 +42,20 @@ const columns = [
   ['SpanId', 'string'],
   ['ItemCount', 'long'],
   ['SourceProjectId', 'string'],
+  ['ResourceId', 'string'],
+  ['ProviderResourceId', 'string'],
+  ['ApplicationRoleName', 'string'],
+  ['RequestName', 'string'],
+  ['ContractVersion', 'long'],
+  ['RecordType', 'string'],
+  ['SourceConnectorId', 'string'],
+  ['EstateId', 'string'],
+  ['EstateTenantId', 'string'],
+  ['EstateEnvironment', 'string'],
+  ['SourceTenantId', 'string'],
+  ['SourceEnvironment', 'string'],
+  ['ProviderAgentId', 'string'],
+  ['Outcome', 'string'],
 ].map(([name, type]) => ({ name, type }))
 
 class Credential implements TokenCredential {
@@ -49,6 +66,9 @@ class Credential implements TokenCredential {
 
 const config = {
   workspaceId: '11111111-1111-4111-8111-111111111111',
+  providerResourceId,
+  applicationRoleName: 'agent-runtime',
+  requestName: 'agent.invoke' as const,
   tenantId: 'tenant-a',
   sourceProjectId: 'project-a',
   environment: 'production',
@@ -64,6 +84,8 @@ function row(
   agentId = 'agent-a',
   environment = 'production',
 ): unknown[] {
+  const sourceConnectorId = agentId.startsWith('provider-') ? 'project-a' : 'direct'
+  const estateTenantId = agentId.startsWith('provider-') ? 'estate' : tenantId
   return [
     id,
     observedAt,
@@ -85,7 +107,61 @@ function row(
     null,
     null,
     'project-a',
+    providerResourceId,
+    providerResourceId,
+    'agent-runtime',
+    'agent.invoke',
+    1,
+    'agent_invocation',
+    sourceConnectorId,
+    'estate-a',
+    estateTenantId,
+    'portfolio',
+    tenantId,
+    environment,
+    agentId,
+    'success',
   ]
+}
+
+const runtimeRequest = {
+  snapshotGeneratedAt: '2026-08-24T12:00:00.000Z',
+  estateId: 'estate-a',
+  estateEnvironment: 'portfolio',
+  tenantId: 'tenant-a',
+  agentId: 'agent-a',
+  sourceConnectorId: 'direct',
+  sourceTenantId: 'tenant-a',
+  sourceProjectId: 'project-a',
+  sourceAgentId: 'agent-a',
+  sourceEnvironment: 'production',
+} as const
+
+const mapBinding = {
+  ...runtimeRequest,
+  environment: 'production',
+  providerResourceId,
+  applicationRoleName: 'agent-runtime',
+  requestName: 'agent.invoke' as const,
+  windowStart: '2026-08-22T12:00:00.000Z',
+  windowEnd: '2026-08-24T12:00:00.000Z',
+}
+
+const queryBinding = {
+  tenantId: 'tenant-a',
+  agentId: 'agent-a',
+  environment: 'production',
+  sourceConnectorId: 'direct',
+  estateId: 'estate-a',
+  estateTenantId: 'tenant-a',
+  estateEnvironment: 'portfolio',
+  sourceTenantId: 'tenant-a',
+  sourceProjectId: 'project-a',
+  providerResourceId,
+  applicationRoleName: 'agent-runtime',
+  requestName: 'agent.invoke' as const,
+  windowStart: '2026-08-22T12:00:00.000Z',
+  windowEnd: '2026-08-24T12:00:00.000Z',
 }
 
 function exactInvocationRow(
@@ -101,6 +177,9 @@ function exactInvocationRow(
   values[16] = traceId
   values[17] = spanId
   values[18] = 1
+  values[26] = agentId.startsWith('provider-') ? 'project-a' : 'direct'
+  values[28] = agentId.startsWith('provider-') ? 'estate' : 'tenant-a'
+  values[32] = agentId
   return values
 }
 
@@ -154,7 +233,7 @@ function partitioningFetcher(rows: readonly unknown[][]): ReturnType<typeof vi.f
     const pageRows = rows
       .filter((candidate) => {
         const observedAt = String(candidate[1])
-        return observedAt >= start! && observedAt <= end!
+        return observedAt >= start! && observedAt < end!
       })
       .slice(0, take)
     return Promise.resolve(
@@ -185,14 +264,7 @@ describe('Azure Monitor OTel connector', () => {
     const fixture = JSON.parse(
       await readFile(new URL('./fixtures/azure-monitor-query.json', import.meta.url), 'utf8'),
     ) as unknown
-    const observations = mapAzureMonitorRows(fixture, {
-      tenantId: 'tenant-a',
-      agentId: 'agent-a',
-      sourceProjectId: 'project-a',
-      environment: 'production',
-      windowStart: '2026-08-22T12:00:00.000Z',
-      windowEnd: '2026-08-24T12:00:00.000Z',
-    })
+    const observations = mapAzureMonitorRows(fixture, mapBinding)
 
     expect(observations).toHaveLength(4)
     expect(observations[0]).toMatchObject({
@@ -214,27 +286,20 @@ describe('Azure Monitor OTel connector', () => {
       success: false,
       errorCode: 'timeout',
       toolCallNames: ['knowledge_search'],
-      synthetic: true,
+      synthetic: false,
       correlations: [
         { kind: 'correlation-id', value: 'operation-baseline-2' },
         { kind: 'agent-version', value: '17' },
       ],
     })
-    expect(observations[1]?.costUsd).toBeUndefined()
+    expect(observations[1]?.costUsd).toBe(0.014)
   })
 
   it('rejects mismatched row bindings, time ranges, malformed tools, and columns', async () => {
     const fixture = JSON.parse(
       await readFile(new URL('./fixtures/azure-monitor-query.json', import.meta.url), 'utf8'),
     ) as { tables: Array<{ columns: Array<{ name: string; type: string }>; rows: unknown[][] }> }
-    const binding = {
-      tenantId: 'tenant-a',
-      agentId: 'agent-a',
-      sourceProjectId: 'project-a',
-      environment: 'production',
-      windowStart: '2026-08-22T12:00:00.000Z',
-      windowEnd: '2026-08-24T12:00:00.000Z',
-    }
+    const binding = mapBinding
 
     for (const [columnIndex, invalidValue] of [
       [2, 'tenant-b'],
@@ -290,8 +355,8 @@ describe('Azure Monitor OTel connector', () => {
 
     const result = await connector.readObservationWindows({
       snapshotGeneratedAt: '2026-08-24T12:00:00.000Z',
-      estateId: 'tenant-a',
-      estateEnvironment: 'production',
+      estateId: 'estate-a',
+      estateEnvironment: 'portfolio',
       tenantId: 'tenant-a',
       agentId: 'agent-a',
       sourceConnectorId: 'direct',
@@ -318,21 +383,23 @@ describe('Azure Monitor OTel connector', () => {
     expect(body.query).toMatch(/^AppRequests\n/)
     expect(body.query).toContain('| take 1001')
     expect(body.query).toContain(
-      'ObservationId = tostring(OtelAttributes["agent.sentinel.observation_id"])',
+      'ProviderInvocationId = tostring(OtelAttributes["agent.sentinel.provider_invocation_id"])',
     )
-    expect(body.query).not.toContain(
-      'ObservationId = coalesce(tostring(OtelAttributes["agent.sentinel.observation_id"])',
-    )
+    expect(body.query).toContain('| where ContractVersion == 1')
+    expect(body.query).toContain("| where RecordType == 'agent_invocation'")
+    expect(body.query).toContain('| where Synthetic == false')
+    expect(body.query).toContain('TraceId = tostring(OperationId)')
+    expect(body.query).toContain('SpanId = tostring(Id)')
     expect(body.query).toContain('Synthetic = tobool(OtelAttributes["agent.sentinel.synthetic"])')
     expect(body.query).not.toContain(
       'Synthetic = tobool(coalesce(OtelAttributes["agent.sentinel.synthetic"], false))',
     )
-    expect(body.query).toContain('TraceId =')
-    expect(body.query).toContain('SpanId =')
     expect(body.query).toContain('ItemCount = tolong(ItemCount)')
     expect(body.query).toContain('CorrelationId')
     expect(body.query).toContain('OperationId')
     expect(body.query).not.toContain('AppMetrics')
+    expect(body.query).not.toContain('OtelAttributes["trace_id"]')
+    expect(body.query).not.toContain('OtelAttributes["span_id"]')
     expect(body.query).not.toMatch(/\b(delete|drop|set|ingest)\b/i)
     expect(body.timespan).toBe('2026-08-22T12:00:00.000Z/2026-08-24T12:00:00.000Z')
   })
@@ -418,7 +485,45 @@ describe('Azure Monitor OTel connector', () => {
     expect(fetcher.mock.calls.length).toBeLessThanOrEqual(20)
   })
 
-  it('canonicalizes duplicate observation IDs across partition pages', async () => {
+  it('retains bounded quality counters above the representative single-batch limit', async () => {
+    const baselineRows = distributedInvocationRows(
+      1_700,
+      '2026-08-22T12:00:00.000Z',
+      '2026-08-23T12:00:00.000Z',
+      0,
+    )
+    const fetcher = partitioningFetcher(baselineRows)
+    const connector = new AzureMonitorOtelConnector(
+      { ...config, maxResponseBytes: 64 * 1024 * 1024 },
+      new Credential(),
+      fetcher,
+      () => new Date('2026-08-24T12:00:00.000Z'),
+    )
+
+    const windows = await connector.readObservationWindows({
+      snapshotGeneratedAt: '2026-08-24T12:00:00.000Z',
+      estateId: 'estate-a',
+      estateEnvironment: 'portfolio',
+      tenantId: 'tenant-a',
+      agentId: 'agent-a',
+      sourceConnectorId: 'direct',
+      sourceTenantId: 'tenant-a',
+      sourceProjectId: 'project-a',
+      sourceAgentId: 'agent-a',
+      sourceEnvironment: 'production',
+    })
+
+    expect(windows.baseline.observations).toHaveLength(1_700)
+    expect(windows.baseline.otelQuality).toMatchObject({
+      status: 'available',
+      recordsReceived: 10_200,
+      recordsAccepted: 10_200,
+      pagesProcessed: 21,
+    })
+    expect(fetcher.mock.calls.length).toBeLessThanOrEqual(20)
+  })
+
+  it('uses half-open partitions without duplicating boundary observations', async () => {
     const midpoint = '2026-08-23T00:00:00.000Z'
     const baselineRows = distributedInvocationRows(
       600,
@@ -450,10 +555,10 @@ describe('Azure Monitor OTel connector', () => {
 
     expect(windows.baseline.observations).toHaveLength(600)
     expect(windows.baseline.otelQuality).toMatchObject({
-      status: 'degraded',
-      duplicatesRemoved: 6,
+      status: 'available',
+      duplicatesRemoved: 0,
     })
-    expect(windows.baseline.otelQuality?.caveats).toContain('duplicate-record')
+    expect(windows.baseline.otelQuality?.caveats).not.toContain('duplicate-record')
   })
 
   it('fails closed when dense partitions exhaust the global page limit', async () => {
@@ -475,28 +580,29 @@ describe('Azure Monitor OTel connector', () => {
     )
 
     await expect(
-      connector.readObservationWindows({
-        snapshotGeneratedAt: '2026-08-24T12:00:00.000Z',
-        estateId: 'estate-a',
-        estateEnvironment: 'portfolio',
-        tenantId: 'tenant-a',
-        agentId: 'agent-a',
-        sourceConnectorId: 'direct',
-        sourceTenantId: 'tenant-a',
-        sourceProjectId: 'project-a',
-        sourceAgentId: 'agent-a',
-        sourceEnvironment: 'production',
-      }),
-    ).rejects.toThrow('20-page query limit')
+      connector.readObservationWindows(
+        {
+          snapshotGeneratedAt: '2026-08-24T12:00:00.000Z',
+          estateId: 'estate-a',
+          estateEnvironment: 'portfolio',
+          tenantId: 'tenant-a',
+          agentId: 'agent-a',
+          sourceConnectorId: 'direct',
+          sourceTenantId: 'tenant-a',
+          sourceProjectId: 'project-a',
+          sourceAgentId: 'agent-a',
+          sourceEnvironment: 'production',
+        },
+        {
+          maxPages: 10,
+          maxRecords: 1_000_000,
+        },
+      ),
+    ).rejects.toThrow('10-page query limit')
   })
 
   it('requires and filters the exact authoritative Foundry project ID', () => {
-    const query = buildAzureMonitorOtelQuery({
-      tenantId: 'tenant-a',
-      agentId: 'agent-a',
-      environment: 'production',
-      sourceProjectId: 'project-a',
-    })
+    const query = buildAzureMonitorOtelQuery(queryBinding)
 
     expect(query).toContain(
       'SourceProjectId = tostring(OtelAttributes["agent.sentinel.source_project_id"])',
@@ -648,6 +754,9 @@ describe('Azure Monitor OTel connector', () => {
           id: 'project-a',
           name: 'Provider project A',
           workspaceId: config.workspaceId,
+          providerResourceId: config.providerResourceId,
+          applicationRoleName: config.applicationRoleName,
+          requestName: config.requestName,
           tenantId: config.tenantId,
           sourceProjectId: config.sourceProjectId,
           environment: config.environment,
@@ -703,6 +812,9 @@ describe('Azure Monitor OTel connector', () => {
           id: 'project-a',
           name: 'Provider project A',
           workspaceId: config.workspaceId,
+          providerResourceId: config.providerResourceId,
+          applicationRoleName: config.applicationRoleName,
+          requestName: config.requestName,
           tenantId: config.tenantId,
           sourceProjectId: config.sourceProjectId,
           environment: config.environment,
@@ -743,7 +855,7 @@ describe('Azure Monitor OTel connector', () => {
     })
   })
 
-  it('stabilizes evidence IDs within a five-minute query window', async () => {
+  it('binds evidence IDs to the exact measurement time within a five-minute window', async () => {
     let now = new Date('2026-08-24T12:01:15.000Z')
     let rows: unknown[][] = []
     const fetcher = vi
@@ -753,24 +865,15 @@ describe('Azure Monitor OTel connector', () => {
       )
     const connector = new AzureMonitorOtelConnector(config, new Credential(), fetcher, () => now)
 
-    const first = await connector.readObservationWindows({
-      tenantId: 'tenant-a',
-      agentId: 'agent-a',
-    })
+    const first = await connector.readObservationWindows(runtimeRequest)
     now = new Date('2026-08-24T12:04:59.000Z')
-    const second = await connector.readObservationWindows({
-      tenantId: 'tenant-a',
-      agentId: 'agent-a',
-    })
+    const second = await connector.readObservationWindows(runtimeRequest)
     rows = [row('late-observation', '2026-08-24T11:59:00.000Z', 1)]
-    const lateArrival = await connector.readObservationWindows({
-      tenantId: 'tenant-a',
-      agentId: 'agent-a',
-    })
+    const lateArrival = await connector.readObservationWindows(runtimeRequest)
 
-    expect(second.baselineEvidenceId).toBe(first.baselineEvidenceId)
-    expect(second.observedEvidenceId).toBe(first.observedEvidenceId)
-    expect(lateArrival.baselineEvidenceId).toBe(first.baselineEvidenceId)
+    expect(second.baselineEvidenceId).not.toBe(first.baselineEvidenceId)
+    expect(second.observedEvidenceId).not.toBe(first.observedEvidenceId)
+    expect(lateArrival.baselineEvidenceId).not.toBe(first.baselineEvidenceId)
     expect(lateArrival.observedEvidenceId).not.toBe(first.observedEvidenceId)
     expect(first.observed.windowEnd).toBe('2026-08-24T12:00:00.000Z')
     for (const call of fetcher.mock.calls) {
@@ -795,15 +898,9 @@ describe('Azure Monitor OTel connector', () => {
       () => new Date('2026-08-24T12:01:00.000Z'),
     )
 
-    const first = await connector.readObservationWindows({
-      tenantId: 'tenant-a',
-      agentId: 'agent-a',
-    })
+    const first = await connector.readObservationWindows(runtimeRequest)
     rows = [...rows].reverse()
-    const reversed = await connector.readObservationWindows({
-      tenantId: 'tenant-a',
-      agentId: 'agent-a',
-    })
+    const reversed = await connector.readObservationWindows(runtimeRequest)
 
     expect(reversed.observedEvidenceId).toBe(first.observedEvidenceId)
   })
@@ -834,7 +931,7 @@ describe('Azure Monitor OTel connector', () => {
       estateEnvironment: 'portfolio',
       tenantId: 'tenant-a',
       agentId: 'agent-a',
-      sourceConnectorId: 'source-a',
+      sourceConnectorId: 'direct',
       sourceTenantId: 'tenant-a',
       sourceProjectId: 'project-a',
       sourceEnvironment: 'production',
@@ -868,6 +965,8 @@ describe('Azure Monitor OTel connector', () => {
       createAzureMonitorOtelConnector(
         {
           AZURE_MONITOR_WORKSPACE_ID: config.workspaceId,
+          AZURE_MONITOR_PROVIDER_RESOURCE_ID: config.providerResourceId,
+          AZURE_MONITOR_APPLICATION_ROLE_NAME: config.applicationRoleName,
           AZURE_MONITOR_TENANT_ID: config.tenantId,
           AZURE_MONITOR_ENVIRONMENT: config.environment,
           FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/project-a',
@@ -880,6 +979,8 @@ describe('Azure Monitor OTel connector', () => {
         {
           AZURE_MONITOR_SOURCES_JSON: '   ',
           AZURE_MONITOR_WORKSPACE_ID: config.workspaceId,
+          AZURE_MONITOR_PROVIDER_RESOURCE_ID: config.providerResourceId,
+          AZURE_MONITOR_APPLICATION_ROLE_NAME: config.applicationRoleName,
           AZURE_MONITOR_TENANT_ID: config.tenantId,
           AZURE_MONITOR_ENVIRONMENT: config.environment,
           FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/project-a',
@@ -952,6 +1053,9 @@ describe('Azure Monitor OTel connector', () => {
             id: 'project-a',
             name: 'Project A',
             workspaceId: config.workspaceId,
+            providerResourceId: config.providerResourceId,
+            applicationRoleName: config.applicationRoleName,
+            requestName: config.requestName,
             tenantId: config.tenantId,
             sourceProjectId: config.sourceProjectId,
             environment: config.environment,
@@ -982,6 +1086,9 @@ describe('Azure Monitor OTel connector', () => {
               id: 'project-a',
               name: 'Project A',
               workspaceId: config.workspaceId,
+              providerResourceId: config.providerResourceId,
+              applicationRoleName: config.applicationRoleName,
+              requestName: config.requestName,
               tenantId: config.tenantId,
               sourceProjectId: config.sourceProjectId,
               environment: config.environment,
@@ -1001,6 +1108,9 @@ describe('Azure Monitor OTel connector', () => {
           id: 'project-a',
           name: 'Project A',
           workspaceId: config.workspaceId,
+          providerResourceId: config.providerResourceId,
+          applicationRoleName: config.applicationRoleName,
+          requestName: config.requestName,
           tenantId: config.tenantId,
           sourceProjectId: config.sourceProjectId,
           environment: config.environment,
@@ -1048,6 +1158,9 @@ describe('Azure Monitor OTel connector', () => {
         id: 'project-a',
         name: 'Project A',
         workspaceId: '11111111-1111-4111-8111-111111111111',
+        providerResourceId: config.providerResourceId,
+        applicationRoleName: config.applicationRoleName,
+        requestName: config.requestName,
         tenantId: 'tenant-a',
         sourceProjectId: 'project-a',
         environment: 'production',
@@ -1059,6 +1172,9 @@ describe('Azure Monitor OTel connector', () => {
         id: 'project-b',
         name: 'Project B',
         workspaceId: '22222222-2222-4222-8222-222222222222',
+        providerResourceId: config.providerResourceId,
+        applicationRoleName: config.applicationRoleName,
+        requestName: config.requestName,
         tenantId: 'tenant-b',
         sourceProjectId: 'project-b',
         environment: 'validation',
@@ -1093,6 +1209,11 @@ describe('Azure Monitor OTel connector', () => {
           values[2] = source.tenantId
           values[4] = source.environment
           values[19] = source.id
+          values[26] = source.id
+          values[28] = 'estate'
+          values[30] = source.tenantId
+          values[31] = source.environment
+          values[32] = `provider-${source.id}`
         }
         return [
           source.id,
@@ -1145,8 +1266,16 @@ describe('Azure Monitor OTel connector', () => {
       sourceProjectId: 'project-b',
       sourceEnvironment: 'validation',
       provider: 'azure-monitor-otel',
-      providerResourceId: '22222222-2222-4222-8222-222222222222',
+      providerResourceId: config.providerResourceId.toLowerCase(),
       providerAgentId: 'provider-project-b',
+      sourceSetFingerprint: connector.sourceSetFingerprint,
+      measuredAt: '2026-08-24T12:00:00.000Z',
+      contract: {
+        version: 1,
+        recordType: 'agent_invocation',
+        applicationRoleName: config.applicationRoleName,
+        requestName: config.requestName,
+      },
     })
     expect(connector.getConnectorHealth()).toMatchObject({
       overall: 'degraded',
@@ -1167,6 +1296,9 @@ describe('Azure Monitor OTel connector', () => {
       id: 'project-a',
       name: 'Project A',
       workspaceId: config.workspaceId,
+      providerResourceId: config.providerResourceId,
+      applicationRoleName: config.applicationRoleName,
+      requestName: config.requestName,
       tenantId: config.tenantId,
       sourceProjectId: config.sourceProjectId,
       environment: config.environment,
@@ -1237,14 +1369,24 @@ describe('Azure Monitor OTel connector', () => {
       sourceProjectId: 'project-a',
       sourceEnvironment: 'production',
       provider: 'azure-monitor-otel',
-      providerResourceId: config.workspaceId,
+      providerResourceId: config.providerResourceId.toLowerCase(),
       providerAgentId: 'provider-project-a',
+      providerInvocationId: 'aaaaaaaaaaaaaaaa',
+      sourceSetFingerprint: connector.sourceSetFingerprint,
+      measuredAt: '2026-08-24T12:00:00.000Z',
       traceId: '11111111111111111111111111111111',
       spanId: 'aaaaaaaaaaaaaaaa',
       observedAt: '2026-08-23T11:00:00.000Z',
       classification: 'live',
       sampling: { state: 'complete', rate: 1 },
       aggregation: { kind: 'raw' },
+      contract: {
+        version: 1,
+        recordType: 'agent_invocation',
+        applicationRoleName: config.applicationRoleName,
+        requestName: config.requestName,
+        outcome: 'success',
+      },
       partial: false,
     })
     expect(windows.baseline.observations[0]?.otelProvenance?.evidenceIds).toHaveLength(6)
@@ -1348,20 +1490,6 @@ describe('Azure Monitor OTel connector', () => {
       },
       caveat: 'invalid-record',
     },
-    {
-      name: 'missing explicit synthetic classification',
-      mutate: (values: unknown[]) => {
-        values[15] = null
-      },
-      caveat: 'invalid-record',
-    },
-    {
-      name: 'mismatched provider agent',
-      mutate: (values: unknown[]) => {
-        values[3] = 'provider-project-b'
-      },
-      caveat: 'invalid-record',
-    },
   ])('keeps $name as insufficient production evidence', async ({ mutate, caveat }) => {
     const values = exactInvocationRow(
       'aaaaaaaaaaaaaaaa',
@@ -1376,6 +1504,9 @@ describe('Azure Monitor OTel connector', () => {
           id: 'project-a',
           name: 'Project A',
           workspaceId: config.workspaceId,
+          providerResourceId: config.providerResourceId,
+          applicationRoleName: config.applicationRoleName,
+          requestName: config.requestName,
           tenantId: config.tenantId,
           sourceProjectId: config.sourceProjectId,
           environment: config.environment,
@@ -1415,6 +1546,87 @@ describe('Azure Monitor OTel connector', () => {
     })
   })
 
+  it('keeps the worst source result for one snapshot and resets on the next snapshot', async () => {
+    let calls = 0
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(() => {
+      calls += 1
+      return Promise.resolve(
+        calls === 1
+          ? Response.json({ error: { code: 'Forbidden' } }, { status: 403 })
+          : Response.json({
+              tables: [
+                {
+                  name: 'PrimaryResult',
+                  columns,
+                  rows: [
+                    exactInvocationRow(
+                      'aaaaaaaaaaaaaaaa',
+                      '11111111111111111111111111111111',
+                      '2026-08-23T11:00:00.000Z',
+                      0,
+                    ),
+                    exactInvocationRow(
+                      'bbbbbbbbbbbbbbbb',
+                      '22222222222222222222222222222222',
+                      '2026-08-24T01:00:00.000Z',
+                      1,
+                    ),
+                  ],
+                },
+              ],
+            }),
+      )
+    })
+    const connector = new MultiAzureMonitorOtelConnector(
+      [
+        {
+          id: 'project-a',
+          name: 'Project A',
+          workspaceId: config.workspaceId,
+          providerResourceId: config.providerResourceId,
+          applicationRoleName: config.applicationRoleName,
+          requestName: config.requestName,
+          tenantId: config.tenantId,
+          sourceProjectId: config.sourceProjectId,
+          environment: config.environment,
+          baselineWindowHours: 24,
+          observedWindowHours: 24,
+        },
+      ],
+      () => new Credential(),
+      () => fetcher,
+      () => new Date('2026-08-24T12:00:00.000Z'),
+    )
+    const request = {
+      snapshotGeneratedAt: '2026-08-24T12:00:00.000Z',
+      estateId: 'estate-a',
+      estateEnvironment: 'portfolio',
+      tenantId: 'estate',
+      agentId: 'aggregate-agent',
+      sourceConnectorId: 'project-a',
+      sourceTenantId: config.tenantId,
+      sourceProjectId: config.sourceProjectId,
+      sourceAgentId: 'provider-project-a',
+      sourceEnvironment: config.environment,
+    }
+
+    await expect(connector.readObservationWindows(request)).rejects.toThrow('status 403')
+    await connector.readObservationWindows(request)
+    expect(connector.getConnectorHealth()).toMatchObject({
+      overall: 'unavailable',
+      sources: [{ readiness: 'unavailable', dataState: 'failed', reason: 'query-failed' }],
+    })
+
+    await connector.readObservationWindows({
+      ...request,
+      snapshotGeneratedAt: '2026-08-24T12:05:00.000Z',
+    })
+    expect(connector.getConnectorHealth()).toMatchObject({
+      overall: 'ready',
+      sources: [{ readiness: 'ready', dataState: 'complete' }],
+    })
+  })
+
   it('marks stale representative evidence stale instead of live-ready', async () => {
     const values = exactInvocationRow(
       'aaaaaaaaaaaaaaaa',
@@ -1428,6 +1640,9 @@ describe('Azure Monitor OTel connector', () => {
           id: 'project-a',
           name: 'Project A',
           workspaceId: config.workspaceId,
+          providerResourceId: config.providerResourceId,
+          applicationRoleName: config.applicationRoleName,
+          requestName: config.requestName,
           tenantId: config.tenantId,
           sourceProjectId: config.sourceProjectId,
           environment: config.environment,
@@ -1473,6 +1688,9 @@ describe('Azure Monitor OTel connector', () => {
           id: 'project-a',
           name: 'Project A',
           workspaceId: config.workspaceId,
+          providerResourceId: config.providerResourceId,
+          applicationRoleName: config.applicationRoleName,
+          requestName: config.requestName,
           tenantId: config.tenantId,
           sourceProjectId: config.sourceProjectId,
           environment: config.environment,
@@ -1492,8 +1710,16 @@ describe('Azure Monitor OTel connector', () => {
     )
 
     const windows = await connector.readObservationWindows({
+      snapshotGeneratedAt: '2026-08-24T12:00:00.000Z',
+      estateId: 'estate-a',
+      estateEnvironment: 'portfolio',
       tenantId: 'estate',
       agentId: 'aggregate-agent',
+      sourceConnectorId: 'project-a',
+      sourceTenantId: config.tenantId,
+      sourceProjectId: config.sourceProjectId,
+      sourceAgentId: 'provider-project-a',
+      sourceEnvironment: config.environment,
     })
 
     expect(windows.baseline.observations).toEqual([])
@@ -1530,10 +1756,7 @@ describe('Azure Monitor OTel connector', () => {
           }),
       ),
     )
-    const pending = connector.readObservationWindows(
-      { tenantId: 'tenant-a', agentId: 'agent-a' },
-      { signal: controller.signal },
-    )
+    const pending = connector.readObservationWindows(runtimeRequest, { signal: controller.signal })
 
     await Promise.resolve()
     controller.abort()
@@ -1556,10 +1779,7 @@ describe('Azure Monitor OTel connector', () => {
         ),
       ),
     )
-    const pending = connector.readObservationWindows(
-      { tenantId: 'tenant-a', agentId: 'agent-a' },
-      { signal: controller.signal },
-    )
+    const pending = connector.readObservationWindows(runtimeRequest, { signal: controller.signal })
 
     await Promise.resolve()
     controller.abort()
@@ -1594,9 +1814,9 @@ describe('Azure Monitor OTel connector', () => {
       vi.fn<typeof fetch>().mockResolvedValue(response()),
     )
 
-    await expect(
-      connector.readObservationWindows({ tenantId: 'tenant-a', agentId: 'agent-a' }),
-    ).rejects.toMatchObject({ reason: 'response-too-large' })
+    await expect(connector.readObservationWindows(runtimeRequest)).rejects.toMatchObject({
+      reason: 'response-too-large',
+    })
   })
 
   it('parses multi-source configuration and rejects a mismatched source request', async () => {
@@ -1606,6 +1826,9 @@ describe('Azure Monitor OTel connector', () => {
           id: 'project-a',
           name: 'Project A',
           workspaceId: config.workspaceId,
+          providerResourceId: config.providerResourceId,
+          applicationRoleName: config.applicationRoleName,
+          requestName: config.requestName,
           tenantId: config.tenantId,
           sourceProjectId: config.sourceProjectId,
           environment: config.environment,
@@ -1636,6 +1859,9 @@ describe('Azure Monitor OTel connector', () => {
           id: 'project-a',
           name: 'Project A',
           workspaceId: config.workspaceId,
+          providerResourceId: config.providerResourceId,
+          applicationRoleName: config.applicationRoleName,
+          requestName: config.requestName,
           tenantId: config.tenantId,
           sourceProjectId: config.sourceProjectId,
           environment: config.environment,
@@ -1652,8 +1878,16 @@ describe('Azure Monitor OTel connector', () => {
     )
     await expect(
       connector.readObservationWindows({
+        snapshotGeneratedAt: '2026-08-24T12:00:00.000Z',
+        estateId: 'estate-a',
+        estateEnvironment: 'portfolio',
         tenantId: 'estate',
         agentId: 'aggregate-agent',
+        sourceConnectorId: 'project-a',
+        sourceTenantId: config.tenantId,
+        sourceProjectId: config.sourceProjectId,
+        sourceAgentId: 'provider-project-a',
+        sourceEnvironment: config.environment,
       }),
     ).rejects.toThrow()
     expect(connector.getConnectorHealth()).toMatchObject({
@@ -1666,10 +1900,8 @@ describe('Azure Monitor OTel connector', () => {
   it('rejects unsafe bindings and invalid time configuration', () => {
     expect(() =>
       buildAzureMonitorOtelQuery({
-        tenantId: 'tenant-a',
+        ...queryBinding,
         agentId: "agent' | take 100",
-        environment: 'production',
-        sourceProjectId: 'project-a',
       }),
     ).toThrow()
     expect(() =>
@@ -1687,8 +1919,6 @@ describe('Azure Monitor OTel connector', () => {
       () => new Date('2026-08-24T12:00:00.000Z'),
     )
 
-    await expect(
-      connector.readObservationWindows({ tenantId: 'tenant-a', agentId: 'agent-a' }),
-    ).rejects.toThrow('status 403')
+    await expect(connector.readObservationWindows(runtimeRequest)).rejects.toThrow('status 403')
   })
 })

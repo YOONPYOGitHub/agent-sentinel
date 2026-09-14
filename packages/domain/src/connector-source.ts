@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { estateIdSchema } from './estate.js'
+import { azureApplicationInsightsResourceIdSchema } from './provider-resource.js'
 import { sourceProjectIdSchema } from './source-project.js'
 
 const azureGuidSchema = z
@@ -304,6 +305,9 @@ export const connectorSourceConfigurationSchema = z.discriminatedUnion('type', [
   z.strictObject({
     type: z.literal('azure-monitor-otel'),
     workspaceId: azureGuidSchema,
+    providerResourceId: azureApplicationInsightsResourceIdSchema,
+    applicationRoleName: boundedIdentifierSchema,
+    requestName: z.literal('agent.invoke').default('agent.invoke'),
     sourceProjectId: sourceProjectIdSchema,
     logsBaseUrl: exactHttpsOriginSchema(
       'https://api.loganalytics.io',
@@ -311,6 +315,7 @@ export const connectorSourceConfigurationSchema = z.discriminatedUnion('type', [
     ).default('https://api.loganalytics.io'),
     baselineWindowHours: z.number().int().min(1).max(744).default(168),
     observedWindowHours: z.number().int().min(1).max(168).default(24),
+    maximumFreshnessHours: z.number().int().min(1).max(744).default(168),
     requestTimeoutMs: z.number().int().min(1_000).max(60_000).default(15_000),
     maxResponseBytes: z
       .number()
@@ -518,12 +523,17 @@ export type ConnectorSourceDefinition = z.infer<typeof connectorSourceDefinition
 const legacyAzureMonitorConfigurationSchema = z.strictObject({
   type: z.literal('azure-monitor-otel'),
   workspaceId: azureGuidSchema,
+  sourceProjectId: sourceProjectIdSchema.optional(),
+  providerResourceId: azureApplicationInsightsResourceIdSchema.optional(),
+  applicationRoleName: boundedIdentifierSchema.optional(),
+  requestName: boundedIdentifierSchema.optional(),
   logsBaseUrl: exactHttpsOriginSchema(
     'https://api.loganalytics.io',
     'Azure Monitor Logs base',
   ).default('https://api.loganalytics.io'),
   baselineWindowHours: z.number().int().min(1).max(744).default(168),
   observedWindowHours: z.number().int().min(1).max(168).default(24),
+  maximumFreshnessHours: z.number().int().min(1).max(744).default(168),
   requestTimeoutMs: z.number().int().min(1_000).max(60_000).default(15_000),
   maxResponseBytes: z
     .number()
@@ -656,6 +666,12 @@ export const connectorSourceMigrationSchema = z.discriminatedUnion('reason', [
   z.strictObject({
     status: z.literal('migration-required'),
     active: z.literal(false),
+    reason: z.literal('missing-otel-contract'),
+    action: z.literal('supply-exact-otel-contract'),
+  }),
+  z.strictObject({
+    status: z.literal('migration-required'),
+    active: z.literal(false),
     reason: z.literal('legacy-agent365-retry-after-limit'),
     action: z.literal('reduce-max-retry-after-ms'),
   }),
@@ -663,16 +679,25 @@ export const connectorSourceMigrationSchema = z.discriminatedUnion('reason', [
 export type ConnectorSourceMigration = z.infer<typeof connectorSourceMigrationSchema>
 
 export const connectorSourceMigrationRequiredSchema = z.union([
-  legacyAzureMonitorConnectorSourceSchema.safeExtend({
-    enabled: z.literal(false),
-    testStatus: z.strictObject({ status: z.literal('not-tested') }),
-    migration: z.strictObject({
-      status: z.literal('migration-required'),
-      active: z.literal(false),
-      reason: z.literal('missing-source-project-id'),
-      action: z.literal('supply-exact-source-project-id'),
+  legacyAzureMonitorConnectorSourceSchema
+    .safeExtend({
+      enabled: z.literal(false),
+      testStatus: z.strictObject({ status: z.literal('not-tested') }),
+      migration: connectorSourceMigrationSchema,
+    })
+    .superRefine((source, context) => {
+      const expectedReason =
+        source.configuration.sourceProjectId === undefined
+          ? 'missing-source-project-id'
+          : 'missing-otel-contract'
+      if (source.migration.reason !== expectedReason) {
+        context.addIssue({
+          code: 'custom',
+          path: ['migration', 'reason'],
+          message: `Legacy Azure Monitor migration must use ${expectedReason}.`,
+        })
+      }
     }),
-  }),
   legacyAgent365ConnectorSourceSchema.safeExtend({
     enabled: z.literal(false),
     testStatus: z.strictObject({ status: z.literal('not-tested') }),
@@ -719,9 +744,17 @@ function exactAzureMonitorBinding(
   const previous = legacy.configuration
   return (
     current.workspaceId === previous.workspaceId &&
+    (previous.sourceProjectId === undefined ||
+      current.sourceProjectId === previous.sourceProjectId) &&
+    (previous.providerResourceId === undefined ||
+      current.providerResourceId === previous.providerResourceId) &&
+    (previous.applicationRoleName === undefined ||
+      current.applicationRoleName === previous.applicationRoleName) &&
+    (previous.requestName === undefined || current.requestName === previous.requestName) &&
     current.logsBaseUrl === previous.logsBaseUrl &&
     current.baselineWindowHours === previous.baselineWindowHours &&
     current.observedWindowHours === previous.observedWindowHours &&
+    current.maximumFreshnessHours === previous.maximumFreshnessHours &&
     current.requestTimeoutMs === previous.requestTimeoutMs &&
     current.maxResponseBytes === previous.maxResponseBytes
   )
@@ -749,7 +782,13 @@ export function hydratePersistedConnectorSourceDefinition(
         ...legacy,
         configuration: {
           ...legacy.configuration,
-          sourceProjectId: binding.configuration.sourceProjectId,
+          sourceProjectId:
+            legacy.configuration.sourceProjectId ?? binding.configuration.sourceProjectId,
+          providerResourceId:
+            legacy.configuration.providerResourceId ?? binding.configuration.providerResourceId,
+          applicationRoleName:
+            legacy.configuration.applicationRoleName ?? binding.configuration.applicationRoleName,
+          requestName: binding.configuration.requestName,
         },
       })
     }
@@ -760,8 +799,14 @@ export function hydratePersistedConnectorSourceDefinition(
       migration: {
         status: 'migration-required',
         active: false,
-        reason: 'missing-source-project-id',
-        action: 'supply-exact-source-project-id',
+        reason:
+          legacy.configuration.sourceProjectId === undefined
+            ? 'missing-source-project-id'
+            : 'missing-otel-contract',
+        action:
+          legacy.configuration.sourceProjectId === undefined
+            ? 'supply-exact-source-project-id'
+            : 'supply-exact-otel-contract',
       },
     })
   }

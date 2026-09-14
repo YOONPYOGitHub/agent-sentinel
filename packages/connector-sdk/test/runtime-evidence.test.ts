@@ -14,6 +14,16 @@ import {
   withoutSyntheticObservations,
 } from '../src/index.js'
 
+const providerResourceId =
+  '/subscriptions/11111111-1111-4111-8111-111111111111/resourcegroups/rg-test/providers/microsoft.insights/components/app-test'
+const sourceSetFingerprint = 'f'.repeat(64)
+const contractIdentity = {
+  version: 1 as const,
+  recordType: 'agent_invocation' as const,
+  applicationRoleName: 'agent-runtime',
+  requestName: 'agent.invoke' as const,
+}
+
 function snapshot(): EstateSnapshot {
   return estateSnapshotSchema.parse({
     tenantId: 'tenant-a',
@@ -155,8 +165,11 @@ function normalizedWindows() {
     sourceProjectId: 'project-a',
     sourceEnvironment: 'production',
     provider: 'azure-monitor-otel',
-    providerResourceId: '/subscriptions/example/resource',
+    providerResourceId,
     providerAgentId: 'provider-agent-a',
+    sourceSetFingerprint,
+    measuredAt: '2026-08-30T00:00:00.000Z',
+    contract: contractIdentity,
   }
   normalized.baseline.observations = [
     {
@@ -175,14 +188,18 @@ function normalizedWindows() {
         sourceProjectId: 'project-a',
         sourceEnvironment: 'production',
         provider: 'azure-monitor-otel',
-        providerResourceId: '/subscriptions/example/resource',
+        providerResourceId,
         providerAgentId: 'provider-agent-a',
+        providerInvocationId: 'baseline-real',
+        sourceSetFingerprint,
+        measuredAt: '2026-08-30T00:00:00.000Z',
         traceId: '22222222222222222222222222222222',
         spanId: 'bbbbbbbbbbbbbbbb',
         observedAt: '2026-08-28T12:00:00.000Z',
         classification: 'live',
         sampling: { state: 'complete', rate: 1 },
         aggregation: { kind: 'raw' },
+        contract: { ...contractIdentity, outcome: 'success' },
         partial: false,
         evidenceIds: ['invocation', 'latency', 'error', 'input-tokens', 'output-tokens', 'cost'],
       },
@@ -214,14 +231,18 @@ function normalizedWindows() {
         sourceProjectId: 'project-a',
         sourceEnvironment: 'production',
         provider: 'azure-monitor-otel',
-        providerResourceId: '/subscriptions/example/resource',
+        providerResourceId,
         providerAgentId: 'provider-agent-a',
+        providerInvocationId: 'observed-real',
+        sourceSetFingerprint,
+        measuredAt: '2026-08-30T00:00:00.000Z',
         traceId: '11111111111111111111111111111111',
         spanId: 'aaaaaaaaaaaaaaaa',
         observedAt: '2026-08-29T12:00:00.000Z',
         classification: 'live',
         sampling: { state: 'complete', rate: 1 },
         aggregation: { kind: 'raw' },
+        contract: { ...contractIdentity, outcome: 'success' },
         partial: false,
         evidenceIds: ['invocation', 'latency', 'error', 'input-tokens', 'output-tokens', 'cost'],
       },
@@ -251,6 +272,9 @@ function defaultBaselineBoundary() {
   candidate.observed.observations[0]!.otelProvenance!.observedAt =
     candidate.observed.observations[0]!.observedAt
   candidate.queriedAt = candidate.observed.windowEnd
+  candidate.baseline.observations[0]!.otelProvenance!.measuredAt = candidate.queriedAt
+  candidate.observed.observations[0]!.otelProvenance!.measuredAt = candidate.queriedAt
+  candidate.provenance!.measuredAt = candidate.queriedAt
   candidate.maximumFreshnessHours = 168
   return candidate
 }
@@ -630,6 +654,49 @@ describe('runtime evidence projection', () => {
     )
   })
 
+  it('persists more than 500 bounded runtime invocations in one observed window', () => {
+    const candidate = normalizedWindows()
+    const template = candidate.observed.observations[0]!
+    candidate.observed.observations = Array.from({ length: 501 }, (_, index) => {
+      const suffix = (index + 1).toString(16)
+      return {
+        ...structuredClone(template),
+        id: `observed-${index + 1}`,
+        otelProvenance: {
+          ...structuredClone(template.otelProvenance!),
+          providerInvocationId: `observed-${index + 1}`,
+          traceId: suffix.padStart(32, '0'),
+          spanId: suffix.padStart(16, '0'),
+          evidenceIds: [
+            `invocation-${index}`,
+            `latency-${index}`,
+            `error-${index}`,
+            `input-${index}`,
+            `output-${index}`,
+            `cost-${index}`,
+          ],
+        },
+      }
+    })
+    candidate.observed.otelQuality = {
+      status: 'available',
+      classification: 'live',
+      caveats: [],
+      recordsReceived: 3_006,
+      recordsAccepted: 3_006,
+      duplicatesRemoved: 0,
+      pagesProcessed: 7,
+    }
+
+    const result = project(snapshot(), candidate)
+
+    expect(
+      result.snapshot.evidence.find((evidence) => evidence.id === 'observed-evidence')?.otel
+        ?.invocations,
+    ).toHaveLength(501)
+    expect(result.dataState).toEqual({ state: 'complete' })
+  })
+
   it('removes synthetic canaries from real behavior analysis windows', () => {
     const measured = withoutSyntheticObservations(windows())
     expect(measured.observed.observations.map((item) => item.id)).toEqual(['observed-real'])
@@ -696,6 +763,9 @@ describe('runtime evidence projection', () => {
   it('rejects a window whose query delay exceeds the freshness maximum by one millisecond', () => {
     const staleWindow = defaultBaselineBoundary()
     staleWindow.queriedAt = '2026-09-16T06:00:00.001Z'
+    staleWindow.provenance!.measuredAt = staleWindow.queriedAt
+    staleWindow.baseline.observations[0]!.otelProvenance!.measuredAt = staleWindow.queriedAt
+    staleWindow.observed.observations[0]!.otelProvenance!.measuredAt = staleWindow.queriedAt
 
     const estate = snapshot()
     const result = project(estate, staleWindow)
@@ -873,7 +943,7 @@ describe('runtime evidence projection', () => {
           toolCallNames: ['knowledge_search', 'knowledge_search'],
           provenance: expect.objectContaining({
             providerAgentId: 'provider-agent-a',
-            providerResourceId: '/subscriptions/example/resource',
+            providerResourceId,
             traceId: '11111111111111111111111111111111',
             spanId: 'aaaaaaaaaaaaaaaa',
           }),

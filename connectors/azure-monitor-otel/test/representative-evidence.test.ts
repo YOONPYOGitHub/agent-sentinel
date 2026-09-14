@@ -25,9 +25,17 @@ const binding = {
   sourceProjectId: 'project-a',
   sourceEnvironment: 'production',
   providerResourceId:
-    '/subscriptions/00000000-0000-4000-8000-000000000000/resourceGroups/rg-demo/providers/Microsoft.Insights/components/app-demo',
+    '/subscriptions/00000000-0000-4000-8000-000000000000/resourcegroups/rg-demo/providers/microsoft.insights/components/app-demo',
   agentId: 'agent-a',
   sourceAgentId: 'provider-agent-a',
+  sourceSetFingerprint: 'f'.repeat(64),
+  measuredAt: '2026-09-06T06:05:00.000Z',
+  contract: {
+    version: 1,
+    recordType: 'agent_invocation',
+    applicationRoleName: 'agent-runtime',
+    requestName: 'agent.invoke',
+  },
   windowId: 'representative-window',
   windowStart: '2026-09-06T00:00:00.000Z',
   windowEnd: '2026-09-06T06:00:00.000Z',

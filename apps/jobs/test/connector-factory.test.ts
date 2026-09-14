@@ -140,6 +140,9 @@ describe('jobs connector selection', () => {
       'foundry',
       {
         AZURE_MONITOR_WORKSPACE_ID: '11111111-1111-4111-8111-111111111111',
+        AZURE_MONITOR_PROVIDER_RESOURCE_ID:
+          '/subscriptions/11111111-1111-4111-8111-111111111111/resourceGroups/rg-test/providers/Microsoft.Insights/components/app-test',
+        AZURE_MONITOR_APPLICATION_ROLE_NAME: 'agent-runtime',
         AZURE_MONITOR_TENANT_ID: '22222222-2222-4222-8222-222222222222',
         AZURE_MONITOR_ENVIRONMENT: 'production',
         FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/project-a',

@@ -10,9 +10,13 @@ import type {
   RuntimeTelemetryConnector,
 } from '@agent-sentinel/connector-sdk'
 import {
+  MAX_RUNTIME_OTEL_OBSERVATIONS,
   assessRuntimeOtelQuality,
   agentCorrelationsSchema,
+  azureApplicationInsightsResourceIdSchema,
   observationWindowSchema,
+  otelSpanIdSchema,
+  otelTraceIdSchema,
   runtimeOtelProvenanceSchema,
   runtimeObservationSchema,
   sourceProjectIdSchema,
@@ -55,16 +59,21 @@ const LOGS_ORIGIN = 'https://api.loganalytics.io'
 const MAX_QUERY_ROWS_PER_PAGE = MAX_REPRESENTATIVE_OTEL_OBSERVATIONS + 1
 const MAX_INITIAL_QUERY_ROWS = MAX_REPRESENTATIVE_OTEL_OBSERVATIONS * 2 + 1
 const MAX_QUERY_PAGES = 20
-const MAX_WINDOW_OBSERVATIONS = MAX_REPRESENTATIVE_OTEL_OBSERVATIONS * MAX_QUERY_PAGES
+const MAX_WINDOW_OBSERVATIONS = MAX_RUNTIME_OTEL_OBSERVATIONS
 const MAX_QUERY_HOURS = 24 * 31
 const WINDOW_ALIGNMENT_MS = 5 * 60 * 1_000
 const SAFE_BINDING = /^[A-Za-z0-9][A-Za-z0-9._:/ -]{0,199}$/
 
 const bindingSchema = z.string().trim().min(1).max(200).regex(SAFE_BINDING)
 const sourceProjectBindingSchema = sourceProjectIdSchema.regex(SAFE_BINDING)
+const applicationRoleNameSchema = z.string().trim().min(1).max(200)
+const requestNameSchema = z.literal('agent.invoke').default('agent.invoke')
 
 export const azureMonitorOtelConfigSchema = z.strictObject({
   workspaceId: z.uuid(),
+  providerResourceId: azureApplicationInsightsResourceIdSchema,
+  applicationRoleName: applicationRoleNameSchema,
+  requestName: requestNameSchema,
   tenantId: bindingSchema,
   sourceProjectId: sourceProjectBindingSchema,
   environment: bindingSchema,
@@ -107,6 +116,31 @@ export type AzureMonitorOtelRuntimeMode = 'mock' | 'live'
 export interface AzureMonitorOtelRuntimeActivation {
   active: boolean
   sources: AzureMonitorOtelSourceConfig[]
+}
+
+export function computeAzureMonitorOtelSourceSetFingerprint(
+  sourcesInput: readonly AzureMonitorOtelSourceConfigInput[],
+): string {
+  const canonical = azureMonitorOtelSourcesConfigSchema
+    .parse(sourcesInput)
+    .map((source) => ({
+      id: source.id,
+      name: source.name,
+      workspaceId: source.workspaceId,
+      providerResourceId: source.providerResourceId,
+      applicationRoleName: source.applicationRoleName,
+      requestName: source.requestName,
+      tenantId: source.tenantId.toLowerCase(),
+      sourceProjectId: source.sourceProjectId,
+      environment: source.environment,
+      baselineWindowHours: source.baselineWindowHours,
+      observedWindowHours: source.observedWindowHours,
+      maximumFreshnessHours: source.maximumFreshnessHours,
+      requestTimeoutMs: source.requestTimeoutMs,
+      maxResponseBytes: source.maxResponseBytes,
+    }))
+    .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex')
 }
 
 async function readResponseChunk(
@@ -241,10 +275,17 @@ export const runtimeTelemetryRequestSchema = z.strictObject({
   sourceProjectId: sourceProjectBindingSchema.optional(),
   sourceAgentId: bindingSchema.optional(),
   sourceEnvironment: bindingSchema.optional(),
+  sourceSetFingerprint: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
 })
 
 const rowBindingSchema = runtimeTelemetryRequestSchema.extend({
   environment: bindingSchema,
+  providerResourceId: azureApplicationInsightsResourceIdSchema,
+  applicationRoleName: applicationRoleNameSchema,
+  requestName: requestNameSchema,
   windowStart: z.iso.datetime(),
   windowEnd: z.iso.datetime(),
   provenance: z
@@ -257,14 +298,22 @@ const rowBindingSchema = runtimeTelemetryRequestSchema.extend({
       sourceTenantId: bindingSchema,
       sourceProjectId: sourceProjectBindingSchema,
       sourceEnvironment: bindingSchema,
-      providerResourceId: bindingSchema,
+      providerResourceId: azureApplicationInsightsResourceIdSchema,
       providerAgentId: bindingSchema,
+      sourceSetFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+      measuredAt: z.iso.datetime(),
+      contract: z.strictObject({
+        version: z.literal(1),
+        recordType: z.literal('agent_invocation'),
+        applicationRoleName: applicationRoleNameSchema,
+        requestName: requestNameSchema,
+      }),
     })
     .optional(),
 })
 
 const expectedColumns = [
-  ['ObservationId', 'string'],
+  ['ProviderInvocationId', 'string'],
   ['ObservedAt', 'datetime'],
   ['TenantId', 'string'],
   ['AgentId', 'string'],
@@ -284,6 +333,20 @@ const expectedColumns = [
   ['SpanId', 'string'],
   ['ItemCount', 'long'],
   ['SourceProjectId', 'string'],
+  ['ResourceId', 'string'],
+  ['ProviderResourceId', 'string'],
+  ['ApplicationRoleName', 'string'],
+  ['RequestName', 'string'],
+  ['ContractVersion', 'long'],
+  ['RecordType', 'string'],
+  ['SourceConnectorId', 'string'],
+  ['EstateId', 'string'],
+  ['EstateTenantId', 'string'],
+  ['EstateEnvironment', 'string'],
+  ['SourceTenantId', 'string'],
+  ['SourceEnvironment', 'string'],
+  ['ProviderAgentId', 'string'],
+  ['Outcome', 'string'],
 ] as const
 
 const queryTableSchema = z.strictObject({
@@ -310,7 +373,13 @@ export class AzureMonitorOtelConnectorError extends Error {
   constructor(
     message: string,
     readonly reason:
-      'cancelled' | 'timeout' | 'query-failed' | 'response-too-large' = 'query-failed',
+      | 'cancelled'
+      | 'timeout'
+      | 'authorization-required'
+      | 'query-failed'
+      | 'page-limit-exceeded'
+      | 'record-limit-exceeded'
+      | 'response-too-large' = 'query-failed',
   ) {
     super(message)
   }
@@ -333,7 +402,7 @@ function assertColumns(response: AzureMonitorLogsQueryResponse): void {
 }
 
 const projectedRowSchema = z.strictObject({
-  ObservationId: z.string().trim().max(1_000).nullable(),
+  ProviderInvocationId: z.string().trim().max(200).nullable(),
   ObservedAt: z.iso.datetime(),
   TenantId: z.string().trim().max(1_000),
   AgentId: z.string().trim().max(1_000),
@@ -353,6 +422,20 @@ const projectedRowSchema = z.strictObject({
   TraceId: z.string().max(64).nullable(),
   SpanId: z.string().max(32).nullable(),
   ItemCount: z.number().finite().nullable(),
+  ResourceId: azureApplicationInsightsResourceIdSchema,
+  ProviderResourceId: azureApplicationInsightsResourceIdSchema,
+  ApplicationRoleName: applicationRoleNameSchema,
+  RequestName: requestNameSchema,
+  ContractVersion: z.number().int(),
+  RecordType: z.string().trim().min(1).max(100),
+  SourceConnectorId: bindingSchema,
+  EstateId: bindingSchema,
+  EstateTenantId: bindingSchema,
+  EstateEnvironment: bindingSchema,
+  SourceTenantId: bindingSchema,
+  SourceEnvironment: bindingSchema,
+  ProviderAgentId: bindingSchema,
+  Outcome: z.enum(['success', 'error']),
 })
 type ProjectedRow = z.infer<typeof projectedRowSchema>
 
@@ -398,13 +481,19 @@ const invocationClaimNames = [
 function invocationEvidenceIds(
   providerResourceId: string,
   sourceProjectId: string,
+  sourceSetFingerprint: string,
+  applicationRoleName: string,
+  requestName: string,
+  providerInvocationId: string,
   traceId: string,
   spanId: string,
 ): string[] {
   return invocationClaimNames.map(
     (claim) =>
       `otel-claim-${createHash('sha256')
-        .update(`${providerResourceId}\0${sourceProjectId}\0${traceId}\0${spanId}\0${claim}`)
+        .update(
+          `${providerResourceId}\0${sourceProjectId}\0${sourceSetFingerprint}\0${applicationRoleName}\0${requestName}\0${providerInvocationId}\0${traceId}\0${spanId}\0${claim}`,
+        )
         .digest('hex')
         .slice(0, 32)}`,
   )
@@ -414,10 +503,11 @@ function rowOtelProvenance(row: ProjectedRow, binding: z.infer<typeof rowBinding
   const provenance = binding.provenance
   if (
     provenance === undefined ||
+    row.ProviderInvocationId === null ||
     row.TraceId === null ||
     row.SpanId === null ||
-    !/^[0-9a-f]{32}$/.test(row.TraceId) ||
-    !/^[0-9a-f]{16}$/.test(row.SpanId) ||
+    !otelTraceIdSchema.safeParse(row.TraceId).success ||
+    !otelSpanIdSchema.safeParse(row.SpanId).success ||
     row.LatencyMs === null ||
     row.InputTokens === null ||
     row.OutputTokens === null ||
@@ -428,6 +518,7 @@ function rowOtelProvenance(row: ProjectedRow, binding: z.infer<typeof rowBinding
   return runtimeOtelProvenanceSchema.parse({
     ...provenance,
     provider: 'azure-monitor-otel',
+    providerInvocationId: row.ProviderInvocationId,
     traceId: row.TraceId,
     spanId: row.SpanId,
     observedAt: row.ObservedAt,
@@ -439,10 +530,21 @@ function rowOtelProvenance(row: ProjectedRow, binding: z.infer<typeof rowBinding
           ? { state: 'unknown' }
           : { state: 'sampled', rate: 1 / row.ItemCount },
     aggregation: { kind: 'raw' },
+    contract: {
+      version: row.ContractVersion,
+      recordType: row.RecordType,
+      applicationRoleName: row.ApplicationRoleName,
+      requestName: row.RequestName,
+      outcome: row.Outcome,
+    },
     partial: false,
     evidenceIds: invocationEvidenceIds(
       provenance.providerResourceId,
       provenance.sourceProjectId,
+      provenance.sourceSetFingerprint,
+      provenance.contract.applicationRoleName,
+      provenance.contract.requestName,
+      row.ProviderInvocationId,
       row.TraceId,
       row.SpanId,
     ),
@@ -479,15 +581,32 @@ function parseAzureMonitorRows(
     const observedAtMs = new Date(row.ObservedAt).getTime()
     if (
       row.SourceProjectId !== expectedBinding.sourceProjectId ||
-      (validateBinding && row.TenantId !== expectedBinding.tenantId) ||
-      (validateBinding &&
-        (row.AgentId !== expectedBinding.agentId ||
-          row.Environment !== expectedBinding.environment ||
-          observedAtMs < startMs ||
-          observedAtMs > endMs))
+      row.ResourceId !== expectedBinding.providerResourceId ||
+      row.ProviderResourceId !== expectedBinding.providerResourceId ||
+      row.ApplicationRoleName !== expectedBinding.applicationRoleName ||
+      row.RequestName !== expectedBinding.requestName ||
+      row.ContractVersion !== 1 ||
+      row.RecordType !== 'agent_invocation' ||
+      expectedBinding.sourceConnectorId === undefined ||
+      row.SourceConnectorId !== expectedBinding.sourceConnectorId ||
+      expectedBinding.estateId === undefined ||
+      row.EstateId !== expectedBinding.estateId ||
+      row.EstateTenantId !== expectedBinding.tenantId ||
+      expectedBinding.estateEnvironment === undefined ||
+      row.EstateEnvironment !== expectedBinding.estateEnvironment ||
+      row.SourceTenantId !== (expectedBinding.sourceTenantId ?? expectedBinding.tenantId) ||
+      row.SourceEnvironment !==
+        (expectedBinding.sourceEnvironment ?? expectedBinding.environment) ||
+      row.ProviderAgentId !== (expectedBinding.sourceAgentId ?? expectedBinding.agentId) ||
+      row.AgentId !== row.ProviderAgentId ||
+      row.TenantId !== row.SourceTenantId ||
+      row.Environment !== row.SourceEnvironment ||
+      row.Synthetic !== false ||
+      row.Outcome !== (row.Success === true ? 'success' : row.Success === false ? 'error' : '') ||
+      (validateBinding && (observedAtMs < startMs || observedAtMs >= endMs))
     ) {
       throw new AzureMonitorOtelConnectorError(
-        `Azure Monitor row ${index} does not match the requested tenant, project, agent, environment, or time window.`,
+        `Azure Monitor row ${index} does not match the requested native resource, role, name, contract, estate, tenant, project, source, agent, outcome, or time window.`,
       )
     }
     return row
@@ -499,7 +618,7 @@ function canonicalizeAzureMonitorRows(rows: readonly ProjectedRow[]): CanonicalA
   const grouped = new Map<string, Array<{ canonical: string; row: ProjectedRow }>>()
   const canonicalRows: ProjectedRow[] = []
   for (const row of rows) {
-    const observationId = row.ObservationId?.trim() ?? ''
+    const observationId = row.ProviderInvocationId?.trim() ?? ''
     if (observationId === '') {
       canonicalRows.push(row)
       continue
@@ -554,7 +673,11 @@ function runtimeObservationForRow(
   row: ProjectedRow,
   binding: z.infer<typeof rowBindingSchema>,
 ): RuntimeObservation {
-  if (row.ObservationId === null || row.ObservationId.trim() === '' || row.Success === null) {
+  if (
+    row.ProviderInvocationId === null ||
+    row.ProviderInvocationId.trim() === '' ||
+    row.Success === null
+  ) {
     throw new AzureMonitorOtelConnectorError(
       'Azure Monitor rows require an explicit observation ID and success value.',
     )
@@ -566,7 +689,7 @@ function runtimeObservationForRow(
   }
   const otelProvenance = rowOtelProvenance(row, binding)
   return runtimeObservationSchema.parse({
-    id: row.ObservationId,
+    id: row.ProviderInvocationId,
     tenantId: row.TenantId,
     agentId: row.AgentId,
     environment: row.Environment,
@@ -624,9 +747,9 @@ function representativeRecordsForRow(
   binding: RepresentativeOtelWindowBinding,
   exactBoundary: boolean,
 ): unknown[] {
-  const observationId = exactObservationId(row.ObservationId)
-  const exactTraceId = row.TraceId !== null && /^[0-9a-f]{32}$/.test(row.TraceId)
-  const exactSpanId = row.SpanId !== null && /^[0-9a-f]{16}$/.test(row.SpanId)
+  const observationId = exactObservationId(row.ProviderInvocationId)
+  const exactTraceId = row.TraceId !== null && otelTraceIdSchema.safeParse(row.TraceId).success
+  const exactSpanId = row.SpanId !== null && otelSpanIdSchema.safeParse(row.SpanId).success
   const complete =
     exactBoundary &&
     observationId !== undefined &&
@@ -634,6 +757,20 @@ function representativeRecordsForRow(
     row.AgentId === binding.sourceAgentId &&
     row.SourceProjectId === binding.sourceProjectId &&
     row.Environment === binding.sourceEnvironment &&
+    row.ResourceId === binding.providerResourceId &&
+    row.ProviderResourceId === binding.providerResourceId &&
+    row.ApplicationRoleName === binding.contract.applicationRoleName &&
+    row.RequestName === binding.contract.requestName &&
+    row.ContractVersion === binding.contract.version &&
+    row.RecordType === binding.contract.recordType &&
+    row.SourceConnectorId === binding.sourceConnectorId &&
+    row.EstateId === binding.estateId &&
+    row.EstateTenantId === binding.estateTenantId &&
+    row.EstateEnvironment === binding.estateEnvironment &&
+    row.SourceTenantId === binding.sourceTenantId &&
+    row.SourceEnvironment === binding.sourceEnvironment &&
+    row.ProviderAgentId === binding.sourceAgentId &&
+    row.Outcome === (row.Success === true ? 'success' : 'error') &&
     exactTraceId &&
     exactSpanId &&
     row.ItemCount === 1 &&
@@ -698,6 +835,9 @@ function representativeRecordsForRow(
       sourceEnvironment: row.Environment || null,
       providerResourceId: binding.providerResourceId,
       sourceAgentId: row.AgentId || null,
+      providerInvocationId: observationId ?? null,
+      sourceSetFingerprint: binding.sourceSetFingerprint,
+      measuredAt: binding.measuredAt,
       traceId: row.TraceId,
       spanId: row.SpanId,
       signal,
@@ -705,6 +845,13 @@ function representativeRecordsForRow(
       classification,
       sampling,
       aggregation: { kind: 'raw' },
+      contract: {
+        version: row.ContractVersion,
+        recordType: row.RecordType,
+        applicationRoleName: row.ApplicationRoleName,
+        requestName: row.RequestName,
+        outcome: row.Outcome,
+      },
       correlations,
       toolCallNames,
       partial: !complete,
@@ -739,7 +886,7 @@ function normalizationDiagnosticsForRows(
   canonicalRows: readonly ProjectedRow[],
   canonicalization: CanonicalAzureMonitorRows,
 ) {
-  const observationIds = new Set(originalRows.map((row) => row.ObservationId?.trim() ?? ''))
+  const observationIds = new Set(originalRows.map((row) => row.ProviderInvocationId?.trim() ?? ''))
   const caveats: OtelEvidenceCaveat[] = []
   if (
     [...observationIds].some((observationId) =>
@@ -834,7 +981,7 @@ function normalizeAzureMonitorWindow(
   void queriedAt
   const rowsByObservationId = new Map<string, ProjectedRow>()
   for (const row of rows) {
-    const observationId = exactObservationId(row.ObservationId)
+    const observationId = exactObservationId(row.ProviderInvocationId)
     if (observationId !== undefined && !rowsByObservationId.has(observationId)) {
       rowsByObservationId.set(observationId, row)
     }
@@ -886,7 +1033,12 @@ function normalizeAzureMonitorWindow(
 }
 
 function kqlString(value: string): string {
-  return `'${value.replaceAll("'", "''")}'`
+  return `'${value
+    .replaceAll('\\', '\\\\')
+    .replaceAll("'", "\\'")
+    .replaceAll('\r', '\\r')
+    .replaceAll('\n', '\\n')
+    .replaceAll('\t', '\\t')}'`
 }
 
 /**
@@ -897,7 +1049,17 @@ export function buildAzureMonitorOtelQuery(binding: {
   tenantId: string
   agentId: string
   environment: string
+  sourceConnectorId: string
+  estateId: string
+  estateTenantId: string
+  estateEnvironment: string
+  sourceTenantId: string
   sourceProjectId: string
+  providerResourceId: string
+  applicationRoleName: string
+  requestName: string
+  windowStart: string
+  windowEnd: string
   maximumRows?: number
 }): string {
   const parsed = z
@@ -905,7 +1067,17 @@ export function buildAzureMonitorOtelQuery(binding: {
       tenantId: bindingSchema,
       agentId: bindingSchema,
       environment: bindingSchema,
+      sourceConnectorId: bindingSchema,
+      estateId: bindingSchema,
+      estateTenantId: bindingSchema,
+      estateEnvironment: bindingSchema,
+      sourceTenantId: bindingSchema,
       sourceProjectId: sourceProjectBindingSchema,
+      providerResourceId: azureApplicationInsightsResourceIdSchema,
+      applicationRoleName: applicationRoleNameSchema,
+      requestName: requestNameSchema,
+      windowStart: z.iso.datetime(),
+      windowEnd: z.iso.datetime(),
       maximumRows: z
         .number()
         .int()
@@ -913,19 +1085,58 @@ export function buildAzureMonitorOtelQuery(binding: {
         .max(MAX_INITIAL_QUERY_ROWS)
         .default(MAX_INITIAL_QUERY_ROWS),
     })
+    .superRefine((value, context) => {
+      if (Date.parse(value.windowEnd) <= Date.parse(value.windowStart)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['windowEnd'],
+          message: 'Azure Monitor query windows must be ordered and half-open.',
+        })
+      }
+    })
     .parse(binding)
   return [
     'AppRequests',
     '| extend OtelAttributes = Properties',
+    '| where tolower(tostring(_ResourceId)) == ' + kqlString(parsed.providerResourceId),
+    '| where AppRoleName == ' + kqlString(parsed.applicationRoleName),
+    '| where Name == ' + kqlString(parsed.requestName),
     '| extend TenantId = tostring(OtelAttributes["agent.sentinel.tenant_id"]),',
     '         AgentId = tostring(OtelAttributes["gen_ai.agent.id"]),',
     '         Environment = tostring(OtelAttributes["deployment.environment.name"]),',
-    '         SourceProjectId = tostring(OtelAttributes["agent.sentinel.source_project_id"])',
+    '         SourceProjectId = tostring(OtelAttributes["agent.sentinel.source_project_id"]),',
+    '         ContractVersion = tolong(OtelAttributes["agent.sentinel.contract_version"]),',
+    '         RecordType = tostring(OtelAttributes["agent.sentinel.record_type"]),',
+    '         SourceConnectorId = tostring(OtelAttributes["agent.sentinel.source_connector_id"]),',
+    '         EstateId = tostring(OtelAttributes["agent.sentinel.estate_id"]),',
+    '         EstateTenantId = tostring(OtelAttributes["agent.sentinel.estate_tenant_id"]),',
+    '         EstateEnvironment = tostring(OtelAttributes["agent.sentinel.estate_environment"]),',
+    '         SourceTenantId = tostring(OtelAttributes["agent.sentinel.source_tenant_id"]),',
+    '         SourceEnvironment = tostring(OtelAttributes["agent.sentinel.source_environment"]),',
+    '         ProviderAgentId = tostring(OtelAttributes["agent.sentinel.provider_agent_id"]),',
+    '         ProviderResourceId = tolower(tostring(OtelAttributes["agent.sentinel.provider_resource_id"])),',
+    '         Outcome = tostring(OtelAttributes["agent.sentinel.outcome"]),',
+    '         Synthetic = tobool(OtelAttributes["agent.sentinel.synthetic"])',
+    `| where TimeGenerated >= datetime(${parsed.windowStart})`,
+    `| where TimeGenerated < datetime(${parsed.windowEnd})`,
+    '| where ContractVersion == 1',
+    "| where RecordType == 'agent_invocation'",
     `| where TenantId == ${kqlString(parsed.tenantId)}`,
     `| where AgentId == ${kqlString(parsed.agentId)}`,
     `| where Environment == ${kqlString(parsed.environment)}`,
     `| where SourceProjectId == ${kqlString(parsed.sourceProjectId)}`,
-    '| project ObservationId = tostring(OtelAttributes["agent.sentinel.observation_id"]),',
+    `| where SourceConnectorId == ${kqlString(parsed.sourceConnectorId)}`,
+    `| where EstateId == ${kqlString(parsed.estateId)}`,
+    `| where EstateTenantId == ${kqlString(parsed.estateTenantId)}`,
+    `| where EstateEnvironment == ${kqlString(parsed.estateEnvironment)}`,
+    `| where SourceTenantId == ${kqlString(parsed.sourceTenantId)}`,
+    `| where SourceEnvironment == ${kqlString(parsed.environment)}`,
+    `| where ProviderAgentId == ${kqlString(parsed.agentId)}`,
+    `| where ProviderResourceId == ${kqlString(parsed.providerResourceId)}`,
+    '| where isnotnull(Success) and isnotnull(Synthetic)',
+    '| where Synthetic == false',
+    '| where (Success == true and Outcome == "success") or (Success == false and Outcome == "error")',
+    '| project ProviderInvocationId = tostring(OtelAttributes["agent.sentinel.provider_invocation_id"]),',
     '          ObservedAt = TimeGenerated, TenantId, AgentId, Environment,',
     '          AgentRunId = tostring(coalesce(OtelAttributes["gen_ai.agent.run.id"], OtelAttributes["agent.sentinel.run_id"])),',
     '          CorrelationId = tostring(coalesce(OtelAttributes["agent.sentinel.correlation_id"], OperationId)),',
@@ -937,12 +1148,18 @@ export function buildAzureMonitorOtelQuery(binding: {
     '          Success = tobool(Success),',
     '          ErrorCode = iff(tobool(Success), "", tostring(coalesce(OtelAttributes["error.type"], ResultCode))),',
     '          ToolCallNames = tostring(OtelAttributes["agent.sentinel.tool_call_names"]),',
-    '          Synthetic = tobool(OtelAttributes["agent.sentinel.synthetic"]),',
-    '          TraceId = tolower(tostring(coalesce(OtelAttributes["trace_id"], OtelAttributes["otel.trace_id"], OperationId))),',
-    '          SpanId = tolower(tostring(coalesce(OtelAttributes["span_id"], OtelAttributes["otel.span_id"], extract(@"([0-9a-fA-F]{16})\\|?$", 1, Id), Id))),',
+    '          Synthetic,',
+    '          TraceId = tostring(OperationId),',
+    '          SpanId = tostring(Id),',
     '          ItemCount = tolong(ItemCount),',
-    '          SourceProjectId',
-    '| order by ObservedAt asc, ObservationId asc, TraceId asc, SpanId asc',
+    '          SourceProjectId,',
+    '          ResourceId = tolower(tostring(_ResourceId)),',
+    '          ProviderResourceId,',
+    '          ApplicationRoleName = tostring(AppRoleName),',
+    '          RequestName = tostring(Name),',
+    '          ContractVersion, RecordType, SourceConnectorId, EstateId, EstateTenantId,',
+    '          EstateEnvironment, SourceTenantId, SourceEnvironment, ProviderAgentId, Outcome',
+    '| order by ObservedAt asc, ProviderInvocationId asc, TraceId asc, SpanId asc',
     `| take ${String(parsed.maximumRows)}`,
   ].join('\n')
 }
@@ -981,6 +1198,7 @@ function errorFromBody(body: unknown, status: number): AzureMonitorOtelConnector
 
 export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
   readonly id = 'azure-monitor-otel'
+  readonly sourceSetFingerprint: string
   private readonly config: AzureMonitorOtelConfig
 
   constructor(
@@ -988,8 +1206,11 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
     private readonly credential: TokenCredential,
     private readonly fetcher: typeof fetch = fetch,
     private readonly clock: () => Date = () => new Date(),
+    sourceSetFingerprint?: string,
   ) {
     this.config = azureMonitorOtelConfigSchema.parse(config)
+    this.sourceSetFingerprint =
+      sourceSetFingerprint ?? createHash('sha256').update(JSON.stringify(this.config)).digest('hex')
   }
 
   async readObservationWindows(
@@ -997,14 +1218,57 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
     options: ConnectorOperationRequest = {},
   ): Promise<RuntimeObservationWindows> {
     const binding = runtimeTelemetryRequestSchema.parse(request)
-    const sourceTenantId = binding.sourceTenantId ?? binding.tenantId
-    const sourceProjectId = binding.sourceProjectId ?? this.config.sourceProjectId
-    const sourceAgentId = binding.sourceAgentId ?? binding.agentId
-    const sourceEnvironment = binding.sourceEnvironment ?? this.config.environment
+    const operationLimits = z
+      .strictObject({
+        maxPages: z.number().int().min(1).max(MAX_QUERY_PAGES).default(MAX_QUERY_PAGES),
+        maxRecords: z
+          .number()
+          .int()
+          .min(1)
+          .max(1_000_000)
+          .default(MAX_WINDOW_OBSERVATIONS * 2),
+        maxBytes: z
+          .number()
+          .int()
+          .min(1)
+          .max(this.config.maxResponseBytes)
+          .default(this.config.maxResponseBytes),
+        deadlineAt: z.iso.datetime().optional(),
+      })
+      .parse({
+        maxPages: options.maxPages,
+        maxRecords: options.maxRecords,
+        maxBytes: options.maxBytes,
+        deadlineAt: options.deadlineAt,
+      })
+    if (
+      binding.snapshotGeneratedAt === undefined ||
+      binding.estateId === undefined ||
+      binding.estateEnvironment === undefined ||
+      binding.sourceConnectorId === undefined ||
+      binding.sourceTenantId === undefined ||
+      binding.sourceProjectId === undefined ||
+      binding.sourceAgentId === undefined ||
+      binding.sourceEnvironment === undefined
+    ) {
+      throw new AzureMonitorOtelConnectorError(
+        'Azure Monitor runtime reads require exact snapshot, estate, source, project, environment, and provider-agent identity.',
+      )
+    }
+    const sourceTenantId = binding.sourceTenantId
+    const sourceProjectId = binding.sourceProjectId
+    const sourceAgentId = binding.sourceAgentId
+    const sourceEnvironment = binding.sourceEnvironment
+    const sourceConnectorId = binding.sourceConnectorId
+    const sourceSetFingerprint = binding.sourceSetFingerprint ?? this.sourceSetFingerprint
+    const estateId = binding.estateId
+    const estateEnvironment = binding.estateEnvironment
     if (
       sourceTenantId.toLowerCase() !== this.config.tenantId.toLowerCase() ||
       sourceProjectId !== this.config.sourceProjectId ||
-      sourceEnvironment !== this.config.environment
+      sourceEnvironment !== this.config.environment ||
+      (binding.sourceSetFingerprint !== undefined &&
+        binding.sourceSetFingerprint !== this.sourceSetFingerprint)
     ) {
       throw new AzureMonitorOtelConnectorError(
         'The requested source boundary does not match the configured telemetry source.',
@@ -1012,6 +1276,16 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
     }
 
     const queryTime = this.clock()
+    const deadlineMs =
+      operationLimits.deadlineAt === undefined
+        ? Number.POSITIVE_INFINITY
+        : Date.parse(operationLimits.deadlineAt) - queryTime.getTime()
+    if (deadlineMs <= 0) {
+      throw new AzureMonitorOtelConnectorError(
+        'Azure Monitor Logs query deadline has expired.',
+        'timeout',
+      )
+    }
     const queriedAt = queryTime.toISOString()
     const observedEnd = new Date(
       Math.floor(queryTime.getTime() / WINDOW_ALIGNMENT_MS) * WINDOW_ALIGNMENT_MS,
@@ -1023,7 +1297,9 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
     const baselineStart = new Date(
       new Date(baselineEnd).getTime() - this.config.baselineWindowHours * 60 * 60 * 1000,
     ).toISOString()
-    const timeoutSignal = AbortSignal.timeout(this.config.requestTimeoutMs)
+    const timeoutSignal = AbortSignal.timeout(
+      Math.max(1, Math.min(this.config.requestTimeoutMs, deadlineMs)),
+    )
     const signal =
       options.signal === undefined
         ? timeoutSignal
@@ -1046,25 +1322,29 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
       }
       throw new AzureMonitorOtelConnectorError(
         'Azure credential failed to return an Azure Monitor Logs access token.',
+        'authorization-required',
       )
     }
     if (token === null) {
       throw new AzureMonitorOtelConnectorError(
         'Azure credential did not return an Azure Monitor Logs access token.',
+        'authorization-required',
       )
     }
 
     const url = new URL(`/v1/workspaces/${this.config.workspaceId}/query`, LOGS_ORIGIN)
     let pagesRead = 0
     let bytesRead = 0
+    let rawRowsRead = 0
     const queryPage = async (
       windowStart: string,
       windowEnd: string,
       maximumRows: number,
     ): Promise<ProjectedRow[]> => {
-      if (pagesRead >= MAX_QUERY_PAGES) {
+      if (pagesRead >= operationLimits.maxPages) {
         throw new AzureMonitorOtelConnectorError(
-          `Azure Monitor Logs exceeded the ${MAX_QUERY_PAGES}-page query limit.`,
+          `Azure Monitor Logs exceeded the ${operationLimits.maxPages}-page query limit.`,
+          'page-limit-exceeded',
         )
       }
       pagesRead += 1
@@ -1082,8 +1362,18 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
               tenantId: sourceTenantId,
               agentId: sourceAgentId,
               environment: sourceEnvironment,
+              sourceConnectorId,
+              estateId,
+              estateTenantId: binding.tenantId,
+              estateEnvironment,
+              sourceTenantId,
               sourceProjectId,
-              maximumRows,
+              providerResourceId: this.config.providerResourceId,
+              applicationRoleName: this.config.applicationRoleName,
+              requestName: this.config.requestName,
+              windowStart,
+              windowEnd,
+              maximumRows: Math.min(maximumRows, operationLimits.maxRecords - rawRowsRead + 1),
             }),
             timespan: `${windowStart}/${windowEnd}`,
           }),
@@ -1106,10 +1396,10 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
 
       let body: unknown
       try {
-        const remainingBytes = this.config.maxResponseBytes - bytesRead
+        const remainingBytes = operationLimits.maxBytes - bytesRead
         if (remainingBytes <= 0) {
           throw new AzureMonitorOtelConnectorError(
-            `Azure Monitor Logs responses exceeded the ${this.config.maxResponseBytes} byte operation limit.`,
+            `Azure Monitor Logs responses exceeded the ${operationLimits.maxBytes} byte operation limit.`,
             'response-too-large',
           )
         }
@@ -1137,15 +1427,31 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
       const parsedRows = parseAzureMonitorRows(
         body,
         {
-          tenantId: sourceTenantId,
-          agentId: sourceAgentId,
+          tenantId: binding.tenantId,
+          agentId: binding.agentId,
           sourceProjectId,
           environment: sourceEnvironment,
+          sourceConnectorId,
+          estateId,
+          estateEnvironment,
+          sourceTenantId,
+          sourceAgentId,
+          sourceSetFingerprint,
+          providerResourceId: this.config.providerResourceId,
+          applicationRoleName: this.config.applicationRoleName,
+          requestName: this.config.requestName,
           windowStart,
           windowEnd,
         },
         false,
       ).rows
+      rawRowsRead += parsedRows.length
+      if (rawRowsRead > operationLimits.maxRecords) {
+        throw new AzureMonitorOtelConnectorError(
+          `Azure Monitor Logs exceeded the ${operationLimits.maxRecords}-record operation limit.`,
+          'record-limit-exceeded',
+        )
+      }
       return parsedRows
     }
 
@@ -1213,9 +1519,12 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
       sourceTenantId,
       sourceProjectId,
       sourceEnvironment,
-      this.config.workspaceId,
+      this.config.providerResourceId,
       binding.agentId,
       sourceAgentId,
+      sourceSetFingerprint,
+      this.config.applicationRoleName,
+      this.config.requestName,
     ].join('\0')
     const normalizeWindow = (
       kind: 'baseline' | 'observed',
@@ -1237,9 +1546,17 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
           sourceTenantId,
           sourceProjectId,
           sourceEnvironment,
-          providerResourceId: this.config.workspaceId,
+          providerResourceId: this.config.providerResourceId,
           agentId: binding.agentId,
           sourceAgentId,
+          sourceSetFingerprint,
+          measuredAt: queriedAt,
+          contract: {
+            version: 1 as const,
+            recordType: 'agent_invocation' as const,
+            applicationRoleName: this.config.applicationRoleName,
+            requestName: this.config.requestName,
+          },
           windowId: windowId(kind, baseBinding, windowStart, windowEnd),
           windowStart,
           windowEnd,
@@ -1270,20 +1587,37 @@ export class AzureMonitorOtelConnector implements RuntimeTelemetryConnector {
       observedEvidenceId: windowEvidenceId('observed', observed.evidenceId),
       queriedAt,
       maximumFreshnessHours: this.config.maximumFreshnessHours,
+      queryDiagnostics: {
+        providerRequests: pagesRead,
+        providerPages: pagesRead,
+        rawRows: rawRowsRead,
+        canonicalRows: canonicalization.rows.length,
+        acceptedInvocations:
+          baseline.window.observations.length + observed.window.observations.length,
+        responseBytes: bytesRead,
+      },
       ...(exactBoundary
         ? {
             provenance: {
-              snapshotGeneratedAt: binding.snapshotGeneratedAt!,
-              estateId: binding.estateId!,
+              snapshotGeneratedAt: binding.snapshotGeneratedAt,
+              estateId: binding.estateId,
               estateTenantId: binding.tenantId,
-              estateEnvironment: binding.estateEnvironment!,
-              sourceConnectorId: binding.sourceConnectorId!,
+              estateEnvironment: binding.estateEnvironment,
+              sourceConnectorId: binding.sourceConnectorId,
               sourceTenantId,
               sourceProjectId,
               sourceEnvironment,
               provider: 'azure-monitor-otel' as const,
-              providerResourceId: this.config.workspaceId,
+              providerResourceId: this.config.providerResourceId,
               providerAgentId: sourceAgentId,
+              sourceSetFingerprint,
+              measuredAt: queriedAt,
+              contract: {
+                version: 1,
+                recordType: 'agent_invocation',
+                applicationRoleName: this.config.applicationRoleName,
+                requestName: this.config.requestName,
+              },
             },
           }
         : {}),
@@ -1298,6 +1632,54 @@ interface TelemetrySourceState {
   dataState: LiveSourceDataState | undefined
   checkedAt: string | undefined
   reason: string | undefined
+  measurementKey: string | undefined
+}
+
+const telemetryReadinessRank = { ready: 0, degraded: 1, unavailable: 2 } as const
+const telemetryDataStateRank: Record<LiveSourceDataState, number> = {
+  complete: 0,
+  empty: 1,
+  unsupported: 2,
+  partial: 3,
+  stale: 4,
+  cancelled: 5,
+  failed: 6,
+}
+
+function updateTelemetrySourceState(
+  source: TelemetrySourceState,
+  measurementKey: string,
+  update: Pick<TelemetrySourceState, 'readiness' | 'dataState' | 'checkedAt' | 'reason'>,
+): void {
+  const reset = source.measurementKey !== measurementKey
+  if (reset) {
+    source.readiness = update.readiness
+    source.dataState = update.dataState
+    source.checkedAt = update.checkedAt
+    source.reason = update.reason
+    source.measurementKey = measurementKey
+    return
+  }
+  const currentDataRank =
+    source.dataState === undefined ? -1 : telemetryDataStateRank[source.dataState]
+  const updateDataRank =
+    update.dataState === undefined ? -1 : telemetryDataStateRank[update.dataState]
+  if (
+    telemetryReadinessRank[update.readiness] > telemetryReadinessRank[source.readiness] ||
+    (telemetryReadinessRank[update.readiness] === telemetryReadinessRank[source.readiness] &&
+      updateDataRank > currentDataRank)
+  ) {
+    source.readiness = update.readiness
+    source.dataState = update.dataState
+    source.reason = update.reason
+  }
+  source.checkedAt =
+    source.checkedAt === undefined || update.checkedAt === undefined
+      ? (update.checkedAt ?? source.checkedAt)
+      : source.checkedAt > update.checkedAt
+        ? source.checkedAt
+        : update.checkedAt
+  source.measurementKey = measurementKey
 }
 
 function runtimeDataState(windows: RuntimeObservationWindows): {
@@ -1334,7 +1716,17 @@ function runtimeDataState(windows: RuntimeObservationWindows): {
       nested.sourceEnvironment === provenance.sourceEnvironment &&
       nested.provider === provenance.provider &&
       nested.providerResourceId === provenance.providerResourceId &&
-      nested.providerAgentId === provenance.providerAgentId
+      nested.providerAgentId === provenance.providerAgentId &&
+      nested.providerInvocationId === observation.id &&
+      nested.sourceSetFingerprint === provenance.sourceSetFingerprint &&
+      nested.measuredAt === provenance.measuredAt &&
+      nested.contract !== undefined &&
+      provenance.contract !== undefined &&
+      nested.contract.version === provenance.contract.version &&
+      nested.contract.recordType === provenance.contract.recordType &&
+      nested.contract.applicationRoleName === provenance.contract.applicationRoleName &&
+      nested.contract.requestName === provenance.contract.requestName &&
+      nested.contract.outcome === (observation.success ? 'success' : 'error')
     )
   }).length
   if (
@@ -1356,20 +1748,25 @@ function runtimeDataState(windows: RuntimeObservationWindows): {
 
 export class MultiAzureMonitorOtelConnector implements RuntimeTelemetryConnector {
   readonly id = 'azure-monitor-otel'
+  readonly sourceSetFingerprint: string
   private readonly sources: TelemetrySourceState[]
 
   constructor(
     sourcesInput: readonly AzureMonitorOtelSourceConfigInput[],
     credentialFactory: AzureMonitorCredentialFactory = createTelemetrySourceCredential,
     fetcherFactory: (source: AzureMonitorOtelSourceConfig) => typeof fetch = () => fetch,
-    clock: () => Date = () => new Date(),
+    private readonly clock: () => Date = () => new Date(),
   ) {
     const sources = azureMonitorOtelSourcesConfigSchema.parse(sourcesInput)
+    this.sourceSetFingerprint = computeAzureMonitorOtelSourceSetFingerprint(sources)
     this.sources = sources.map((config) => ({
       config,
       connector: new AzureMonitorOtelConnector(
         {
           workspaceId: config.workspaceId,
+          providerResourceId: config.providerResourceId,
+          applicationRoleName: config.applicationRoleName,
+          requestName: config.requestName,
           tenantId: config.tenantId,
           sourceProjectId: config.sourceProjectId,
           environment: config.environment,
@@ -1382,11 +1779,13 @@ export class MultiAzureMonitorOtelConnector implements RuntimeTelemetryConnector
         credentialFactory(config),
         fetcherFactory(config),
         clock,
+        this.sourceSetFingerprint,
       ),
       readiness: 'degraded',
       dataState: undefined,
       checkedAt: undefined,
       reason: 'not-queried',
+      measurementKey: undefined,
     }))
   }
 
@@ -1410,7 +1809,9 @@ export class MultiAzureMonitorOtelConnector implements RuntimeTelemetryConnector
     if (
       sourceTenantId.toLowerCase() !== source.config.tenantId.toLowerCase() ||
       sourceProjectId !== source.config.sourceProjectId ||
-      sourceEnvironment !== source.config.environment
+      sourceEnvironment !== source.config.environment ||
+      (request.sourceSetFingerprint !== undefined &&
+        request.sourceSetFingerprint !== this.sourceSetFingerprint)
     ) {
       throw new AzureMonitorOtelConnectorError(
         'The requested agent source boundary does not match the Azure Monitor source.',
@@ -1425,23 +1826,30 @@ export class MultiAzureMonitorOtelConnector implements RuntimeTelemetryConnector
           sourceProjectId,
           sourceAgentId,
           sourceEnvironment,
+          sourceSetFingerprint: this.sourceSetFingerprint,
         },
         options,
       )
       const dataState = runtimeDataState(windows)
-      source.dataState = dataState.state
-      source.readiness = dataState.state === 'complete' ? 'ready' : 'degraded'
-      source.checkedAt = windows.queriedAt
-      source.reason = dataState.reason
+      updateTelemetrySourceState(source, request.snapshotGeneratedAt ?? windows.queriedAt, {
+        dataState: dataState.state,
+        readiness: dataState.state === 'complete' ? 'ready' : 'degraded',
+        checkedAt: windows.queriedAt,
+        reason: dataState.reason,
+      })
       return windows
     } catch (error) {
-      source.dataState =
+      const dataState =
         error instanceof AzureMonitorOtelConnectorError && error.reason === 'cancelled'
           ? 'cancelled'
           : 'failed'
-      source.readiness = 'unavailable'
-      source.checkedAt = new Date().toISOString()
-      source.reason = source.dataState === 'cancelled' ? 'cancelled' : 'query-failed'
+      const checkedAt = this.clock().toISOString()
+      updateTelemetrySourceState(source, request.snapshotGeneratedAt ?? checkedAt, {
+        dataState,
+        readiness: 'unavailable',
+        checkedAt,
+        reason: dataState === 'cancelled' ? 'cancelled' : 'query-failed',
+      })
       throw error
     }
   }
@@ -1458,6 +1866,7 @@ export class MultiAzureMonitorOtelConnector implements RuntimeTelemetryConnector
           ? 'ready'
           : 'degraded',
       partial: ready > 0 && ready < this.sources.length,
+      sourceSetFingerprint: this.sourceSetFingerprint,
       sources: this.sources.map((source) => ({
         id: `otel:${source.config.id}`,
         name: `${source.config.name} · Azure Monitor`,
@@ -1511,6 +1920,8 @@ export function parseAzureMonitorOtelSources(
   }
   const names = [
     'AZURE_MONITOR_WORKSPACE_ID',
+    'AZURE_MONITOR_PROVIDER_RESOURCE_ID',
+    'AZURE_MONITOR_APPLICATION_ROLE_NAME',
     'AZURE_MONITOR_TENANT_ID',
     'AZURE_MONITOR_ENVIRONMENT',
   ] as const
@@ -1533,11 +1944,15 @@ export function parseAzureMonitorOtelSources(
       id: 'primary',
       name: 'Primary Foundry project',
       workspaceId: environment.AZURE_MONITOR_WORKSPACE_ID,
+      providerResourceId: environment.AZURE_MONITOR_PROVIDER_RESOURCE_ID,
+      applicationRoleName: environment.AZURE_MONITOR_APPLICATION_ROLE_NAME,
+      requestName: 'agent.invoke',
       tenantId: environment.AZURE_MONITOR_TENANT_ID,
       sourceProjectId: sourceProjectIdFromEndpoint(foundryProjectEndpoint),
       environment: environment.AZURE_MONITOR_ENVIRONMENT,
       baselineWindowHours: numberValue(environment, 'AZURE_MONITOR_BASELINE_WINDOW_HOURS', 168),
       observedWindowHours: numberValue(environment, 'AZURE_MONITOR_OBSERVED_WINDOW_HOURS', 24),
+      maximumFreshnessHours: numberValue(environment, 'AZURE_MONITOR_MAXIMUM_FRESHNESS_HOURS', 168),
       requestTimeoutMs: numberValue(environment, 'AZURE_MONITOR_REQUEST_TIMEOUT_MS', 15_000),
       maxResponseBytes: numberValue(
         environment,

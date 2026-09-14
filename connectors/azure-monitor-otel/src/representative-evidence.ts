@@ -2,11 +2,14 @@ import { createHash } from 'node:crypto'
 
 import {
   agentCorrelationsSchema,
+  azureApplicationInsightsResourceIdSchema,
   observationWindowSchema,
   otelAggregationSchema,
   otelEvidenceClaimSchema,
   otelEvidenceClassificationSchema,
   otelSamplingSchema,
+  otelTelemetryContractIdentitySchema,
+  otelTelemetryContractSchema,
   representativeOtelEvidenceSchema,
   sourceProjectIdSchema,
   type ObservationWindow,
@@ -38,9 +41,12 @@ export const representativeOtelWindowBindingSchema = z
     sourceTenantId: boundedIdentifierSchema,
     sourceProjectId: sourceProjectIdSchema,
     sourceEnvironment: boundedIdentifierSchema,
-    providerResourceId: boundedIdentifierSchema,
+    providerResourceId: azureApplicationInsightsResourceIdSchema,
     agentId: boundedIdentifierSchema,
     sourceAgentId: boundedIdentifierSchema,
+    sourceSetFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+    measuredAt: z.iso.datetime(),
+    contract: otelTelemetryContractIdentitySchema,
     windowId: boundedIdentifierSchema,
     windowStart: z.iso.datetime(),
     windowEnd: z.iso.datetime(),
@@ -81,8 +87,15 @@ export const representativeOtelInputRecordSchema = z
     sourceTenantId: optionalIdentifierSchema,
     sourceProjectId: sourceProjectIdSchema.nullable().optional(),
     sourceEnvironment: optionalIdentifierSchema,
-    providerResourceId: optionalIdentifierSchema,
+    providerResourceId: azureApplicationInsightsResourceIdSchema.nullable().optional(),
     sourceAgentId: optionalIdentifierSchema,
+    providerInvocationId: optionalIdentifierSchema,
+    sourceSetFingerprint: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .nullable()
+      .optional(),
+    measuredAt: z.iso.datetime().nullable().optional(),
     traceId: z.string().max(64).nullable().optional(),
     spanId: z.string().max(32).nullable().optional(),
     signal: z.string().trim().min(1).max(50),
@@ -90,6 +103,7 @@ export const representativeOtelInputRecordSchema = z
     classification: otelEvidenceClassificationSchema,
     sampling: otelSamplingSchema,
     aggregation: otelAggregationSchema,
+    contract: otelTelemetryContractSchema.nullable().optional(),
     correlations: agentCorrelationsSchema.optional(),
     toolCallNames: z.array(boundedIdentifierSchema).max(50).optional(),
     partial: z.boolean(),
@@ -170,10 +184,19 @@ function hasExactBoundary(
     ['sourceEnvironment', binding.sourceEnvironment],
     ['providerResourceId', binding.providerResourceId],
     ['sourceAgentId', binding.sourceAgentId],
+    ['sourceSetFingerprint', binding.sourceSetFingerprint],
+    ['measuredAt', binding.measuredAt],
   ] as const) {
     if (record[field] !== expected) return false
   }
-  return true
+  return (
+    record.providerInvocationId !== undefined &&
+    record.providerInvocationId !== null &&
+    record.contract?.version === binding.contract.version &&
+    record.contract.recordType === binding.contract.recordType &&
+    record.contract.applicationRoleName === binding.contract.applicationRoleName &&
+    record.contract.requestName === binding.contract.requestName
+  )
 }
 
 function expectedSignal(claim: OtelEvidenceClaim): 'trace' | 'span' | 'metric' | undefined {
@@ -208,10 +231,15 @@ function classificationFor(
 }
 
 function invocationKey(item: RepresentativeOtelEvidence): string | undefined {
-  const { providerResourceId, traceId, spanId } = item.provenance
-  return providerResourceId === undefined || traceId === undefined || spanId === undefined
+  const { providerInvocationId, providerResourceId, sourceSetFingerprint, traceId, spanId } =
+    item.provenance
+  return providerInvocationId === undefined ||
+    providerResourceId === undefined ||
+    sourceSetFingerprint === undefined ||
+    traceId === undefined ||
+    spanId === undefined
     ? undefined
-    : `${providerResourceId}\0${traceId}\0${spanId}`
+    : `${providerResourceId}\0${sourceSetFingerprint}\0${providerInvocationId}\0${traceId}\0${spanId}`
 }
 
 function aggregateObservations(
@@ -554,12 +582,16 @@ export function normalizeRepresentativeOtelEvidence(
         provider: 'azure-monitor-otel',
         providerResourceId: record.providerResourceId ?? undefined,
         providerAgentId: binding.sourceAgentId,
+        providerInvocationId: record.providerInvocationId ?? undefined,
+        sourceSetFingerprint: record.sourceSetFingerprint ?? undefined,
+        measuredAt: record.measuredAt ?? undefined,
         traceId,
         spanId,
         observedAt: record.observedAt,
         classification: record.classification,
         sampling: record.sampling,
         aggregation: record.aggregation,
+        contract: record.contract ?? undefined,
       },
       ...(record.correlations === undefined ? {} : { correlations: record.correlations }),
       ...(record.toolCallNames === undefined ? {} : { toolCallNames: record.toolCallNames }),
@@ -616,6 +648,9 @@ export function normalizeRepresentativeOtelEvidence(
     providerResourceId: binding.providerResourceId,
     agentId: binding.agentId,
     sourceAgentId: binding.sourceAgentId,
+    sourceSetFingerprint: binding.sourceSetFingerprint,
+    measuredAt: binding.measuredAt,
+    contract: binding.contract,
     windowId: binding.windowId,
     windowStart: binding.windowStart,
     windowEnd: binding.windowEnd,

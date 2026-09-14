@@ -1,7 +1,11 @@
 import { z } from 'zod'
 
 import { agentCorrelationsSchema } from './correlation.js'
+import { azureApplicationInsightsResourceIdSchema } from './provider-resource.js'
 import {
+  MAX_RUNTIME_OTEL_OBSERVATIONS,
+  MAX_RUNTIME_OTEL_QUALITY_RECORDS,
+  OTEL_CLAIMS_PER_OBSERVATION,
   otelWindowQualitySchema,
   runtimeOtelProvenanceSchema,
   type OtelEvidenceCaveat,
@@ -66,7 +70,7 @@ export const observationWindowSchema = z.object({
   source: observationSourceSchema,
   windowStart: z.iso.datetime(),
   windowEnd: z.iso.datetime(),
-  observations: z.array(runtimeObservationSchema).max(10_000),
+  observations: z.array(runtimeObservationSchema).max(MAX_RUNTIME_OTEL_OBSERVATIONS),
   otelQuality: otelWindowQualitySchema.optional(),
 })
 export type ObservationWindow = z.infer<typeof observationWindowSchema>
@@ -141,18 +145,33 @@ export function assessRuntimeOtelQuality(
     }
     if (provenance.aggregation.kind !== 'raw') invalidate('aggregated-metric')
     if (provenance.partial) invalidate('partial')
+    if (
+      !azureApplicationInsightsResourceIdSchema.safeParse(provenance.providerResourceId).success ||
+      provenance.contract === undefined ||
+      provenance.contract.version !== 1 ||
+      provenance.contract.recordType !== 'agent_invocation' ||
+      provenance.contract.requestName !== 'agent.invoke' ||
+      provenance.contract.outcome !== (observation.success ? 'success' : 'error') ||
+      provenance.providerInvocationId !== observation.id ||
+      /^0+$/.test(provenance.traceId) ||
+      /^0+$/.test(provenance.spanId)
+    ) {
+      invalidate('invalid-record')
+    }
 
     const observedAtMs = Date.parse(observation.observedAt)
     if (
       provenance.observedAt !== observation.observedAt ||
       !Number.isFinite(observedAtMs) ||
       observedAtMs < windowStartMs ||
-      observedAtMs > windowEndMs
+      observedAtMs >= windowEndMs
     ) {
       invalidate('invalid-record')
     }
     if (freshnessProvided) {
       if (!trustedFreshness) {
+        invalidate('invalid-record')
+      } else if (provenance.measuredAt !== freshness.queriedAt) {
         invalidate('invalid-record')
       } else if (observedAtMs > queriedAtMs) {
         invalidate('future-timestamp')
@@ -237,10 +256,17 @@ export function assessRuntimeOtelQuality(
       classification,
       caveats: sortedCaveats,
       recordsReceived:
-        supplied?.recordsReceived ?? Math.min(window.observations.length * 6, 10_000),
+        supplied?.recordsReceived ??
+        Math.min(
+          window.observations.length * OTEL_CLAIMS_PER_OBSERVATION,
+          MAX_RUNTIME_OTEL_QUALITY_RECORDS,
+        ),
       recordsAccepted:
         supplied?.recordsAccepted ??
-        Math.min(status === 'unknown' ? 0 : validObservationIds.length * 6, 10_000),
+        Math.min(
+          status === 'unknown' ? 0 : validObservationIds.length * OTEL_CLAIMS_PER_OBSERVATION,
+          MAX_RUNTIME_OTEL_QUALITY_RECORDS,
+        ),
       duplicatesRemoved: supplied?.duplicatesRemoved ?? 0,
       pagesProcessed: supplied?.pagesProcessed ?? 0,
     }),

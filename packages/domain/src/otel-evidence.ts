@@ -4,8 +4,26 @@ import { agentCorrelationsSchema } from './correlation.js'
 import { sourceProjectIdSchema } from './source-project.js'
 
 const boundedIdentifierSchema = z.string().trim().min(1).max(200)
-const otelTraceIdSchema = z.string().regex(/^[0-9a-f]{32}$/)
-const otelSpanIdSchema = z.string().regex(/^[0-9a-f]{16}$/)
+export const otelTraceIdSchema = z.string().regex(/^[0-9a-f]{32}$/)
+export const otelSpanIdSchema = z.string().regex(/^[0-9a-f]{16}$/)
+
+export const otelTelemetryContractIdentitySchema = z.strictObject({
+  version: z.literal(1),
+  recordType: z.literal('agent_invocation'),
+  applicationRoleName: boundedIdentifierSchema,
+  requestName: z.literal('agent.invoke'),
+})
+export type OtelTelemetryContractIdentity = z.infer<typeof otelTelemetryContractIdentitySchema>
+
+export const otelTelemetryContractSchema = otelTelemetryContractIdentitySchema.extend({
+  outcome: z.enum(['success', 'error']),
+})
+export type OtelTelemetryContract = z.infer<typeof otelTelemetryContractSchema>
+
+export const MAX_RUNTIME_OTEL_OBSERVATIONS = 10_000
+export const OTEL_CLAIMS_PER_OBSERVATION = 6
+export const MAX_RUNTIME_OTEL_QUALITY_RECORDS = 60_120
+export const MAX_RUNTIME_OTEL_QUALITY_PAGES = 120
 
 export const otelEvidenceStatusSchema = z.enum(['available', 'unknown', 'degraded'])
 export type OtelEvidenceStatus = z.infer<typeof otelEvidenceStatusSchema>
@@ -103,12 +121,19 @@ export const otelEvidenceProvenanceSchema = z.strictObject({
   provider: z.literal('azure-monitor-otel'),
   providerResourceId: boundedIdentifierSchema.optional(),
   providerAgentId: boundedIdentifierSchema,
+  providerInvocationId: boundedIdentifierSchema.optional(),
+  sourceSetFingerprint: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
+  measuredAt: z.iso.datetime().optional(),
   traceId: otelTraceIdSchema.optional(),
   spanId: otelSpanIdSchema.optional(),
   observedAt: z.iso.datetime(),
   classification: otelEvidenceClassificationSchema,
   sampling: otelSamplingSchema,
   aggregation: otelAggregationSchema,
+  contract: otelTelemetryContractSchema.optional(),
 })
 export type OtelEvidenceProvenance = z.infer<typeof otelEvidenceProvenanceSchema>
 
@@ -150,7 +175,16 @@ export const representativeOtelEvidenceSchema = z.strictObject({
   providerRecordId: boundedIdentifierSchema,
   observationId: boundedIdentifierSchema.optional(),
   signal: otelSignalTypeSchema,
-  provenance: otelEvidenceProvenanceSchema.required({ snapshotGeneratedAt: true }),
+  provenance: otelEvidenceProvenanceSchema.required({
+    snapshotGeneratedAt: true,
+    providerResourceId: true,
+    providerInvocationId: true,
+    sourceSetFingerprint: true,
+    measuredAt: true,
+    traceId: true,
+    spanId: true,
+    contract: true,
+  }),
   correlations: agentCorrelationsSchema.optional(),
   toolCallNames: z.array(boundedIdentifierSchema).max(50).optional(),
   claim: otelEvidenceClaimSchema,
@@ -168,10 +202,10 @@ export const otelWindowQualitySchema = z
       .refine((items) => new Set(items).size === items.length, {
         message: 'OpenTelemetry evidence caveats must be unique.',
       }),
-    recordsReceived: z.number().int().min(0).max(10_000),
-    recordsAccepted: z.number().int().min(0).max(10_000),
-    duplicatesRemoved: z.number().int().min(0).max(10_000),
-    pagesProcessed: z.number().int().min(0).max(20),
+    recordsReceived: z.number().int().min(0).max(MAX_RUNTIME_OTEL_QUALITY_RECORDS),
+    recordsAccepted: z.number().int().min(0).max(MAX_RUNTIME_OTEL_QUALITY_RECORDS),
+    duplicatesRemoved: z.number().int().min(0).max(MAX_RUNTIME_OTEL_QUALITY_RECORDS),
+    pagesProcessed: z.number().int().min(0).max(MAX_RUNTIME_OTEL_QUALITY_PAGES),
   })
   .superRefine((quality, context) => {
     if (
@@ -246,6 +280,6 @@ export type RuntimeOtelEvidenceItem = z.infer<typeof runtimeOtelEvidenceItemSche
 
 export const otelEvidenceDetailsSchema = z.strictObject({
   quality: otelWindowQualitySchema,
-  invocations: z.array(runtimeOtelEvidenceItemSchema).max(500),
+  invocations: z.array(runtimeOtelEvidenceItemSchema).max(MAX_RUNTIME_OTEL_OBSERVATIONS),
 })
 export type OtelEvidenceDetails = z.infer<typeof otelEvidenceDetailsSchema>

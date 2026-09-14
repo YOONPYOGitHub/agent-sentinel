@@ -491,6 +491,10 @@ describe('connector source domain', () => {
       configuration: {
         ...legacy.configuration,
         sourceProjectId: 'project-a',
+        providerResourceId:
+          '/subscriptions/11111111-1111-4111-8111-111111111111/resourceGroups/rg-test/providers/Microsoft.Insights/components/app-test',
+        applicationRoleName: 'agent-runtime',
+        requestName: 'agent.invoke',
       },
     })
 
@@ -509,6 +513,10 @@ describe('connector source domain', () => {
           configuration: {
             ...legacy.configuration,
             sourceProjectId: 'project-a',
+            providerResourceId:
+              '/subscriptions/11111111-1111-4111-8111-111111111111/resourceGroups/rg-test/providers/Microsoft.Insights/components/app-test',
+            applicationRoleName: 'agent-runtime',
+            requestName: 'agent.invoke',
             workspaceId: '00000000-0000-0000-0000-000000000004',
           },
         }),
