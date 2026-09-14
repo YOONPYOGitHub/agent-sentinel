@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0.0",
+  "tenantId": "<exact-replacement-tenant-uuid>",
+  "subscriptionId": "<exact-replacement-subscription-uuid>",
+  "resourceGroup": "<exact-resource-group>",
+  "profileName": "<exact-front-door-profile>",
+  "endpointName": "agent-sentinel",
+  "frontDoorOrigin": "https://<exact-active-front-door-host>",
+  "stage": "read-only"
+}

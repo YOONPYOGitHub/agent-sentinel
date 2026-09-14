@@ -19,6 +19,8 @@
     "provision": "tsx provision-agents.ts",
     "cleanup": "tsx cleanup-agents.ts",
     "auth:preflight": "tsx auth-activation-preflight.ts",
+    "auth:registration-bootstrap": "tsx entra-registration-bootstrap.ts",
+    "auth:edge-preflight": "tsx auth-edge-preflight.ts",
     "auth:deploy": "tsx deploy-auth-activation.ts",
     "validate-auth-live": "tsx validate-auth-live.ts",
     "verify-demo-readiness": "tsx verify-demo-readiness.ts"

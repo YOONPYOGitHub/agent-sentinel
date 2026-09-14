@@ -15,6 +15,8 @@ describe('read-only authentication activation workflow', () => {
     expect(workflow).toContain('environment: ${{ inputs.targetEnvironment }}')
     expect(workflow).toContain('pnpm auth:deploy --')
     expect(workflow).toContain('--apply')
+    expect(workflow).toContain('pnpm auth:edge-preflight --')
+    expect(workflow).toContain('active-edge-preflight.json')
     expect(workflow).not.toContain('infra/platform.bicep')
     expect(workflow).not.toContain('az deployment group')
     expect(workflow).not.toMatch(/\baz\s+ad\b/)

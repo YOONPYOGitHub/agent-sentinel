@@ -200,19 +200,29 @@ agent가 아닙니다. Agent 365의 306개 package도 306개 agent를 의미하�
 
 현재 replacement Azure 배포는 다음 상태입니다.
 
+- replacement API/SPA 앱 등록이 아직 존재하지 않음
 - `AUTH_MODE=disabled`
 - `AGENT_SENTINEL_WRITE_ENABLED=false`
-- WAF가 `/api/`의 비조회 요청을 차단
+- 활성 Front Door WAF에는 검증된 API mutation 차단 규칙이 없음
 
-따라서 현재 공개 환경은 로그인과 실제 remediation 실행을 제공하지 않습니다.
-인증 활성화와 쓰기 활성화는 서로 다른 승인 단계입니다.
+`BlockApiMutationPreAuth`는 중지된 HTTP-only Application Gateway에만 있으며 활성 Front Door를
+보호하지 않습니다. 따라서 현재 공개 환경은 로그인과 실제 remediation 실행을 제공하지
+않고, 쓰기 안전성은 API write switch가 false인 것에 의존합니다. JWT와 검토된 Front Door
+규칙을 함께 확인하기 전에는 write-stage readiness가 차단됩니다.
 
-승인 전에는 placeholder 템플릿
-`infra/auth/replacement-auth-activation.template.json`을 저장소 밖에서 복사해
-비밀이 아닌 값만 채운 뒤 `pnpm auth:preflight -- --input <path>`를 실행합니다.
-이 명령은 Azure/Entra를 변경하지 않으며 API → web 순서의 read-only 배포 계획만
-출력합니다. 실제 적용은 보호된 `.github/workflows/auth-activation.yml` 승인 후에만
-가능합니다.
+먼저 `infra/auth/replacement-entra-registration-bootstrap.template.json`을 저장소 밖에서
+복사해 승인된 비밀 아닌 값을 채우고 다음 plan을 생성합니다.
+
+```bash
+pnpm auth:registration-bootstrap -- --input <sanitized-registration.json> \
+  --output entra-registration-plan.json
+```
+
+기본/PR 실행은 plan-only입니다. apply는 동일 plan artifact, 정확한 tenant 확인,
+`APPROVE_ENTRA_REGISTRATION_BOOTSTRAP`, 보호 환경 승인이 모두 필요하며 client secret,
+certificate, consent, group/role assignment를 만들지 않습니다. 등록 적용 후 별도 runtime
+입력으로 `pnpm auth:preflight`를 실행하고, 배포 후 `pnpm auth:edge-preflight`로 활성 Front
+Door와 `writeEnabled=false`를 재검증합니다.
 
 상세 절차는 [Security and authentication](docs/security-authentication.md)을
 참고하십시오.
@@ -260,8 +270,16 @@ pnpm validate
 추가 운영 검증:
 
 ```bash
-# Entra 인증 활성화 전 오프라인 입력·배포 계획 검증
+# Entra API/SPA 등록 계획 생성(기본 plan-only)
+pnpm auth:registration-bootstrap -- --input <sanitized-registration.json> \
+  --output entra-registration-plan.json
+
+# Entra runtime 인증 활성화 전 오프라인 입력·배포 계획 검증
 pnpm auth:preflight -- --input <sanitized-auth-activation.json>
+
+# 적용 후 활성 Front Door/redirect/JWT/write switch/WAF read-only 검증
+pnpm auth:edge-preflight -- --input <sanitized-active-edge-input.json> \
+  --output active-edge-preflight.json
 
 # Foundry synthetic validation agent 검증
 pnpm foundry:validate
@@ -343,7 +361,9 @@ Agent Sentinel을 production release로 선언하려면 다음 조건이 모두 
 ### 필수 출시 게이트
 
 - [ ] replacement Azure에 검증된 full SHA와 image digest가 배포됨
-- [ ] Entra `AUTH_MODE=jwt` read-only 활성화 및 실제 로그인·로그아웃 검증
+- [ ] replacement API/SPA 등록 plan 승인·적용 및 post-apply 재탐색 완료
+- [ ] 최소 권한 consent·테스트 역할 assignment 완료
+- [ ] 검토된 image digest로 Entra `AUTH_MODE=jwt` read-only 활성화 및 실제 로그인·로그아웃 검증
 - [ ] anonymous `401`, Viewer `403`, `/api/auth/me` 검증
 - [ ] Viewer·Analyst·Approver·Administrator의 실제 token capability 경계 검증
 - [ ] Agent 365 source가 `ready + complete`이며 persisted snapshot과 분류가 검증됨

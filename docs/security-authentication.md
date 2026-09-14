@@ -7,14 +7,15 @@ and token-driven live validator are implemented and tested in repository code.
 That implementation state is not the deployed state.
 
 The last evidenced replacement deployment uses `AUTH_MODE=disabled` and
-`AGENT_SENTINEL_WRITE_ENABLED=false`. The `BlockApiMutationPreAuth` WAF rule
-still blocks every non-`GET`/`HEAD`/`OPTIONS` request under `/api/`. Historical
-read-only employee JWT validation from the previous deployment does not prove
-authentication in the replacement deployment.
+`AGENT_SENTINEL_WRITE_ENABLED=false`. Replacement API and SPA app registrations do not yet exist.
+Historical read-only employee JWT validation and prior-tenant registrations do not prove
+replacement authentication.
 
-The corporate API and SPA registrations are reusable, but replacement Front
-Door redirect/logout registration and runtime JWT parameters still require
-approved activation and fresh live validation.
+The active public edge is Azure Front Door. Its WAF policy currently has managed rules but no
+evidenced `BlockApiMutationPreAuth` custom rule. That rule exists on the stopped, HTTP-only
+Application Gateway and does **not** protect Front Door traffic. The current safe read-only posture
+therefore relies on the API write switch remaining false; write activation is prohibited until an
+active Front Door mutation rule is reviewed, present, and verified together with JWT.
 
 ## Roles
 
@@ -64,20 +65,45 @@ route health alone does not establish authentication.
 
 Each stage is a separate approved change. Stop and roll back on any mismatch.
 
-Before stage 1, copy `infra/auth/replacement-auth-activation.template.json` outside the repository,
-replace every placeholder with approved non-secret values, and run:
+Before runtime activation, create the replacement registrations. Copy
+`infra/auth/replacement-entra-registration-bootstrap.template.json` outside the repository, replace
+placeholders with approved non-secret values, and generate a plan:
+
+```bash
+pnpm auth:registration-bootstrap -- \
+  --input /secure/local/path/entra-registration-input.json \
+  --output entra-registration-plan.json
+```
+
+The plan performs bounded Graph discovery, fails closed on ambiguous exact-name candidates and
+historical/wrong-origin SPA entries, and contains deterministic request shapes for the API app and
+service principal, delegated Read/Write scopes, four roles, SPA app and service principal, exact
+redirect/logout URLs, and SPA Read access. It creates no secrets, certificates, consent grants,
+groups, or role assignments. Apply requires the reviewed plan artifact, the exact tenant
+confirmation, `APPROVE_ENTRA_REGISTRATION_BOOTSTRAP`, and the protected
+`entra-registration-bootstrap` environment. Rollback deletes only directory objects created by
+operation IDs from that plan.
+
+Then copy `infra/auth/replacement-auth-activation.template.json` outside the repository and run the
+offline runtime plan:
 
 ```bash
 pnpm auth:preflight -- --input /secure/local/path/auth-activation.json \
   --output auth-activation-plan.json
 ```
 
-The input contract is checked in at `infra/auth/auth-activation-input.schema.json`. The command is
-offline, rejects secret/token-shaped fields, validates the exact Front Door origin, redirect and
-logout paths, tenant-derived v2 issuer/JWKS, disjoint scopes, four exact roles, estate grants,
-writes-false, WAF-block posture, commit SHA, and immutable API/web digests. Exit code `0` means the
-sanitized plan is ready for human review; exit code `2` means blocked. It does not inspect or mutate
-Entra or Azure.
+After approved registration/runtime changes, run the bounded active-edge inspection from
+`infra/auth/replacement-active-edge-preflight.template.json`:
+
+```bash
+pnpm auth:edge-preflight -- --input /secure/local/path/active-edge-input.json \
+  --output active-edge-preflight.json
+```
+
+The active-edge report explicitly selects one safe read-only policy: an associated Front Door
+Prevention rule that blocks API mutations, or `writeEnabled=false` with no write activation allowed.
+Write-stage readiness always blocks unless JWT is active and the exact reviewed Front Door rule is
+present.
 
 1. **Read-only activation — pending in the replacement deployment.** Register
    the exact replacement HTTPS redirect/logout URIs, inject the fail-closed JWT
@@ -86,11 +112,11 @@ Entra or Azure.
 2. **Complete role validation.** Assign least-privilege test principals/groups for Analyst,
    Approver, and Administrator and verify every documented capability boundary. Do not assign
    broad groups by default.
-3. **Validate a private write.** On an approved private endpoint, set the write switch only for the
-   bounded test and run an authenticated, reversible write. The public WAF block remains intact.
-4. **Narrow the WAF.** Only after the private test passes, approve the smallest path/method change.
-   Repeat the full validator through the public HTTPS edge and prove anonymous mutation is still
-   denied. Never treat WAF as JWT validation; API authorization remains authoritative.
+3. **Create an active-edge write guard.** Separately review and deploy the smallest Front Door WAF
+   rule that blocks public mutation methods, then rediscover it with the write-readiness preflight.
+4. **Validate a bounded write.** Only after JWT and the reviewed Front Door rule both pass, use an
+   approved private endpoint for one reversible write. Any later Front Door exception is a separate
+   approval and must preserve anonymous API denial. WAF never replaces API authorization.
 
 The custom manifest ingestion endpoint is independently gated by JWT mode, the Administrator
 `configure` capability, and `AGENT_SENTINEL_WRITE_ENABLED=true`. Its manifest tenant/environment
@@ -131,18 +157,18 @@ mutation endpoint or resource identifier.
 
 ## Activation checklist
 
-- [x] Separate API and SPA app registrations created
-- [x] API read/write scopes and four exact app roles created
-- [x] Typed fail-closed API, SPA, deployment, and validation configuration prepared locally
+- [ ] Replacement API and SPA app registrations created through the approved bootstrap plan
+- [ ] Replacement API Read/Write scopes and four exact app roles created
+- [x] Typed fail-closed API, SPA, registration, deployment, edge-preflight, and validation configuration prepared locally
 - [ ] Replacement HTTPS redirect and logout origin approved and evidenced
 - [ ] Replacement redirect and logout URIs registered
 - [ ] Replacement read-only delegated permission reviewed and usable by the validation principal
 - [ ] Test principals/groups assigned to all four roles
-- [ ] `AUTH_MODE=jwt` deployed to the replacement environment with writes disabled and WAF unchanged
+- [ ] `AUTH_MODE=jwt` deployed with reviewed image digests and writes disabled
 - [ ] Replacement employee sign-in, logout, anonymous `401`, Viewer `403`, and `/api/auth/me` validated
 - [ ] Analyst, Approver, Administrator, and all four role boundaries validated with live tokens
 - [ ] Private authenticated write smoke test passed
-- [ ] WAF rule narrowly changed and public anonymous denial revalidated
+- [ ] Active Front Door mutation rule reviewed, deployed, and public anonymous denial revalidated
 
 OneRAI or corporate service onboarding can proceed independently; it does not block local auth
 engineering. It also does not substitute for identity, consent, role-assignment, deployment, or WAF
@@ -150,9 +176,9 @@ approval.
 
 ## Emergency rollback
 
-1. Restore `BlockApiMutationPreAuth` in Prevention mode before any other relaxation is reverted.
+1. If an active Front Door mutation rule was changed, restore its reviewed Prevention-mode block before any other relaxation is reverted; do not rely on the stopped Application Gateway rule.
 2. Set `AGENT_SENTINEL_WRITE_ENABLED=false` and restore the last known-good Container Apps revision.
-3. Return to `AUTH_MODE=disabled` only while writes remain false and the full mutation block is in
-   place.
+3. Return to `AUTH_MODE=disabled` only while writes remain false; no public write activation is
+   permitted without an active reviewed Front Door mutation rule.
 4. Remove incorrect role assignments or consent grants through the approved identity process.
 5. Record status codes and correlation IDs only; never copy tokens, personal claims, or secrets.

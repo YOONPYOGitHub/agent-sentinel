@@ -1,0 +1,264 @@
+name: Entra registration bootstrap
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/entra-registration-bootstrap.yml'
+      - 'infra/auth/**'
+      - 'scripts/entra-registration-bootstrap*'
+      - 'scripts/auth-edge-preflight*'
+      - 'scripts/test-fixtures/entra-registration-*'
+      - 'scripts/test-fixtures/active-edge-*'
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'Plan is default; apply is protected and uses this run plan artifact'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - 'plan'
+          - 'apply'
+      tenantId:
+        description: 'Exact allowlisted replacement tenant UUID'
+        required: true
+        type: string
+      frontDoorOrigin:
+        description: 'Exact active Front Door HTTPS origin'
+        required: true
+        type: string
+      displayNamePrefix:
+        description: 'Exact API/SPA display-name prefix'
+        required: true
+        default: 'Agent Sentinel Replacement'
+        type: string
+      apiIdentifierUriPolicy:
+        description: 'API identifier URI policy'
+        required: true
+        default: 'api-app-id'
+        type: choice
+        options:
+          - 'api-app-id'
+      readScope:
+        description: 'Exact delegated Read scope value'
+        required: true
+        default: 'AgentSentinel.Read'
+        type: string
+      writeScope:
+        description: 'Exact delegated Write scope value'
+        required: true
+        default: 'AgentSentinel.Write'
+        type: string
+      protectedApproval:
+        description: 'Apply only: explicit approval phrase'
+        required: true
+        default: 'NOT_APPROVED'
+        type: choice
+        options:
+          - 'NOT_APPROVED'
+          - 'APPROVE_ENTRA_REGISTRATION_BOOTSTRAP'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: entra-registration-bootstrap-${{ github.event_name == 'workflow_dispatch' && inputs.tenantId || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  ENTRA_BOOTSTRAP_ALLOWED_TENANT_ID: ${{ vars.ENTRA_BOOTSTRAP_ALLOWED_TENANT_ID }}
+
+jobs:
+  validate:
+    name: Validate bootstrap package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - run: corepack enable && corepack prepare pnpm@10.15.1 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: >-
+          pnpm --filter @agent-sentinel/scripts exec vitest run
+          entra-registration-bootstrap.test.ts auth-edge-preflight.test.ts
+          auth-activation-preflight.test.ts auth-activation-workflow.test.ts
+
+  plan:
+    name: Discover and publish sanitized plan
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - run: corepack enable && corepack prepare pnpm@10.15.1 --activate
+      - run: pnpm install --frozen-lockfile
+
+      - name: Validate exact tenant allowlist
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          REQUESTED_TENANT: ${{ inputs.tenantId }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${REQUESTED_TENANT}" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+            echo 'ERROR: tenantId must be a UUID'
+            exit 1
+          fi
+          if [ -z "${ENTRA_BOOTSTRAP_ALLOWED_TENANT_ID}" ] || [ "${REQUESTED_TENANT,,}" != "${ENTRA_BOOTSTRAP_ALLOWED_TENANT_ID,,}" ]; then
+            echo 'ERROR: tenantId is not the exact repository allowlist tenant'
+            exit 1
+          fi
+
+      - name: Login with federated workflow identity for read-only discovery
+        if: github.event_name == 'workflow_dispatch'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.ENTRA_BOOTSTRAP_CLIENT_ID }}
+          tenant-id: ${{ inputs.tenantId }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Generate pull-request fixture plan only
+        if: github.event_name == 'pull_request'
+        run: |
+          pnpm auth:registration-bootstrap -- \
+            --input scripts/test-fixtures/entra-registration-input.json \
+            --state scripts/test-fixtures/entra-registration-state-empty.json \
+            --output "${RUNNER_TEMP}/entra-registration-plan.json"
+
+      - name: Discover current tenant and generate plan
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          REQUESTED_TENANT: ${{ inputs.tenantId }}
+          FRONT_DOOR_ORIGIN: ${{ inputs.frontDoorOrigin }}
+          DISPLAY_NAME_PREFIX: ${{ inputs.displayNamePrefix }}
+          IDENTIFIER_URI_POLICY: ${{ inputs.apiIdentifierUriPolicy }}
+          READ_SCOPE: ${{ inputs.readScope }}
+          WRITE_SCOPE: ${{ inputs.writeScope }}
+        run: |
+          pnpm auth:registration-bootstrap -- \
+            --tenant "${REQUESTED_TENANT}" \
+            --front-door-origin "${FRONT_DOOR_ORIGIN}" \
+            --display-name-prefix "${DISPLAY_NAME_PREFIX}" \
+            --api-identifier-uri-policy "${IDENTIFIER_URI_POLICY}" \
+            --read-scope "${READ_SCOPE}" \
+            --write-scope "${WRITE_SCOPE}" \
+            --role AgentSentinel.Viewer \
+            --role AgentSentinel.Analyst \
+            --role AgentSentinel.Approver \
+            --role AgentSentinel.Administrator \
+            --output "${RUNNER_TEMP}/entra-registration-plan.json"
+
+      - name: Upload sanitized plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: entra-registration-plan
+          path: ${{ runner.temp }}/entra-registration-plan.json
+          if-no-files-found: error
+          retention-days: 14
+
+  apply:
+    name: Protected registration apply and rediscovery
+    needs: plan
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.operation == 'apply' &&
+      inputs.protectedApproval == 'APPROVE_ENTRA_REGISTRATION_BOOTSTRAP'
+    runs-on: ubuntu-latest
+    environment: entra-registration-bootstrap
+    env:
+      AGENT_SENTINEL_PROTECTED_ENVIRONMENT: entra-registration-bootstrap
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - run: corepack enable && corepack prepare pnpm@10.15.1 --activate
+      - run: pnpm install --frozen-lockfile
+
+      - name: Revalidate exact tenant allowlist
+        env:
+          REQUESTED_TENANT: ${{ inputs.tenantId }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ENTRA_BOOTSTRAP_ALLOWED_TENANT_ID}" ] || [ "${REQUESTED_TENANT,,}" != "${ENTRA_BOOTSTRAP_ALLOWED_TENANT_ID,,}" ]; then
+            echo 'ERROR: tenantId is not the exact repository allowlist tenant'
+            exit 1
+          fi
+
+      - name: Login with approved federated registration identity
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.ENTRA_BOOTSTRAP_CLIENT_ID }}
+          tenant-id: ${{ inputs.tenantId }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: entra-registration-plan
+          path: ${{ runner.temp }}/approved-plan
+
+      - name: Apply exact reviewed plan through Microsoft Graph
+        env:
+          REQUESTED_TENANT: ${{ inputs.tenantId }}
+          FRONT_DOOR_ORIGIN: ${{ inputs.frontDoorOrigin }}
+          DISPLAY_NAME_PREFIX: ${{ inputs.displayNamePrefix }}
+          IDENTIFIER_URI_POLICY: ${{ inputs.apiIdentifierUriPolicy }}
+          READ_SCOPE: ${{ inputs.readScope }}
+          WRITE_SCOPE: ${{ inputs.writeScope }}
+          PROTECTED_APPROVAL: ${{ inputs.protectedApproval }}
+        run: |
+          pnpm auth:registration-bootstrap -- \
+            --tenant "${REQUESTED_TENANT}" \
+            --front-door-origin "${FRONT_DOOR_ORIGIN}" \
+            --display-name-prefix "${DISPLAY_NAME_PREFIX}" \
+            --api-identifier-uri-policy "${IDENTIFIER_URI_POLICY}" \
+            --read-scope "${READ_SCOPE}" \
+            --write-scope "${WRITE_SCOPE}" \
+            --role AgentSentinel.Viewer \
+            --role AgentSentinel.Analyst \
+            --role AgentSentinel.Approver \
+            --role AgentSentinel.Administrator \
+            --approved-plan "${RUNNER_TEMP}/approved-plan/entra-registration-plan.json" \
+            --output "${RUNNER_TEMP}/entra-registration-result.json" \
+            --apply \
+            --approval "${PROTECTED_APPROVAL}" \
+            --confirm-tenant "${REQUESTED_TENANT}"
+
+      - name: Materialize sanitized active-edge preflight input
+        env:
+          REQUESTED_TENANT: ${{ inputs.tenantId }}
+          FRONT_DOOR_ORIGIN: ${{ inputs.frontDoorOrigin }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          FRONT_DOOR_PROFILE_NAME: ${{ vars.FRONT_DOOR_PROFILE_NAME }}
+          FRONT_DOOR_ENDPOINT_NAME: ${{ vars.FRONT_DOOR_ENDPOINT_NAME }}
+        run: |
+          node -e "const fs=require('node:fs'); const value={schemaVersion:'1.0.0',tenantId:process.env.REQUESTED_TENANT,subscriptionId:process.env.AZURE_SUBSCRIPTION_ID,resourceGroup:process.env.AZURE_RESOURCE_GROUP,profileName:process.env.FRONT_DOOR_PROFILE_NAME,endpointName:process.env.FRONT_DOOR_ENDPOINT_NAME,frontDoorOrigin:process.env.FRONT_DOOR_ORIGIN,stage:'read-only'}; fs.writeFileSync(process.env.RUNNER_TEMP+'/active-edge-input.json',JSON.stringify(value,null,2)+'\n',{mode:0o600})"
+
+      - name: Run bounded read-only post-apply edge preflight
+        id: edge
+        run: |
+          set +e
+          pnpm auth:edge-preflight -- \
+            --input "${RUNNER_TEMP}/active-edge-input.json" \
+            --output "${RUNNER_TEMP}/active-edge-preflight.json"
+          code=$?
+          set -e
+          if [ "${code}" -ne 0 ] && [ "${code}" -ne 2 ]; then
+            exit "${code}"
+          fi
+          echo "exitCode=${code}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload sanitized apply and preflight artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: entra-registration-result
+          path: |
+            ${{ runner.temp }}/entra-registration-result.json
+            ${{ runner.temp }}/active-edge-preflight.json
+          if-no-files-found: warn
+          retention-days: 14

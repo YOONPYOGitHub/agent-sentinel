@@ -300,8 +300,8 @@ Add text-embedding-3-large deployment (only this module touches AIServices).
 After ACR is provisioned and images are pushed. The platform.bicep deploys:
 
 - Container Apps (API with internal ingress, web with VNet-accessible ingress, jobs with no ingress)
-- Application Gateway WAF v2 (`appgw-as-260814`) as an optional regional
-  diagnostic edge
+- Application Gateway WAF v2 (`appgw-as-260814`) as an optional regional diagnostic edge; it is
+  currently stopped and does not protect the active Front Door route
 
 ### Phase E ? Front Door (Active)
 
@@ -398,18 +398,26 @@ echo "API FQDN: ${API_FQDN}"
 Identity activation is configuration-driven; do not edit Container Apps directly in the portal.
 The Bicep defaults and checked-in development parameters remain fail-closed at
 `authMode = 'disabled'` and `agentSentinelWriteEnabled = false`. The historical prior-tenant
-deployment used JWT values, but the replacement deployment still has authentication disabled.
-Future activation requires a reviewed surgical revision and the following approved inputs:
+deployment used JWT values, but the replacement deployment still has authentication disabled and
+the replacement API/SPA registrations do not yet exist. Future activation requires reviewed
+registration bootstrap and runtime revisions with the following approved inputs:
 
 - `authTenantId`, `authAudience`, and optional explicit `authIssuer` / `authJwksUri`
 - `authSpaClientId`, `authSpaScopes`, `authSpaRedirectUri`, and
   `authSpaPostLogoutRedirectUri`
 - exact `authReadScopes` and `authWriteScopes`
 
-Create the sanitized input from `infra/auth/replacement-auth-activation.template.json`, then run
-`pnpm auth:preflight -- --input <path> --output auth-activation-plan.json`. Do not commit the
-environment-specific copy. The checked-in schema rejects extra fields, localhost production
-origins, write enablement, WAF relaxation, mutable images, and secret/token-shaped keys.
+First create a sanitized registration input from
+`infra/auth/replacement-entra-registration-bootstrap.template.json` and run
+`pnpm auth:registration-bootstrap -- --input <path> --output entra-registration-plan.json`.
+The default plan discovers exact-name candidates, rejects ambiguity and historical origins, and
+contains no secrets, consent grants, groups, or assignments. Apply is available only in the
+protected workflow after review of that exact artifact and exact tenant confirmation.
+
+Next create the runtime input from `infra/auth/replacement-auth-activation.template.json`, then run
+`pnpm auth:preflight -- --input <path> --output auth-activation-plan.json`. Do not commit either
+environment-specific copy. The checked-in schemas reject extra fields, localhost production
+origins, write enablement, mutable images, and secret-shaped keys.
 
 `.github/workflows/auth-activation.yml` is the only deployment path for this stage. It defaults to
 an offline `plan`, uses the private runner variables from the existing deployment workflow, and
@@ -419,24 +427,31 @@ never invokes `infra/platform.bicep`. `apply` requires both the exact
 bounded auth environment values, updates and verifies API before web, and restores web then API if
 the operation fails. The workflow does not call Entra or WAF APIs.
 
-The active Front Door default HTTPS hostname is the intended origin, but its exact SPA
-redirect/logout registration and replacement JWT activation remain pending human approval and
-fresh evidence. The Application Gateway is still HTTP-only and must not be used for authentication.
-A custom domain is separate hardening.
+The active Front Door default HTTPS hostname is the intended origin, but replacement registrations,
+exact redirect/logout configuration, role assignments, immutable deployment digests, and JWT
+activation remain pending human approval and fresh evidence. The stopped Application Gateway is
+HTTP-only; its `BlockApiMutationPreAuth` rule does not protect Front Door. The active Front Door WAF
+currently has no evidenced mutation rule, so read-only safety depends on
+`AGENT_SENTINEL_WRITE_ENABLED=false` and write activation is prohibited. A custom domain is separate
+hardening.
 
 Deployment order:
 
-1. Preserve the exact redirect/logout registration, write-disabled switch, and WAF block.
-2. Produce and review the offline preflight plan; keep the workflow in its default `plan` mode.
-3. After protected approval, use the surgical auth workflow. It updates API before web with
-   immutable image digests, writes false, and WAF unchanged.
-4. Run the read phase in [security-authentication.md](security-authentication.md) after every revision.
-5. After separate approval, enable writes only for a private authenticated reversible test.
-6. Narrow the WAF separately, then run the complete public-edge validation and anonymous denial
-   test.
+1. Generate and review the Entra registration plan; the default and pull-request workflows are plan
+   only.
+2. After protected identity approval, apply the exact plan, rediscover for idempotence, and retain
+   the sanitized result. This step does not grant consent or assign users/groups.
+3. Produce and review the runtime auth preflight with exact immutable image digests.
+4. After protected deployment approval, use the surgical auth workflow. It updates API before web
+   with writes false.
+5. Run `pnpm auth:edge-preflight` against the active Front Door. With no Front Door mutation rule,
+   only `api-writes-disabled-no-write-activation` is safe.
+6. Run the read phase in [security-authentication.md](security-authentication.md) after every revision.
+7. Do not enter write-stage readiness until JWT is active and an exact Front Door mutation rule has
+   been separately reviewed, deployed, and rediscovered.
 
-Rollback restores the mutation block first, then writes false, then the last known-good Container
-Apps revision. See RB-011 and RB-012 in [runbooks.md](runbooks.md).
+Rollback restores an active reviewed Front Door mutation block first when one exists, then writes false, then the last known-good Container
+Apps revision. The stopped Application Gateway rule is not an active-edge rollback control. See RB-011 and RB-012 in [runbooks.md](runbooks.md).
 
 ## Never Deploy If
 
@@ -448,7 +463,7 @@ Apps revision. See RB-011 and RB-012 in [runbooks.md](runbooks.md).
 
 ## TLS / Custom Domain Next Steps
 
-The active Front Door default hostname already provides HTTPS and is the registered bounded auth
+The active Front Door default hostname already provides HTTPS and is the intended bounded auth
 origin. The App Gateway endpoint remains HTTP-only. For an approved custom production domain:
 
 1. Register a domain or use an existing one
