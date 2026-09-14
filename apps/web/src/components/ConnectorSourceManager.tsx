@@ -67,9 +67,13 @@ interface SourceFormState {
   managementBaseUrl: string
   workspaceId: string
   sourceProjectId: string
+  providerResourceId: string
+  applicationRoleName: string
+  requestName: string
   logsBaseUrl: string
   baselineWindowHours: string
   observedWindowHours: string
+  maximumFreshnessHours: string
   requestTimeoutMs: string
   manifestId: string
   owners: boolean
@@ -104,9 +108,13 @@ const defaultForm: SourceFormState = {
   managementBaseUrl: 'https://management.azure.com',
   workspaceId: '',
   sourceProjectId: '',
+  providerResourceId: '',
+  applicationRoleName: 'agent-runtime',
+  requestName: 'agent.invoke',
   logsBaseUrl: 'https://api.loganalytics.io',
   baselineWindowHours: '168',
   observedWindowHours: '24',
+  maximumFreshnessHours: '168',
   requestTimeoutMs: '15000',
   manifestId: '',
   owners: false,
@@ -204,9 +212,13 @@ function configuration(form: SourceFormState): ConnectorSourceConfiguration {
         type: 'azure-monitor-otel',
         workspaceId: form.workspaceId,
         sourceProjectId: form.sourceProjectId,
+        providerResourceId: form.providerResourceId,
+        applicationRoleName: form.applicationRoleName,
+        requestName: 'agent.invoke',
         logsBaseUrl: form.logsBaseUrl,
         baselineWindowHours: numeric(form.baselineWindowHours),
         observedWindowHours: numeric(form.observedWindowHours),
+        maximumFreshnessHours: numeric(form.maximumFreshnessHours),
         requestTimeoutMs: numeric(form.requestTimeoutMs),
         maxResponseBytes: numeric(form.maxResponseBytes),
       }
@@ -290,9 +302,13 @@ function formForSource(source: ConnectorSourceDefinition): SourceFormState {
     case 'azure-monitor-otel':
       form.workspaceId = value.workspaceId
       form.sourceProjectId = value.sourceProjectId
+      form.providerResourceId = value.providerResourceId
+      form.applicationRoleName = value.applicationRoleName
+      form.requestName = value.requestName
       form.logsBaseUrl = value.logsBaseUrl
       form.baselineWindowHours = String(value.baselineWindowHours)
       form.observedWindowHours = String(value.observedWindowHours)
+      form.maximumFreshnessHours = String(value.maximumFreshnessHours)
       form.requestTimeoutMs = String(value.requestTimeoutMs)
       form.maxResponseBytes = String(value.maxResponseBytes)
       break
@@ -795,6 +811,26 @@ function SourceForm({
                     onChange={(event) => setField('sourceProjectId', event.currentTarget.value)}
                   />
                 </label>
+                <label className="connector-source-field connector-source-field--wide">
+                  <span>Application Insights resource ID</span>
+                  <input
+                    required
+                    value={form.providerResourceId}
+                    onChange={(event) => setField('providerResourceId', event.currentTarget.value)}
+                  />
+                </label>
+                <label className="connector-source-field">
+                  <span>Application role name</span>
+                  <input
+                    required
+                    value={form.applicationRoleName}
+                    onChange={(event) => setField('applicationRoleName', event.currentTarget.value)}
+                  />
+                </label>
+                <label className="connector-source-field">
+                  <span>Request name</span>
+                  <input required readOnly value={form.requestName} />
+                </label>
                 <label className="connector-source-field">
                   <span>Logs API base URL</span>
                   <input
@@ -819,6 +855,14 @@ function SourceForm({
                   min={1}
                   max={168}
                   onChange={(value) => setField('observedWindowHours', value)}
+                />
+                <NumberField
+                  id="source-maximum-freshness"
+                  label="Maximum freshness (hours)"
+                  value={form.maximumFreshnessHours}
+                  min={1}
+                  max={744}
+                  onChange={(value) => setField('maximumFreshnessHours', value)}
                 />
                 <NumberField
                   id="source-otel-timeout"

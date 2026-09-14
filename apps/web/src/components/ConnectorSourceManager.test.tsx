@@ -101,9 +101,14 @@ const otelUserSource = {
     type: 'azure-monitor-otel',
     workspaceId: '11111111-1111-4111-8111-111111111111',
     sourceProjectId: 'project-a',
+    providerResourceId:
+      '/subscriptions/11111111-1111-4111-8111-111111111111/resourcegroups/rg-test/providers/microsoft.insights/components/app-test',
+    applicationRoleName: 'agent-runtime',
+    requestName: 'agent.invoke',
     logsBaseUrl: 'https://api.loganalytics.io',
     baselineWindowHours: 168,
     observedWindowHours: 24,
+    maximumFreshnessHours: 168,
     requestTimeoutMs: 15_000,
     maxResponseBytes: 4_096,
   },
@@ -120,6 +125,7 @@ const migrationRequiredSource = {
     logsBaseUrl: 'https://api.loganalytics.io',
     baselineWindowHours: 168,
     observedWindowHours: 24,
+    maximumFreshnessHours: 168,
     requestTimeoutMs: 15_000,
     maxResponseBytes: 4_096,
   },
@@ -454,6 +460,12 @@ describe('ConnectorSourceManager', () => {
     expect(sourceProjectId).toHaveValue('project-a')
     expect(sourceProjectId).toHaveAttribute('required')
     expect(sourceProjectId).toHaveAttribute('maxlength', '200')
+    expect(within(dialog).getByLabelText('Application Insights resource ID')).toHaveValue(
+      otelUserSource.configuration.providerResourceId,
+    )
+    expect(within(dialog).getByLabelText('Application role name')).toHaveValue('agent-runtime')
+    expect(within(dialog).getByLabelText('Request name')).toHaveValue('agent.invoke')
+    expect(within(dialog).getByLabelText('Maximum freshness (hours)')).toHaveValue(168)
 
     await user.clear(sourceProjectId)
     await user.type(sourceProjectId, 'project-b')
@@ -466,6 +478,10 @@ describe('ConnectorSourceManager', () => {
     expect(patch.configuration).toMatchObject({
       type: 'azure-monitor-otel',
       sourceProjectId: 'project-b',
+      providerResourceId: otelUserSource.configuration.providerResourceId,
+      applicationRoleName: 'agent-runtime',
+      requestName: 'agent.invoke',
+      maximumFreshnessHours: 168,
     })
     expect(etag).toBe('etag-two')
     expect(idempotencyKey).toMatch(/^connector-source-update-/)
