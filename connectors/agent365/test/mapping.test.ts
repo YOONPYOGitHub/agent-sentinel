@@ -97,6 +97,23 @@ describe('Agent 365 package mapping', () => {
     ).toContain('agent365-agent')
   })
 
+  it('uses a bounded fallback description when Graph returns an empty description', () => {
+    const snapshot = mapAgent365PackagesToSnapshot(
+      [
+        {
+          ...agent,
+          shortDescription: '',
+        },
+      ],
+      source,
+      '2026-09-14T00:00:00Z',
+    )
+
+    expect(snapshot.nodes[0]?.description).toBe(
+      'Authoritative Microsoft Agent 365 package catalog agent record.',
+    )
+  })
+
   it('classifies documented agent signals but keeps non-agent extensions honest', () => {
     expect(isAgentPackage(agent)).toBe(true)
     expect(

@@ -103,6 +103,7 @@ export function mapAgent365PackagesToSnapshot(
     aggregateIds.add(evidenceId)
     const classifications = classifyAgent365Package(item)
     const agent = classifications[0] !== 'extension-package'
+    const shortDescription = item.shortDescription?.trim()
     const provenance = {
       sourceConnector: 'agent365-package-catalog',
       sourceConnectorId: source.id,
@@ -144,10 +145,11 @@ export function mapAgent365PackagesToSnapshot(
       kind: agent ? 'agent' : 'control',
       name: item.displayName,
       description:
-        item.shortDescription ??
-        (agent
-          ? 'Authoritative Microsoft Agent 365 package catalog agent record.'
-          : 'Authoritative Microsoft Agent 365 package catalog extension record.'),
+        shortDescription === undefined || shortDescription.length === 0
+          ? agent
+            ? 'Authoritative Microsoft Agent 365 package catalog agent record.'
+            : 'Authoritative Microsoft Agent 365 package catalog extension record.'
+          : shortDescription,
       environment: source.environment,
       evidenceIds: [evidenceId],
       metadata,
