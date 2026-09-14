@@ -94,16 +94,19 @@ describe('public edge routing safety', () => {
     expect(workflow).not.toMatch(/(?:docker\.io|mcr\.microsoft\.com)\/agent-sentinel-/)
   })
 
-  it('keeps live connector reads distinct from the synthetic validation portfolio', () => {
+  it('keeps the Korean README product-first and honest about evidence boundaries', () => {
     const readme = rootFile('README.md')
+    const why = readme.indexOf('## Why Agent Sentinel')
+    const production = readme.indexOf('## Production readiness')
 
-    expect(readme).toContain('코드 구현 상태')
-    expect(readme).toContain('현재 Azure에서 검증된 상태')
-    expect(readme).toContain('6개 에이전트는 제품 검증용 synthetic agent')
-    expect(readme).toContain('실제 provider 검증 스크립트는 자동 CI에서 실행하지 않으며')
-    expect(readme).not.toContain(
-      'Agent 365 · Defender · Purview · Teams catalog<br/>(implemented; activation pending)',
-    )
+    expect(why).toBeGreaterThan(readme.indexOf('# Agent Sentinel'))
+    expect(production).toBeGreaterThan(why)
+    expect(readme).toMatch(/증거 그래프[\s\S]*정확한 식별자/)
+    expect(readme).toMatch(/Unattributed evidence[\s\S]*임의 귀속하지 않음/)
+    expect(readme).toMatch(/Non-authoritative manifest[\s\S]*sourceOfTruth: false/)
+    expect(readme).toMatch(/2026-09-04[^|\n]*authoritative Foundry agent[^|\n]*`RUNS_AS` 0/)
+    expect(readme).toContain('실제 provider 검증 script는 자동 CI에서 실행하지 않으며')
+    expect(readme).toContain('아직 production release가 아닙니다')
   })
 
   it('documents full-SHA private image builds and digest verification', () => {

@@ -1,241 +1,207 @@
 # Agent Sentinel
 
-**엔터프라이즈 AI 에이전트를 위한 증거 중심 운영·거버넌스·보안·최적화·수명주기 통합 제어 플랫폼**
+**여러 플랫폼에 흩어진 엔터프라이즈 AI 에이전트의 운영·보안·거버넌스 증거를 하나의 설명 가능한 그래프로 연결하는 통합 제어 계층입니다.**
 
-Agent Sentinel은 Microsoft Agent 365, Microsoft Entra, Microsoft Foundry,
-Microsoft Defender, Microsoft Purview, Microsoft Teams, Azure Monitor 및
-사용자 정의 런타임의 에이전트·신원·제어·거버넌스·telemetry 레코드를 하나의
-**타입이 지정된 증거 그래프**로 통합합니다. Agent와 직접 연결할 권위 있는
-식별자가 없는 레코드는 독립 증거로 유지하며 에이전트에 임의 귀속하지 않습니다.
+Agent Sentinel을 사용하면 다음을 할 수 있습니다.
 
-조직은 Agent Sentinel을 통해 다음 질문에 일관된 증거로 답할 수 있습니다.
+- **발견:** 어떤 에이전트가 어디에 있고 누가 소유하는지 한 인벤토리에서 확인
+- **연결:** 에이전트·신원·도구·데이터·정책의 관계를 출처가 있는 증거로 추적
+- **분석:** 결정론적 정책과 그래프 계산으로 노출 경로와 blast radius(영향 범위) 설명
+- **검증:** 비파괴·제한적 검증과 remediation what-if로 변경 전후의 차이 확인
+- **운영:** 증거 최신성, connector 상태, 릴리스 준비도, 수명주기를 같은 화면에서 판단
 
-- 어떤 AI 에이전트가 어디에서 운영되고 있는가?
-- 누가 소유하고 어떤 데이터·도구·다른 에이전트에 접근할 수 있는가?
-- 어떤 노출이 이론적이며 어떤 노출이 실제로 검증되었는가?
-- 변경을 적용하면 공격 경로와 영향 범위가 어떻게 달라지는가?
-- 에이전트가 보안·거버넌스·신뢰성·비용·수명주기 기준을 충족하는가?
-
-모든 제품 주장은 출처, 신뢰도, 최신성, 관측 시각을 가진 증거를 인용합니다.
-증거가 없으면 안전하다고 판단하지 않고 `unknown`, `partial`,
-`insufficient-data` 또는 `unavailable`로 표시합니다.
-
-> **릴리스 상태: 프로덕션 출시 준비 단계**
->
-> 저장소의 P0 실데이터 통합 및 Demo Readiness 기능은 구현·검증되어
-> `feature/multi-source-otel` 브랜치에 병합되었습니다. 그러나 현재 Azure
-> 배포는 이전 이미지 `7458b3e`와 `AUTH_MODE=disabled`를 사용합니다.
-> 저장소 구현 상태와 실제 배포 상태는 반드시 구분해야 합니다.
->
-> 프로덕션 출시를 위해서는 Entra 로그인 활성화, Agent 365 지속 수집 검증,
-> 실제 `RUNS_AS` 증거 확인, 대표 OTel 트래픽 확보, Security·Accessibility·
-> OneRAI 출시 검토가 완료되어야 합니다.
+> **성숙도 · Release candidate repository** — 핵심 읽기·분석 기능은 저장소에 구현되어 있지만, 현재 Azure 배포는 이전 이미지와 비활성 인증을 사용합니다. **아직 production release가 아닙니다.**
 
 ---
 
-## 제품 원칙
+## Why Agent Sentinel
 
-Agent Sentinel의 초기 기획과 현재 구현은 다음 불변 원칙을 공유합니다.
+### 엔터프라이즈의 문제
 
-1. **증거 없는 사실은 만들지 않습니다.**
-2. **누락된 증거는 안전이 아니라 불확실성입니다.**
-3. **에이전트·신원·도구 관계를 이름이나 소유자 정보로 추정하지 않습니다.**
-4. **LLM은 기존 증거를 설명하지만 보안 사실이나 권한을 결정하지 않습니다.**
-5. **영향이 있는 작업은 인증, 권한, 승인, 감사 기록 없이는 실행하지 않습니다.**
-6. **tenant·estate·environment·source·project 경계는 UI 아래 계층에서도 적용됩니다.**
-7. **mock·synthetic·stale·partial 데이터를 live 성공으로 승격하지 않습니다.**
+하나의 조직에서도 AI agent estate(조직이 운영하는 모든 에이전트와 버전, 신원,
+도구, 소유자, 환경의 집합)는 Microsoft Agent 365, Microsoft Foundry, Microsoft
+Entra, Microsoft 365, Teams, 보안·데이터 거버넌스 제품, 자체 런타임에 나뉩니다.
+각 관리 화면은 자기 플랫폼은 잘 보여 주지만, 다음 질문은 플랫폼 경계를 넘습니다.
 
----
+- 이 에이전트는 **어떤 신원으로 실행**되고 무엇에 접근하는가?
+- 발견된 위험은 선언된 가능성인가, 실제 runtime evidence(실행 증거)로 검증되었는가?
+- 정책 예외와 승인, 변경 이력, rollback 근거가 같은 사실 집합을 가리키는가?
+- 데이터가 없을 때 안전한 것인가, 아직 모르는 것인가?
 
-## 초기 제품 기획과 현재 구현 정합성
+Agent Sentinel은 이 조각들을 **evidence graph(증거 그래프)** 로 정규화합니다. 모든
+노드·관계·판정은 출처, 신뢰도, 최신성, 관측 시각을 가지며, 지원되는 정확한 식별자가
+없으면 관계를 만들지 않습니다.
 
-| 제품 축       | 초기 목표                                         | 현재 상태                                                                                                    |
-| ------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| **Discover**  | 여러 플랫폼의 에이전트·소유권·도구·배포 상태 통합 | Foundry 실데이터, Entra·Purview·Defender·Teams·Azure Resource Graph 연결, Agent 365 코드 완료·배포 검증 대기 |
-| **Govern**    | 정책, 예외, 승인, 감사, 규정 준수 증거 통합       | 정책 자세·Cosmos work queue·불변 감사 이력 구현, 공개 쓰기는 차단                                            |
-| **Protect**   | 노출, 공격 경로, blast radius, 안전한 검증        | 결정론적 정책·그래프 엔진·노출 상세·검증·remediation what-if 구현                                            |
-| **Observe**   | 최신성, 커버리지, 신뢰성, 활동, 비용 관측         | OTel 읽기·provenance·품질 판정 구현, 실제 분석 가능 span은 아직 부족                                         |
-| **Optimize**  | 증거 기반 개선안과 효과 확인                      | 제한된 추천·what-if 구현, 실제 provider 변경 실행은 비활성                                                   |
-| **Lifecycle** | 릴리스, 승격, drift, rollback, retirement 관리    | 수명주기 증거와 governance transition 구현, 실제 배포 릴리스 검증은 진행 중                                  |
+### Before → After 예시
 
-초기 계획의 핵심인 **cross-platform evidence graph**, **deterministic security
-analysis**, **bounded validation**, **approval-based remediation** 구조는 유지되고
-있습니다. 현재 남은 작업은 새로운 제품 방향이 아니라 실제 배포 환경에서 이
-구조를 활성화하고 검증하는 단계입니다.
+| 상황                                                     | Agent Sentinel 이전                                                                                             | Agent Sentinel 이후                                                                                    |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| 보안 리더가 외부 전송 가능 에이전트의 영향 범위를 묻는다 | Foundry에서 agent 설정, Entra에서 service principal, Defender에서 alert, 운영팀에서 trace를 각각 찾아 수동 대조 | Exposure에서 동일 evidence graph의 경로·근거·최신성을 확인하고, 이론적 finding과 검증된 finding을 구분 |
+| 플랫폼 소유자가 릴리스 가능 여부를 묻는다                | “connector가 연결됐다”는 보고와 실제 배포 이미지·인증·telemetry 상태가 섞임                                     | Demo Readiness와 릴리스 게이트에서 저장소 기능, 배포 상태, 누락 증거를 분리해 판단                     |
+| 담당자가 정확한 identity ID를 찾지 못한다                | 이름·별칭으로 연결해 잘못된 권한 경로를 만들 위험                                                               | `RUNS_AS`를 생성하지 않고 unmatched 원인을 표시; 누락을 안전으로 간주하지 않음                         |
 
 ---
 
-## Agent Sentinel이 하는 일과 하지 않는 일
+## Who it is for
 
-| Agent Sentinel이 하는 일                                           | Agent Sentinel이 하지 않는 일                     |
-| ------------------------------------------------------------------ | ------------------------------------------------- |
-| 권위 있는 읽기 전용 레코드와 명시적 비권위 선언을 구분해 수집·인용 | Agent 365, Entra, Foundry 등 원본 관리 콘솔 대체  |
-| 여러 제어 평면을 하나의 타입 증거 그래프로 상관 분석               | source가 반환하지 않은 관계·소유자·건강 상태 추론 |
-| 결정론적 공격 경로와 blast radius 계산                             | LLM을 이용한 보안 사실 생성                       |
-| 비파괴·제한적 검증으로 theoretical 상태를 갱신                     | 무단 또는 파괴적 보안 테스트                      |
-| 변경 전 remediation 영향 미리보기                                  | 승인 없는 실제 변경                               |
-| 차원별 설명 가능한 assurance 제공                                  | 불확실성을 숨기는 단일 종합 점수                  |
-| 하나의 증거 집합으로 보안·플랫폼·비즈니스 협업                     | 플랫폼별 결과를 사용자가 수동 조정하도록 강제     |
+| 사용자                            | Agent Sentinel에서 내리는 결정                                                                          |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Hackathon evaluator / judge**   | 제품이 실제 문제를 어떻게 풀고, demo evidence가 live·synthetic·unknown 중 무엇인지 판단                 |
+| **Security leader / analyst**     | 어떤 exposure를 먼저 조사하고, 공격 경로와 영향 범위가 어떤 증거로 성립하는지 판단                      |
+| **Agent platform owner / SRE**    | connector·snapshot·telemetry가 충분히 최신이고 완전한지, 무엇이 릴리스를 막는지 판단                    |
+| **Governance / compliance owner** | 어떤 정책이 적용되고 어떤 예외·승인·감사 증거가 필요한지 판단                                           |
+| **Agent owner / developer**       | agent가 어떤 control을 통과하지 못했고, 배포 전에 어떤 manifest·identity·telemetry를 고쳐야 하는지 판단 |
+| **Approver / administrator**      | 제안된 변경의 근거·영향·rollback을 검토하고 승인 경계를 지킬지 판단                                     |
 
 ---
 
-## 핵심 아키텍처
+## How it works
+
+### 1. Discover — 원본을 읽고 경계를 보존
+
+읽기 전용 connector가 agent, identity, resource, policy, catalog, telemetry를 제한된
+범위로 수집합니다. 각 source의 tenant·environment·project 경계와 provenance(출처
+정보)를 보존합니다.
+
+### 2. Correlate — 정확한 ID만 연결
+
+타입이 지정된 공통 모델로 정규화한 뒤, provider가 제공한 정확한 식별자가 일치할
+때만 `RUNS_AS` 같은 edge를 만듭니다. 이름·owner·alias·fuzzy text로 신원 관계를
+추정하지 않습니다.
+
+### 3. Analyze — 결정론적으로 계산
+
+policy engine은 finding을, graph engine은 attack path와 blast radius를, behavior
+engine은 충분한 OpenTelemetry(OTel) 측정값이 있을 때 drift·reliability·measured cost를
+계산합니다. LLM은 기존 증거를 설명할 수 있지만 보안 사실이나 권한을 결정하지 않습니다.
+
+### 4. Act / Verify — 먼저 미리 보고, 제한적으로 검증
+
+사용자는 cited evidence를 확인하고 bounded validation(비파괴·시간·범위 제한 검증)과
+remediation what-if를 수행합니다. 실제 변경은 인증·역할·승인·감사·rollback 조건을
+통과해야 하며, 현재 공개 배포에서는 비활성입니다.
 
 ```mermaid
 flowchart LR
-    subgraph Sources["권위 있는 증거 소스"]
-        F["Microsoft Foundry"]
-        A365["Microsoft Agent 365"]
-        E["Microsoft Entra"]
-        GOV["Defender · Purview · Teams · Azure Resource Graph"]
-        OTEL["Azure Monitor / OpenTelemetry"]
+    subgraph A["권위 있는 원본"]
+        A365["Agent 365<br/>catalog · lifecycle"]
+        F["Foundry<br/>declared configuration"]
+        E["Entra<br/>exact identity"]
+        O["Azure Monitor / OTel<br/>observed runtime"]
     end
 
-    subgraph Declared["비권위 선언 소스"]
-        EXT["Custom manifest · Third-party declaration"]
+    subgraph U["직접 관측되지만 agent 미귀속"]
+        D["Defender · Purview · Teams · Azure Resource Graph"]
     end
 
-    subgraph Ingestion["수집 및 정규화"]
-        JOBS["apps/jobs<br/>bounded discovery · policy evaluation"]
-        DOMAIN["domain · connector-sdk<br/>typed evidence · provenance"]
+    subgraph N["비권위 선언"]
+        M["Custom manifest<br/>sourceOfTruth: false"]
     end
 
-    subgraph Core["결정론적 분석 코어"]
-        POLICY["policy-engine"]
-        GRAPH["graph-engine<br/>attack path · blast radius"]
-        BEHAVIOR["behavior-engine<br/>drift · token economics"]
-    end
-
-    subgraph Store["영속 저장소"]
-        COSMOS[("Cosmos DB<br/>snapshots · findings · governance · evidence")]
-    end
-
-    subgraph Experience["사용자 경험"]
-        API["apps/api<br/>Fastify · RBAC · read model"]
-        WEB["apps/web<br/>React · Fluent UI"]
-        READY["Demo Readiness<br/>CLI + Web"]
-    end
-
-    F & A365 & E & GOV & OTEL & EXT --> JOBS
-    JOBS --> DOMAIN --> POLICY
-    DOMAIN --> GRAPH
-    DOMAIN --> BEHAVIOR
-    POLICY & GRAPH & BEHAVIOR --> COSMOS
-    COSMOS --> API --> WEB
-    API --> READY
+    A365 & F & E & O & D & M --> I["Discover & normalize<br/>typed evidence + provenance"]
+    I --> G["One evidence graph<br/>exact edges only"]
+    G --> P["Deterministic analysis<br/>policy · graph · behavior"]
+    P --> X["Product workflows<br/>discover · govern · protect · observe · lifecycle"]
+    X --> V["Act / verify<br/>bounded validation · approval · audit"]
 ```
 
-- `apps/web`: React SPA, Fluent UI, 접근성 적용 운영 화면
-- `apps/api`: Fastify REST API, 인증·RBAC, Cosmos 기반 read model
-- `apps/jobs`: 주기적 discovery, policy 평가, snapshot·finding 영속화
-- `packages/domain`: Zod schema, estate·evidence·repository 계약
-- `packages/connector-sdk`: connector, health, provenance, runtime evidence 계약
-- `packages/graph-engine`: 공격 경로와 blast radius 계산
-- `packages/policy-engine`: 결정론적 보안 정책 평가
-- `packages/behavior-engine`: OTel 기반 drift·신뢰성·token economics 분석
+증거 종류는 다음처럼 다르게 취급합니다.
 
-상세 설계는 [아키텍처 문서](docs/architecture.md)와
-[ADR 0002](docs/adr/0002-evidence-first-deterministic-core.md)를 참고하십시오.
+| 종류                           | 의미                                                          | Agent Sentinel의 처리                                                                         |
+| ------------------------------ | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| **Authoritative source**       | 해당 사실을 소유하는 원본 시스템의 레코드                     | 출처를 인용하고, 지원되는 exact ID가 있을 때만 다른 레코드와 연결                             |
+| **Unattributed evidence**      | provider가 직접 반환했지만 특정 agent와 연결할 키가 없는 증거 | 독립 노드로 유지; agent 위험·건강·준수 상태로 임의 귀속하지 않음                              |
+| **Non-authoritative manifest** | 운영자가 제공한 선언                                          | `sourceOfTruth: false`로 표시하고 권위 있는 source보다 우선하지 않으며, 실행 권한을 갖지 않음 |
 
 ---
 
-## 주요 사용자 화면
+## What you can see in the product
 
-| 화면                    | 경로                        | 목적                                           |
-| ----------------------- | --------------------------- | ---------------------------------------------- |
-| Overview                | `/overview`                 | estate, 노출, governance 요약                  |
-| Agent inventory         | `/agent-inventory`          | 플랫폼·소유권·trust·환경별 에이전트 목록       |
-| Agent detail            | `/agent-inventory/:agentId` | 신원, 도구, 증거, assurance, 수명주기          |
-| Agent assurance catalog | `/agent-catalog`            | 직원 관점의 에이전트 신뢰도 overlay            |
-| Cloud resources         | `/cloud-resources`          | 에이전트 주변 Azure 리소스 증거                |
-| Exposure                | `/exposure`                 | 이론적·검증된 노출과 심각도                    |
-| Exposure detail         | `/exposure/:findingId`      | 공격 경로, 증거, 검증, what-if                 |
-| Governance              | `/governance`               | 정책 자세와 증거 기반 상태                     |
-| Work queue              | `/work-queue`               | 할당·승인·예외·만료·감사 이력                  |
-| Observability           | `/observability`            | 증거 최신성·완전성·source health               |
-| Optimization            | `/optimization`             | 제한적·증거 기반 개선 제안                     |
-| Lifecycle               | `/lifecycle`                | release readiness, drift, rollback, retirement |
-| Trust catalog           | `/trust-catalog`            | Agent·MCP·tool·connector provenance            |
-| Connectors              | `/connectors`               | connector 설정·권한·health·data state          |
-| Demo Readiness          | `/demo-readiness`           | Agent 365·`RUNS_AS`·OTel·배포 상태 통합 판정   |
-| Settings                | `/settings`                 | 사용자 환경 설정                               |
+라우트 목록을 외우는 대신, 다음 workflow로 제품을 탐색할 수 있습니다.
 
----
+| Workflow                | 주요 surface                                                              | 답하는 질문                                                                                |
+| ----------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| **Estate 발견**         | Overview, Agent inventory, Agent detail, Cloud resources, Connectors      | 무엇이 존재하고, 어디에서 왔으며, 어느 범위까지 보이는가?                                  |
+| **노출 조사**           | Exposure list/detail, attack-path graph, Evidence drawer                  | finding이 왜 생겼고, 경로와 영향 범위는 무엇이며, 어떤 증거가 부족한가?                    |
+| **거버넌스와 수명주기** | Governance, Work queue, Lifecycle, Trust catalog, Agent assurance catalog | 어떤 control·예외·승인·release/rollback 상태가 적용되는가?                                 |
+| **관측과 최적화**       | Observability, Optimization                                               | evidence가 최신·완전한가, 측정된 drift·reliability·cost로 무엇을 개선할 수 있는가?         |
+| **데모·릴리스 확인**    | Demo Readiness (`/demo-readiness`)                                        | Agent 365, connector binding, exact `RUNS_AS`, OTel, image identity가 실제로 준비되었는가? |
 
-## 데이터 소스와 현재 상태
+### 5-minute hackathon demo journey
 
-아래 표는 **코드 구현 상태**와 **현재 Azure에서 검증된 상태**를 구분합니다.
+1. **0:00 — Demo Readiness:** mock 성공으로 대체하지 않는 전체 readiness와 차단 원인을 먼저 보여 줍니다.
+2. **0:45 — Overview → Agent inventory:** estate 규모와 source 상태를 확인하고 synthetic validation agent 하나를 선택합니다.
+3. **1:30 — Agent detail:** declared configuration, identity, tool, evidence freshness를 함께 확인합니다.
+4. **2:30 — Exposure detail:** 결정론적 finding, attack path, blast radius, cited evidence, bounded validation/what-if를 설명합니다.
+5. **3:30 — Governance → Work queue:** 같은 finding이 policy posture와 승인·예외·감사 흐름으로 이어지는 모습을 보여 줍니다.
+6. **4:15 — Observability → Lifecycle:** 누락·stale·insufficient evidence가 숨겨지지 않고 release blocker로 남는지 확인합니다.
+7. **4:50 — Demo Readiness로 복귀:** 무엇이 repository-ready이고 무엇이 Azure에서 아직 미검증인지 요약합니다.
 
-| 데이터 소스                | 코드 상태                | 현재 배포·실증 상태                                                                   |
-| -------------------------- | ------------------------ | ------------------------------------------------------------------------------------- |
-| Microsoft Foundry          | 완료, multi-source       | 1개 project에서 6개 synthetic validation agent의 declared configuration 수집          |
-| Microsoft Entra inventory  | 완료, multi-source       | service principal inventory 연결; 현재 Foundry agent에 정확한 ID가 없어 `RUNS_AS` 0건 |
-| Microsoft Agent 365        | 완료, deployment-managed | 라이선스·UAMI 권한·HTTP 200/306 package 접근 검증; 새 runtime 배포·snapshot 검증 대기 |
-| Azure Monitor / OTel       | 완료, multi-source       | query path 연결; 현재 30일 범위의 분석 가능한 request span 부족                       |
-| Azure Resource Graph       | 완료                     | 현재 권한 범위의 Azure 리소스 증거 수집                                               |
-| Microsoft Purview          | 완료                     | sensitivity label 정의 수집; 실제 사용·보호 상태를 의미하지 않음                      |
-| Defender for Cloud Apps    | 완료                     | 현재 bounded window는 valid-empty                                                     |
-| Teams organization catalog | 완료                     | 현재 bounded catalog는 valid-empty                                                    |
-| Power Platform             | 구현 완료                | unattended app-only 권한 부재로 비활성                                                |
-| Custom manifest            | 완료                     | 비권위 read-only adapter; API ingestion은 인증·write gate 필요                        |
-| Business outcome           | 계약 완료                | 권위 있는 outcome source 미설정                                                       |
+### Demo Readiness가 확인하는 것
 
-현재 Foundry의 6개 에이전트는 제품 검증용 synthetic agent이며 production customer
-agent가 아닙니다. Agent 365의 306개 package도 306개 agent를 의미하지 않습니다.
+- complete·live·source-bound Agent 365 package evidence와 deployment-managed connector binding
+- 모든 대상 agent의 정확한 `RUNS_AS` edge, 그리고 **unmatched 0 / ambiguous 0**
+- non-synthetic OTel invocation, trace/span provenance, measured token/cost provenance
+- web/API/jobs의 기대 full Git SHA와 canonical image digest 일치
 
-더 자세한 상태는 [Connector availability](docs/connector-availability.md)와
-[Current status](docs/current-status.md)를 참고하십시오.
+Package 수는 agent 수로 해석하지 않습니다. empty, unknown, stale, synthetic evidence는
+ready로 승격되지 않습니다.
 
 ---
 
-## 인증과 쓰기 안전성
+## Why it is different
 
-코드에는 다음 기능이 구현되어 있습니다.
+### Agent 365와의 경계
 
-- Microsoft Entra JWT 서명·tenant·audience·issuer·scope·role 검증
-- SPA MSAL 로그인·로그아웃·redirect bridge
-- `Viewer`, `Analyst`, `Approver`, `Administrator` 역할
-- route별 capability guard
-- `/api/auth/me`의 개인정보 최소화 principal 응답
+Microsoft Agent 365는 자신이 관리하는 agent의 권위 있는 registry·administration plane입니다.
+Agent Sentinel은 이를 대체하거나 agent 접근 권한을 부여하지 않습니다.
 
-현재 replacement Azure 배포는 다음 상태입니다.
+| 영역                             | Agent 365         | Agent Sentinel                                                      |
+| -------------------------------- | ----------------- | ------------------------------------------------------------------- |
+| Agent 등록·관리·entitlement      | 권위 있는 원본    | 읽고 인용하는 consumer                                              |
+| Cross-platform inventory         | 관리 범위 중심    | Foundry·Entra·M365·Azure·custom runtime 증거를 한 graph로 상관 분석 |
+| Attack path / blast radius       | 원본 관리 목적 밖 | 결정론적 graph 분석                                                 |
+| Validation / remediation preview | 원본 관리 목적 밖 | bounded validation과 what-if                                        |
+| Assurance                        | 플랫폼 상태       | Security·Governance·Lifecycle·Quality·Reliability·Cost의 독립 차원  |
 
-- replacement API/SPA 앱 등록이 아직 존재하지 않음
-- `AUTH_MODE=disabled`
-- `AGENT_SENTINEL_WRITE_ENABLED=false`
-- 활성 Front Door WAF에는 검증된 API mutation 차단 규칙이 없음
+### 제품 불변 원칙
 
-`BlockApiMutationPreAuth`는 중지된 HTTP-only Application Gateway에만 있으며 활성 Front Door를
-보호하지 않습니다. 따라서 현재 공개 환경은 로그인과 실제 remediation 실행을 제공하지
-않고, 쓰기 안전성은 API write switch가 false인 것에 의존합니다. JWT와 검토된 Front Door
-규칙을 함께 확인하기 전에는 write-stage readiness가 차단됩니다.
-
-먼저 `infra/auth/replacement-entra-registration-bootstrap.template.json`을 저장소 밖에서
-복사해 승인된 비밀 아닌 값을 채우고 다음 plan을 생성합니다.
-
-```bash
-pnpm auth:registration-bootstrap -- --input <sanitized-registration.json> \
-  --output entra-registration-plan.json
-```
-
-기본/PR 실행은 plan-only입니다. apply는 동일 plan artifact, 정확한 tenant 확인,
-`APPROVE_ENTRA_REGISTRATION_BOOTSTRAP`, 보호 환경 승인이 모두 필요하며 client secret,
-certificate, consent, group/role assignment를 만들지 않습니다. 등록 적용 후 별도 runtime
-입력으로 `pnpm auth:preflight`를 실행하고, 배포 후 `pnpm auth:edge-preflight`로 활성 Front
-Door와 `writeEnabled=false`를 재검증합니다.
-
-상세 절차는 [Security and authentication](docs/security-authentication.md)을
-참고하십시오.
+- **Evidence-first deterministic core:** finding, edge, path, severity는 모델의 추측이 아니라 schema·policy·graph·threshold로 계산합니다.
+- **No guessed safety:** 증거가 없으면 `unknown`, `partial`, `insufficient-data`, `unavailable`로 남깁니다.
+- **Exact correlation only:** 권위 있는 exact ID가 없으면 관계를 만들지 않습니다.
+- **Bounded validation:** 비파괴, read-only 또는 명시적으로 승인된 제한 범위에서만 검증합니다.
+- **Explainable dimensions:** assurance 차원을 하나의 편안한 평균 점수로 숨기지 않고 각각의 coverage와 이유를 보여 줍니다.
+- **Grounded AI boundary:** AI 설명은 제공된 evidence와 subgraph에 근거해야 하며, 보안 사실 생성이나 action 승인을 하지 않습니다.
 
 ---
 
-## 로컬 실행
+## Production readiness
+
+**현재 상태는 production release가 아니라, 저장소 capability와 Azure 실배포 사이의 간격을 닫는 단계입니다.**
+
+| 영역                      | Repository capability                                                                  | 현재 배포된 Azure 상태                                                                                                                            | Release blocker                                                                                        |
+| ------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Release identity**      | full SHA·web/API/jobs digest 검증 도구 구현                                            | 마지막으로 증거가 확인된 web/API/jobs 이미지는 short SHA `7458b3e`                                                                                | 현재 commit의 full SHA, 세 image digest, config hash를 기록한 새 배포 증거 필요                        |
+| **Authentication / RBAC** | Entra JWT, MSAL, capability guard와 `Viewer`·`Analyst`·`Approver`·`Administrator` 구현 | `AUTH_MODE=disabled`, `AGENT_SENTINEL_WRITE_ENABLED=false`; replacement API/SPA 등록 미생성, active Front Door에 evidenced API mutation rule 없음 | 승인된 등록 plan, 최소 권한 consent/assignment, 네 역할의 live token 검증, Front Door write guard 검증 |
+| **Agent 365**             | read-only deployment-managed connector와 persisted source health 구현                  | 권한·license·bounded provider read는 확인됐지만 새 API/jobs image와 source-linked snapshot은 미배포                                               | reviewed image 배포 후 `ready + complete` persisted evidence 검증                                      |
+| **Identity correlation**  | exact object/application/Agent Identity ID 진단과 `RUNS_AS` 생성 구현                  | 2026-09-04 revalidation에서 authoritative Foundry agent에 usable identity ID가 없어 `RUNS_AS` 0                                                   | 모든 대상 agent에 exact edge가 있고 unmatched·ambiguous가 모두 0이어야 함                              |
+| **Runtime evidence**      | bounded Azure Monitor OTel query, drift·reliability·measured token/cost 분석 구현      | 현재 분석 가능한 representative span이 부족해 `unknown` / `insufficient-data`                                                                     | fresh·complete·unsampled non-synthetic spans와 exact trace/span/token/cost provenance 필요             |
+| **Action safety**         | 역할·승인·감사·what-if·rollback foundation 구현                                        | live provider remediation 비활성; 공개 환경은 read-only posture                                                                                   | JWT와 reviewed Front Door mutation rule을 검증한 뒤 승인된 private reversible write만 별도 검증        |
+| **Release review**        | offline release evidence와 safety report 도구 구현                                     | Security review, Accessibility review, OneRAI release assessment 미완료                                                                           | 세 검토와 실행된 safety evaluation, sanitized release evidence, rollback 증거 필요                     |
+
+상세하고 날짜가 있는 상태는 [Current status](docs/current-status.md), 제약은
+[Known issues](docs/known-issues.md), connector별 상태는
+[Connector availability](docs/connector-availability.md)를 기준으로 확인하십시오.
+
+---
+
+## Quick start
 
 ### 요구 사항
 
 - Node.js 22 이상
 - pnpm 10.15.1
-- Linux 또는 WSL의 Linux 파일 시스템
+- Linux 또는 WSL의 Linux file system
 
 ```bash
 git clone https://github.com/<org>/agent-sentinel.git
@@ -244,18 +210,19 @@ pnpm install
 pnpm dev
 ```
 
-기본값은 mock connector이므로 Azure 권한 없이 실행할 수 있습니다.
+기본값은 deterministic mock connector이므로 Azure 권한 없이 제품 workflow를 실행할 수
+있습니다.
 
-- API: `http://127.0.0.1:3001`
 - Web: `http://127.0.0.1:5173`
+- API: `http://127.0.0.1:3001`
 
-Foundry live discovery를 사용하려면 `.env.example`을 기준으로
-`AGENT_SENTINEL_CONNECTOR=foundry`와 `FOUNDRY_*` 값을 설정하십시오. 잘못되거나
-불완전한 설정은 mock으로 fallback하지 않고 startup을 중단합니다.
+Live Foundry discovery는 `.env.example`의 `AGENT_SENTINEL_CONNECTOR=foundry`와
+`FOUNDRY_*` 설정이 모두 필요합니다. 불완전한 live 설정은 mock으로 fallback하지 않고
+startup을 실패시킵니다. 개발 방법은 [Development](docs/development.md)를 참고하십시오.
 
 ---
 
-## 검증 명령
+## Validation
 
 ```bash
 pnpm format:check
@@ -267,38 +234,19 @@ pnpm test:e2e
 pnpm validate
 ```
 
-추가 운영 검증:
+실제 provider 검증 script는 자동 CI에서 실행하지 않으며, 승인된 환경에서만 별도로
+수행합니다. 검증 수치는 해당 full SHA와 실행 날짜가 함께 기록된 release evidence에서만
+인용합니다.
+
+### Post-deployment Demo Readiness verifier
+
+Verifier는 credential이 포함되지 않은 `--url`, token 값이 아닌 `--token-env`, 그리고
+web/API/jobs **모두의** full SHA와 digest를 요구하도록 사용합니다.
 
 ```bash
-# Entra API/SPA 등록 계획 생성(기본 plan-only)
-pnpm auth:registration-bootstrap -- --input <sanitized-registration.json> \
-  --output entra-registration-plan.json
-
-# Entra runtime 인증 활성화 전 오프라인 입력·배포 계획 검증
-pnpm auth:preflight -- --input <sanitized-auth-activation.json>
-
-# 적용 후 활성 Front Door/redirect/JWT/write switch/WAF read-only 검증
-pnpm auth:edge-preflight -- --input <sanitized-active-edge-input.json> \
-  --output active-edge-preflight.json
-
-# Foundry synthetic validation agent 검증
-pnpm foundry:validate
-
-# Entra 인증 활성화 후 역할·상태 코드 검증
-pnpm auth:validate-live
-
-# 배포 후 Agent 365, RUNS_AS, OTel, 이미지 상태 통합 검증
-# 아래 값은 승인된 배포 기록과 short-lived Viewer token에서 가져오며
-# token이나 digest를 파일·로그·shell history에 저장하지 않습니다.
 export AGENT_SENTINEL_BASE_URL='https://approved-front-door-host.example'
 read -rsp 'Short-lived Viewer token: ' AGENT_SENTINEL_DEMO_TOKEN && echo
 export AGENT_SENTINEL_DEMO_TOKEN
-export WEB_SHA='0123456789abcdef0123456789abcdef01234567'
-export API_SHA='0123456789abcdef0123456789abcdef01234567'
-export JOBS_SHA='0123456789abcdef0123456789abcdef01234567'
-export WEB_DIGEST='sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
-export API_DIGEST='sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
-export JOBS_DIGEST='sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 
 pnpm demo:verify -- \
   --url "$AGENT_SENTINEL_BASE_URL" \
@@ -309,152 +257,86 @@ pnpm demo:verify -- \
   --expected-web-digest "$WEB_DIGEST" \
   --expected-api-digest "$API_DIGEST" \
   --expected-jobs-digest "$JOBS_DIGEST"
-
-# 배포 전 manifest 정책 검사
-pnpm manifest:scan <manifest.json> --tenant <tenant-id>
 ```
 
-감사 가능한 최근 검증 경계:
-
-- `8124c0ee` (2026-09-11): Vitest 1,827개 통과, 1개 skip
-- `8124c0ee` (2026-09-11): Playwright connector/catalog/Agent 365 11/11 통과
-- `8124c0ee` + lint 보정 `84187254` (2026-09-11): 전체 lint, typecheck, build 통과
-- `8124c0ee` (2026-09-11): offline Bicep platform·replacement parameter 검증 통과
-- Demo Readiness `74fc7f5f` (2026-09-12): 전체 lint, typecheck, test, build, Bicep 통과
-
-실제 provider 검증 스크립트는 자동 CI에서 실행하지 않으며, 승인된 환경에서만
-사용합니다.
+Token, digest, tenant 정보는 문서·로그·shell history에 기록하지 않습니다. 상세 절차는
+[Runbooks](docs/runbooks.md)의 Demo Readiness runbook을 따릅니다.
 
 ---
 
-## 프로덕션 배포
+## Deployment overview
 
-프로덕션 이미지는 mutable tag가 아니라 `@sha256:<digest>`로 배포합니다.
-private ACR 접근은 target VNet의 self-hosted runner와 managed identity를 사용합니다.
+Production candidate 이미지는 mutable tag가 아니라 `@sha256:<digest>`로 식별하고,
+private ACR에 접근 가능한 target VNet self-hosted runner에서 빌드합니다.
 
-안전한 배포 순서:
+1. 검증할 exact full Git SHA를 선택합니다.
+2. web/API/jobs image를 빌드하고 각각의 canonical digest를 기록합니다.
+3. 전체 Bicep 재적용 대신 reviewed surgical change와 `what-if`를 검토합니다.
+4. **API → jobs → web** 순서로 배포하며 각 단계의 health·snapshot·same-origin 동작을 확인합니다.
+5. `pnpm demo:verify`로 Agent 365, exact `RUNS_AS`, OTel, version/digest를 판정합니다.
+6. 실패하면 저장한 이전 revision/digest로 **API → jobs → web** 순서로 rollback합니다.
 
-1. 검증된 exact Git SHA를 선택합니다.
-2. target VNet runner에서 web/API/jobs 이미지를 빌드하고 ACR digest를 확인합니다.
-3. 전체 Bicep 배포가 아닌 reviewed surgical change를 `what-if`로 검토합니다.
-4. API를 먼저 배포하고 health·auth·read model을 검증합니다.
-5. jobs를 배포하고 snapshot 저장을 확인합니다.
-6. 필요할 때만 web을 배포합니다.
-7. `pnpm demo:verify`로 Agent 365·`RUNS_AS`·OTel·version 상태를 판정합니다.
-8. 실패 시 저장한 이전 digest/revision으로 API → jobs → web 순서로 rollback합니다.
-
-현재 개발 resource group은 전체 Bicep desired state와 drift가 있으므로 전체
-`deployment group create`를 실행하면 안 됩니다.
-
-상세 절차:
-
-- [Deployment](docs/deployment.md)
-- [Runbooks](docs/runbooks.md)
-- [Supply chain](docs/supply-chain.md)
+현재 resource group에는 desired state와 drift가 있으므로 승인 없이 전체
+`deployment group create`를 실행하지 않습니다. 자세한 내용은
+[Deployment](docs/deployment.md)와 [Supply chain](docs/supply-chain.md)을 참고하십시오.
 
 ---
 
-## 프로덕션 출시 기준
+## Release criteria
 
-Agent Sentinel을 production release로 선언하려면 다음 조건이 모두 충족되어야 합니다.
+다음 조건이 모두 증거로 확인되기 전에는 production release로 선언하지 않습니다.
 
-### 필수 출시 게이트
-
-- [ ] replacement Azure에 검증된 full SHA와 image digest가 배포됨
-- [ ] replacement API/SPA 등록 plan 승인·적용 및 post-apply 재탐색 완료
-- [ ] 최소 권한 consent·테스트 역할 assignment 완료
-- [ ] 검토된 image digest로 Entra `AUTH_MODE=jwt` read-only 활성화 및 실제 로그인·로그아웃 검증
-- [ ] anonymous `401`, Viewer `403`, `/api/auth/me` 검증
-- [ ] Viewer·Analyst·Approver·Administrator의 실제 token capability 경계 검증
-- [ ] Agent 365 source가 `ready + complete`이며 persisted snapshot과 분류가 검증됨
-- [ ] 모든 대상 agent의 `RUNS_AS`가 정확한 provider ID로 생성되고 unmatched·ambiguous가 0건임
-- [ ] OTel baseline·observed window에 대표 non-synthetic span이 존재함
-- [ ] trace/span/token/cost provenance가 source와 agent에 정확히 연결됨
-- [ ] 공개 쓰기는 계속 차단되거나 승인된 private reversible write만 검증됨
-- [ ] Security review 완료
-- [ ] Accessibility review 완료
-- [ ] OneRAI release assessment에 실행된 safety evaluation 첨부
-- [ ] sanitized release evidence에 full SHA, image digest, config hash 기록
-- [ ] rollback 절차와 이전 digest가 검증됨
-
-### 출시 후에도 유지할 원칙
-
-- package count를 agent count로 표시하지 않습니다.
-- valid-empty를 전체 커버리지로 표시하지 않습니다.
-- synthetic validation을 production workload 증거로 표시하지 않습니다.
-- stale snapshot을 현재 live 상태로 표시하지 않습니다.
-- 이름·소유자·별칭으로 identity edge를 생성하지 않습니다.
-- 인증되지 않은 public write 경로를 허용하지 않습니다.
+- [ ] reviewed full SHA와 web/API/jobs digest가 실제 revision과 일치
+- [ ] Entra `AUTH_MODE=jwt`, writes false, 로그인·로그아웃·anonymous `401`·Viewer `403` 검증
+- [ ] `Viewer`·`Analyst`·`Approver`·`Administrator` 네 역할의 capability 경계 검증
+- [ ] Agent 365 source가 persisted snapshot에서 `ready + complete`
+- [ ] 모든 대상 agent의 exact `RUNS_AS` edge 존재, unmatched 0, ambiguous 0
+- [ ] representative non-synthetic OTel span과 trace/span/token/cost provenance 충족
+- [ ] 공개 write는 차단되고, 필요한 경우 승인된 private reversible write만 검증
+- [ ] Security·Accessibility·OneRAI review와 실행된 safety evaluation 완료
+- [ ] sanitized release evidence에 full SHA, image digests, config hash, check 결과 기록
+- [ ] 이전 digest와 **API → jobs → web** rollback 절차 검증
 
 ---
 
-## 저장소 구조
+## Repository structure
 
 ```text
 apps/
-  api/          REST API, JWT/RBAC, live read model
-  jobs/         discovery, policy evaluation, persistence
-  web/          React SPA, Fluent UI, Demo Readiness
+  web/          React + Fluent UI product experience
+  api/          Fastify API, read model, auth/RBAC boundary
+  jobs/         discovery, correlation, policy evaluation, persistence
 
-connectors/
-  foundry/
-  agent365/
-  entra-identity/
-  azure-monitor-otel/
-  azure-resource-graph/
-  defender-cloud-apps/
-  purview/
-  teams-distribution/
-  power-platform/
-  manifest/
+connectors/     Foundry, Agent 365, Entra, OTel, ARG, Defender, Purview,
+                Teams, Power Platform, manifest, mock
 
 packages/
-  domain/
-  connector-sdk/
-  connector-runtime/
-  persistence/
-  graph-engine/
-  policy-engine/
-  behavior-engine/
-  ui/
+  domain/       typed evidence, estate, correlation contracts
+  connector-*/  connector contracts and runtime composition
+  graph-engine/ attack path and blast radius
+  policy-engine/ deterministic exposure policies
+  behavior-engine/ drift, reliability, measured token economics
+  persistence/  Cosmos-backed repositories
+  ui/           shared accessible product primitives
 
-infra/          Bicep, environment parameters, private runner foundation
-scripts/        provisioning, validation, release evidence, demo verifier
-docs/           product, architecture, operations, security, decisions
+infra/          Bicep and environment parameters
+scripts/        validation, auth preflight, release evidence, demo verifier
+docs/           product, architecture, security, operations, decisions
 ```
 
 ---
 
-## 문서
+## Documentation
 
-| 영역      | 문서                                                                                                           |
-| --------- | -------------------------------------------------------------------------------------------------------------- |
-| 제품      | [Product overview](docs/product-overview.md) · [Domain context](docs/CONTEXT.md)                               |
-| 현재 상태 | [Current status](docs/current-status.md) · [Known issues](docs/known-issues.md)                                |
-| 계획      | [Roadmap](docs/roadmap.md)                                                                                     |
-| 설계      | [Architecture](docs/architecture.md) · [Data model](docs/data-model.md)                                        |
-| 개발      | [Development](docs/development.md) · [Foundry live agents](docs/foundry-live-agents.md)                        |
-| 운영      | [Deployment](docs/deployment.md) · [Runbooks](docs/runbooks.md) · [Supply chain](docs/supply-chain.md)         |
-| 보안      | [Security and authentication](docs/security-authentication.md)                                                 |
-| Connector | [Connector availability](docs/connector-availability.md)                                                       |
-| 의사결정  | [ADR 0001](docs/adr/0001-modular-monolith.md) · [ADR 0002](docs/adr/0002-evidence-first-deterministic-core.md) |
+| 시작점           | 문서                                                                                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 제품 언어와 경계 | [Product overview](docs/product-overview.md) · [Domain context](docs/CONTEXT.md)                                                                              |
+| 현재 사실과 제약 | [Current status](docs/current-status.md) · [Known issues](docs/known-issues.md) · [Connector availability](docs/connector-availability.md)                    |
+| 설계             | [Architecture](docs/architecture.md) · [Data model](docs/data-model.md) · [ADR 0002: evidence-first core](docs/adr/0002-evidence-first-deterministic-core.md) |
+| 보안과 인증      | [Security and authentication](docs/security-authentication.md)                                                                                                |
+| 개발과 운영      | [Development](docs/development.md) · [Deployment](docs/deployment.md) · [Runbooks](docs/runbooks.md) · [Supply chain](docs/supply-chain.md)                   |
+| 계획             | [Roadmap](docs/roadmap.md)                                                                                                                                    |
 
----
-
-## 현재 성숙도
-
-Agent Sentinel의 코드 기반은 프로덕션 출시 후보 수준의 P0 기능을 포함합니다.
-다만 **프로덕션 출시 여부는 코드 완성도가 아니라 실제 배포와 증거 검증으로
-결정됩니다.**
-
-현재 가장 중요한 다음 단계는 다음과 같습니다.
-
-1. Entra read-only 로그인 활성화
-2. Agent 365 실제 package snapshot 검증
-3. 정확한 Entra `RUNS_AS` 결과 또는 unmatched 진단 검증
-4. 대표 OTel non-synthetic telemetry 확보
-5. Security·Accessibility·OneRAI 출시 검토 완료
-
-Agent Sentinel은 원본 플랫폼을 대체하지 않습니다. 여러 플랫폼의 증거를 연결해
-조직이 AI 에이전트를 **발견하고, 이해하고, 검증하고, 안전하게 운영하도록 돕는
-통합 제어 계층**입니다.
+Agent Sentinel은 원본 관리 plane을 대신하지 않습니다. 서로 다른 원본의 증거를 정직하게
+연결하고, 연결할 수 없는 것은 연결하지 않으며, 조직이 **발견 → 상관 분석 → 판단 → 검증**의
+한 흐름으로 AI agent estate를 운영하도록 돕습니다.
