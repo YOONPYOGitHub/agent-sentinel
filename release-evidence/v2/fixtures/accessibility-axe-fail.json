@@ -1,0 +1,18 @@
+{
+  "tool": "playwright-axe",
+  "observedAt": "2026-09-14T00:00:00.000Z",
+  "results": [
+    {
+      "surfaceId": "estate-overview",
+      "url": "https://fixture.invalid/estate",
+      "violations": [
+        {
+          "id": "button-name",
+          "impact": "serious",
+          "tags": ["wcag2a", "wcag412"],
+          "nodes": [{}, {}]
+        }
+      ]
+    }
+  ]
+}

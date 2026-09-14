@@ -179,15 +179,15 @@ Agent Sentinel은 이를 대체하거나 agent 접근 권한을 부여하지 않
 
 **현재 상태는 production release가 아니라, 저장소 capability와 Azure 실배포 사이의 간격을 닫는 단계입니다.**
 
-| 영역                      | Repository capability                                                                  | 현재 배포된 Azure 상태                                                                                                                            | Release blocker                                                                                        |
-| ------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| **Release identity**      | full SHA·web/API/jobs digest 검증 도구 구현                                            | 마지막으로 증거가 확인된 web/API/jobs 이미지는 short SHA `7458b3e`                                                                                | 현재 commit의 full SHA, 세 image digest, config hash를 기록한 새 배포 증거 필요                        |
-| **Authentication / RBAC** | Entra JWT, MSAL, capability guard와 `Viewer`·`Analyst`·`Approver`·`Administrator` 구현 | `AUTH_MODE=disabled`, `AGENT_SENTINEL_WRITE_ENABLED=false`; replacement API/SPA 등록 미생성, active Front Door에 evidenced API mutation rule 없음 | 승인된 등록 plan, 최소 권한 consent/assignment, 네 역할의 live token 검증, Front Door write guard 검증 |
-| **Agent 365**             | read-only deployment-managed connector와 persisted source health 구현                  | 권한·license·bounded provider read는 확인됐지만 새 API/jobs image와 source-linked snapshot은 미배포                                               | reviewed image 배포 후 `ready + complete` persisted evidence 검증                                      |
-| **Identity correlation**  | exact object/application/Agent Identity ID 진단과 `RUNS_AS` 생성 구현                  | 2026-09-04 revalidation에서 authoritative Foundry agent에 usable identity ID가 없어 `RUNS_AS` 0                                                   | 모든 대상 agent에 exact edge가 있고 unmatched·ambiguous가 모두 0이어야 함                              |
-| **Runtime evidence**      | bounded Azure Monitor OTel query, drift·reliability·measured token/cost 분석 구현      | 현재 분석 가능한 representative span이 부족해 `unknown` / `insufficient-data`                                                                     | fresh·complete·unsampled non-synthetic spans와 exact trace/span/token/cost provenance 필요             |
-| **Action safety**         | 역할·승인·감사·what-if·rollback foundation 구현                                        | live provider remediation 비활성; 공개 환경은 read-only posture                                                                                   | JWT와 reviewed Front Door mutation rule을 검증한 뒤 승인된 private reversible write만 별도 검증        |
-| **Release review**        | offline release evidence와 safety report 도구 구현                                     | Security review, Accessibility review, OneRAI release assessment 미완료                                                                           | 세 검토와 실행된 safety evaluation, sanitized release evidence, rollback 증거 필요                     |
+| 영역                      | Repository capability                                                                             | 현재 배포된 Azure 상태                                                                                                                            | Release blocker                                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Release identity**      | full SHA·web/API/jobs digest 검증 도구 구현                                                       | 마지막으로 증거가 확인된 web/API/jobs 이미지는 short SHA `7458b3e`                                                                                | 현재 commit의 full SHA, 세 image digest, config hash를 기록한 새 배포 증거 필요                        |
+| **Authentication / RBAC** | Entra JWT, MSAL, capability guard와 `Viewer`·`Analyst`·`Approver`·`Administrator` 구현            | `AUTH_MODE=disabled`, `AGENT_SENTINEL_WRITE_ENABLED=false`; replacement API/SPA 등록 미생성, active Front Door에 evidenced API mutation rule 없음 | 승인된 등록 plan, 최소 권한 consent/assignment, 네 역할의 live token 검증, Front Door write guard 검증 |
+| **Agent 365**             | read-only deployment-managed connector와 persisted source health 구현                             | 권한·license·bounded provider read는 확인됐지만 새 API/jobs image와 source-linked snapshot은 미배포                                               | reviewed image 배포 후 `ready + complete` persisted evidence 검증                                      |
+| **Identity correlation**  | exact object/application/Agent Identity ID 진단과 `RUNS_AS` 생성 구현                             | 2026-09-04 revalidation에서 authoritative Foundry agent에 usable identity ID가 없어 `RUNS_AS` 0                                                   | 모든 대상 agent에 exact edge가 있고 unmatched·ambiguous가 모두 0이어야 함                              |
+| **Runtime evidence**      | bounded Azure Monitor OTel query, drift·reliability·measured token/cost 분석 구현                 | 현재 분석 가능한 representative span이 부족해 `unknown` / `insufficient-data`                                                                     | fresh·complete·unsampled non-synthetic spans와 exact trace/span/token/cost provenance 필요             |
+| **Action safety**         | 역할·승인·감사·what-if·rollback foundation 구현                                                   | live provider remediation 비활성; 공개 환경은 read-only posture                                                                                   | JWT와 reviewed Front Door mutation rule을 검증한 뒤 승인된 private reversible write만 별도 검증        |
+| **Release review**        | exact-SHA 기반 sanitized review bundle, 접근성 정규화, OneRAI 결정론적 참조, human gate 도구 구현 | Security·Accessibility·OneRAI·Release의 실제 검토/승인과 live evidence는 아직 없음                                                                | dry-run bundle의 모든 blocker를 해소하고 네 human decision을 실제 담당자가 기록해야 함                 |
 
 상세하고 날짜가 있는 상태는 [Current status](docs/current-status.md), 제약은
 [Known issues](docs/known-issues.md), connector별 상태는
@@ -262,6 +262,33 @@ pnpm demo:verify -- \
 Token, digest, tenant 정보는 문서·로그·shell history에 기록하지 않습니다. 상세 절차는
 [Runbooks](docs/runbooks.md)의 Demo Readiness runbook을 따릅니다.
 
+### Exact-SHA release review dry-run
+
+`release-review:dry-run`은 Security·Accessibility·OneRAI·배포·connector·Demo Readiness
+증거를 한 exact SHA에 묶고, 누락된 증거와 human decision을 `blocked`로 남깁니다. 로컬
+Git과 제공된 sanitized JSON만 읽으며 배포, 승인, reviewer 연락, 외부 form 제출을 하지
+않습니다.
+
+```bash
+SHA="$(git rev-parse HEAD)"
+
+pnpm release-review:schema:check
+pnpm release-review:dry-run -- \
+  --dry-run \
+  --sha "$SHA" \
+  --input release-evidence/v2/templates/sanitized-input.template.json \
+  --output release-evidence/generated \
+  --timestamp '2026-09-14T01:00:00.000Z'
+pnpm release-review:validate -- \
+  --sha "$SHA" \
+  "release-evidence/generated/release-review-v2-$SHA.json"
+```
+
+실제 axe/Playwright artifact가 없으면 Accessibility는 자동으로 blocked입니다. artifact를
+사용할 때도 raw HTML, DOM, email, tenant/subscription ID, local path, payload를 넣지 않고
+정규화 가능한 sanitized JSON만 `--accessibility`로 전달합니다. 입력 계약과 reviewer
+절차는 [Release evidence](docs/release-evidence.md)를 참고하십시오.
+
 ---
 
 ## Deployment overview
@@ -293,7 +320,7 @@ private ACR에 접근 가능한 target VNet self-hosted runner에서 빌드합�
 - [ ] 모든 대상 agent의 exact `RUNS_AS` edge 존재, unmatched 0, ambiguous 0
 - [ ] representative non-synthetic OTel span과 trace/span/token/cost provenance 충족
 - [ ] 공개 write는 차단되고, 필요한 경우 승인된 private reversible write만 검증
-- [ ] Security·Accessibility·OneRAI review와 실행된 safety evaluation 완료
+- [ ] exact-SHA bundle의 Security·Accessibility·OneRAI 증거가 pass이고 각 human decision이 실제 담당자에게 승인됨
 - [ ] sanitized release evidence에 full SHA, image digests, config hash, check 결과 기록
 - [ ] 이전 digest와 **API → jobs → web** rollback 절차 검증
 

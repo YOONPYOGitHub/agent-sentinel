@@ -1,6 +1,6 @@
 # Current status
 
-**Status date: 2026-09-14** · Canonical branch: `feature/multi-source-otel` · Official repository SHA: `6e271f5a`
+**Status date: 2026-09-14** · Integration branch: `feature/production-readiness-r1`
 
 This is the authoritative dated ledger for the Agent Sentinel control plane. It separates repository capability, deployed state, provider access, and evidence quality. Missing evidence is never a pass. For operating instructions and next work, use the [maintainer handoff](maintainer-handoff.md).
 
@@ -70,6 +70,7 @@ Detailed state definitions and limits are in [connector availability](connector-
 - Entra inventory does not establish `RUNS_AS`; exact agent-side identity identifiers are absent.
 - OTel query access does not establish analysis readiness; complete fresh unsampled evidence is absent.
 - The advisory model is explanatory only and remains mock on the public edge until the grounded provider path is activated.
+- Release-review v2 is offline tooling. Its generated Security, Accessibility, and OneRAI artifacts do not prove that human reviews or live release approval have occurred.
 
 ## Active blockers
 

@@ -1,10 +1,16 @@
 # Versioned sanitized release evidence
 
 Release evidence is a versioned, machine-validated summary of what was built,
-tested, expected, deployed, and observed. It is not a raw log bundle. Version
-`1.0.0` is defined by
+tested, expected, deployed, and observed. It is not a raw log bundle. The
+repository manifest version `1.0.0` is defined by
 [`release-evidence/v1/schema.json`](../release-evidence/v1/schema.json) and the
 stricter cross-field checks in `scripts/release-evidence-schema.ts`.
+
+The exact-SHA review bundle version `2.0.0` composes that manifest with
+Security, Accessibility, OneRAI, threat/control, connector, live-validation,
+Demo Readiness, deployment, blocker, and human-decision gates. Its contracts are
+[`input.schema.json`](../release-evidence/v2/input.schema.json) and
+[`bundle.schema.json`](../release-evidence/v2/bundle.schema.json).
 
 The generator is offline by design. It calls only local Git commands to read
 the commit SHA and dirty state. It does not invoke validation commands, Azure,
@@ -39,6 +45,60 @@ pnpm release-evidence:schema:check
 The optional `--timestamp <ISO-8601>` generation argument exists for
 reproducible repository examples. Normal release generation uses the current
 time.
+
+### Exact-SHA release review bundle
+
+Start from the strict blocked template, replace only allow-listed summaries and
+opaque evidence references, then run the local dry-run:
+
+```bash
+SHA="$(git rev-parse HEAD)"
+
+pnpm release-review:schema:check
+pnpm release-review:dry-run -- \
+  --dry-run \
+  --sha "$SHA" \
+  --input release-evidence/v2/templates/sanitized-input.template.json \
+  --output release-evidence/generated \
+  --timestamp '2026-09-14T01:00:00.000Z'
+pnpm release-review:validate -- \
+  --sha "$SHA" \
+  "release-evidence/generated/release-review-v2-$SHA.json"
+```
+
+Optional sanitized accessibility evidence is supplied with
+`--accessibility <artifact.json>` and a declared `--accessibility-ref <id>`.
+Missing artifacts remain blocked. The committed pass/fail fixtures demonstrate
+the supported axe-style shape; they are test data, not release proof. Each
+surface must have a sanitized identifier and an explicit `violations` array.
+`--accessibility-observed-at` may fill a missing artifact timestamp, but cannot
+rewrite a conflicting timestamp already present in the artifact.
+Violation rows retain only rule ID, impact, WCAG tags, and either empty `nodes`
+placeholders or an integer `affectedNodes` count. Raw DOM fields such as
+`html`, `target`, `any`, `all`, and `failureSummary` are rejected rather than
+retained.
+
+Generation requires `--dry-run`, refuses a SHA different from checked-out
+`HEAD`, and requires deterministic `--timestamp` input (or
+`SOURCE_DATE_EPOCH`). It reads only local Git state and named local JSON files,
+and writes mode-`0600` JSON and Markdown. It never deploys, approves, contacts
+reviewers, submits forms, or calls a provider. SHA-256 covers canonical bundle
+JSON excluding only `canonicalHash`.
+
+The bundle derives quality, connector, OneRAI, and readiness gates from embedded
+evidence. Rewriting a gate and recomputing the hash is rejected. OneRAI scenario
+rows are sorted and receive a deterministic `onerai-sha256:<digest>` reference.
+Set-like review inventories and references are normalized before hashing.
+Threat/control pairs are fixed by the versioned catalog, including bounded
+resource handling for denial-of-service risk.
+
+Human decisions are explicit `pending`, `approved`, or `rejected` records.
+Security, Accessibility, and OneRAI cannot be approved while their evidence gate
+is blocked. Release approval additionally requires every non-decision gate and
+all three specialist decisions. Open categorized blockers also block their
+matching quality, Security, Accessibility, OneRAI, deployment, live-validation,
+connector, Demo Readiness, or human-decision gate, as well as the aggregate
+declared-blocker gate. The CLI never creates an approval.
 
 ## Classifications and outcomes
 
@@ -220,6 +280,15 @@ credential assignments, connection strings, credential URLs, signed URLs, and
 private keys are also rejected. Error messages identify only a bounded field
 path and never echo the value.
 
+The review bundle additionally rejects email addresses, UUID-shaped
+tenant/subscription identifiers, `/subscriptions/...` resource paths,
+`*.onmicrosoft.com` domains, local Unix/Windows absolute paths, and fields named
+like email, tenant/subscription ID, raw/provider/request/response payload, or
+local file path. Strict schemas then reject every property outside the
+allow-list. Accessibility normalization retains only tool, observation time,
+surface ID, bounded rule/severity/WCAG counts, and opaque evidence references;
+URLs and raw node payloads are discarded.
+
 Both sanitized generator inputs and complete manifests are parsed with
 duplicate-key rejection before sensitive-content scanning or schema
 validation. This applies independently to every nested object and to escaped
@@ -291,3 +360,8 @@ private provider payloads.
 The integration owner must collect replacement-tenant observations outside the
 generator, sanitize them to this contract, and validate the resulting manifest.
 Repository-only CI proves tooling behavior; it does not establish a live pass.
+
+The versioned v2 template, accessibility fixtures, and blocked example are
+deliberately non-private and remain non-passing. Generated candidate bundles
+belong under `release-evidence/generated/` and are not approval merely because
+they validate structurally.

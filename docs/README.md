@@ -1,6 +1,7 @@
 # Agent Sentinel documentation
 
-Documentation index for the Agent Sentinel control plane. Last reviewed **2026-09-14** against `feature/multi-source-otel` at `6e271f5a`.
+Documentation index for the Agent Sentinel control plane. Last reviewed
+**2026-09-14** against `feature/production-readiness-r1`.
 
 Start with the [root README](../README.md) for product value and the live-vs-mock boundary. The [maintainer handoff](maintainer-handoff.md) is the single operational continuation guide.
 
@@ -49,7 +50,7 @@ Start with the [root README](../README.md) for product value and the live-vs-moc
 | [Runbooks](runbooks.md)                                   | Execute a named operational procedure (RB-001 onward).                                      |
 | [Security and authentication](security-authentication.md) | Review auth states, roles, active-edge requirements, and activation gates.                  |
 | [Supply chain](supply-chain.md)                           | Understand private builds, full-SHA tags, digests, and provenance.                          |
-| [Release evidence](release-evidence.md)                   | Generate and validate sanitized, versioned release evidence offline.                        |
+| [Release evidence](release-evidence.md)                   | Generate and validate sanitized release evidence plus Security, Accessibility, and OneRAI dry-run review bundles offline. |
 | [DR design](dr-design.md)                                 | Review recovery objectives and failover behavior.                                           |
 
 ## Decisions and documentation governance

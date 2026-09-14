@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./accessibility-evidence": "./accessibility-evidence.ts",
+    "./release-review-cli": "./release-review-cli.ts",
+    "./release-review-schema": "./release-review-schema.ts"
+  },
   "scripts": {
     "provision-agents": "tsx provision-agents.ts",
     "cleanup-agents": "tsx cleanup-agents.ts",
@@ -13,6 +18,10 @@
     "release-evidence:schema": "tsx write-release-evidence-schema.ts",
     "release-evidence:schema:check": "tsx write-release-evidence-schema.ts --check",
     "release-evidence:validate": "tsx validate-release-evidence.ts",
+    "release-review:dry-run": "tsx generate-release-review-bundle.ts",
+    "release-review:schema": "tsx write-release-review-schemas.ts",
+    "release-review:schema:check": "tsx write-release-review-schemas.ts --check",
+    "release-review:validate": "tsx validate-release-review-bundle.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

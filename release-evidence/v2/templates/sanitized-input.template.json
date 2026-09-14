@@ -1,0 +1,53 @@
+{
+  "releaseEvidence": {},
+  "evidenceIndex": [],
+  "checkEvidenceRefs": {
+    "lint": [],
+    "typecheck": [],
+    "test": [],
+    "build": [],
+    "playwright": [],
+    "bicep": []
+  },
+  "securityReview": {
+    "outcome": "blocked",
+    "reviewedAt": null,
+    "evidenceRefs": [],
+    "findings": [],
+    "summary": "Security review evidence has not been supplied."
+  },
+  "threatControls": [],
+  "demoReadiness": {
+    "outcome": "blocked",
+    "evidenceRefs": [],
+    "summary": "Demo Readiness evidence has not been supplied."
+  },
+  "knownIssues": [],
+  "blockers": [],
+  "humanDecisions": {
+    "security": {
+      "status": "pending",
+      "decidedAt": null,
+      "decisionRef": null,
+      "summary": "Security human decision is pending."
+    },
+    "accessibility": {
+      "status": "pending",
+      "decidedAt": null,
+      "decisionRef": null,
+      "summary": "Accessibility human decision is pending."
+    },
+    "oneRai": {
+      "status": "pending",
+      "decidedAt": null,
+      "decisionRef": null,
+      "summary": "OneRAI human decision is pending."
+    },
+    "release": {
+      "status": "pending",
+      "decidedAt": null,
+      "decisionRef": null,
+      "summary": "Release owner decision is pending."
+    }
+  }
+}

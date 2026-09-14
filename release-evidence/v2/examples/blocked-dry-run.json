@@ -1,0 +1,412 @@
+{
+  "schemaVersion": "2.0.0",
+  "bundleType": "sanitized-release-review-evidence",
+  "workflow": {
+    "mode": "dry-run-no-submit",
+    "externalSubmission": false,
+    "deploymentPerformed": false
+  },
+  "release": {
+    "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "generatedAt": "2026-09-14T01:00:00.000Z",
+    "dirty": false
+  },
+  "releaseEvidence": {
+    "schemaVersion": "1.0.0",
+    "release": {
+      "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "dirty": false,
+      "generatedAt": "2026-09-14T01:00:00.000Z",
+      "freshnessWindowHours": 24
+    },
+    "images": {
+      "expected": {
+        "classification": "tested",
+        "web": {
+          "tag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": null
+        },
+        "api": {
+          "tag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": null
+        },
+        "jobs": {
+          "tag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": null
+        }
+      },
+      "deployed": {
+        "deploymentRef": null,
+        "classification": "planned",
+        "observedAt": null,
+        "source": null,
+        "scope": null,
+        "evidenceRefs": [],
+        "web": {
+          "tag": null,
+          "digest": null
+        },
+        "api": {
+          "tag": null,
+          "digest": null
+        },
+        "jobs": {
+          "tag": null,
+          "digest": null
+        }
+      }
+    },
+    "configuration": {
+      "classification": "planned",
+      "algorithm": "sha256",
+      "hash": null,
+      "keys": []
+    },
+    "checks": {
+      "lint": {
+        "classification": "planned",
+        "outcome": "not-run",
+        "command": null,
+        "completedAt": null,
+        "summary": "No sanitized result was supplied."
+      },
+      "typecheck": {
+        "classification": "planned",
+        "outcome": "not-run",
+        "command": null,
+        "completedAt": null,
+        "summary": "No sanitized result was supplied."
+      },
+      "test": {
+        "classification": "planned",
+        "outcome": "not-run",
+        "command": null,
+        "completedAt": null,
+        "summary": "No sanitized result was supplied."
+      },
+      "build": {
+        "classification": "planned",
+        "outcome": "not-run",
+        "command": null,
+        "completedAt": null,
+        "summary": "No sanitized result was supplied."
+      },
+      "e2e": {
+        "classification": "planned",
+        "outcome": "not-run",
+        "command": null,
+        "completedAt": null,
+        "summary": "No sanitized result was supplied."
+      },
+      "bicep": {
+        "classification": "planned",
+        "outcome": "not-run",
+        "command": null,
+        "completedAt": null,
+        "summary": "No sanitized result was supplied."
+      }
+    },
+    "liveValidations": [],
+    "connectors": [],
+    "oneRai": {
+      "classification": "planned",
+      "outcome": "not-run",
+      "observedAt": null,
+      "source": null,
+      "scope": null,
+      "evidenceRefs": [],
+      "syntheticOnly": null,
+      "automated": null,
+      "cases": null,
+      "defects": null,
+      "humanReviewRequired": null,
+      "summary": "No sanitized OneRAI summary was supplied."
+    }
+  },
+  "evidenceIndex": [],
+  "qualityChecks": {
+    "lint": {
+      "outcome": "not-run",
+      "command": null,
+      "completedAt": null,
+      "evidenceRefs": [],
+      "summary": "No sanitized result was supplied."
+    },
+    "typecheck": {
+      "outcome": "not-run",
+      "command": null,
+      "completedAt": null,
+      "evidenceRefs": [],
+      "summary": "No sanitized result was supplied."
+    },
+    "test": {
+      "outcome": "not-run",
+      "command": null,
+      "completedAt": null,
+      "evidenceRefs": [],
+      "summary": "No sanitized result was supplied."
+    },
+    "build": {
+      "outcome": "not-run",
+      "command": null,
+      "completedAt": null,
+      "evidenceRefs": [],
+      "summary": "No sanitized result was supplied."
+    },
+    "playwright": {
+      "outcome": "not-run",
+      "command": null,
+      "completedAt": null,
+      "evidenceRefs": [],
+      "summary": "No sanitized result was supplied."
+    },
+    "bicep": {
+      "outcome": "not-run",
+      "command": null,
+      "completedAt": null,
+      "evidenceRefs": [],
+      "summary": "No sanitized result was supplied."
+    }
+  },
+  "securityReview": {
+    "outcome": "blocked",
+    "reviewedAt": null,
+    "evidenceRefs": [],
+    "findings": [],
+    "summary": "No sanitized security review was supplied."
+  },
+  "accessibility": {
+    "outcome": "blocked",
+    "artifactSupplied": false,
+    "tool": null,
+    "observedAt": null,
+    "evidenceRefs": [],
+    "surfaces": [],
+    "summary": "No real Playwright or axe-style accessibility artifact was supplied; Accessibility remains blocked."
+  },
+  "oneRaiSafety": {
+    "outcome": "blocked",
+    "evaluationRef": null,
+    "classification": "blocked",
+    "observedAt": null,
+    "deterministic": false,
+    "scenarioResults": [],
+    "scenarioIds": [],
+    "harms": [],
+    "evidenceRefs": [],
+    "humanReviewRequired": true,
+    "summary": "No deterministic sanitized OneRAI safety evaluation was supplied."
+  },
+  "threatControls": [
+    {
+      "threatId": "spoofing",
+      "controlId": "authentication",
+      "state": "unknown",
+      "evidenceRefs": [],
+      "summary": "No sanitized threat-control evidence was supplied."
+    },
+    {
+      "threatId": "tampering",
+      "controlId": "edge-waf",
+      "state": "unknown",
+      "evidenceRefs": [],
+      "summary": "No sanitized threat-control evidence was supplied."
+    },
+    {
+      "threatId": "denial-of-service",
+      "controlId": "resource-bounds",
+      "state": "unknown",
+      "evidenceRefs": [],
+      "summary": "No sanitized threat-control evidence was supplied."
+    },
+    {
+      "threatId": "elevation-of-privilege",
+      "controlId": "managed-identity",
+      "state": "unknown",
+      "evidenceRefs": [],
+      "summary": "No sanitized threat-control evidence was supplied."
+    },
+    {
+      "threatId": "cross-tenant-correlation",
+      "controlId": "tenant-isolation",
+      "state": "unknown",
+      "evidenceRefs": [],
+      "summary": "No sanitized threat-control evidence was supplied."
+    },
+    {
+      "threatId": "unsafe-ai-output",
+      "controlId": "write-gates",
+      "state": "unknown",
+      "evidenceRefs": [],
+      "summary": "No sanitized threat-control evidence was supplied."
+    },
+    {
+      "threatId": "repudiation",
+      "controlId": "evidence-provenance",
+      "state": "unknown",
+      "evidenceRefs": [],
+      "summary": "No sanitized threat-control evidence was supplied."
+    },
+    {
+      "threatId": "information-disclosure",
+      "controlId": "pii-secret-redaction",
+      "state": "unknown",
+      "evidenceRefs": [],
+      "summary": "No sanitized threat-control evidence was supplied."
+    },
+    {
+      "threatId": "tampering",
+      "controlId": "supply-chain",
+      "state": "unknown",
+      "evidenceRefs": [],
+      "summary": "No sanitized threat-control evidence was supplied."
+    }
+  ],
+  "connectors": [],
+  "demoReadiness": {
+    "outcome": "blocked",
+    "evidenceRefs": [],
+    "summary": "No sanitized Demo Readiness result was supplied."
+  },
+  "knownIssues": [],
+  "blockers": [],
+  "humanDecisions": {
+    "security": {
+      "status": "pending",
+      "decidedAt": null,
+      "decisionRef": null,
+      "summary": "Security human decision is required and has not been recorded."
+    },
+    "accessibility": {
+      "status": "pending",
+      "decidedAt": null,
+      "decisionRef": null,
+      "summary": "Accessibility human decision is required and has not been recorded."
+    },
+    "oneRai": {
+      "status": "pending",
+      "decidedAt": null,
+      "decisionRef": null,
+      "summary": "OneRAI human decision is required and has not been recorded."
+    },
+    "release": {
+      "status": "pending",
+      "decidedAt": null,
+      "decisionRef": null,
+      "summary": "Release human decision is required and has not been recorded."
+    }
+  },
+  "gateChecks": {
+    "source": {
+      "status": "ready",
+      "reasons": []
+    },
+    "quality": {
+      "status": "blocked",
+      "reasons": [
+        "lint evidence is not passing and complete.",
+        "typecheck evidence is not passing and complete.",
+        "test evidence is not passing and complete.",
+        "build evidence is not passing and complete.",
+        "playwright evidence is not passing and complete.",
+        "bicep evidence is not passing and complete."
+      ]
+    },
+    "security": {
+      "status": "blocked",
+      "reasons": [
+        "Security review evidence is not passing.",
+        "Threat control authentication is not fully evidenced.",
+        "Threat control edge-waf is not fully evidenced.",
+        "Threat control resource-bounds is not fully evidenced.",
+        "Threat control managed-identity is not fully evidenced.",
+        "Threat control tenant-isolation is not fully evidenced.",
+        "Threat control write-gates is not fully evidenced.",
+        "Threat control evidence-provenance is not fully evidenced.",
+        "Threat control pii-secret-redaction is not fully evidenced.",
+        "Threat control supply-chain is not fully evidenced."
+      ]
+    },
+    "accessibility": {
+      "status": "blocked",
+      "reasons": ["Accessibility evidence is not passing."]
+    },
+    "oneRai": {
+      "status": "blocked",
+      "reasons": [
+        "Deterministic OneRAI safety evidence is not passing.",
+        "Embedded OneRAI release evidence is not passing."
+      ]
+    },
+    "deployment": {
+      "status": "blocked",
+      "reasons": [
+        "Live deployment evidence is missing.",
+        "Allow-listed configuration hash evidence is missing."
+      ]
+    },
+    "liveValidation": {
+      "status": "blocked",
+      "reasons": ["Fresh passing live-validation evidence is missing or incomplete."]
+    },
+    "connectors": {
+      "status": "blocked",
+      "reasons": ["Every required connector must have live ready evidence."]
+    },
+    "demoReadiness": {
+      "status": "blocked",
+      "reasons": ["Demo Readiness evidence is not passing and complete."]
+    },
+    "humanDecisions": {
+      "status": "blocked",
+      "reasons": [
+        "security human decision is pending.",
+        "accessibility human decision is pending.",
+        "oneRai human decision is pending.",
+        "release human decision is pending."
+      ]
+    },
+    "declaredBlockers": {
+      "status": "ready",
+      "reasons": []
+    }
+  },
+  "readinessGate": {
+    "status": "blocked",
+    "reasons": [
+      "lint evidence is not passing and complete.",
+      "typecheck evidence is not passing and complete.",
+      "test evidence is not passing and complete.",
+      "build evidence is not passing and complete.",
+      "playwright evidence is not passing and complete.",
+      "bicep evidence is not passing and complete.",
+      "Security review evidence is not passing.",
+      "Threat control authentication is not fully evidenced.",
+      "Threat control edge-waf is not fully evidenced.",
+      "Threat control resource-bounds is not fully evidenced.",
+      "Threat control managed-identity is not fully evidenced.",
+      "Threat control tenant-isolation is not fully evidenced.",
+      "Threat control write-gates is not fully evidenced.",
+      "Threat control evidence-provenance is not fully evidenced.",
+      "Threat control pii-secret-redaction is not fully evidenced.",
+      "Threat control supply-chain is not fully evidenced.",
+      "Accessibility evidence is not passing.",
+      "Deterministic OneRAI safety evidence is not passing.",
+      "Embedded OneRAI release evidence is not passing.",
+      "Live deployment evidence is missing.",
+      "Allow-listed configuration hash evidence is missing.",
+      "Fresh passing live-validation evidence is missing or incomplete.",
+      "Every required connector must have live ready evidence.",
+      "Demo Readiness evidence is not passing and complete.",
+      "security human decision is pending.",
+      "accessibility human decision is pending.",
+      "oneRai human decision is pending.",
+      "release human decision is pending."
+    ]
+  },
+  "canonicalHash": {
+    "algorithm": "sha256",
+    "scope": "bundle-excluding-canonicalHash",
+    "value": "bbfc23e4b40182afa447dd660b7b10374365790b0c5264cee596c8453f816deb"
+  }
+}

@@ -169,6 +169,21 @@ jobs:
           pnpm release-evidence:validate -- release-evidence/v1/examples/repository-only.json
           pnpm release-evidence:generate -- --output "${RUNNER_TEMP}/release-evidence.json"
           pnpm release-evidence:validate -- "${RUNNER_TEMP}/release-evidence.json"
+          pnpm release-review:schema:check
+          pnpm release-review:validate -- \
+            --sha aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            release-evidence/v2/examples/blocked-dry-run.json
+          SHA="$(git rev-parse HEAD)"
+          REVIEW_OUTPUT="${RUNNER_TEMP}/release-review"
+          pnpm release-review:dry-run -- \
+            --dry-run \
+            --sha "$SHA" \
+            --input release-evidence/v2/templates/sanitized-input.template.json \
+            --output "$REVIEW_OUTPUT" \
+            --timestamp '2026-09-14T01:00:00.000Z'
+          pnpm release-review:validate -- \
+            --sha "$SHA" \
+            "$REVIEW_OUTPUT/release-review-v2-$SHA.json"
 
       - name: Lint
         run: pnpm run lint
