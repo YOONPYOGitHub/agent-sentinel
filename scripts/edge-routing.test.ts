@@ -85,6 +85,8 @@ describe('public edge routing safety', () => {
     expect(platform).toContain('deploymentCommitSha: deploymentCommitSha')
     expect(containerApps).toContain("{ name: 'AGENT_SENTINEL_BUILD_SHA',")
     expect(containerApps).toContain("{ name: 'AGENT_SENTINEL_API_IMAGE_DIGEST',")
+    expect(containerApps).toContain("{ name: 'AZURE_MONITOR_PROVIDER_RESOURCE_ID',")
+    expect(containerApps).toContain("{ name: 'AZURE_MONITOR_APPLICATION_ROLE_NAME',")
     expect(workflow).toContain('Verify active revision image digests')
     expect(workflow).toContain('az containerapp revision list')
     expect(workflow).toContain('az containerapp revision show')

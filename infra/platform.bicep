@@ -485,6 +485,8 @@ module containerApps './modules/container-apps.bicep' = {
     teamsDistributionMaxResponseBytes: teamsDistributionMaxResponseBytes
     azureMonitorConnectorEnabled: azureMonitorConnectorEnabled
     azureMonitorSourcesJson: azureMonitorSourcesJson
+    azureMonitorProviderResourceId: observability.outputs.appInsightsId
+    azureMonitorApplicationRoleName: 'agent-runtime'
     cosmosDatabase: cosmosDatabase
     manifestIngestionsContainerName: manifestIngestionsContainerName
     discoveryIntervalMs: discoveryIntervalMs

@@ -63,6 +63,7 @@ describe('private deployment workflow configuration', () => {
     expect(workflow).toContain('HEAD_SHA="$(git rev-parse HEAD)"')
     expect(workflow).toContain('--image "${repository}:${IMAGE_TAG}"')
     expect(workflow).toContain('^sha256:[0-9a-f]{64}$')
+    expect(workflow).toContain("DEPLOYMENT_COMMIT_SHA='0000000000000000000000000000000000000000'")
     expect(workflow).toContain('az deployment group what-if')
     expect(workflow).toContain('--result-format FullResourcePayloads')
     expect(workflow).toContain('az deployment group create')

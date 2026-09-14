@@ -206,6 +206,7 @@ jobs:
             az bicep build-params -f infra/environments/mngenvmcap098047-ci-foundation.parameters.bicepparam --stdout >/dev/null
           az bicep build-params -f infra/environments/mngenvmcap098047-connector-sources.parameters.bicepparam --stdout >/dev/null
           az bicep build-params -f infra/environments/mngenvmcap098047-foundry.parameters.bicepparam --stdout >/dev/null
+          DEPLOYMENT_COMMIT_SHA='0000000000000000000000000000000000000000' \
           WEB_IMAGE_DIGEST='sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
           API_IMAGE_DIGEST='sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' \
           JOBS_IMAGE_DIGEST='sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc' \

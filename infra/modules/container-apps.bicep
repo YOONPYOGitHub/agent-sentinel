@@ -184,6 +184,10 @@ param teamsDistributionMaxResponseBytes string = '2000000'
 
 param azureMonitorConnectorEnabled bool = false
 param azureMonitorSourcesJson string = ''
+@description('Exact Application Insights resource ID containing the qualifying agent invocation telemetry.')
+param azureMonitorProviderResourceId string = ''
+@description('Exact cloud role name emitted by the instrumented agent runtime.')
+param azureMonitorApplicationRoleName string = 'agent-runtime'
 
 @description('Cosmos database id backing exposure findings and snapshots.')
 param cosmosDatabase string = 'agent-sentinel-db'
@@ -401,6 +405,8 @@ var env = [
   { name: 'TEAMS_DISTRIBUTION_MAX_RESPONSE_BYTES',  value: teamsDistributionMaxResponseBytes }
   { name: 'AZURE_MONITOR_SOURCES_JSON',            value: azureMonitorConnectorEnabled ? azureMonitorSourcesJson : '' }
   { name: 'AZURE_MONITOR_WORKSPACE_ID',            value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? lawWorkspaceId : '' }
+  { name: 'AZURE_MONITOR_PROVIDER_RESOURCE_ID',    value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? azureMonitorProviderResourceId : '' }
+  { name: 'AZURE_MONITOR_APPLICATION_ROLE_NAME',   value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? azureMonitorApplicationRoleName : '' }
   { name: 'AZURE_MONITOR_TENANT_ID',               value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? foundryTenantId : '' }
   { name: 'AZURE_MONITOR_ENVIRONMENT',             value: azureMonitorConnectorEnabled && empty(azureMonitorSourcesJson) ? foundryEnvironment : '' }
   { name: 'AGENT_SENTINEL_TENANT_ID',             value: empty(agentSentinelTenantId) ? foundryTenantId : agentSentinelTenantId }
