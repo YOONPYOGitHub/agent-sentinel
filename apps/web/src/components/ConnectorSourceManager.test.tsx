@@ -356,6 +356,10 @@ describe('ConnectorSourceManager', () => {
       '11111111-1111-4111-8111-111111111111',
     )
     await user.type(within(dialog).getByLabelText('Source project ID'), 'project-a')
+    await user.type(
+      within(dialog).getByLabelText('Application Insights resource ID'),
+      '/subscriptions/11111111-1111-4111-8111-111111111111/resourcegroups/rg-test/providers/microsoft.insights/components/app-test',
+    )
     fireEvent.change(within(dialog).getByLabelText('Maximum response bytes'), {
       target: { value: '4096' },
     })
@@ -369,6 +373,11 @@ describe('ConnectorSourceManager', () => {
         type: 'azure-monitor-otel',
         workspaceId: '11111111-1111-4111-8111-111111111111',
         sourceProjectId: 'project-a',
+        providerResourceId:
+          '/subscriptions/11111111-1111-4111-8111-111111111111/resourcegroups/rg-test/providers/microsoft.insights/components/app-test',
+        applicationRoleName: 'agent-runtime',
+        requestName: 'agent.invoke',
+        maximumFreshnessHours: 168,
         maxResponseBytes: 4_096,
       },
     })
