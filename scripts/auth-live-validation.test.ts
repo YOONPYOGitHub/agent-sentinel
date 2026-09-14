@@ -37,6 +37,15 @@ function response(status: number, body?: string): Promise<Response> {
   )
 }
 
+function principalForRole(role: AuthValidationRole): Record<string, unknown> {
+  return {
+    subject: `${role.toLowerCase()}-subject`,
+    tenantId: '11111111-1111-4111-8111-111111111111',
+    roles: [role],
+    capabilities: capabilities[role],
+  }
+}
+
 function roleForToken(token: string): AuthValidationRole | undefined {
   const normalized = token.replace(/^Bearer /, '').replace(/-token$/, '')
   return normalized === 'viewer'
@@ -93,7 +102,7 @@ describe('runAuthLiveValidation', () => {
       const role = roleForToken(authorization)
       if (url.pathname === '/api/auth/me' && role === undefined) return response(401)
       if (url.pathname === '/api/auth/me' && role !== undefined)
-        return response(200, JSON.stringify({ roles: [role], capabilities: capabilities[role] }))
+        return response(200, JSON.stringify(principalForRole(role)))
       if (url.pathname.startsWith('/api/auth/capabilities/') && role !== undefined) {
         const capability = url.pathname.slice('/api/auth/capabilities/'.length)
         return response(capabilities[role].includes(capability) ? 200 : 403)
@@ -123,6 +132,27 @@ describe('runAuthLiveValidation', () => {
     const validation = runAuthLiveValidation(config, failingFetch)
     await expect(validation).rejects.toThrow(/expected 401/)
     await expect(validation).rejects.not.toThrow(/viewer-token/)
+  })
+
+  it('rejects fields outside the sanitized principal contract without echoing tokens', async () => {
+    const config = buildAuthLiveValidationConfig(completeEnvironment)
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url)
+      const authorization = new Headers(init?.headers).get('Authorization') ?? ''
+      const role = roleForToken(authorization)
+      if (url.pathname === '/api/auth/me' && role === undefined) return response(401)
+      if (url.pathname === '/api/auth/me' && role !== undefined) {
+        return response(
+          200,
+          JSON.stringify({ ...principalForRole(role), rawToken: 'must-not-be-present' }),
+        )
+      }
+      return response(500)
+    })
+
+    const validation = runAuthLiveValidation(config, fetchMock)
+    await expect(validation).rejects.toThrow()
+    await expect(validation).rejects.not.toThrow(/viewer-token|must-not-be-present/)
   })
 
   it('validates immutable deployment metadata and exact redirects before token probes', async () => {
@@ -174,7 +204,7 @@ describe('runAuthLiveValidation', () => {
       }
       if (url.pathname === '/api/auth/me' && role === undefined) return response(401)
       if (url.pathname === '/api/auth/me' && role !== undefined) {
-        return response(200, JSON.stringify({ roles: [role], capabilities: capabilities[role] }))
+        return response(200, JSON.stringify(principalForRole(role)))
       }
       if (url.pathname.startsWith('/api/auth/capabilities/') && role !== undefined) {
         const capability = url.pathname.slice('/api/auth/capabilities/'.length)

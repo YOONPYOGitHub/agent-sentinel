@@ -1,49 +1,45 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { AccountInfo, IPublicClientApplication, SilentRequest } from '@azure/msal-browser'
+import { z } from 'zod'
 import { authApi } from '../api/auth-api'
 import { setTokenProvider } from '../api/auth-fetch'
 import {
   AuthContext,
+  SENTINEL_CAPABILITIES,
+  SENTINEL_ROLES,
   type SignInResult,
   type WebAuthPrincipal,
-  type SentinelCapability,
 } from './AuthContext'
 import type { SpaAuthConfig } from '../api/auth-api'
-import { SENTINEL_CAPABILITIES } from './AuthContext'
 
-const meResponseSchema = {
-  parse(value: unknown): WebAuthPrincipal {
-    if (typeof value !== 'object' || value === null)
-      throw new Error('Invalid /api/auth/me response')
-    const v = value as Record<string, unknown>
-    const subject = typeof v['subject'] === 'string' ? v['subject'] : ''
-    const tenantId = typeof v['tenantId'] === 'string' ? v['tenantId'] : ''
-    const objectId = typeof v['objectId'] === 'string' ? v['objectId'] : undefined
-    const displayName = typeof v['displayName'] === 'string' ? v['displayName'] : undefined
-    const preferredUsername =
-      typeof v['preferredUsername'] === 'string' ? v['preferredUsername'] : undefined
-    const roles = Array.isArray(v['roles'])
-      ? v['roles'].filter((r): r is string => typeof r === 'string')
-      : []
-    const capabilities = Array.isArray(v['capabilities'])
-      ? v['capabilities'].filter(
-          (c): c is SentinelCapability =>
-            typeof c === 'string' && (SENTINEL_CAPABILITIES as readonly string[]).includes(c),
-        )
-      : []
-    if (subject.length === 0 || tenantId.length === 0) {
-      throw new Error('Invalid /api/auth/me principal identity')
-    }
-    return {
-      subject,
-      tenantId,
-      ...(objectId !== undefined ? { objectId } : {}),
-      ...(displayName !== undefined ? { displayName } : {}),
-      ...(preferredUsername !== undefined ? { preferredUsername } : {}),
-      roles,
-      capabilities,
-    }
-  },
+const uniqueValues = <T,>(values: readonly T[]): boolean => new Set(values).size === values.length
+
+const meResponseSchema = z.strictObject({
+  subject: z.string().min(1),
+  objectId: z.string().min(1).optional(),
+  tenantId: z.string().min(1),
+  displayName: z.string().min(1).optional(),
+  preferredUsername: z.string().min(1).optional(),
+  roles: z.array(z.enum(SENTINEL_ROLES)).max(SENTINEL_ROLES.length).refine(uniqueValues),
+  capabilities: z
+    .array(z.enum(SENTINEL_CAPABILITIES))
+    .max(SENTINEL_CAPABILITIES.length)
+    .refine(uniqueValues),
+})
+
+function parsePrincipal(value: unknown): WebAuthPrincipal {
+  const parsed = meResponseSchema.parse(value)
+  return {
+    subject: parsed.subject,
+    tenantId: parsed.tenantId,
+    ...(parsed.objectId === undefined ? {} : { objectId: parsed.objectId }),
+    ...(parsed.displayName === undefined ? {} : { displayName: parsed.displayName }),
+    ...(parsed.preferredUsername === undefined
+      ? {}
+      : { preferredUsername: parsed.preferredUsername }),
+    roles: parsed.roles,
+    capabilities: parsed.capabilities,
+  }
 }
 
 async function fetchPrincipal(token: string): Promise<WebAuthPrincipal> {
@@ -61,7 +57,7 @@ async function fetchPrincipal(token: string): Promise<WebAuthPrincipal> {
         : undefined) ?? `Failed to load user profile (${response.status}).`,
     )
   }
-  return meResponseSchema.parse(body)
+  return parsePrincipal(body)
 }
 
 function errorMessage(error: unknown): string {
@@ -222,12 +218,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           redirectUri: config.redirectUri,
           postLogoutRedirectUri: config.postLogoutRedirectUri,
         }
+        const expectedRedirectUri = `${window.location.origin}/auth-redirect.html`
+        const expectedPostLogoutRedirectUri = `${window.location.origin}/`
         if (
-          new URL(spa.redirectUri).origin !== window.location.origin ||
-          new URL(spa.postLogoutRedirectUri).origin !== window.location.origin
+          spa.redirectUri !== expectedRedirectUri ||
+          spa.postLogoutRedirectUri !== expectedPostLogoutRedirectUri
         ) {
           throw new Error(
-            'Authentication redirect configuration does not match this application origin.',
+            'Authentication redirect configuration does not match the exact application callback and logout URLs.',
           )
         }
         configuredScopes.current = config.scopes

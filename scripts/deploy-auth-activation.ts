@@ -3,6 +3,8 @@ import { writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+import { z } from 'zod'
+
 import {
   assessAuthActivation,
   authActivationInputSchema,
@@ -14,6 +16,17 @@ const APPROVAL = 'APPROVE_READ_ONLY_AUTH_ACTIVATION'
 const RESOURCE_GROUP_PATTERN = /^[A-Za-z0-9._()-]{1,90}$/
 const CONTAINER_APP_PATTERN = /^[a-z][a-z0-9-]{1,30}[a-z0-9]$/
 const ACR_LOGIN_SERVER_PATTERN = /^[a-z0-9]{5,50}\.azurecr\.io$/
+const PUBLIC_AUTH_CONFIG_MAX_BYTES = 64 * 1024
+
+const publicAuthConfigSchema = z.strictObject({
+  enabled: z.literal(true),
+  tenantId: z.string().uuid(),
+  clientId: z.string().uuid(),
+  authority: z.url(),
+  scopes: z.array(z.string().min(1)).min(1),
+  redirectUri: z.url(),
+  postLogoutRedirectUri: z.url(),
+})
 
 const API_ENVIRONMENT_VARIABLES = [
   'AUTH_MODE',
@@ -354,28 +367,45 @@ function verifyWeb(options: DeploymentCliOptions, expectedImage: string): void {
   if (container.image !== expectedImage) throw new Error('Web image digest verification failed.')
 }
 
-async function verifyPublicAuthConfig(input: AuthActivationInput): Promise<void> {
+export async function verifyPublicAuthConfig(
+  input: AuthActivationInput,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<void> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 15_000)
   try {
-    const response = await fetch(`${input.frontDoorOrigin}/api/auth/config`, {
+    const response = await fetchImplementation(`${input.frontDoorOrigin}/api/auth/config`, {
       headers: { Accept: 'application/json' },
       signal: controller.signal,
     })
     if (response.status !== 200) {
       throw new Error(`Public auth configuration returned status ${String(response.status)}.`)
     }
-    const bytes = new Uint8Array(await response.arrayBuffer())
-    if (bytes.byteLength > 64 * 1024) {
-      throw new Error('Public auth configuration response exceeded 65536 bytes.')
+    const declaredLength = Number(response.headers.get('content-length'))
+    if (Number.isFinite(declaredLength) && declaredLength > PUBLIC_AUTH_CONFIG_MAX_BYTES) {
+      throw new Error(
+        `Public auth configuration response exceeded ${String(PUBLIC_AUTH_CONFIG_MAX_BYTES)} bytes.`,
+      )
     }
-    const body = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    if (bytes.byteLength > PUBLIC_AUTH_CONFIG_MAX_BYTES) {
+      throw new Error(
+        `Public auth configuration response exceeded ${String(PUBLIC_AUTH_CONFIG_MAX_BYTES)} bytes.`,
+      )
+    }
+    const body = publicAuthConfigSchema.parse(JSON.parse(new TextDecoder().decode(bytes)))
+    const tenantId = input.tenantId.toLowerCase()
+    const expectedAuthority = `https://login.microsoftonline.com/${tenantId}`
+    const scopesMatch =
+      body.scopes.length === input.scopes.spa.length &&
+      input.scopes.spa.every((scope) => body.scopes.includes(scope))
     if (
-      body['enabled'] !== true ||
-      body['tenantId'] !== input.tenantId.toLowerCase() ||
-      body['clientId'] !== input.spaClientId.toLowerCase() ||
-      body['redirectUri'] !== input.redirectUri ||
-      body['postLogoutRedirectUri'] !== input.postLogoutRedirectUri
+      body.tenantId !== tenantId ||
+      body.clientId !== input.spaClientId.toLowerCase() ||
+      body.authority !== expectedAuthority ||
+      !scopesMatch ||
+      body.redirectUri !== input.redirectUri ||
+      body.postLogoutRedirectUri !== input.postLogoutRedirectUri
     ) {
       throw new Error('Public auth configuration does not match the approved activation input.')
     }

@@ -33,6 +33,10 @@ export const authApi = {
     }
     const parsed = authConfigResponseSchema.parse(body)
     if (!parsed.enabled) return { enabled: false }
+    const expectedAuthority = `https://login.microsoftonline.com/${parsed.tenantId.toLowerCase()}`
+    if (parsed.authority !== expectedAuthority) {
+      throw new Error('Authentication authority does not match the configured tenant.')
+    }
     return {
       enabled: true,
       tenantId: parsed.tenantId,

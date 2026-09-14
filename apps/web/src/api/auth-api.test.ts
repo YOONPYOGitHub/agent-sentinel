@@ -49,6 +49,28 @@ describe('authApi', () => {
     await expect(authApi.getConfig()).rejects.toThrow(/could not be loaded/)
   })
 
+  it('rejects an authority that does not match the configured tenant', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            enabled: true,
+            tenantId: '11111111-1111-4111-8111-111111111111',
+            clientId: '22222222-2222-4222-8222-222222222222',
+            authority: 'https://login.microsoftonline.com/organizations',
+            scopes: ['api://agent-sentinel/AgentSentinel.Read'],
+            redirectUri: 'https://sentinel.example/auth-redirect.html',
+            postLogoutRedirectUri: 'https://sentinel.example/',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    )
+
+    await expect(authApi.getConfig()).rejects.toThrow(/configured tenant/)
+  })
+
   it('rejects malformed enabled configuration', async () => {
     vi.stubGlobal(
       'fetch',

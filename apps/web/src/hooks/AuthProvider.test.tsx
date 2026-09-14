@@ -287,6 +287,44 @@ describe('AuthProvider', () => {
     expect(msal.acquireTokenSilent).not.toHaveBeenCalled()
   })
 
+  it('rejects a principal response containing fields outside the sanitized contract', async () => {
+    vi.mocked(authApi.getConfig).mockResolvedValue(enabledConfig)
+    const account = { homeAccountId: 'popup-home' }
+    msal.loginPopup.mockResolvedValue({ account, accessToken: 'popup-access-token' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            subject: 'subject-id',
+            tenantId: 'tenant-id',
+            roles: ['Viewer'],
+            capabilities: ['read'],
+            rawToken: 'must-not-be-accepted',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    )
+
+    render(
+      <AuthProvider>
+        <AuthState />
+      </AuthProvider>,
+    )
+
+    expect(
+      await screen.findByText('true', { selector: '[data-testid="configured"]' }),
+    ).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in test' }))
+
+    expect(
+      await screen.findByText('failure:principal', { selector: '[data-testid="sign-in-result"]' }),
+    ).toBeVisible()
+    expect(screen.getByTestId('signed-in')).toHaveTextContent('false')
+    expect(msal.clearCache).toHaveBeenCalledWith({ account })
+  })
+
   it('confirms success only after the popup principal and scoped token state are established', async () => {
     vi.mocked(authApi.getConfig).mockResolvedValue(enabledConfig)
     const account = { homeAccountId: 'popup-home' }
@@ -348,7 +386,7 @@ describe('AuthProvider', () => {
       clientId: '22222222-2222-4222-8222-222222222222',
       authority: 'https://login.microsoftonline.com/11111111-1111-4111-8111-111111111111',
       scopes: ['api://agent-sentinel/AgentSentinel.Read'],
-      redirectUri: 'http://localhost:3000/auth/callback',
+      redirectUri: 'http://localhost:3000/auth-redirect.html',
       postLogoutRedirectUri: 'http://localhost:3000/',
     })
     msal.getAllAccounts.mockReturnValue([{ homeAccountId: 'home' }])
@@ -478,6 +516,21 @@ describe('AuthProvider', () => {
     expect(screen.getByTestId('principal')).toHaveTextContent('none')
   })
 
+  it('fails closed when configured redirects use same-origin but incorrect paths', async () => {
+    vi.mocked(authApi.getConfig).mockResolvedValue({
+      ...enabledConfig,
+      redirectUri: 'http://localhost:3000/auth/callback',
+    })
+    render(
+      <AuthProvider>
+        <AuthState />
+      </AuthProvider>,
+    )
+
+    expect(await screen.findByText(/exact application callback and logout URLs/i)).toBeVisible()
+    expect(screen.getByTestId('configured')).toHaveTextContent('false')
+  })
+
   it('fails closed when configured redirects target another origin', async () => {
     vi.mocked(authApi.getConfig).mockResolvedValue({
       enabled: true,
@@ -494,7 +547,7 @@ describe('AuthProvider', () => {
       </AuthProvider>,
     )
 
-    expect(await screen.findByText(/does not match this application origin/i)).toBeVisible()
+    expect(await screen.findByText(/exact application callback and logout URLs/i)).toBeVisible()
     expect(screen.getByTestId('configured')).toHaveTextContent('false')
   })
 

@@ -1,6 +1,9 @@
 import { createContext } from 'react'
 import type { SpaAuthConfig } from '../api/auth-api'
 
+export const SENTINEL_ROLES = ['Viewer', 'Analyst', 'Approver', 'Administrator'] as const
+export type SentinelRole = (typeof SENTINEL_ROLES)[number]
+
 export const SENTINEL_CAPABILITIES = [
   'read',
   'validateFinding',
@@ -20,7 +23,7 @@ export interface WebAuthPrincipal {
   tenantId: string
   displayName?: string
   preferredUsername?: string
-  roles: string[]
+  roles: SentinelRole[]
   capabilities: SentinelCapability[]
 }
 

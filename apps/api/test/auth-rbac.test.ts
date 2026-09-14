@@ -24,18 +24,19 @@ describe('buildAuthConfig SPA fields', () => {
     AUTH_SPA_POST_LOGOUT_REDIRECT_URI: 'https://sentinel.example/',
   }
 
-  it('uses explicitly configured issuer, JWKS, and SPA scopes', () => {
+  it('uses exact tenant endpoints and explicitly configured SPA scopes', () => {
+    const authority = `https://login.microsoftonline.com/${env.AUTH_TENANT_ID}`
     const config = buildAuthConfig({
       ...env,
-      AUTH_ISSUER: 'https://issuer.example/v2.0',
-      AUTH_JWKS_URI: 'https://issuer.example/keys',
+      AUTH_ISSUER: `${authority}/v2.0`,
+      AUTH_JWKS_URI: `${authority}/discovery/v2.0/keys`,
       AUTH_SPA_SCOPES:
         'api://11111111-1111-4111-8111-111111111111/AgentSentinel.Read, api://11111111-1111-4111-8111-111111111111/AgentSentinel.Write',
     })
     expect(config.mode).toBe('jwt')
     if (config.mode !== 'jwt') return
-    expect(config.issuer).toBe('https://issuer.example/v2.0')
-    expect(config.jwksUri).toBe('https://issuer.example/keys')
+    expect(config.issuer).toBe(`${authority}/v2.0`)
+    expect(config.jwksUri).toBe(`${authority}/discovery/v2.0/keys`)
     expect(config.spaConfig.scopes).toEqual([
       'api://11111111-1111-4111-8111-111111111111/AgentSentinel.Read',
       'api://11111111-1111-4111-8111-111111111111/AgentSentinel.Write',
@@ -507,6 +508,9 @@ describe('GET /api/auth/me', () => {
         name: 'Alice Analyst',
         preferred_username: 'alice@contoso.com',
         roles: ['AgentSentinel.Analyst'],
+        aud: 'api://agent-sentinel',
+        nonce: 'must-not-leak',
+        rawToken: 'must-not-leak',
       },
     })
     const app = await createApp(undefined, jwtConfig)
@@ -517,14 +521,17 @@ describe('GET /api/auth/me', () => {
       headers: { authorization: 'Bearer valid-token' },
     })
     expect(r.statusCode).toBe(200)
-    const body: Record<string, unknown> = r.json()
-    expect(body['subject']).toBe('user-123')
-    expect(body['tenantId']).toBe('tenant-id')
-    expect(body['displayName']).toBe('Alice Analyst')
-    expect(body['roles']).toContain('Analyst')
-    expect(body['capabilities']).toContain('validateFinding')
-    // Must not expose raw token
-    expect(JSON.stringify(body)).not.toContain('valid-token')
+    expect(r.json()).toEqual({
+      subject: 'user-123',
+      objectId: 'obj-456',
+      tenantId: 'tenant-id',
+      displayName: 'Alice Analyst',
+      preferredUsername: 'alice@contoso.com',
+      roles: ['Analyst'],
+      capabilities: ['read', 'validateFinding', 'generateAdvisory', 'proposeRemediation'],
+    })
+    expect(r.body).not.toContain('valid-token')
+    expect(r.body).not.toContain('must-not-leak')
   })
 
   it('rejects a verified token whose tenant claim does not match configuration', async () => {

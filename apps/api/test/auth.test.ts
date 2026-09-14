@@ -87,6 +87,26 @@ describe('buildAuthConfig', () => {
     })
   })
 
+  it('normalizes identifiers and accepts only tenant-specific issuer and JWKS endpoints', () => {
+    const tenantId = completeJwtEnv.AUTH_TENANT_ID.toUpperCase()
+    const authority = `https://login.microsoftonline.com/${completeJwtEnv.AUTH_TENANT_ID}`
+    const config = buildAuthConfig({
+      ...completeJwtEnv,
+      AUTH_TENANT_ID: tenantId,
+      AUTH_AUDIENCE: completeJwtEnv.AUTH_AUDIENCE.toUpperCase(),
+      AUTH_SPA_CLIENT_ID: completeJwtEnv.AUTH_SPA_CLIENT_ID.toUpperCase(),
+      AUTH_ISSUER: `${authority}/v2.0`,
+      AUTH_JWKS_URI: `${authority}/discovery/v2.0/keys`,
+    })
+    expect(config).toMatchObject({
+      tenantId: completeJwtEnv.AUTH_TENANT_ID,
+      audience: completeJwtEnv.AUTH_AUDIENCE,
+    })
+    expect(config.mode === 'jwt' ? config.spaConfig.clientId : undefined).toBe(
+      completeJwtEnv.AUTH_SPA_CLIENT_ID,
+    )
+  })
+
   it('rejects malformed identifiers, endpoints, redirect origins, and scope lists', () => {
     expect(() => buildAuthConfig({ ...completeJwtEnv, AUTH_TENANT_ID: 'tenant-id' })).toThrow(
       /UUID/,
@@ -94,6 +114,12 @@ describe('buildAuthConfig', () => {
     expect(() =>
       buildAuthConfig({ ...completeJwtEnv, AUTH_ISSUER: 'http://issuer.invalid' }),
     ).toThrow(/HTTPS/)
+    expect(() =>
+      buildAuthConfig({ ...completeJwtEnv, AUTH_ISSUER: 'https://issuer.example/v2.0' }),
+    ).toThrow(/tenant-specific/)
+    expect(() =>
+      buildAuthConfig({ ...completeJwtEnv, AUTH_JWKS_URI: 'https://issuer.example/keys' }),
+    ).toThrow(/tenant-specific/)
     expect(() =>
       buildAuthConfig({
         ...completeJwtEnv,

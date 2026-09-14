@@ -34,9 +34,22 @@ const TOKEN_ENV: Record<AuthValidationRole, string> = {
   Administrator: 'AUTH_VALIDATION_ADMINISTRATOR_TOKEN',
 }
 
-const principalSchema = z.object({
-  roles: z.array(z.string()),
-  capabilities: z.array(z.enum(AUTH_VALIDATION_CAPABILITIES)),
+const uniqueValues = <T>(values: readonly T[]): boolean => new Set(values).size === values.length
+
+const principalSchema = z.strictObject({
+  subject: z.string().min(1),
+  objectId: z.string().min(1).optional(),
+  tenantId: z.string().min(1),
+  displayName: z.string().min(1).optional(),
+  preferredUsername: z.string().min(1).optional(),
+  roles: z
+    .array(z.enum(AUTH_VALIDATION_ROLES))
+    .max(AUTH_VALIDATION_ROLES.length)
+    .refine(uniqueValues),
+  capabilities: z
+    .array(z.enum(AUTH_VALIDATION_CAPABILITIES))
+    .max(AUTH_VALIDATION_CAPABILITIES.length)
+    .refine(uniqueValues),
 })
 const shaSchema = z.string().regex(/^[0-9a-f]{40}$/i)
 const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/i)
@@ -384,6 +397,7 @@ export async function runAuthLiveValidation(
   assertStatus('/api/auth/me (anonymous)', anonymous.status, 401)
 
   let insufficientRoleStatus: 403 | undefined
+  let validatedTenantId: string | undefined
   for (const role of AUTH_VALIDATION_ROLES) {
     const token = config.tokens[role]
     const principalResponse = await request(config, fetchImplementation, '/api/auth/me', token)
@@ -393,6 +407,10 @@ export async function runAuthLiveValidation(
     )
     if (!principal.roles.includes(role))
       throw new Error(`/api/auth/me (${role}) did not contain the expected app role.`)
+    validatedTenantId ??= principal.tenantId.toLowerCase()
+    if (principal.tenantId.toLowerCase() !== validatedTenantId) {
+      throw new Error('/api/auth/me returned principals from different tenants.')
+    }
     if (!sameMembers(principal.capabilities, EXPECTED_CAPABILITIES[role]))
       throw new Error(`/api/auth/me (${role}) did not match the expected capability boundary.`)
 

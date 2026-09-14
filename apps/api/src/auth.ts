@@ -142,7 +142,7 @@ function envList(value: string | undefined, fallback: readonly string[]): string
 function validateIdentifier(value: string, name: string): string {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value))
     throw new Error(`${name} must be a UUID.`)
-  return value
+  return value.toLowerCase()
 }
 
 function validateAudience(value: string): string {
@@ -165,7 +165,10 @@ function validateAudience(value: string): string {
       'AUTH_AUDIENCE must be an absolute api:// or https:// application ID URI without query, fragment, or trailing slash.',
     )
   }
-  return value
+  const apiClientId = value.match(
+    /^api:\/\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i,
+  )?.[1]
+  return apiClientId === undefined ? value : `api://${apiClientId.toLowerCase()}`
 }
 
 function tokenAudience(applicationIdUri: string): string {
@@ -215,8 +218,8 @@ function qualifiedSpaScopes(
   return scopes
 }
 
-function configuredEndpoint(value: string | undefined, fallback: string, name: string): string {
-  const candidate = value ?? fallback
+function tenantEndpoint(value: string | undefined, expected: string, name: string): string {
+  const candidate = value ?? expected
   let parsed: URL
   try {
     parsed = new URL(candidate)
@@ -234,7 +237,10 @@ function configuredEndpoint(value: string | undefined, fallback: string, name: s
     throw new Error(
       `${name} must be an absolute HTTPS URL without credentials, query, or fragment.`,
     )
-  return candidate
+  if (candidate.toLowerCase() !== expected) {
+    throw new Error(`${name} must equal the tenant-specific Microsoft Entra v2 endpoint.`)
+  }
+  return expected
 }
 
 export function buildAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig {
@@ -250,12 +256,12 @@ export function buildAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfi
     'AUTH_SPA_CLIENT_ID',
   )
   const authority = `https://login.microsoftonline.com/${tenantId}`
-  const issuer = configuredEndpoint(
+  const issuer = tenantEndpoint(
     optionalEnvironment(env, 'AUTH_ISSUER'),
     `${authority}/v2.0`,
     'AUTH_ISSUER',
   )
-  const jwksUri = configuredEndpoint(
+  const jwksUri = tenantEndpoint(
     optionalEnvironment(env, 'AUTH_JWKS_URI'),
     `${authority}/discovery/v2.0/keys`,
     'AUTH_JWKS_URI',

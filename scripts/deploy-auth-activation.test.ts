@@ -1,6 +1,62 @@
+import { readFile } from 'node:fs/promises'
+
 import { describe, expect, it, vi } from 'vitest'
 
-import { runAuthActivationDeploymentCli } from './deploy-auth-activation.js'
+import { authActivationInputSchema } from './auth-activation-preflight.js'
+import { runAuthActivationDeploymentCli, verifyPublicAuthConfig } from './deploy-auth-activation.js'
+
+async function activationInput() {
+  return authActivationInputSchema.parse(
+    JSON.parse(
+      await readFile(
+        new URL('./test-fixtures/auth-activation-ready.json', import.meta.url),
+        'utf8',
+      ),
+    ),
+  )
+}
+
+function publicConfig(input: Awaited<ReturnType<typeof activationInput>>): Record<string, unknown> {
+  return {
+    enabled: true,
+    tenantId: input.tenantId.toLowerCase(),
+    clientId: input.spaClientId.toLowerCase(),
+    authority: `https://login.microsoftonline.com/${input.tenantId.toLowerCase()}`,
+    scopes: input.scopes.spa,
+    redirectUri: input.redirectUri,
+    postLogoutRedirectUri: input.postLogoutRedirectUri,
+  }
+}
+
+describe('verifyPublicAuthConfig', () => {
+  it('accepts only the exact sanitized activation configuration', async () => {
+    const input = await activationInput()
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify(publicConfig(input)), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+
+    await expect(verifyPublicAuthConfig(input, fetchMock)).resolves.toBeUndefined()
+  })
+
+  it('rejects authority, scope, and extra-field drift from the approved input', async () => {
+    const input = await activationInput()
+    for (const drift of [
+      { authority: 'https://login.microsoftonline.com/organizations' },
+      { scopes: [`${input.audience}/AgentSentinel.Write`] },
+      { rawToken: 'must-not-be-present' },
+    ]) {
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ ...publicConfig(input), ...drift }), { status: 200 }),
+        )
+      await expect(verifyPublicAuthConfig(input, fetchMock)).rejects.toThrow()
+    }
+  })
+})
 
 describe('runAuthActivationDeploymentCli', () => {
   it('is a non-mutating dry-run unless apply and approval are both explicit', async () => {
