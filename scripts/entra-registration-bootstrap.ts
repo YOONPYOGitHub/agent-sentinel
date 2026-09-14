@@ -303,6 +303,12 @@ function equalJson(left: unknown, right: unknown): boolean {
   return canonicalJson(left) === canonicalJson(right)
 }
 
+function sortedByValue<T extends { readonly value?: string | null | undefined }>(
+  items: readonly T[],
+): T[] {
+  return [...items].sort((left, right) => (left.value ?? '').localeCompare(right.value ?? ''))
+}
+
 export interface GraphRequestShape {
   readonly method: 'POST' | 'PATCH'
   readonly path: string
@@ -612,9 +618,9 @@ export async function buildEntraRegistrationPlan(
           identifierUris: api.identifierUris ?? [],
           api: {
             requestedAccessTokenVersion: api.api?.requestedAccessTokenVersion ?? null,
-            oauth2PermissionScopes: api.api?.oauth2PermissionScopes ?? [],
+            oauth2PermissionScopes: sortedByValue(api.api?.oauth2PermissionScopes ?? []),
           },
-          appRoles: api.appRoles ?? [],
+          appRoles: sortedByValue(api.appRoles ?? []),
         }
   if (api === undefined || !equalJson(currentApiBody, apiDesired.body)) {
     operations.push(

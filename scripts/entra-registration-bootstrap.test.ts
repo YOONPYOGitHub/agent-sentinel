@@ -162,6 +162,21 @@ describe('buildEntraRegistrationPlan', () => {
     expect(plan.rollbackPlan.operations).toEqual([])
   })
 
+  it('treats Graph scope and role ordering as semantically equivalent', async () => {
+    const input = await fixture('entra-registration-input')
+    const state = entraRegistrationStateSchema.parse(
+      await fixture('entra-registration-state-exact'),
+    )
+    const api = state.applications.find((application) => application.displayName.endsWith(' API'))
+    if (api === undefined) throw new Error('Expected the exact API fixture.')
+    api.api!.oauth2PermissionScopes!.reverse()
+    api.appRoles!.reverse()
+
+    const plan = await buildEntraRegistrationPlan(input, new SnapshotEntraGraphClient(state))
+
+    expect(plan.operations).toEqual([])
+  })
+
   it('rejects historical registrations on a wrong Front Door origin', async () => {
     await expect(planFor('entra-registration-state-wrong-origin')).rejects.toThrow(
       'historical or wrong-origin',
