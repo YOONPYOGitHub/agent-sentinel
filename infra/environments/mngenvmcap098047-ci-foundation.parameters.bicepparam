@@ -4,6 +4,7 @@ using '../ci-foundation.bicep'
 param location = 'koreacentral'
 param suffix = 'm098047'
 param adminSshPublicKey = readEnvironmentVariable('ADMIN_SSH_PUBLIC_KEY')
+param vmSize = 'Standard_D2as_v5'
 param tags = {
   application: 'agent-sentinel'
   environment: 'replacement-validation'

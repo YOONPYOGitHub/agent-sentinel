@@ -38,6 +38,9 @@ var buildSubnetId = '${existingVnet.id}/subnets/build'
 @description('SSH public key for azureuser on vm-ci-runner-as. VM is accessed via Run Command only. Generate with: ssh-keygen -t ed25519 -f ~/.ssh/id_ci_runner_as_ed25519 -N empty and pass -p adminSshPublicKey=<content>.')
 param adminSshPublicKey string
 
+@description('VM SKU for the private build runner.')
+param vmSize string = 'Standard_D2s_v3'
+
 module buildRunner './modules/build-runner.bicep' = {
   name: 'build-runner'
   params: {
@@ -46,6 +49,7 @@ module buildRunner './modules/build-runner.bicep' = {
     buildSubnetId: buildSubnetId
     acrId: existingAcr.id
     adminSshPublicKey: adminSshPublicKey
+    vmSize: vmSize
     runnerIdentityName: 'id-ci-runner-${suffix}'
   }
 }

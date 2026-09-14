@@ -4,14 +4,17 @@ WORKDIR /workspace
 RUN corepack enable
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/domain/package.json packages/domain/
+COPY packages/connector-sdk/package.json packages/connector-sdk/
 COPY packages/ui/package.json packages/ui/
 COPY apps/web/package.json apps/web/
 RUN pnpm install --frozen-lockfile
 COPY tsconfig.base.json ./
 COPY packages/domain/ packages/domain/
+COPY packages/connector-sdk/ packages/connector-sdk/
 COPY packages/ui/ packages/ui/
 COPY apps/web/ apps/web/
 RUN pnpm --filter @agent-sentinel/domain build
+RUN pnpm --filter @agent-sentinel/connector-sdk build
 RUN pnpm --filter @agent-sentinel/ui build
 RUN pnpm --filter @agent-sentinel/web build
 

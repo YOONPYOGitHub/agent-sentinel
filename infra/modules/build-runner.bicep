@@ -11,6 +11,9 @@ param runnerIdentityName string
 @description('SSH public key for azureuser. VM is accessed via Run Command only; SSH port is closed by NSG.')
 param adminSshPublicKey string
 
+@description('VM SKU for the private build runner. Select an available Korea Central SKU at deployment time.')
+param vmSize string = 'Standard_D2s_v3'
+
 // Separate UAMI from the application identity; AcrPush only.
 resource runnerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: runnerIdentityName
@@ -197,7 +200,7 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-03-01' = {
   }
   properties: {
     hardwareProfile: {
-      vmSize: 'Standard_D2s_v3'
+      vmSize: vmSize
     }
     storageProfile: {
       imageReference: {
