@@ -17,6 +17,8 @@ const entraEstate = {
   environment: 'production',
 }
 const entraRegistry = buildEstateRegistry({}, entraEstate)
+const providerResourceId =
+  '/subscriptions/11111111-1111-4111-8111-111111111111/resourcegroups/rg-test/providers/microsoft.insights/components/app-test'
 
 const configuredEnvironment = {
   AGENT_SENTINEL_DATA_MODE: 'live',
@@ -27,6 +29,8 @@ const configuredEnvironment = {
       id: 'primary',
       name: 'Production telemetry',
       workspaceId: '11111111-1111-4111-8111-111111111111',
+      providerResourceId,
+      applicationRoleName: 'agent-runtime',
       tenantId: estate.tenantId,
       sourceProjectId: 'primary',
       environment: estate.environment,
@@ -297,7 +301,11 @@ describe('deployment Azure Monitor OTel source projection', () => {
       configuration: {
         type: 'azure-monitor-otel',
         workspaceId: '11111111-1111-4111-8111-111111111111',
+        providerResourceId,
+        applicationRoleName: 'agent-runtime',
+        requestName: 'agent.invoke',
         sourceProjectId: 'primary',
+        maximumFreshnessHours: 168,
         maxResponseBytes: 8_192,
       },
     })
@@ -370,6 +378,8 @@ describe('deployment Azure Monitor OTel source projection', () => {
       {
         AZURE_MONITOR_SOURCES_JSON: '   ',
         AZURE_MONITOR_WORKSPACE_ID: '11111111-1111-4111-8111-111111111111',
+        AZURE_MONITOR_PROVIDER_RESOURCE_ID: providerResourceId,
+        AZURE_MONITOR_APPLICATION_ROLE_NAME: 'agent-runtime',
         AZURE_MONITOR_TENANT_ID: estate.tenantId,
         AZURE_MONITOR_ENVIRONMENT: estate.environment,
         FOUNDRY_PROJECT_ENDPOINT: 'https://example.services.ai.azure.com/api/projects/primary',
@@ -395,9 +405,13 @@ describe('deployment Azure Monitor OTel source projection', () => {
       configuration: {
         type: 'azure-monitor-otel',
         workspaceId: '11111111-1111-4111-8111-111111111111',
+        providerResourceId,
+        applicationRoleName: 'agent-runtime',
+        requestName: 'agent.invoke',
         sourceProjectId: 'primary',
         baselineWindowHours: 48,
         observedWindowHours: 12,
+        maximumFreshnessHours: 168,
         requestTimeoutMs: 20_000,
         maxResponseBytes: 2_048,
       },
@@ -471,6 +485,9 @@ describe('deployment Azure Monitor OTel source projection', () => {
       {
         ...configuredEnvironment,
         AZURE_MONITOR_WORKSPACE_ID: '22222222-2222-4222-8222-222222222222',
+        AZURE_MONITOR_PROVIDER_RESOURCE_ID:
+          '/subscriptions/22222222-2222-4222-8222-222222222222/resourcegroups/rg-legacy/providers/microsoft.insights/components/app-legacy',
+        AZURE_MONITOR_APPLICATION_ROLE_NAME: 'legacy-agent-runtime',
         AZURE_MONITOR_TENANT_ID: estate.tenantId,
         AZURE_MONITOR_ENVIRONMENT: estate.environment,
       },

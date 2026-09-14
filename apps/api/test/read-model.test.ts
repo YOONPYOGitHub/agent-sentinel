@@ -992,7 +992,9 @@ describe('live product read model', () => {
           state: 'complete',
           windowIds: ['baseline-window', 'observed-window'],
           evidenceIds: ['otel-baseline-evidence', 'otel-observed-evidence'],
-          providerResourceIds: ['/subscriptions/example/resource'],
+          providerResourceIds: [
+            '/subscriptions/11111111-1111-4111-8111-111111111111/resourcegroups/rg-test/providers/microsoft.insights/components/app-test',
+          ],
         },
       ],
     })

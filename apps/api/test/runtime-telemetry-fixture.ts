@@ -7,6 +7,15 @@ import type {
 import type { ObservationWindow, RuntimeObservation } from '@agent-sentinel/domain'
 
 const QUERIED_AT = '2026-08-24T12:00:00.000Z'
+const PROVIDER_RESOURCE_ID =
+  '/subscriptions/11111111-1111-4111-8111-111111111111/resourcegroups/rg-test/providers/microsoft.insights/components/app-test'
+const SOURCE_SET_FINGERPRINT = 'f'.repeat(64)
+const CONTRACT_IDENTITY = {
+  version: 1 as const,
+  recordType: 'agent_invocation' as const,
+  applicationRoleName: 'agent-runtime',
+  requestName: 'agent.invoke' as const,
+}
 
 function observations(
   request: RuntimeTelemetryRequest,
@@ -49,14 +58,21 @@ function observations(
         sourceProjectId: request.sourceProjectId ?? 'test',
         sourceEnvironment: request.sourceEnvironment ?? environment,
         provider: 'azure-monitor-otel',
-        providerResourceId: '/subscriptions/example/resource',
+        providerResourceId: PROVIDER_RESOURCE_ID,
         providerAgentId: request.sourceAgentId ?? request.agentId,
+        providerInvocationId: evidencePrefix,
+        sourceSetFingerprint: request.sourceSetFingerprint ?? SOURCE_SET_FINGERPRINT,
+        measuredAt: QUERIED_AT,
         traceId: `${kind === 'baseline' ? '1' : '2'}${index.toString(16).padStart(31, '0')}`,
-        spanId: index.toString(16).padStart(16, '0'),
+        spanId: (index + 1).toString(16).padStart(16, '0'),
         observedAt,
         classification: 'live',
         sampling: { state: 'complete', rate: 1 },
         aggregation: { kind: 'raw' },
+        contract: {
+          ...CONTRACT_IDENTITY,
+          outcome: kind === 'baseline' || index > 1 ? ('success' as const) : ('error' as const),
+        },
         partial: false,
         evidenceIds: [
           `${evidencePrefix}-invocation`,
@@ -121,8 +137,11 @@ export function createRuntimeTelemetryFixture(
             sourceProjectId: request.sourceProjectId ?? 'test',
             sourceEnvironment: request.sourceEnvironment ?? environment,
             provider: 'azure-monitor-otel',
-            providerResourceId: '/subscriptions/example/resource',
+            providerResourceId: PROVIDER_RESOURCE_ID,
             providerAgentId: request.sourceAgentId ?? request.agentId,
+            sourceSetFingerprint: request.sourceSetFingerprint ?? SOURCE_SET_FINGERPRINT,
+            measuredAt: QUERIED_AT,
+            contract: CONTRACT_IDENTITY,
           },
         }),
       )
@@ -151,6 +170,10 @@ export function createSyntheticCanaryTelemetryFixture(
         ...windows,
         baseline: {
           ...windows.baseline,
+          otelQuality: {
+            ...windows.baseline.otelQuality!,
+            classification: 'synthetic' as const,
+          },
           observations: windows.baseline.observations.map((observation) => ({
             ...observation,
             synthetic: true,
@@ -162,6 +185,10 @@ export function createSyntheticCanaryTelemetryFixture(
         },
         observed: {
           ...windows.observed,
+          otelQuality: {
+            ...windows.observed.otelQuality!,
+            classification: 'synthetic' as const,
+          },
           observations: windows.observed.observations.map((observation) => ({
             ...observation,
             synthetic: true,
@@ -194,6 +221,7 @@ export function createMixedRuntimeTelemetryFixture(
             synthetic: true,
             otelProvenance: {
               ...observation.otelProvenance!,
+              providerInvocationId: `${observation.id}-synthetic`,
               traceId: `f${index.toString(16).padStart(31, '0')}`,
               spanId: `f${index.toString(16).padStart(15, '0')}`,
               classification: 'synthetic' as const,
