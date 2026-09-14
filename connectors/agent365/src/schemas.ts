@@ -112,12 +112,29 @@ export const agent365ConfigSchema = z.strictObject({
 })
 export type Agent365Config = z.infer<typeof agent365ConfigSchema>
 
-const packageStatusSchema = z.enum(['none', 'some', 'all', 'unknownFutureValue'])
+const packageAvailabilitySchema = z.enum([
+  'none',
+  'some',
+  'all',
+  'allowedForAll',
+  'allowedForSome',
+  'unknownFutureValue',
+])
+const packageDeploymentSchema = z.enum([
+  'none',
+  'some',
+  'all',
+  'acquiredForNone',
+  'acquiredForSome',
+  'unknownFutureValue',
+])
 const packageTypeSchema = z.enum([
   'microsoft',
   'external',
   'shared',
   'custom',
+  'firstParty',
+  'thirdParty',
   'unknownFutureValue',
 ])
 
@@ -131,14 +148,14 @@ export const copilotPackageSchema = z.object({
   supportedHosts: boundedStringCollection.optional(),
   lastModifiedDateTime: z.iso.datetime({ offset: true }).optional(),
   publisher: z.string().max(1_024).optional(),
-  availableTo: packageStatusSchema.optional(),
-  deployedTo: packageStatusSchema.optional(),
+  availableTo: packageAvailabilitySchema.optional(),
+  deployedTo: packageDeploymentSchema.optional(),
   elementTypes: boundedStringCollection.optional(),
   platform: z.string().max(256).optional(),
   version: z.string().max(128).optional(),
   manifestVersion: z.string().max(128).optional(),
-  manifestId: z.string().max(512).optional(),
-  appId: azureGuidSchema.optional(),
+  manifestId: z.string().max(512).nullable().optional(),
+  appId: azureGuidSchema.nullable().optional(),
   assetId: z.string().max(512).optional(),
 })
 export type CopilotPackage = z.infer<typeof copilotPackageSchema>

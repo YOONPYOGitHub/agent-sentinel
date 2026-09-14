@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   classifyAgent365Package,
+  copilotPackageSchema,
   isAgentPackage,
   mapAgent365PackagesToSnapshot,
   mergeAgent365Snapshots,
@@ -56,6 +57,46 @@ const extension: CopilotPackage = {
 }
 
 describe('Agent 365 package mapping', () => {
+  it('accepts the current Microsoft Graph v1.0 package vocabulary', () => {
+    expect(
+      copilotPackageSchema.parse({
+        ...agent,
+        type: 'firstParty',
+        availableTo: 'allowedForAll',
+        deployedTo: 'acquiredForSome',
+        elementTypes: ['DeclarativeCopilots'],
+        platform: 'Foundry',
+        manifestId: null,
+        appId: null,
+      }),
+    ).toMatchObject({
+      type: 'firstParty',
+      availableTo: 'allowedForAll',
+      deployedTo: 'acquiredForSome',
+      manifestId: null,
+      appId: null,
+    })
+  })
+
+  it('classifies current declarative and custom-engine Copilot element types as agents', () => {
+    expect(
+      classifyAgent365Package({
+        id: 'P_declarative',
+        displayName: 'Declarative Copilot package',
+        supportedHosts: ['Copilot'],
+        elementTypes: ['DeclarativeCopilots'],
+      }),
+    ).toContain('agent365-agent')
+    expect(
+      classifyAgent365Package({
+        id: 'P_custom_engine',
+        displayName: 'Custom engine Copilot package',
+        supportedHosts: ['Copilot'],
+        elementTypes: ['CustomEngineCopilots'],
+      }),
+    ).toContain('agent365-agent')
+  })
+
   it('classifies documented agent signals but keeps non-agent extensions honest', () => {
     expect(isAgentPackage(agent)).toBe(true)
     expect(

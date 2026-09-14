@@ -44,12 +44,19 @@ export type Agent365PackageClassification =
   'agent365-agent' | 'm365-declarative-agent' | 'sharepoint-declarative-agent' | 'extension-package'
 
 export function classifyAgent365Package(item: CopilotPackage): Agent365PackageClassification[] {
-  const declarative = containsIgnoreCase(item.elementTypes, 'declarativeAgent')
+  const declarative =
+    containsIgnoreCase(item.elementTypes, 'declarativeAgent') ||
+    containsIgnoreCase(item.elementTypes, 'declarativeCopilots')
   const agent =
     containsIgnoreCase(item.supportedHosts, 'copilot') ||
-    ['bot', 'bots', 'declarativeagent', 'customengineagent'].some((type) =>
-      containsIgnoreCase(item.elementTypes, type),
-    )
+    [
+      'bot',
+      'bots',
+      'declarativeagent',
+      'declarativecopilots',
+      'customengineagent',
+      'customenginecopilots',
+    ].some((type) => containsIgnoreCase(item.elementTypes, type))
   if (!agent) return ['extension-package']
   return [
     'agent365-agent',
