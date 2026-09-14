@@ -129,14 +129,14 @@ export const graphApplicationSchema = z.object({
   signInAudience: z.string().optional(),
   identifierUris: z.array(z.string()).optional(),
   api: z
-    .strictObject({
+    .object({
       requestedAccessTokenVersion: z.number().int().nullable().optional(),
       oauth2PermissionScopes: z.array(oauth2PermissionScopeSchema).optional(),
     })
     .optional(),
   appRoles: z.array(appRoleSchema).optional(),
-  spa: z.strictObject({ redirectUris: z.array(z.string()).optional() }).optional(),
-  web: z.strictObject({ logoutUrl: z.string().nullable().optional() }).optional(),
+  spa: z.object({ redirectUris: z.array(z.string()).optional() }).optional(),
+  web: z.object({ logoutUrl: z.string().nullable().optional() }).optional(),
   requiredResourceAccess: z.array(requiredResourceAccessSchema).optional(),
 })
 

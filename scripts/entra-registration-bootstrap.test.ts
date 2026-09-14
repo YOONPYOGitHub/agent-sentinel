@@ -10,6 +10,7 @@ import {
   buildEntraRegistrationPlan,
   entraRegistrationInputSchema,
   entraRegistrationStateSchema,
+  graphApplicationSchema,
   graphCreateResultSchema,
   runEntraRegistrationBootstrapCli,
   type EntraGraphClient,
@@ -72,6 +73,40 @@ describe('buildEntraRegistrationPlan', () => {
         ).toEqual({
           id: 'object-id',
           appId: '22222222-2222-4222-8222-222222222222',
+        })
+
+        it('projects selected registration fields from expanded nested Graph payloads', () => {
+          expect(
+            graphApplicationSchema.parse({
+              id: 'object-id',
+              appId: '22222222-2222-4222-8222-222222222222',
+              displayName: 'Agent Sentinel Replacement API',
+              signInAudience: 'AzureADMyOrg',
+              identifierUris: [],
+              api: {
+                requestedAccessTokenVersion: 2,
+                oauth2PermissionScopes: [],
+                acceptMappedClaims: null,
+                knownClientApplications: [],
+                preAuthorizedApplications: [],
+              },
+              appRoles: [],
+              spa: { redirectUris: [], redirectUriSettings: [] },
+              web: {
+                logoutUrl: null,
+                homePageUrl: null,
+                redirectUris: [],
+                implicitGrantSettings: {},
+                redirectUriSettings: [],
+              },
+              requiredResourceAccess: [],
+            }),
+          ).toMatchObject({
+            id: 'object-id',
+            api: { requestedAccessTokenVersion: 2, oauth2PermissionScopes: [] },
+            spa: { redirectUris: [] },
+            web: { logoutUrl: null },
+          })
         })
       })
     })
