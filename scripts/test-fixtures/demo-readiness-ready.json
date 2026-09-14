@@ -33,6 +33,10 @@
       "service": "agent-sentinel-api",
       "observedAt": "2026-09-12T00:00:00.000Z",
       "revision": "api--revision-1",
+      "security": {
+        "authMode": "jwt",
+        "writeEnabled": false
+      },
       "components": {
         "web": {
           "sha": "dddddddddddddddddddddddddddddddddddddddd",

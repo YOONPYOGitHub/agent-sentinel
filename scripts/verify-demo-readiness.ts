@@ -22,6 +22,10 @@ const deploymentStatusSchema = z.strictObject({
   service: z.literal('agent-sentinel-api'),
   observedAt: z.iso.datetime(),
   revision: z.string().optional(),
+  security: z.strictObject({
+    authMode: z.enum(['disabled', 'jwt', 'unknown']),
+    writeEnabled: z.boolean().nullable(),
+  }),
   components: z.strictObject({
     web: z.strictObject({ sha: shaSchema.optional(), digest: digestSchema.optional() }),
     api: z.strictObject({ sha: shaSchema.optional(), digest: digestSchema.optional() }),
