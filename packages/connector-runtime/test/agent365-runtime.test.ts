@@ -827,7 +827,7 @@ describe('Agent 365 runtime source resolution', () => {
         evidenceTypes: ['declared_configuration'],
         sourceStatus: {
           status: 'live',
-          sourceId: 'deployment',
+          sourceId: 'agent365:deployment',
           readiness: 'ready',
           dataState: 'complete',
           checkedAt: '2026-09-09T00:05:00.000Z',
@@ -847,7 +847,7 @@ describe('Agent 365 runtime source resolution', () => {
         evidenceTypes: ['declared_configuration', 'unknown'],
         sourceStatus: {
           status: 'unknown',
-          sourceId: 'deployment',
+          sourceId: 'agent365:deployment',
           readiness: 'unavailable',
           reason: 'source-health-unbound',
         },
@@ -887,7 +887,7 @@ describe('Agent 365 runtime source resolution', () => {
         evidenceTypes: ['declared_configuration', 'unknown'],
         sourceStatus: {
           status: 'stale',
-          sourceId: 'deployment',
+          sourceId: 'agent365:deployment',
           readiness: 'authorization-required',
           dataState: 'failed',
           reason: 'authorization',
@@ -905,7 +905,7 @@ describe('Agent 365 runtime source resolution', () => {
         evidenceTypes: ['declared_configuration', 'unknown'],
         sourceStatus: {
           status: 'unknown',
-          sourceId: 'deployment',
+          sourceId: 'agent365:deployment',
           readiness: 'unavailable',
           reason: 'source-health-unavailable',
         },

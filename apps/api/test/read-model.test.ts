@@ -412,7 +412,7 @@ describe('live product read model', () => {
       evidenceTypes: ['declared_configuration', 'unknown'],
       sourceStatus: {
         status: 'stale',
-        sourceId: 'deployment',
+        sourceId: 'agent365:deployment',
         readiness: 'authorization-required',
         dataState: 'failed',
         reason: 'authorization',
@@ -466,7 +466,7 @@ describe('live product read model', () => {
       freshness: 'live',
       sourceStatus: {
         status: 'live',
-        sourceId: 'deployment',
+        sourceId: 'agent365:deployment',
         readiness: 'ready',
         dataState: 'complete',
       },
@@ -496,7 +496,7 @@ describe('live product read model', () => {
       confidence: 0,
       sourceStatus: {
         status: 'unknown',
-        sourceId: 'deployment',
+        sourceId: 'agent365:deployment',
         readiness: 'unavailable',
         reason: 'source-health-unbound',
       },

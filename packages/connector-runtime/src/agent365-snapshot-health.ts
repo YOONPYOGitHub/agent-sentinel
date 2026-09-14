@@ -79,6 +79,7 @@ export function projectAgent365SnapshotHealth(
         },
       }
     }
+    const healthSourceId = `agent365:${sourceId}`
     const source = exactSourceHealth(snapshot, item, health)
     if (source === undefined) {
       return {
@@ -88,7 +89,7 @@ export function projectAgent365SnapshotHealth(
         evidenceTypes: withUnknownEvidenceType(item),
         sourceStatus: {
           status: 'unknown',
-          sourceId,
+          sourceId: healthSourceId,
           readiness: 'unavailable',
           reason: 'source-health-unavailable',
         },
@@ -103,7 +104,7 @@ export function projectAgent365SnapshotHealth(
           evidenceTypes: withUnknownEvidenceType(item),
           sourceStatus: {
             status: 'unknown',
-            sourceId,
+            sourceId: source.id,
             readiness: 'unavailable',
             reason:
               bindingStatus === 'unbound'
@@ -117,7 +118,7 @@ export function projectAgent365SnapshotHealth(
         freshness: 'live',
         sourceStatus: {
           status: 'live',
-          sourceId,
+          sourceId: source.id,
           readiness: source.readiness,
           dataState: source.dataState,
           ...(source.checkedAt === undefined ? {} : { checkedAt: source.checkedAt }),
@@ -130,7 +131,7 @@ export function projectAgent365SnapshotHealth(
       evidenceTypes: withUnknownEvidenceType(item),
       sourceStatus: {
         status: 'stale',
-        sourceId,
+        sourceId: source.id,
         readiness: source.readiness,
         ...(source.dataState === undefined ? {} : { dataState: source.dataState }),
         ...(source.checkedAt === undefined ? {} : { checkedAt: source.checkedAt }),
