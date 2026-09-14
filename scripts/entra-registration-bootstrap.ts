@@ -998,7 +998,11 @@ export async function applyEntraRegistrationPlan(
 
     const postApply = await buildEntraRegistrationPlan(input, graph)
     if (postApply.operations.length !== 0) {
-      throw new Error('Post-apply rediscovery found remaining registration operations.')
+      throw new Error(
+        `Post-apply rediscovery found remaining registration operations: ${postApply.operations
+          .map((operation) => operation.id)
+          .join(', ')}.`,
+      )
     }
     return {
       schemaVersion: '1.0.0',

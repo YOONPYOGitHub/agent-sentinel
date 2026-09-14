@@ -273,6 +273,12 @@ class MutableGraphClient implements EntraGraphClient {
   }
 }
 
+class NonConvergingGraphClient extends MutableGraphClient {
+  public override updateApplication(): Promise<void> {
+    return Promise.resolve()
+  }
+}
+
 describe('applyEntraRegistrationPlan', () => {
   it('applies through the injected client and post-apply rediscovery is idempotent', async () => {
     const input = entraRegistrationInputSchema.parse(await fixture('entra-registration-input'))
@@ -284,6 +290,18 @@ describe('applyEntraRegistrationPlan', () => {
     expect(result.postApply.remainingOperationCount).toBe(0)
     expect(graph.applications).toHaveLength(2)
     expect(graph.servicePrincipals).toHaveLength(2)
+  })
+
+  it('reports only deterministic operation IDs when post-apply discovery does not converge', async () => {
+    const input = entraRegistrationInputSchema.parse(await fixture('entra-registration-input'))
+    const graph = new NonConvergingGraphClient()
+    const plan = await buildEntraRegistrationPlan(input, graph)
+
+    await expect(applyEntraRegistrationPlan(input, plan, graph)).rejects.toThrow(
+      'Post-apply rediscovery found remaining registration operations: api.application.configure.',
+    )
+    expect(graph.applications).toHaveLength(0)
+    expect(graph.servicePrincipals).toHaveLength(0)
   })
 
   it('denies apply by default before invoking the injected Graph client', async () => {
