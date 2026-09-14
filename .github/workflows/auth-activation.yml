@@ -196,11 +196,26 @@ jobs:
             --apply \
             --approval "${{ inputs.protectedApproval }}"
 
-      - name: Preserve sanitized rollback capture
+      - name: Materialize active Front Door preflight input
+        env:
+          FRONT_DOOR_PROFILE_NAME: ${{ vars.FRONT_DOOR_PROFILE_NAME }}
+          FRONT_DOOR_ENDPOINT_NAME: ${{ vars.FRONT_DOOR_ENDPOINT_NAME }}
+        run: |
+          node -e "const fs=require('node:fs'); const auth=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/auth-activation-input.json','utf8')); const value={schemaVersion:'1.0.0',tenantId:auth.tenantId,subscriptionId:process.env.AZURE_SUBSCRIPTION_ID,resourceGroup:process.env.AZURE_RESOURCE_GROUP,profileName:process.env.FRONT_DOOR_PROFILE_NAME,endpointName:process.env.FRONT_DOOR_ENDPOINT_NAME,frontDoorOrigin:auth.frontDoorOrigin,stage:'read-only'}; fs.writeFileSync(process.env.RUNNER_TEMP+'/active-edge-input.json',JSON.stringify(value,null,2)+'\n',{mode:0o600})"
+
+      - name: Verify active Front Door read-only safety
+        run: |
+          pnpm auth:edge-preflight -- \
+            --input "${RUNNER_TEMP}/active-edge-input.json" \
+            --output "${RUNNER_TEMP}/active-edge-preflight.json"
+
+      - name: Preserve sanitized rollback and edge evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: auth-activation-rollback-${{ needs.resolve.outputs.commitSha }}
-          path: ${{ runner.temp }}/auth-activation-rollback.json
+          path: |
+            ${{ runner.temp }}/auth-activation-rollback.json
+            ${{ runner.temp }}/active-edge-preflight.json
           if-no-files-found: warn
           retention-days: 14

@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-sentinel.example/schemas/entra-registration-bootstrap-plan.schema.json",
+  "title": "Agent Sentinel sanitized Entra registration bootstrap plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "mode",
+    "status",
+    "tenantId",
+    "frontDoorOrigin",
+    "displayNames",
+    "apiIdentifierUriPolicy",
+    "redirectUris",
+    "operations",
+    "rollbackPlan",
+    "invariants",
+    "planDigest"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "kind": { "const": "agent-sentinel-entra-registration-bootstrap-plan" },
+    "mode": { "const": "plan" },
+    "status": { "const": "ready" },
+    "tenantId": { "$ref": "#/$defs/uuid" },
+    "frontDoorOrigin": { "type": "string", "format": "uri", "pattern": "^https://[^/?#:]+$" },
+    "displayNames": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api", "spa"],
+      "properties": { "api": { "type": "string" }, "spa": { "type": "string" } }
+    },
+    "apiIdentifierUriPolicy": { "const": "api-app-id" },
+    "redirectUris": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spa", "logout"],
+      "properties": {
+        "spa": { "type": "string", "format": "uri" },
+        "logout": { "type": "string", "format": "uri" }
+      }
+    },
+    "operations": {
+      "type": "array",
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/operation" }
+    },
+    "rollbackPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "operations", "updatesRequireManualReview"],
+      "properties": {
+        "scope": { "const": "resources-created-by-this-plan-only" },
+        "operations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/rollbackOperation" }
+        },
+        "updatesRequireManualReview": { "const": true }
+      }
+    },
+    "invariants": { "type": "array", "minItems": 4, "items": { "type": "string" } },
+    "planDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "action", "resource", "target", "dependsOn", "request"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(api|spa)\\.(application|servicePrincipal)\\.(create|configure)$"
+        },
+        "action": { "enum": ["create", "update"] },
+        "resource": { "enum": ["application", "servicePrincipal"] },
+        "target": { "enum": ["api", "spa"] },
+        "dependsOn": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "path", "body"],
+          "properties": {
+            "method": { "enum": ["POST", "PATCH"] },
+            "path": { "type": "string", "pattern": "^/(applications|servicePrincipals)" },
+            "body": { "type": "object" }
+          }
+        }
+      }
+    },
+    "rollbackOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "action", "resource", "createdByOperationId", "request"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^rollback\\." },
+        "action": { "const": "delete" },
+        "resource": { "enum": ["application", "servicePrincipal"] },
+        "createdByOperationId": { "type": "string" },
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "path"],
+          "properties": {
+            "method": { "const": "DELETE" },
+            "path": { "type": "string", "pattern": "^/(applications|servicePrincipals)/" }
+          }
+        }
+      }
+    }
+  }
+}

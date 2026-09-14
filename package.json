@@ -9,6 +9,8 @@
   },
   "scripts": {
     "auth:preflight": "pnpm --filter @agent-sentinel/scripts auth:preflight",
+    "auth:registration-bootstrap": "pnpm --filter @agent-sentinel/scripts auth:registration-bootstrap",
+    "auth:edge-preflight": "pnpm --filter @agent-sentinel/scripts auth:edge-preflight",
     "auth:deploy": "pnpm --filter @agent-sentinel/scripts auth:deploy",
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",

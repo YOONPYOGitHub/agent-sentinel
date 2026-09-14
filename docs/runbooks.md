@@ -125,7 +125,7 @@ az network private-endpoint-connection list \
   --type Microsoft.App/managedEnvironments
 ```
 
-**Resolution path:** Open Microsoft support case. Until resolved, App Gateway WAF v2 (`appgw-as-260814`) is the active public edge.
+**Current routing:** Azure Front Door is the active public edge. The Application Gateway is stopped and remains a diagnostic fallback only; its WAF policy does not protect Front Door traffic.
 
 ## RB-010: Custom Domain + TLS Setup (Planned)
 
@@ -152,74 +152,75 @@ az deployment group create --mode Incremental \
   --parameters infra/environments/dev.parameters.bicepparam
 ```
 
-## RB-011: Security Gate WAF
+## RB-011: Active-edge mutation safety
 
-`BlockApiMutationPreAuth` is a temporary WAF safety gate. It blocks non-`GET`/`HEAD`/`OPTIONS`
-requests under `/api/`. Keep it at priority 1 and in Prevention mode while authentication is
-disabled and during read-only JWT validation.
+`BlockApiMutationPreAuth` currently exists on the stopped Application Gateway, not on the active
+Azure Front Door WAF. Never cite that inactive rule as protection for public Front Door traffic.
+Use `pnpm auth:edge-preflight` to inspect the exact HTTPS endpoint, redirect route, public auth
+configuration, API write switch, Front Door security-policy association, WAF mode, and custom rules.
 
-The WAF cannot authenticate an Entra access token, so do not describe removal as an
-"authenticated WAF allowance." API JWT authorization is authoritative. Before changing the rule:
+Two read-only activation policies are allowed:
 
-1. Deploy and validate JWT mode with `AGENT_SENTINEL_WRITE_ENABLED=false`.
-2. Prove anonymous `401`, insufficient-role `403`, and all four role boundaries using read-only
-   capability probes.
-3. Enable the write switch only on an approved private validation path and complete one bounded,
-   reversible authenticated write.
-4. Obtain approval for an exact path/method WAF change; retain blocks for every other mutation.
-5. Run the write-phase validator through the public HTTPS edge and separately prove an anonymous
-   request to the allowed mutation path remains `401` at the API.
+1. `front-door-mutation-rule`: an associated enabled Front Door WAF policy is in Prevention mode and
+   an exact rule blocks `POST`, `PUT`, `PATCH`, and `DELETE` under `/api/`.
+2. `api-writes-disabled-no-write-activation`: the active API reports `writeEnabled=false`; no write
+   activation is allowed while the Front Door mutation rule is absent.
 
-Rollback order is WAF block, writes false, last known-good Container Apps revision. Never leave
-`AUTH_MODE=disabled` behind a mutation-capable public edge.
+Write-stage readiness must remain blocked unless JWT is active and the exact Front Door mutation
+rule name has been reviewed and rediscovered. The WAF cannot authenticate an Entra token; API JWT
+and role authorization remain authoritative. If a reviewed Front Door rule is later changed,
+rollback order is Front Door block, writes false, then last known-good Container Apps revision.
 
-## RB-012: Auth Activation and Live Validation
+## RB-012: Registration Bootstrap, Auth Activation, and Live Validation
 
-The API and SPA registrations exist, including delegated read/write scopes and the four exact app
-roles. Replacement redirect registration, JWT deployment, employee sign-in/logout, and live role
-validation remain pending. Do not infer activation from repository code or historical deployment
-evidence. OneRAI and service onboarding are independent and do not block this engineering sequence.
+Replacement API and SPA registrations do not yet exist. Do not reuse historical registrations with
+old redirect origins and do not infer activation from repository code or prior deployment evidence.
 
-1. Copy `infra/auth/replacement-auth-activation.template.json` outside the repository, fill only
-   approved non-secret values, and run `pnpm auth:preflight -- --input <path>`.
-2. Review the machine JSON and sanitized API-then-web plan. A blocked result must stop the run.
-3. Run `.github/workflows/auth-activation.yml` in its default `plan` mode. Applying requires the
-   exact approval phrase plus the protected `replacement-validation` environment approval.
-4. Revalidate the Front Door HTTPS origin and Entra redirect registration; the Application Gateway
-   remains HTTP-only. Preserve writes false and the RB-011 WAF block.
-5. Confirm `/api/auth/config` contains the expected public tenant, client, scope, and redirect
-   values without secrets.
-6. Supply short-lived role tokens as process environment variables and run
-   `pnpm auth:validate-live`. Set optional expected SHA/digest variables and
-   `AUTH_VALIDATION_EXPECTED_REDIRECT_ORIGIN` so deployment and redirect checks finish before token
-   probes.
-7. Assign isolated test principals/groups to Analyst, Approver, and Administrator only through the
-   approved identity process, then validate all four role boundaries.
-8. Follow RB-011 for private write validation and the separate WAF change. Run the validator with
-   `AUTH_VALIDATION_PHASE=write` only against the explicitly approved mutation target.
+1. Copy `infra/auth/replacement-entra-registration-bootstrap.template.json` outside the repository,
+   fill only approved non-secret values, and run
+   `pnpm auth:registration-bootstrap -- --input <path> --output entra-registration-plan.json`.
+2. Review the deterministic Graph request shapes and rollback operation IDs. Stop on ambiguous
+   exact-name candidates, unexpected scopes/roles/access, or any historical redirect/logout origin.
+3. Run `.github/workflows/entra-registration-bootstrap.yml`. Pull requests and the default dispatch
+   plan only. Apply requires the exact tenant allowlist, OIDC/delegated admin context, the plan
+   artifact, `APPROVE_ENTRA_REGISTRATION_BOOTSTRAP`, and protected environment approval.
+4. The bootstrap creates no client secret or certificate and grants no consent, group membership,
+   or app-role assignment. Perform least-privilege consent and isolated test-principal assignments
+   separately through the approved identity process.
+5. Copy `infra/auth/replacement-auth-activation.template.json` outside the repository, fill exact
+   client IDs and immutable image digests, and run `pnpm auth:preflight -- --input <path>`.
+6. Run `.github/workflows/auth-activation.yml` in plan mode. Applying requires its separate protected
+   approval and must keep `AGENT_SENTINEL_WRITE_ENABLED=false`.
+7. Run `pnpm auth:edge-preflight` from
+   `infra/auth/replacement-active-edge-preflight.template.json`, then confirm `/api/auth/config`,
+   sign-in/logout, anonymous `401`, Viewer `403`, and `/api/auth/me`.
+8. Supply short-lived role tokens only through process environment variables and run
+   `pnpm auth:validate-live`. Assign isolated Analyst, Approver, and Administrator principals only
+   after approval, then validate all four capability boundaries.
+9. Do not run `AUTH_VALIDATION_PHASE=write` until RB-011 reports JWT plus the exact reviewed active
+   Front Door rule. Use only the explicitly approved bounded, reversible mutation target.
 
-The validator never acquires, stores, or prints tokens. Do not place token values in shell history,
-Git, logs, screenshots, or reports. Record only pass/fail status and correlation IDs.
+The validators never acquire, persist, or print user tokens. Do not place token values in shell
+history, Git, logs, screenshots, or reports. Record only pass/fail status and correlation IDs.
 
 ## RB-013: HTTPS Origin and App Registration
 
-The active Front Door HTTPS route is the intended authentication origin. Exact replacement
-redirect/logout registration remains a human-approved prerequisite. The Application Gateway
-remains HTTP-only and must not be used as an authentication origin.
+The active Front Door HTTPS route is the only intended authentication origin. The stopped
+Application Gateway remains HTTP-only and must not be used as an authentication origin or cited as
+active WAF protection.
 
-Revalidate the Front Door default hostname with read-only inspection before each auth activation:
+Before each auth activation, run the bounded read-only active-edge preflight and verify:
 
-- endpoint enabled and default-domain linkage enabled;
-- API and web routes enabled with expected patterns;
-- private-link/origin provisioning successful and origin health healthy;
-- HTTPS root and `/api/auth/config` smoke tests reach this deployment.
+- endpoint enabled and hostname equal to the approved origin;
+- `/auth-redirect.html`, `/api/auth/config`, and `/api/status` are bounded and reachable;
+- `/api/auth/config` contains the exact tenant, redirect, and logout values;
+- `/api/status` reports `writeEnabled=false`;
+- the Front Door security policy association, WAF mode, and mutation rule result are recorded.
 
-If any item regresses, stop activation and restore the last known-good revision. Then:
-
-1. Confirm the exact HTTPS SPA redirect URI and same-origin logout URL remain registered.
-2. Set those exact values in `authSpaRedirectUri` and `authSpaPostLogoutRedirectUri`.
-3. Add the origin to CORS only if the SPA and API are intentionally cross-origin.
-4. Validate login, logout, token tenant/audience, certificate renewal, and RB-011 behavior.
+If the Front Door mutation rule is absent, the only valid result is
+`api-writes-disabled-no-write-activation`. If any item regresses, stop activation and restore the
+last known-good revision. Register no additional origins and add CORS only when a separately
+approved cross-origin design requires it.
 
 ## RB-013B: Live Entra and OTel Read Permissions
 

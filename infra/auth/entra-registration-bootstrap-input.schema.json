@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-sentinel.example/schemas/entra-registration-bootstrap-input.schema.json",
+  "title": "Agent Sentinel Entra registration bootstrap input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "tenantId",
+    "frontDoorOrigin",
+    "displayNamePrefix",
+    "apiIdentifierUriPolicy",
+    "scopes",
+    "roles"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "tenantId": { "$ref": "#/$defs/uuid" },
+    "frontDoorOrigin": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://[^/?#:]+$",
+      "maxLength": 256
+    },
+    "displayNamePrefix": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{1,78}[A-Za-z0-9]$",
+      "maxLength": 80
+    },
+    "apiIdentifierUriPolicy": { "const": "api-app-id" },
+    "scopes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["read", "write"],
+      "properties": {
+        "read": { "$ref": "#/$defs/scope" },
+        "write": { "$ref": "#/$defs/scope" }
+      }
+    },
+    "roles": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": { "$ref": "#/$defs/role" }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "displayName", "description"],
+      "properties": {
+        "value": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,119}$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "displayName", "description"],
+      "properties": {
+        "value": {
+          "enum": [
+            "AgentSentinel.Viewer",
+            "AgentSentinel.Analyst",
+            "AgentSentinel.Approver",
+            "AgentSentinel.Administrator"
+          ]
+        },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    }
+  }
+}

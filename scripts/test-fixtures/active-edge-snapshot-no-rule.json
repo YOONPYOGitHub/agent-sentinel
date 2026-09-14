@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.0.0",
+  "origin": {
+    "rootStatus": 200,
+    "redirectStatus": 200,
+    "authConfigStatus": 200,
+    "authConfig": {
+      "enabled": true,
+      "tenantId": "11111111-1111-4111-8111-111111111111",
+      "redirectUri": "https://sentinel-replacement.example.com/auth-redirect.html",
+      "postLogoutRedirectUri": "https://sentinel-replacement.example.com/"
+    },
+    "apiStatusStatus": 200,
+    "apiStatus": {
+      "security": { "authMode": "jwt", "writeEnabled": false }
+    }
+  },
+  "frontDoor": {
+    "endpointEnabled": true,
+    "endpointHostName": "sentinel-replacement.example.com",
+    "wafAssociated": true,
+    "wafEnabled": true,
+    "wafMode": "Prevention",
+    "mutationRules": []
+  }
+}

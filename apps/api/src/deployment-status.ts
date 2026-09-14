@@ -12,6 +12,10 @@ export interface DeploymentStatus {
   readonly service: 'agent-sentinel-api'
   readonly observedAt: string
   readonly revision?: string
+  readonly security: {
+    readonly authMode: 'disabled' | 'jwt' | 'unknown'
+    readonly writeEnabled: boolean | null
+  }
   readonly components: {
     readonly web: DeploymentComponentVersion
     readonly api: DeploymentComponentVersion
@@ -52,6 +56,20 @@ export function deploymentStatus(
     service: 'agent-sentinel-api',
     observedAt,
     ...(revision === undefined ? {} : { revision }),
+    security: {
+      authMode:
+        env['AUTH_MODE'] === 'jwt'
+          ? 'jwt'
+          : env['AUTH_MODE'] === 'disabled'
+            ? 'disabled'
+            : 'unknown',
+      writeEnabled:
+        env['AGENT_SENTINEL_WRITE_ENABLED'] === 'true'
+          ? true
+          : env['AGENT_SENTINEL_WRITE_ENABLED'] === 'false'
+            ? false
+            : null,
+    },
     components: {
       web: component(env, 'WEB'),
       api: component(env, 'API'),

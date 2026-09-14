@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "1.0.0",
+  "tenantId": "11111111-1111-4111-8111-111111111111",
+  "frontDoorOrigin": "https://sentinel-replacement.example.com",
+  "displayNamePrefix": "Agent Sentinel Replacement",
+  "apiIdentifierUriPolicy": "api-app-id",
+  "scopes": {
+    "read": {
+      "value": "AgentSentinel.Read",
+      "displayName": "Read Agent Sentinel",
+      "description": "Read Agent Sentinel inventory, evidence, posture, and connector state."
+    },
+    "write": {
+      "value": "AgentSentinel.Write",
+      "displayName": "Write Agent Sentinel",
+      "description": "Perform approved Agent Sentinel mutations within assigned app roles."
+    }
+  },
+  "roles": [
+    {
+      "value": "AgentSentinel.Viewer",
+      "displayName": "Viewer",
+      "description": "Read Agent Sentinel inventory, evidence, posture, and connector state."
+    },
+    {
+      "value": "AgentSentinel.Analyst",
+      "displayName": "Analyst",
+      "description": "Create validation and remediation proposals after read access is assigned."
+    },
+    {
+      "value": "AgentSentinel.Approver",
+      "displayName": "Approver",
+      "description": "Approve bounded Agent Sentinel proposals after explicit assignment."
+    },
+    {
+      "value": "AgentSentinel.Administrator",
+      "displayName": "Administrator",
+      "description": "Execute approved mutations and configuration after explicit assignment."
+    }
+  ]
+}

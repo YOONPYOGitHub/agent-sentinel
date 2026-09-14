@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1.0.0",
+  "tenantId": "11111111-1111-4111-8111-111111111111",
+  "applications": [
+    {
+      "id": "21111111-1111-4111-8111-111111111111",
+      "appId": "22222222-2222-4222-8222-222222222222",
+      "displayName": "Agent Sentinel Replacement API",
+      "signInAudience": "AzureADMyOrg",
+      "identifierUris": ["api://22222222-2222-4222-8222-222222222222"],
+      "api": {
+        "requestedAccessTokenVersion": 2,
+        "oauth2PermissionScopes": [
+          {
+            "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "value": "AgentSentinel.Read",
+            "adminConsentDisplayName": "Old read label",
+            "adminConsentDescription": "Old read description",
+            "type": "User",
+            "isEnabled": true
+          }
+        ]
+      },
+      "appRoles": [
+        {
+          "id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+          "value": "AgentSentinel.Viewer",
+          "displayName": "Viewer",
+          "description": "Old viewer description",
+          "allowedMemberTypes": ["User"],
+          "isEnabled": true
+        }
+      ]
+    },
+    {
+      "id": "31111111-1111-4111-8111-111111111111",
+      "appId": "33333333-3333-4333-8333-333333333333",
+      "displayName": "Agent Sentinel Replacement SPA",
+      "signInAudience": "AzureADMyOrg",
+      "spa": { "redirectUris": [] },
+      "web": { "logoutUrl": null },
+      "requiredResourceAccess": []
+    }
+  ],
+  "servicePrincipals": []
+}
