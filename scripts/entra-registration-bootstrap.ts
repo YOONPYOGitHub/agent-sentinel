@@ -169,6 +169,11 @@ export interface GraphServicePrincipalCreateResult {
   readonly appId: string
 }
 
+export const graphCreateResultSchema = z.object({
+  id: z.string().min(1),
+  appId: z.string().regex(UUID_PATTERN),
+})
+
 export interface EntraGraphClient {
   getTenantId(): Promise<string>
   listApplicationsByDisplayName(displayName: string): Promise<readonly GraphApplication[]>
@@ -884,9 +889,7 @@ export class MicrosoftEntraGraphClient implements EntraGraphClient {
   public async createApplication(
     body: Readonly<Record<string, unknown>>,
   ): Promise<GraphApplicationCreateResult> {
-    return z
-      .strictObject({ id: z.string().min(1), appId: z.string().regex(UUID_PATTERN) })
-      .parse(await this.request('POST', '/applications', body))
+    return graphCreateResultSchema.parse(await this.request('POST', '/applications', body))
   }
 
   public async updateApplication(
@@ -899,9 +902,7 @@ export class MicrosoftEntraGraphClient implements EntraGraphClient {
   public async createServicePrincipal(
     body: Readonly<Record<string, unknown>>,
   ): Promise<GraphServicePrincipalCreateResult> {
-    return z
-      .strictObject({ id: z.string().min(1), appId: z.string().regex(UUID_PATTERN) })
-      .parse(await this.request('POST', '/servicePrincipals', body))
+    return graphCreateResultSchema.parse(await this.request('POST', '/servicePrincipals', body))
   }
 
   public async deleteApplication(id: string): Promise<void> {

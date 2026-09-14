@@ -10,6 +10,7 @@ import {
   buildEntraRegistrationPlan,
   entraRegistrationInputSchema,
   entraRegistrationStateSchema,
+  graphCreateResultSchema,
   runEntraRegistrationBootstrapCli,
   type EntraGraphClient,
   type GraphApplication,
@@ -52,6 +53,27 @@ describe('buildEntraRegistrationPlan', () => {
         displayName: 'Agent Sentinel Replacement API',
         signInAudience: 'AzureADMyOrg',
       },
+    })
+
+    describe('Microsoft Graph create responses', () => {
+      it('projects required identifiers from expanded application and service principal payloads', () => {
+        expect(
+          graphCreateResultSchema.parse({
+            '@odata.context': 'https://graph.microsoft.com/v1.0/$metadata#applications/$entity',
+            id: 'object-id',
+            appId: '22222222-2222-4222-8222-222222222222',
+            displayName: 'Agent Sentinel Replacement API',
+            identifierUris: [],
+            appRoles: [],
+            api: {},
+            spa: {},
+            web: {},
+          }),
+        ).toEqual({
+          id: 'object-id',
+          appId: '22222222-2222-4222-8222-222222222222',
+        })
+      })
     })
     expect(
       first.operations.find((operation) => operation.id === 'spa.application.create')?.request,
