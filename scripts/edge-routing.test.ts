@@ -104,7 +104,9 @@ describe('public edge routing safety', () => {
     expect(readme).toMatch(/증거 그래프[\s\S]*정확한 식별자/)
     expect(readme).toMatch(/Unattributed evidence[\s\S]*임의 귀속하지 않음/)
     expect(readme).toMatch(/Non-authoritative manifest[\s\S]*sourceOfTruth: false/)
-    expect(readme).toMatch(/2026-09-04[^|\n]*authoritative Foundry agent[^|\n]*`RUNS_AS` 0/)
+    expect(readme).toMatch(
+      /authoritative Foundry agent[^|\n]*usable exact identity ID[^|\n]*`RUNS_AS` 0/,
+    )
     expect(readme).toContain('실제 provider 검증 script는 자동 CI에서 실행하지 않으며')
     expect(readme).toContain('아직 production release가 아닙니다')
   })

@@ -37,10 +37,14 @@ function window(
             sourceProjectId: 'project-a',
             sourceEnvironment: 'production',
             provider: 'azure-monitor-otel' as const,
-            providerResourceId: '/subscriptions/example/resource',
+            providerResourceId:
+              '/subscriptions/11111111-1111-4111-8111-111111111111/resourcegroups/rg-test/providers/microsoft.insights/components/app-test',
             providerAgentId: 'provider-agent-a',
-            traceId: index.toString(16).padStart(32, '0'),
-            spanId: index.toString(16).padStart(16, '0'),
+            providerInvocationId: `${kind}-${index}`,
+            sourceSetFingerprint: 'f'.repeat(64),
+            measuredAt: '2026-09-06T01:00:00.000Z',
+            traceId: (index + 1).toString(16).padStart(32, '0'),
+            spanId: (index + 1).toString(16).padStart(16, '0'),
             observedAt: `2026-09-${startDay}T${String(index + 1).padStart(2, '0')}:00:00.000Z`,
             classification: 'live' as const,
             sampling:
@@ -48,6 +52,13 @@ function window(
                 ? ({ state: 'sampled', rate: 0.5 } as const)
                 : ({ state: 'complete', rate: 1 } as const),
             aggregation: { kind: 'raw' as const },
+            contract: {
+              version: 1 as const,
+              recordType: 'agent_invocation' as const,
+              applicationRoleName: 'agent-runtime',
+              requestName: 'agent.invoke' as const,
+              outcome: 'success' as const,
+            },
             partial: false,
             evidenceIds: [
               `${kind}-${index}-invocation`,
