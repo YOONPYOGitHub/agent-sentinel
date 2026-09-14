@@ -1066,6 +1066,40 @@ button {
   gap: 8px;
 }
 
+.employee-catalog-shell {
+  min-height: 100vh;
+  background: #090f18;
+}
+
+.employee-catalog-shell__header {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 68px;
+  padding: 12px 28px;
+  background: rgba(10, 16, 27, 0.97);
+  border-bottom: 1px solid #202a3b;
+}
+
+.employee-catalog-shell__header .brand {
+  margin: 0;
+}
+
+.employee-catalog-shell__header .brand > span:last-child {
+  display: flex;
+  flex-direction: column;
+}
+
+.employee-catalog-shell__content {
+  width: min(1240px, 100%);
+  margin: 0 auto;
+  padding: 25px 28px 48px;
+}
+
 .catalog-boundary {
   display: flex;
   align-items: center;
@@ -3066,6 +3100,14 @@ button {
   }
 }
 @media (max-width: 760px) {
+  .employee-catalog-shell__header {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 12px 14px;
+  }
+  .employee-catalog-shell__content {
+    padding: 20px 14px 36px;
+  }
   .app-shell,
   .app-shell--collapsed {
     --nav-width: 0;

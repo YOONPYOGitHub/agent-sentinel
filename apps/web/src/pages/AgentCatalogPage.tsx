@@ -1,176 +1,211 @@
-import { Badge, Input, Select } from '@fluentui/react-components'
-import { BotRegular, InfoRegular, LockClosedRegular, SearchRegular } from '@fluentui/react-icons'
-import { useMemo, useState } from 'react'
+import { Badge, Button, Input, Spinner } from '@fluentui/react-components'
+import {
+  BotRegular,
+  InfoRegular,
+  LockClosedRegular,
+  SearchRegular,
+  ShieldCheckmarkRegular,
+} from '@fluentui/react-icons'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import type { GraphNode } from '@agent-sentinel/domain'
+import type { EmployeeAgentCatalogResponse } from '@agent-sentinel/domain'
+import { EmployeeCatalogApiError, employeeCatalogApi } from '../api/employee-catalog-api'
+import { EstateSelector } from '../components/EstateSelector'
 import { PageHeading } from '../components/PageHeading'
-import { useDemoState } from '../hooks/useDemoState'
 
-type AvailabilityLabel = 'Entitlement unknown' | 'Restricted'
-
-interface CatalogAvailability {
-  label: AvailabilityLabel
-  color: 'success' | 'informative' | 'danger' | 'warning'
-  description: string
-}
-
-function deriveAvailability(agent: GraphNode): CatalogAvailability {
-  const status = agent.metadata.status
-  if (status === 'Development') {
+function failureCopy(
+  result: Extract<EmployeeAgentCatalogResponse, { status: 'unknown' | 'unavailable' }>,
+) {
+  if (result.status === 'unavailable') {
     return {
-      label: 'Restricted',
-      color: 'danger',
-      description: 'Not available — agent is in development and not published for employee use.',
-    }
-  }
-  if (status === 'Published') {
-    return {
-      label: 'Entitlement unknown',
-      color: 'informative',
+      title: 'Personalized catalog unavailable',
       description:
-        'Agent is published but individual access cannot be determined without Entra ID integration.',
+        'Authoritative employee entitlement evidence is not available. No agent inventory is shown.',
     }
   }
   return {
-    label: 'Entitlement unknown',
-    color: 'informative',
-    description: 'Access status cannot be determined — Entra ID connector is not configured.',
+    title: 'Agent access cannot be confirmed',
+    description:
+      'Entitlement evidence is missing, stale, ambiguous, synthetic, non-authoritative, or unsupported. The catalog fails closed and shows no agents.',
   }
 }
 
 export function AgentCatalogPage() {
-  const { state } = useDemoState()
+  const [result, setResult] = useState<EmployeeAgentCatalogResponse>()
+  const [error, setError] = useState<string>()
+  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [availabilityFilter, setAvailabilityFilter] = useState('All')
+  const load = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true)
+    setError(undefined)
+    try {
+      setResult(await employeeCatalogApi.get(signal))
+    } catch (caught: unknown) {
+      if (signal?.aborted === true) return
+      setResult(undefined)
+      setError(
+        caught instanceof EmployeeCatalogApiError
+          ? caught.message
+          : 'Employee catalog could not be loaded.',
+      )
+    } finally {
+      if (signal?.aborted !== true) setLoading(false)
+    }
+  }, [])
 
-  const agents = useMemo(
-    () => state?.snapshot.nodes.filter((node) => node.kind === 'agent') ?? [],
-    [state],
-  )
+  useEffect(() => {
+    const controller = new AbortController()
+    void load(controller.signal)
+    return () => controller.abort()
+  }, [load])
 
-  const catalogItems = useMemo(
-    () =>
-      agents.map((agent) => ({
-        agent,
-        availability: deriveAvailability(agent),
-      })),
-    [agents],
-  )
-
-  const filteredItems = useMemo(() => {
+  const filteredAgents = useMemo(() => {
+    const catalogAgents =
+      result?.status === 'available' || result?.status === 'mock' ? result.agents : []
     const query = search.trim().toLocaleLowerCase()
-    return catalogItems.filter(({ agent, availability }) => {
-      const matchesText =
-        query.length === 0 ||
-        [agent.name, agent.description, agent.owner, agent.metadata.platform].some(
-          (value) => value?.toLocaleLowerCase().includes(query) === true,
-        )
-      const matchesAvailability =
-        availabilityFilter === 'All' || availability.label === availabilityFilter
-      return matchesText && matchesAvailability
-    })
-  }, [catalogItems, search, availabilityFilter])
+    if (query.length === 0) return catalogAgents
+    return catalogAgents.filter((agent) =>
+      [agent.name, agent.description, agent.platform].some(
+        (value) => value?.toLocaleLowerCase().includes(query) === true,
+      ),
+    )
+  }, [result, search])
 
   return (
-    <>
-      <PageHeading
-        section="Agent catalog"
-        title="Agent assurance catalog"
-        description="Employee-facing assurance overlay for discoverable agents. Agent 365 or the publishing platform remains the authoritative store and access control plane."
-      />
-      <div className="catalog-boundary" role="note">
-        <div>
-          <InfoRegular aria-hidden="true" />
-          <span>
-            <strong>Entra ID not connected.</strong> Individual access entitlements cannot be
-            determined until Microsoft Entra ID is configured. Availability shown here reflects
-            agent publication evidence, not your personal access rights. Entra group and license
-            entitlement evidence will personalize this view after connector integration.
+    <div className="employee-catalog-shell">
+      <header className="employee-catalog-shell__header">
+        <Link to="/agent-catalog" className="brand" aria-label="Agent Sentinel employee catalog">
+          <span className="brand-mark">
+            <ShieldCheckmarkRegular />
           </span>
-        </div>
-      </div>
-      <section className="catalog-toolbar" aria-label="Catalog filters">
-        <div className="catalog-search">
-          <SearchRegular aria-hidden="true" />
-          <Input
-            value={search}
-            onChange={(_event, data) => setSearch(data.value)}
-            aria-label="Search agent catalog"
-            placeholder="Search agents by name, description, or owner"
-          />
-        </div>
-        <label>
-          Availability
-          <Select
-            aria-label="Filter by availability"
-            value={availabilityFilter}
-            onChange={(event) => setAvailabilityFilter(event.target.value)}
-          >
-            <option>All</option>
-            <option>Entitlement unknown</option>
-            <option>Restricted</option>
-          </Select>
-        </label>
-        <strong aria-live="polite">
-          {filteredItems.length} of {catalogItems.length} agents
-        </strong>
-      </section>
-      {filteredItems.length === 0 ? (
-        <div className="catalog-empty">
-          <BotRegular aria-hidden="true" />
-          <h2>No agents match these filters</h2>
-          <p>Clear the search or change the availability filter to browse the catalog.</p>
-        </div>
-      ) : (
-        <div className="catalog-grid" aria-label="Governed agent catalog">
-          {filteredItems.map(({ agent, availability }) => (
-            <article key={agent.id} className="catalog-item">
-              <div className="catalog-item__header">
-                <span className="catalog-item__icon">
-                  <BotRegular aria-hidden="true" />
+          <span>
+            <strong>Agent Sentinel</strong>
+            <small>Employee assurance catalog</small>
+          </span>
+        </Link>
+        <EstateSelector />
+      </header>
+      <main className="employee-catalog-shell__content">
+        <PageHeading
+          section="Agent catalog"
+          title="Agents available to you"
+          description="A personalized assurance view based only on authoritative employee entitlement evidence. Agent 365 or the publishing platform remains the access-control authority."
+        />
+
+        {loading ? (
+          <div className="catalog-empty" role="status">
+            <Spinner label="Checking authoritative agent entitlements..." />
+          </div>
+        ) : error !== undefined ? (
+          <div className="catalog-empty" role="alert">
+            <LockClosedRegular aria-hidden="true" />
+            <h2>Personalized catalog unavailable</h2>
+            <p>{error} No agent inventory is shown.</p>
+            <Button appearance="primary" onClick={() => void load()}>
+              Try again
+            </Button>
+          </div>
+        ) : result?.status === 'unknown' || result?.status === 'unavailable' ? (
+          <div className="catalog-empty" role="status">
+            <LockClosedRegular aria-hidden="true" />
+            <h2>{failureCopy(result).title}</h2>
+            <p>{failureCopy(result).description}</p>
+          </div>
+        ) : result?.status === 'denied' ? (
+          <div className="catalog-empty" role="status">
+            <LockClosedRegular aria-hidden="true" />
+            <h2>No agents are available to you</h2>
+            <p>The authoritative access source returned no agent entitlements for this account.</p>
+          </div>
+        ) : result === undefined ? null : (
+          <>
+            <div className="catalog-boundary" role="note">
+              <div>
+                <InfoRegular aria-hidden="true" />
+                <span>
+                  {result.status === 'mock' ? (
+                    <>
+                      <strong>Synthetic catalog preview.</strong> These deterministic fixtures
+                      demonstrate the employee experience and are not evidence of access.
+                    </>
+                  ) : (
+                    <>
+                      <strong>Authoritative entitlement match.</strong> Only agents supported by
+                      exact evidence for your verified Entra object ID are included.
+                    </>
+                  )}
                 </span>
-                <div>
-                  <Badge appearance="tint" color={availability.color}>
-                    {availability.label}
-                  </Badge>
-                  <h2>
-                    <Link to={`/agent-inventory/${agent.id}`}>{agent.name}</Link>
-                  </h2>
-                  <span>{agent.metadata.platform ?? 'Unknown platform'}</span>
-                </div>
               </div>
-              <p>{agent.description}</p>
-              <dl>
-                <div>
-                  <dt>Owner</dt>
-                  <dd>{agent.owner ?? 'Unassigned'}</dd>
-                </div>
-                <div>
-                  <dt>Environment</dt>
-                  <dd>{agent.environment}</dd>
-                </div>
-                {agent.metadata.version !== undefined && (
-                  <div>
-                    <dt>Version</dt>
-                    <dd>{agent.metadata.version}</dd>
-                  </div>
-                )}
-              </dl>
-              <div className="catalog-item__entitlement-note">
-                <LockClosedRegular aria-hidden="true" />
-                <small>{availability.description}</small>
+            </div>
+            <section className="catalog-toolbar" aria-label="Catalog filters">
+              <div className="catalog-search">
+                <SearchRegular aria-hidden="true" />
+                <Input
+                  value={search}
+                  onChange={(_event, data) => setSearch(data.value)}
+                  aria-label="Search available agents"
+                  placeholder="Search your available agents"
+                />
               </div>
-            </article>
-          ))}
+              <strong aria-live="polite">
+                {filteredAgents.length} available {filteredAgents.length === 1 ? 'agent' : 'agents'}
+              </strong>
+            </section>
+            {filteredAgents.length === 0 ? (
+              <div className="catalog-empty">
+                <BotRegular aria-hidden="true" />
+                <h2>No available agents match your search</h2>
+                <p>Clear the search to see the agents already returned for your account.</p>
+              </div>
+            ) : (
+              <div className="catalog-grid" aria-label="Personalized agent catalog">
+                {filteredAgents.map((agent) => (
+                  <article key={agent.id} className="catalog-item">
+                    <div className="catalog-item__header">
+                      <span className="catalog-item__icon">
+                        <BotRegular aria-hidden="true" />
+                      </span>
+                      <div>
+                        <Badge
+                          appearance="tint"
+                          color={result.status === 'mock' ? 'warning' : 'success'}
+                        >
+                          {result.status === 'mock' ? 'Synthetic preview' : 'Available to you'}
+                        </Badge>
+                        <h2>{agent.name}</h2>
+                        <span>{agent.platform ?? 'Publishing platform'}</span>
+                      </div>
+                    </div>
+                    <p>{agent.description}</p>
+                    {agent.version === undefined ? null : (
+                      <dl>
+                        <div>
+                          <dt>Version</dt>
+                          <dd>{agent.version}</dd>
+                        </div>
+                      </dl>
+                    )}
+                    <div className="catalog-item__entitlement-note">
+                      <LockClosedRegular aria-hidden="true" />
+                      <small>
+                        {result.status === 'mock'
+                          ? 'Preview only; confirm access in Agent 365 or the publishing platform.'
+                          : 'Access is enforced by Agent 365 or the publishing platform.'}
+                      </small>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        <div className="catalog-entra-note" role="note">
+          <strong>This is not a replacement agent store.</strong> Publishing, assignment, launch,
+          and revocation remain controlled by Agent 365 or the source publishing platform.
         </div>
-      )}
-      <div className="catalog-entra-note" role="note">
-        <strong>This is not a replacement agent store.</strong> Agent 365 or the source platform
-        remains authoritative for publishing, assignment, and launch. Configure identity and
-        entitlement evidence in <Link to="/connectors">Connectors</Link> to personalize this
-        assurance view.
-      </div>
-    </>
+      </main>
+    </div>
   )
 }

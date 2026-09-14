@@ -82,6 +82,10 @@ import { requireEstateContext } from './estate-auth.js'
 import { buildEstateRegistry, type EstateRegistry } from './estate-config.js'
 import { registerConnectorSourceRoutes } from './connector-source-routes.js'
 import { deploymentStatus } from './deployment-status.js'
+import {
+  registerEmployeeCatalogRoutes,
+  type EmployeeEntitlementResolver,
+} from './employee-catalog-routes.js'
 
 const localApprovalSchema = z.object({
   approvedBy: z.string().trim().min(2).max(100),
@@ -252,6 +256,9 @@ export interface CreateAppOptions {
   estateRegistry?: EstateRegistry
   connectorSourceClock?: () => Date
   connectorHealthClock?: () => Date
+  /** Authoritative Agent 365 or publishing-platform entitlement evidence for employee catalog reads. */
+  employeeEntitlementResolver?: EmployeeEntitlementResolver
+  employeeCatalogClock?: () => Date
 }
 
 export async function createApp(
@@ -518,6 +525,30 @@ export async function createApp(
       void reply.header('x-agent-sentinel-api-image-digest', apiVersion.digest)
     }
     return status
+  })
+
+  registerEmployeeCatalogRoutes(app, {
+    authConfig,
+    dataMode: resolvedDataMode,
+    ...(options.employeeEntitlementResolver === undefined
+      ? {}
+      : { entitlementResolver: options.employeeEntitlementResolver }),
+    ...(options.employeeCatalogClock === undefined ? {} : { clock: options.employeeCatalogClock }),
+    loadSnapshot: async (estate) => {
+      if (resolvedDataMode !== 'live') return (await stateService.getState()).snapshot
+      if (snapshotRepository === undefined) {
+        throw new ReadModelUnavailableError(
+          'The persisted estate read model is not configured for this live deployment.',
+        )
+      }
+      const snapshot = await snapshotRepository.findLatest(estate)
+      if (snapshot === null) {
+        throw new ReadModelUnavailableError(
+          'No persisted estate snapshot is available for the configured tenant and environment.',
+        )
+      }
+      return snapshot
+    },
   })
 
   app.get('/api/demo/state', async () => stateService.getState())

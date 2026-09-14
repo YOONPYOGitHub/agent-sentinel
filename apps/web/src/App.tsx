@@ -1,7 +1,7 @@
 import { Button, Spinner } from '@fluentui/react-components'
 import { AlertRegular, ShieldCheckmarkRegular } from '@fluentui/react-icons'
 import { useState } from 'react'
-import { Navigate, Route, Routes, useParams } from 'react-router-dom'
+import { matchPath, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 
 import { AppLayout } from './components/AppLayout'
 import { EstateSelector } from './components/EstateSelector'
@@ -173,6 +173,7 @@ export function AuthenticatedApplication() {
 function EstateApplication() {
   const { isConfigured, signIn, signOut } = useAuth()
   const { reload, state } = useEstate()
+  const location = useLocation()
 
   if (state.status === 'loading') {
     return (
@@ -244,6 +245,10 @@ function EstateApplication() {
         action={{ label: 'Try again', run: () => void reload() }}
       />
     )
+  }
+
+  if (matchPath('/agent-catalog', location.pathname) !== null) {
+    return <AgentCatalogPage />
   }
 
   return (

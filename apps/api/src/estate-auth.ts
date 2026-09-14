@@ -14,7 +14,11 @@ const selectionFreePaths = new Set([
   '/api/estates',
 ])
 const estateAwarePrefixes = ['/api/exposures', '/api/connector-sources']
-const estateAwarePaths = new Set(['/api/connectors', '/api/governance/posture'])
+const estateAwarePaths = new Set([
+  '/api/connectors',
+  '/api/employee/agent-catalog',
+  '/api/governance/posture',
+])
 
 declare module 'fastify' {
   interface FastifyRequest {

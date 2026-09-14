@@ -1,66 +1,123 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import App from '../App'
-import { connectorApi, demoApi } from '../api'
-import { testState } from '../test-fixture'
+import { demoApi } from '../api'
 
 vi.mock('../api')
+const employeeCatalogGet = vi.hoisted(() => vi.fn())
+vi.mock('../api/employee-catalog-api', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  employeeCatalogApi: { get: employeeCatalogGet },
+}))
+
 afterEach(cleanup)
+
 beforeEach(() => {
-  localStorage.clear()
-  vi.mocked(demoApi.getState).mockResolvedValue(testState)
-  vi.mocked(connectorApi.getConnectorStatus).mockResolvedValue({
-    source: 'mock',
-    connectorId: 'mock-agent-estate',
-    mode: 'mock',
-  })
+  employeeCatalogGet.mockReset()
+  vi.mocked(demoApi.getState).mockReset()
 })
 
-async function renderCatalog() {
+function renderEmployeeCatalog(path = '/agent-catalog') {
   render(
-    <MemoryRouter initialEntries={['/agent-catalog']}>
+    <MemoryRouter initialEntries={[path]}>
       <App />
     </MemoryRouter>,
   )
-  expect(await screen.findByRole('heading', { name: 'Agent assurance catalog' })).toBeVisible()
 }
 
 describe('AgentCatalogPage', () => {
-  it('renders the employee catalog with the Entra boundary and discovered agents', async () => {
-    await renderCatalog()
+  it('renders only the agents returned by the personalized endpoint', async () => {
+    employeeCatalogGet.mockResolvedValue({
+      status: 'available',
+      authority: 'microsoft-agent-365',
+      observedAt: '2026-09-14T06:00:00.000Z',
+      agents: [
+        {
+          id: 'visible-agent',
+          name: 'Payroll assistant',
+          description: 'Answers payroll questions.',
+          platform: 'Microsoft Agent 365',
+        },
+      ],
+    })
 
-    expect(screen.getByText('Entra ID not connected.')).toBeVisible()
-    expect(screen.getByText('This is not a replacement agent store.')).toBeVisible()
-    expect(screen.getByRole('heading', { name: 'Sales Research Agent' })).toBeVisible()
-    expect(screen.getByRole('heading', { name: 'HR Policy Assistant' })).toBeVisible()
-    expect(screen.getByText('3 of 3 agents')).toBeVisible()
+    renderEmployeeCatalog()
+
+    expect(await screen.findByRole('heading', { name: 'Agents available to you' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: 'Payroll assistant' })).toBeVisible()
+    expect(screen.getByText('1 available agent')).toBeVisible()
+    expect(screen.queryByText(/hidden-agent|legal investigation/i)).not.toBeInTheDocument()
+    expect(demoApi.getState).not.toHaveBeenCalled()
   })
 
-  it('filters by availability', async () => {
-    const user = userEvent.setup()
-    await renderCatalog()
+  it('fails closed without rendering inventory or evidence diagnostics', async () => {
+    employeeCatalogGet.mockResolvedValue({
+      status: 'unknown',
+      reason: 'ambiguous-evidence',
+      agents: [],
+    })
 
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Filter by availability' }),
-      'Restricted',
-    )
-    expect(screen.getByRole('heading', { name: 'Code Review Copilot' })).toBeVisible()
-    expect(screen.queryByRole('heading', { name: 'Sales Research Agent' })).not.toBeInTheDocument()
-    expect(screen.getByText('1 of 3 agents')).toBeVisible()
+    renderEmployeeCatalog()
+
+    expect(
+      await screen.findByRole('heading', { name: 'Agent access cannot be confirmed' }),
+    ).toBeVisible()
+    expect(screen.getByText(/shows no agents/i)).toBeVisible()
+    expect(screen.queryByText('ambiguous-evidence')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Personalized agent catalog')).not.toBeInTheDocument()
+    expect(demoApi.getState).not.toHaveBeenCalled()
   })
 
-  it('searches by agent name, owner, and platform', async () => {
-    const user = userEvent.setup()
-    await renderCatalog()
+  it('labels synthetic fixtures as preview data rather than authoritative access', async () => {
+    employeeCatalogGet.mockResolvedValue({
+      status: 'mock',
+      synthetic: true,
+      agents: [
+        {
+          id: 'fixture-agent',
+          name: 'Fixture assistant',
+          description: 'Synthetic preview record.',
+        },
+      ],
+    })
 
-    await user.type(screen.getByRole('textbox', { name: 'Search agent catalog' }), 'People')
-    await waitFor(() => expect(screen.getByText('1 of 3 agents')).toBeVisible())
-    expect(screen.getByRole('heading', { name: 'HR Policy Assistant' })).toBeVisible()
-    expect(screen.queryByRole('heading', { name: 'Sales Research Agent' })).not.toBeInTheDocument()
+    renderEmployeeCatalog()
+
+    expect(await screen.findByRole('heading', { name: 'Fixture assistant' })).toBeVisible()
+    expect(screen.getByText('Synthetic preview')).toBeVisible()
+    expect(screen.getByText(/not evidence of access/i)).toBeVisible()
+    expect(demoApi.getState).not.toHaveBeenCalled()
+  })
+
+  it('does not substitute operational inventory when the request fails', async () => {
+    employeeCatalogGet.mockRejectedValue(new Error('request failed'))
+
+    renderEmployeeCatalog()
+
+    expect(
+      await screen.findByRole('heading', { name: 'Personalized catalog unavailable' }),
+    ).toBeVisible()
+    expect(screen.getByText(/No agent inventory is shown/i)).toBeVisible()
+    expect(demoApi.getState).not.toHaveBeenCalled()
+  })
+
+  it('keeps a trailing-slash employee route outside the operational state provider', async () => {
+    employeeCatalogGet.mockResolvedValue({
+      status: 'denied',
+      authority: 'microsoft-agent-365',
+      observedAt: '2026-09-14T06:00:00.000Z',
+      agents: [],
+    })
+
+    renderEmployeeCatalog('/agent-catalog/')
+
+    expect(
+      await screen.findByRole('heading', { name: 'No agents are available to you' }),
+    ).toBeVisible()
+    expect(demoApi.getState).not.toHaveBeenCalled()
   })
 })

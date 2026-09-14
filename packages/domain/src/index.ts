@@ -13,6 +13,28 @@ import { sourceProjectIdSchema } from './source-project.js'
 
 export { estateContextSchema, estateIdSchema } from './estate.js'
 export type { EstateContext } from './estate.js'
+export {
+  authoritativeAgent365CatalogBinding,
+  employeeAgentCatalogEntrySchema,
+  employeeAgentCatalogReasonSchema,
+  employeeAgentCatalogResponseSchema,
+  employeeAgentReferenceSchema,
+  employeeEntitlementAuthoritySchema,
+  employeeEntitlementDecisionSchema,
+  employeeEntitlementEvidenceSchema,
+  employeeEntitlementSubjectSchema,
+} from './employee-entitlement.js'
+export type {
+  AuthoritativeAgent365CatalogBinding,
+  EmployeeAgentCatalogEntry,
+  EmployeeAgentCatalogReason,
+  EmployeeAgentCatalogResponse,
+  EmployeeAgentReference,
+  EmployeeEntitlementAuthority,
+  EmployeeEntitlementDecision,
+  EmployeeEntitlementEvidence,
+  EmployeeEntitlementSubject,
+} from './employee-entitlement.js'
 
 export {
   AGENT365_APPROVED_MANAGED_IDENTITY_CLIENT_ID,
