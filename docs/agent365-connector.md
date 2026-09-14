@@ -44,13 +44,7 @@ Each enabled source requires:
 3. Deployment origin and the exact approved existing user-assigned managed
    identity client ID supplied through approved deployment configuration outside Git.
 
-The integration owner verified on 2026-09-09 that the `AGENT_365` subscription
-has five seats with one assigned. The approved connector managed identity has
-the `CopilotPackages.Read.All` application permission, and one bounded
-managed-identity request to the list endpoint returned HTTP 200 with 306
-packages. This is provider-access evidence, not proof that this commit is
-deployed, that ingestion has persisted those packages, or that all 306 packages
-are agents.
+The reference deployment has the required Agent 365 licensing and the approved connector managed identity has `CopilotPackages.Read.All`. The deployed source is `ready + complete`: 308 packages produced 302 agent-package nodes, 6 extension-package nodes, and 308 live source-bound evidence records. This proves the bounded source snapshot only; the package total is not an executing-agent total.
 
 Every acquired Graph access token must carry a `tid` claim exactly matching the configured source tenant; a home-tenant managed identity token cannot be mislabeled as an external-tenant result.
 

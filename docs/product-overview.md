@@ -114,15 +114,15 @@ Dimensions are deliberately **not** collapsed into a single number. An unknown d
 
 Three surfaces list agents. They answer different questions for different audiences and must not be conflated.
 
-|                     | **Agent inventory**                                                                      | **Agent assurance catalog**                                         | **Trust catalog**                                                      |
-| ------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Route               | `/agent-inventory`                                                                       | `/agent-catalog`                                                    | `/trust-catalog`                                                       |
-| Audience            | Security, platform, and governance operators                                             | Employees and agent consumers                                       | Security architects and reviewers                                      |
-| Question            | _"What does the organization run?"_                                                      | _"Is this agent safe enough for me to use?"_                        | _"What is this component made of and what may it do?"_                 |
-| Scope               | Every discovered agent, all environments                                                 | Discoverable agents presented as an assurance overlay               | Agents, MCP servers, tools, models, and connectors                     |
-| Columns             | Platform, ownership, environment, trust, readiness, version                              | Availability, assurance posture, owner, platform                    | Provenance, permissions, dependencies, validation, exposure, lifecycle |
-| Authoritative store | The source platform, never Agent Sentinel                                                | Agent 365 or the publishing platform                                | The source platform                                                    |
-| Current gap         | Foundry is the only deployed authoritative agent source; Agent 365 runtime is undeployed | Entitlement personalization is blocked on authenticated Entra login | Runtime evidence exists only when strict OTel thresholds pass          |
+|                     | **Agent inventory**                                                                  | **Agent assurance catalog**                                         | **Trust catalog**                                                      |
+| ------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Route               | `/agent-inventory`                                                                   | `/agent-catalog`                                                    | `/trust-catalog`                                                       |
+| Audience            | Security, platform, and governance operators                                         | Employees and agent consumers                                       | Security architects and reviewers                                      |
+| Question            | _"What does the organization run?"_                                                  | _"Is this agent safe enough for me to use?"_                        | _"What is this component made of and what may it do?"_                 |
+| Scope               | Every discovered agent, all environments                                             | Discoverable agents presented as an assurance overlay               | Agents, MCP servers, tools, models, and connectors                     |
+| Columns             | Platform, ownership, environment, trust, readiness, version                          | Availability, assurance posture, owner, platform                    | Provenance, permissions, dependencies, validation, exposure, lifecycle |
+| Authoritative store | The source platform, never Agent Sentinel                                            | Agent 365 or the publishing platform                                | The source platform                                                    |
+| Current gap         | Foundry and Agent 365 are deployed; cross-platform exact identity remains incomplete | Entitlement personalization is blocked on authenticated Entra login | Qualifying live OTel evidence count is 0                               |
 
 The assurance catalog is explicitly an **overlay**. Agent 365 or the publishing platform remains the authoritative store and access-control plane; Agent Sentinel adds assurance context and never grants, revokes, or brokers access.
 
@@ -130,7 +130,7 @@ The assurance catalog is explicitly an **overlay**. Agent 365 or the publishing 
 
 ## Differentiation from Microsoft Agent 365
 
-Agent 365 is an authoritative registry and administration plane for the agents it governs. Agent Sentinel is a **consumer** of that record, catalogued as `m365-agent-registry` with provider access verified but the repository runtime still undeployed. Its ownership model remains `consumes`.
+Agent 365 is an authoritative registry and administration plane for the agents it governs. Agent Sentinel is a **consumer** of that record, catalogued as `m365-agent-registry`; the reference deployment is ready and complete with 308 packages normalized into 302 agent-package nodes and 6 extension-package nodes. Its ownership model remains `consumes`.
 
 | Concern                                    | Agent 365                         | Agent Sentinel                                                              |
 | ------------------------------------------ | --------------------------------- | --------------------------------------------------------------------------- |

@@ -1,6 +1,6 @@
 # Maintainer handoff
 
-**Operational truth as of 2026-09-14** · Canonical integration branch: `feature/multi-source-otel` · Latest merged SHA: `6e271f5a`
+**Operational truth as of 2026-09-14** · Canonical integration branch: `feature/production-readiness-r1` · Latest merged SHA: `456d01f2`
 
 This is the single operational handoff for engineers and coding agents. Read [current status](current-status.md) for the dated ledger and [document lifecycle](document-lifecycle.md) before changing another status document. Versioned, sanitized release evidence overrides prose for a specific release; a repository commit never proves deployment.
 
@@ -46,10 +46,12 @@ The runtime is a modular monolith deployed as web, API, and jobs Container Apps.
 
 ## Version truth
 
-- `feature/multi-source-otel` is the canonical integration branch. `main` remains behind; do not start from it unless the owner confirms synchronization.
-- `6e271f5a` is the official repository SHA for this handoff and includes the merged real-data P0 integration, bounded Demo Readiness verifier, approval-gated auth bootstrap/readiness work, and product README redesign.
-- `7458b3e` is the last evidenced deployed web/API/jobs tag. Its full SHA, running image digests, and sanitized configuration hash are not recorded.
-- Therefore, everything after `7458b3e` is repository-ready only until an approved deployment and fresh evidence bind the running revisions to immutable digests.
+- `feature/production-readiness-r1` is the canonical integration branch for this handoff; `456d01f2` is its current integration head.
+- Live base URL: `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`.
+- Web: SHA `372944b2e70f11050d20ca0596a5bfe1cb11e5db`, digest `sha256:ba52df80df821e67f2b8936a6f1c96bc6af881753c7187e70d0b033e66a8d1f4`.
+- API: revision `api-as-m098047--p168bc0baa`, SHA `68bc0baaa346111c3f36aef07c9d7f4a7eba33ea`, digest `sha256:aa6f191623b27ebeaaca47614bae7d582579ce251a3f62de23f09263fb7af4c9`.
+- Jobs: SHA `c26fe400d6f91bed897155e49d2f8e7b18b94f95`, digest `sha256:1438fd84ea10af0fd438609989875d8232ce43ff716e1d0d57be313476014648`.
+- Entra staged activation hardening (`43cde6ab`) and deterministic release-review v2 (`456d01f2`) are newer than the deployed API. They are repository-ready, not deployed.
 
 ## Local WSL setup
 
@@ -58,7 +60,7 @@ Use a native WSL clone, not a OneDrive-mounted Windows clone.
 ```bash
 git clone <repository-url> ~/project/agent-sentinel
 cd ~/project/agent-sentinel
-git switch feature/multi-source-otel
+git switch feature/production-readiness-r1
 source ~/.nvm/nvm.sh
 nvm install 22
 nvm use 22
@@ -98,39 +100,42 @@ Treat the dated baseline as historical, not as proof for the current commit. Rec
 
 ## Current deployed state
 
+- The reference deployment is available at `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net` with the immutable web/API/jobs versions in [Version truth](#version-truth).
 - The active Azure edge is Front Door over HTTPS. Application Gateway is stopped and diagnostic only.
-- Front Door has an active WAF policy but **no evidenced custom mutation-block rule**. The similarly named mutation rule exists only on the stopped Application Gateway and does not protect Front Door.
+- Front Door has an active WAF policy but **no evidenced custom mutation-block rule**. The similarly named rule on the stopped Application Gateway does not protect Front Door.
 - `AUTH_MODE=disabled`; there are no replacement API or SPA app registrations, no live employee login, no role assignments, and no deployed JWT activation.
 - `AGENT_SENTINEL_WRITE_ENABLED=false`; remediation and manifest ingestion remain non-live.
-- Foundry data mode is live against one source. The estate contains six synthetic validation agents and no production customer agents.
-- The deployed version remains `7458b3e`; repository version `6e271f5a` is not deployed.
+- Foundry data mode is live against one reference source containing six synthetic validation agents and no production customer agents.
+- The connector-source plane is provisioned for the reference environment.
+- Agent 365 is deployed and `ready + complete`: 308 packages, 302 agent-package nodes, 6 extension-package nodes, and 308 live source-bound evidence records.
+- Demo Readiness is **partial**: Agent 365 ready; `RUNS_AS` 0; qualifying live OTel records 0; authentication disabled; writes false.
 
 ## Exact connector state
 
-| Connector                         | Current state                                      | Exact boundary / unblock                                                                                                                                                                                                                                     |
-| --------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Azure AI Foundry                  | **Connected**                                      | One project; six authoritative synthetic agents; declared configuration only. Additional projects need separate authorization.                                                                                                                               |
-| Microsoft Entra inventory         | **Inventory connected; parity unmatched**          | 335 identity nodes, but agents expose no exact identity IDs; therefore 0 `RUNS_AS` edges. Optional owner/app-role/preview reads remain separate approvals.                                                                                                   |
-| Azure Resource Graph              | **Connected for authorized view**                  | Five resources persisted through current scoped roles; this is not full subscription coverage and creates no agent edges.                                                                                                                                    |
-| Azure Monitor / OTel              | **Query connected; telemetry insufficient**        | Current audit has no analysis-ready request/dependency/trace rows and metrics lack required agent attributes. Baseline and observed windows each require at least ten fresh, complete, unsampled measured spans with exact provenance.                       |
-| Agent 365 package catalog         | **Provider access verified; runtime undeployed**   | License, one assigned seat, least-privilege app permission, and one bounded successful package-list read are verified. Repository activation is deployment-only; persisted source-linked inventory has not been validated. Package count is not agent count. |
-| Microsoft 365 / SharePoint agents | **Covered through Agent 365; undeployed**          | Classification is from package metadata only; no SharePoint scraping.                                                                                                                                                                                        |
-| Defender for Cloud Apps           | **Connected, valid-empty**                         | Bounded alert and activity reads are ready with zero current records; no agent correlation is inferred.                                                                                                                                                      |
-| Purview sensitivity labels        | **Connected**                                      | Twelve bounded label definitions are persisted; they do not prove label usage, content protection, attribution, trust, or compliance.                                                                                                                        |
-| Teams organization catalog        | **Connected, valid-empty**                         | Zero organization entries; this does not prove installation or distribution coverage.                                                                                                                                                                        |
-| Power Platform ResourceQuery      | **Implemented; unattended activation unsupported** | No production-supported app-only inventory authorization with enforceable scope.                                                                                                                                                                             |
-| Business outcomes                 | **Contract complete; not configured**              | Value remains unknown until an authoritative source supplies exact run, correlation, or version evidence.                                                                                                                                                    |
-| Custom manifest adapter           | **Implemented; activation-gated**                  | Offline validation/scanning works. Live ingestion requires activated auth, writes, active-edge protection, and approval.                                                                                                                                     |
+| Connector                         | Current state                                         | Exact boundary / unblock                                                                                                                                                                                                               |
+| --------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Azure AI Foundry                  | **Connected**                                         | One project; six authoritative synthetic agents; declared configuration only. Additional projects need separate authorization.                                                                                                         |
+| Microsoft Entra inventory         | **Inventory connected; parity unmatched**             | 335 identity nodes, but agents expose no exact identity IDs; therefore 0 `RUNS_AS` edges. Optional owner/app-role/preview reads remain separate approvals.                                                                             |
+| Azure Resource Graph              | **Connected for authorized view**                     | Five resources persisted through current scoped roles; this is not full subscription coverage and creates no agent edges.                                                                                                              |
+| Azure Monitor / OTel              | **Query connected; telemetry insufficient**           | Current audit has no analysis-ready request/dependency/trace rows and metrics lack required agent attributes. Baseline and observed windows each require at least ten fresh, complete, unsampled measured spans with exact provenance. |
+| Agent 365 package catalog         | **Deployed; ready and complete**                      | 308 packages produced 302 agent-package nodes, 6 extension-package nodes, and 308 live source-bound evidence records. Package count is not an executing-agent count.                                                                   |
+| Microsoft 365 / SharePoint agents | **Covered through deployed Agent 365 classification** | Classification is from package metadata only; no SharePoint scraping.                                                                                                                                                                  |
+| Defender for Cloud Apps           | **Connected, valid-empty**                            | Bounded alert and activity reads are ready with zero current records; no agent correlation is inferred.                                                                                                                                |
+| Purview sensitivity labels        | **Connected**                                         | Twelve bounded label definitions are persisted; they do not prove label usage, content protection, attribution, trust, or compliance.                                                                                                  |
+| Teams organization catalog        | **Connected, valid-empty**                            | Zero organization entries; this does not prove installation or distribution coverage.                                                                                                                                                  |
+| Power Platform ResourceQuery      | **Implemented; unattended activation unsupported**    | No production-supported app-only inventory authorization with enforceable scope.                                                                                                                                                       |
+| Business outcomes                 | **Contract complete; not configured**                 | Value remains unknown until an authoritative source supplies exact run, correlation, or version evidence.                                                                                                                              |
+| Custom manifest adapter           | **Implemented; activation-gated**                     | Offline validation/scanning works. Live ingestion requires activated auth, writes, active-edge protection, and approval.                                                                                                               |
 
 See [connector availability](connector-availability.md) for the durable state definitions and detailed limits.
 
 ## Blocking dependencies and human-only actions
 
-### Authentication and Agent 365
+### Authentication and repository/deployment gap
 
-- A human owner must approve the exact replacement registration plan, create the API/SPA registrations, complete least-privilege consent and all four role assignments, and supply sanitized outputs.
+- A human owner must approve the exact replacement registration plan, create the API/SPA registrations, complete least-privilege consent and assignments for Viewer, Analyst, Approver, and Administrator, and supply sanitized outputs.
 - A protected deployment reviewer must approve immutable API/web digests and the surgical read-only auth activation. No coding agent may apply the plan.
-- Agent 365 needs an independently reviewed API/jobs rollout, one bounded ingestion, and verification that persisted health and classifications are bound to the exact deployment source.
+- The latest Entra activation hardening and release-review v2 changes are newer than the deployed API; deploy them only through an approved immutable, surgical rollout.
 
 ### `RUNS_AS` and telemetry
 
@@ -141,23 +146,23 @@ See [connector availability](connector-availability.md) for the durable state de
 
 - Full `infra/platform.bicep` deployment is prohibited: the latest what-if showed 54 unrelated modifications.
 - The private runner may be deallocated, does not yet have the complete approved deployment role set, and must be explicitly started and verified before builds.
-- The replacement `connector-sources` Cosmos container requires a narrowly reviewed what-if and explicit provisioning approval before connector-source runtime persistence can be assumed.
+- The reference `connector-sources` container is provisioned and in use. A new tenant must provision its own isolated container and validate partition, index, estate, and ETag behavior.
 - Manifest `manifest-ingestions-v2` cutover requires manual copy verification and approval; the compatibility container remains authoritative until then.
 - Front Door needs a separately reviewed custom mutation rule before any write-stage readiness.
 - OneRAI remains a human onboarding track requiring authoritative product and legal/compliance review. It does not block local engineering.
 
 ## Ordered next 10 tasks
 
-1. **Reproduce the clean repository baseline.** Done when Node/pnpm versions, install method, lint, typecheck, tests, build, touched-file Prettier, and `git diff --check` are recorded against one full SHA with no untracked generated evidence.
-2. **Generate the replacement registration plan.** Done when `auth:registration-bootstrap` produces a sanitized, exact-name, ambiguity-free plan for human review without applying it or granting permissions.
-3. **Complete human identity approval and bootstrap.** Done when owners approve and apply the exact plan, confirm API/SPA registrations, consent, redirect/logout origins, and all four role assignments, and provide sanitized evidence.
-4. **Build immutable release images on the private runner.** Done when the runner is verified, all checks pass, each image uses the full SHA tag, and canonical web/API/jobs digests are recorded without deployment.
-5. **Activate read-only JWT surgically.** Done when the protected workflow updates API then web with writes false, exact digests, verified redirects, and automatic rollback data; no full Bicep deployment is used.
-6. **Validate authentication at the active edge.** Done when anonymous denial, `/api/auth/me`, Viewer/Analyst/Approver/Administrator capabilities, logout/login, immutable versions, and no-write posture pass with sanitized evidence.
-7. **Provision only the connector-source Cosmos container.** Done when a reviewed what-if shows exactly the intended container/index/partition-key change, an operator approves it, and an isolated persistence smoke test passes.
-8. **Deploy and validate Agent 365 runtime.** Done when API then jobs run the reviewed digests, one bounded ingestion persists source-bound health/classifications, and Demo Readiness reports the true partial/ready state without treating packages as agents.
-9. **Establish exact identity and telemetry evidence.** Done when authoritative agents expose exact identity IDs for `RUNS_AS`, and representative OTel baseline/observed windows meet completeness, freshness, provenance, and sample thresholds.
-10. **Produce release evidence and decide release readiness.** Done when a clean full SHA, digests, config hash, checks, deployment observations, connector references, auth results, Demo Readiness, and required human approvals validate under the versioned schema; otherwise the manifest remains blocked or partial.
+1. **Reproduce the clean repository baseline.** Record Node/pnpm versions, install method, lint, typecheck, tests, build, touched-file Prettier, and `git diff --check` against one full SHA.
+2. **Read the tenant-neutral bootstrap.** Assign primary, secondary, and emergency owners, then inventory tenant-local resources and permissions without copying the reference environment.
+3. **Generate the replacement registration plan.** Run the offline bootstrap against sanitized input; do not apply or grant permissions locally.
+4. **Complete human identity approval.** Create API/SPA registrations, consent, redirects, and four role assignments through the authoritative owner process.
+5. **Build immutable release images.** Use the approved private runner, full-SHA tags, canonical digests, and protected environments.
+6. **Deploy repository-only changes surgically.** Update API first, then jobs and web only as required; keep writes false and record exact revisions/digests.
+7. **Validate authentication at Front Door.** Verify anonymous denial, `/api/auth/me`, all four roles, login/logout, and no-write posture.
+8. **Establish exact identity and telemetry evidence.** Obtain exact agent-side identifiers for all six `RUNS_AS` edges and representative qualifying OTel records; never use fuzzy identity matching or fixtures.
+9. **Generate deterministic release evidence.** Bind checks, deployed versions, connector observations, accessibility evidence, and sanitized configuration to one exact SHA.
+10. **Obtain human release decisions.** Security, Accessibility, OneRAI, and release owners approve independently; otherwise readiness remains partial or blocked.
 
 ## Dangerous operations: do not do
 
@@ -168,7 +173,7 @@ See [connector availability](connector-availability.md) for the durable state de
 - Do not infer identities, agent status, coverage, trust, or value from names, empty results, package totals, catalog definitions, or fixtures.
 - Do not commit tokens, credentials, private identifiers, raw provider payloads, generated live evidence, local paths, or environment-specific auth plans.
 - Do not broaden RBAC/Graph scopes or enable preview APIs merely to unblock a demo.
-- Do not overwrite the unrelated line-ending-only working-tree change in the Foundry environment parameter file.
+- Do not edit, stage, revert, normalize, or otherwise disturb unrelated changes in `infra/environments/mngenvmcap098047-foundry.parameters.bicepparam`.
 
 ## Safe deployment and rollback path
 
@@ -221,20 +226,20 @@ The generator is offline and does not run tests or contact providers. Unsupplied
 
 ## Important files
 
-| File                                                                | Why it matters                                         |
-| ------------------------------------------------------------------- | ------------------------------------------------------ |
-| `agent-sentinel-product-spec.md`                                    | Product requirements and immutable scope               |
-| `docs/CONTEXT.md`                                                   | Shared domain vocabulary and evidence invariants       |
-| `docs/current-status.md`                                            | Authoritative dated operational ledger                 |
-| `docs/connector-availability.md`                                    | Connector implementation/live-state matrix             |
-| `docs/known-issues.md`                                              | Named blockers and unblock conditions                  |
-| `docs/architecture.md`, `docs/data-model.md`                        | Runtime topology and contracts                         |
-| `docs/development.md`                                               | Local workflow and connector development guidance      |
-| `docs/security-authentication.md`                                   | Auth states, roles, and activation checklist           |
-| `docs/deployment.md`, `docs/runbooks.md`, `docs/supply-chain.md`    | Deployment, operations, rollback, and image provenance |
-| `docs/release-evidence.md`                                          | Sanitized release-evidence contract and CLI            |
-| `infra/auth/*`                                                      | Strict registration/auth input schemas and templates   |
-| `.github/workflows/*auth*`, `.github/workflows/ci-build-deploy.yml` | Protected planning and deployment workflows            |
+| File                                                                | Why it matters                                                 |
+| ------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `agent-sentinel-product-spec.md`                                    | Product requirements and immutable scope                       |
+| `docs/CONTEXT.md`                                                   | Shared domain vocabulary and evidence invariants               |
+| `docs/current-status.md`                                            | Authoritative dated operational ledger                         |
+| `docs/connector-availability.md`                                    | Connector implementation/live-state matrix                     |
+| `docs/known-issues.md`                                              | Named blockers and unblock conditions                          |
+| `docs/architecture.md`, `docs/data-model.md`                        | Runtime topology and contracts                                 |
+| `docs/development.md`, `docs/new-tenant-bootstrap.md`               | Local workflow and tenant-neutral ownership/bootstrap guidance |
+| `docs/security-authentication.md`                                   | Auth states, roles, and activation checklist                   |
+| `docs/deployment.md`, `docs/runbooks.md`, `docs/supply-chain.md`    | Deployment, operations, rollback, and image provenance         |
+| `docs/release-evidence.md`                                          | Sanitized release-evidence contract and CLI                    |
+| `infra/auth/*`                                                      | Strict registration/auth input schemas and templates           |
+| `.github/workflows/*auth*`, `.github/workflows/ci-build-deploy.yml` | Protected planning and deployment workflows                    |
 
 ## Troubleshooting
 
@@ -250,7 +255,7 @@ The generator is offline and does not run tests or contact providers. Unsupplied
 
 ## Handoff checklist
 
-- [ ] Work starts from `feature/multi-source-otel` at or after `6e271f5a`.
+- [ ] Work starts from `feature/production-readiness-r1` at or after `456d01f2`.
 - [ ] `docs/current-status.md` and connector state were read before planning.
 - [ ] Repository, deployed, and evidence versions are kept separate.
 - [ ] No live/cloud/private operation is assumed or performed by a coding task.

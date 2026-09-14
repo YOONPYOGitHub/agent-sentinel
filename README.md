@@ -10,7 +10,7 @@ Agent Sentinel을 사용하면 다음을 할 수 있습니다.
 - **검증:** 비파괴·제한적 검증과 remediation what-if로 변경 전후의 차이 확인
 - **운영:** 증거 최신성, connector 상태, 릴리스 준비도, 수명주기를 같은 화면에서 판단
 
-> **성숙도 · Release candidate repository** — 핵심 읽기·분석 기능은 저장소에 구현되어 있지만, 현재 Azure 배포는 이전 이미지와 비활성 인증을 사용합니다. **아직 production release가 아닙니다.**
+> **성숙도 · Release candidate repository** — 현재 Azure reference deployment는 Agent 365 read-only inventory를 ready/complete 상태로 제공하지만, 인증·정확한 identity correlation·대표 OTel 증거·write path는 아직 release gate를 통과하지 못했습니다. **아직 production release가 아닙니다.**
 
 ---
 
@@ -177,21 +177,21 @@ Agent Sentinel은 이를 대체하거나 agent 접근 권한을 부여하지 않
 
 ## Production readiness
 
-**현재 상태는 production release가 아니라, 저장소 capability와 Azure 실배포 사이의 간격을 닫는 단계입니다.**
+**현재 reference deployment는 live read-only 상태이지만 production release는 아닙니다.** 기준 URL은 `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`입니다.
 
-| 영역                      | Repository capability                                                                             | 현재 배포된 Azure 상태                                                                                                                            | Release blocker                                                                                        |
-| ------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| **Release identity**      | full SHA·web/API/jobs digest 검증 도구 구현                                                       | 마지막으로 증거가 확인된 web/API/jobs 이미지는 short SHA `7458b3e`                                                                                | 현재 commit의 full SHA, 세 image digest, config hash를 기록한 새 배포 증거 필요                        |
-| **Authentication / RBAC** | Entra JWT, MSAL, capability guard와 `Viewer`·`Analyst`·`Approver`·`Administrator` 구현            | `AUTH_MODE=disabled`, `AGENT_SENTINEL_WRITE_ENABLED=false`; replacement API/SPA 등록 미생성, active Front Door에 evidenced API mutation rule 없음 | 승인된 등록 plan, 최소 권한 consent/assignment, 네 역할의 live token 검증, Front Door write guard 검증 |
-| **Agent 365**             | read-only deployment-managed connector와 persisted source health 구현                             | 권한·license·bounded provider read는 확인됐지만 새 API/jobs image와 source-linked snapshot은 미배포                                               | reviewed image 배포 후 `ready + complete` persisted evidence 검증                                      |
-| **Identity correlation**  | exact object/application/Agent Identity ID 진단과 `RUNS_AS` 생성 구현                             | 2026-09-04 revalidation에서 authoritative Foundry agent에 usable identity ID가 없어 `RUNS_AS` 0                                                   | 모든 대상 agent에 exact edge가 있고 unmatched·ambiguous가 모두 0이어야 함                              |
-| **Runtime evidence**      | bounded Azure Monitor OTel query, drift·reliability·measured token/cost 분석 구현                 | 현재 분석 가능한 representative span이 부족해 `unknown` / `insufficient-data`                                                                     | fresh·complete·unsampled non-synthetic spans와 exact trace/span/token/cost provenance 필요             |
-| **Action safety**         | 역할·승인·감사·what-if·rollback foundation 구현                                                   | live provider remediation 비활성; 공개 환경은 read-only posture                                                                                   | JWT와 reviewed Front Door mutation rule을 검증한 뒤 승인된 private reversible write만 별도 검증        |
-| **Release review**        | exact-SHA 기반 sanitized review bundle, 접근성 정규화, OneRAI 결정론적 참조, human gate 도구 구현 | Security·Accessibility·OneRAI·Release의 실제 검토/승인과 live evidence는 아직 없음                                                                | dry-run bundle의 모든 blocker를 해소하고 네 human decision을 실제 담당자가 기록해야 함                 |
+| 영역                      | Repository capability                                                                  | 검증된 현재 배포                                                                                                                                                                                                                                                                                                                                                                                                                               | Release blocker                                                                                        |
+| ------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Release identity**      | full SHA·web/API/jobs digest 검증 도구 구현                                            | Web `372944b2e70f11050d20ca0596a5bfe1cb11e5db` / `sha256:ba52df80df821e67f2b8936a6f1c96bc6af881753c7187e70d0b033e66a8d1f4`; API revision `api-as-m098047--p168bc0baa`, SHA `68bc0baaa346111c3f36aef07c9d7f4a7eba33ea`, digest `sha256:aa6f191623b27ebeaaca47614bae7d582579ce251a3f62de23f09263fb7af4c9`; jobs SHA `c26fe400d6f91bed897155e49d2f8e7b18b94f95`, digest `sha256:1438fd84ea10af0fd438609989875d8232ce43ff716e1d0d57be313476014648` | integration `456d01f2`의 Entra hardening과 release-review v2는 deployed API보다 최신이며 아직 미배포   |
+| **Authentication / RBAC** | Entra JWT, MSAL, capability guard와 `Viewer`·`Analyst`·`Approver`·`Administrator` 구현 | `AUTH_MODE=disabled`, `AGENT_SENTINEL_WRITE_ENABLED=false`; replacement API/SPA 등록 미생성, active Front Door에 evidenced API mutation rule 없음                                                                                                                                                                                                                                                                                              | 승인된 등록 plan, 최소 권한 consent/assignment, 네 역할의 live token 검증, Front Door write guard 검증 |
+| **Agent 365**             | read-only deployment-managed connector와 persisted source health 구현                  | **ready + complete:** 308 packages → 302 agent-package nodes + 6 extension-package nodes + 308 live source-bound evidence records                                                                                                                                                                                                                                                                                                              | 이 범주는 완료; package 수를 실행 agent 수로 해석하지 않음                                             |
+| **Identity correlation**  | exact object/application/Agent Identity ID 진단과 `RUNS_AS` 생성 구현                  | authoritative Foundry agent 여섯 개에 usable exact identity ID가 없어 `RUNS_AS` 0                                                                                                                                                                                                                                                                                                                                                              | 모든 대상 agent에 exact edge가 있고 unmatched·ambiguous가 모두 0이어야 함                              |
+| **Runtime evidence**      | bounded Azure Monitor OTel query, drift·reliability·measured token/cost 분석 구현      | qualifying live OTel record 0; 상태는 `unknown` / `insufficient-data`                                                                                                                                                                                                                                                                                                                                                                          | fresh·complete·unsampled non-synthetic spans와 exact trace/span/token/cost provenance 필요             |
+| **Action safety**         | 역할·승인·감사·what-if·rollback foundation 구현                                        | live provider remediation 비활성; 공개 환경은 read-only posture                                                                                                                                                                                                                                                                                                                                                                                | JWT와 reviewed Front Door mutation rule을 검증한 뒤 승인된 private reversible write만 별도 검증        |
+| **Release review**        | exact-SHA 기반 deterministic release-review v2 구현                                    | repository-only; deployed API에는 포함되지 않았고 실제 Security·Accessibility·OneRAI·Release 승인도 없음                                                                                                                                                                                                                                                                                                                                       | 최신 reviewed digest 배포와 네 human decision 필요                                                     |
 
-상세하고 날짜가 있는 상태는 [Current status](docs/current-status.md), 제약은
-[Known issues](docs/known-issues.md), connector별 상태는
-[Connector availability](docs/connector-availability.md)를 기준으로 확인하십시오.
+Demo Readiness 결과는 **partial**입니다. Agent 365는 ready이지만 `RUNS_AS` 0, qualifying live OTel 0, authentication disabled, writes false가 그대로 blocker로 남습니다.
+
+상세하고 날짜가 있는 상태는 [Current status](docs/current-status.md), 새 tenant 준비는 [New tenant bootstrap](docs/new-tenant-bootstrap.md), 제약은 [Known issues](docs/known-issues.md), connector별 상태는 [Connector availability](docs/connector-availability.md)를 기준으로 확인하십시오.
 
 ---
 
@@ -210,8 +210,7 @@ pnpm install
 pnpm dev
 ```
 
-기본값은 deterministic mock connector이므로 Azure 권한 없이 제품 workflow를 실행할 수
-있습니다.
+기본값은 deterministic mock connector이므로 다른 개발자는 Azure/Microsoft 365 계정이나 권한 없이 clone 후 제품 workflow를 재현할 수 있습니다. Live 재현은 별도의 tenant resource와 권한을 독립적으로 준비해야 하며 [New tenant bootstrap](docs/new-tenant-bootstrap.md)을 따라야 합니다.
 
 - Web: `http://127.0.0.1:5173`
 - API: `http://127.0.0.1:3001`
@@ -293,8 +292,7 @@ pnpm release-review:validate -- \
 
 ## Deployment overview
 
-Production candidate 이미지는 mutable tag가 아니라 `@sha256:<digest>`로 식별하고,
-private ACR에 접근 가능한 target VNet self-hosted runner에서 빌드합니다.
+Production candidate 이미지는 mutable tag가 아니라 `@sha256:<digest>`로 식별하고, private ACR에 접근 가능한 target VNet self-hosted runner에서 빌드합니다. 현재 reference deployment의 immutable 버전은 위 Production readiness 표에 기록되어 있으며, repository head `456d01f2`와 동일하지 않습니다.
 
 1. 검증할 exact full Git SHA를 선택합니다.
 2. web/API/jobs image를 빌드하고 각각의 canonical digest를 기록합니다.
@@ -316,7 +314,7 @@ private ACR에 접근 가능한 target VNet self-hosted runner에서 빌드합�
 - [ ] reviewed full SHA와 web/API/jobs digest가 실제 revision과 일치
 - [ ] Entra `AUTH_MODE=jwt`, writes false, 로그인·로그아웃·anonymous `401`·Viewer `403` 검증
 - [ ] `Viewer`·`Analyst`·`Approver`·`Administrator` 네 역할의 capability 경계 검증
-- [ ] Agent 365 source가 persisted snapshot에서 `ready + complete`
+- [x] Agent 365 source가 persisted snapshot에서 `ready + complete` (308 packages, 302 agent-package nodes, 6 extension-package nodes, 308 source-bound evidence records)
 - [ ] 모든 대상 agent의 exact `RUNS_AS` edge 존재, unmatched 0, ambiguous 0
 - [ ] representative non-synthetic OTel span과 trace/span/token/cost provenance 충족
 - [ ] 공개 write는 차단되고, 필요한 경우 승인된 private reversible write만 검증
@@ -355,14 +353,14 @@ docs/           product, architecture, security, operations, decisions
 
 ## Documentation
 
-| 시작점           | 문서                                                                                                                                                          |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 제품 언어와 경계 | [Product overview](docs/product-overview.md) · [Domain context](docs/CONTEXT.md)                                                                              |
-| 현재 사실과 제약 | [Current status](docs/current-status.md) · [Known issues](docs/known-issues.md) · [Connector availability](docs/connector-availability.md)                    |
-| 설계             | [Architecture](docs/architecture.md) · [Data model](docs/data-model.md) · [ADR 0002: evidence-first core](docs/adr/0002-evidence-first-deterministic-core.md) |
-| 보안과 인증      | [Security and authentication](docs/security-authentication.md)                                                                                                |
-| 개발과 운영      | [Development](docs/development.md) · [Deployment](docs/deployment.md) · [Runbooks](docs/runbooks.md) · [Supply chain](docs/supply-chain.md)                   |
-| 계획             | [Roadmap](docs/roadmap.md)                                                                                                                                    |
+| 시작점           | 문서                                                                                                                                                                                               |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 제품 언어와 경계 | [Product overview](docs/product-overview.md) · [Domain context](docs/CONTEXT.md)                                                                                                                   |
+| 현재 사실과 제약 | [Current status](docs/current-status.md) · [Known issues](docs/known-issues.md) · [Connector availability](docs/connector-availability.md)                                                         |
+| 설계             | [Architecture](docs/architecture.md) · [Data model](docs/data-model.md) · [ADR 0002: evidence-first core](docs/adr/0002-evidence-first-deterministic-core.md)                                      |
+| 보안과 인증      | [Security and authentication](docs/security-authentication.md)                                                                                                                                     |
+| 개발과 운영      | [Development](docs/development.md) · [New tenant bootstrap](docs/new-tenant-bootstrap.md) · [Deployment](docs/deployment.md) · [Runbooks](docs/runbooks.md) · [Supply chain](docs/supply-chain.md) |
+| 계획             | [Roadmap](docs/roadmap.md)                                                                                                                                                                         |
 
 Agent Sentinel은 원본 관리 plane을 대신하지 않습니다. 서로 다른 원본의 증거를 정직하게
 연결하고, 연결할 수 없는 것은 연결하지 않으며, 조직이 **발견 → 상관 분석 → 판단 → 검증**의

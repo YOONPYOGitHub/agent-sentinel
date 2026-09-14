@@ -8,8 +8,8 @@ Start with the [root README](../README.md) for product value and the live-vs-moc
 ## Recommended reading paths
 
 - **Evaluator:** [root README](../README.md) → [product overview](product-overview.md) → [current status](current-status.md) → [connector availability](connector-availability.md) → [release evidence](release-evidence.md).
-- **Maintainer or coding agent:** [maintainer handoff](maintainer-handoff.md) → [domain context](CONTEXT.md) → [architecture](architecture.md) → [data model](data-model.md) → [development](development.md) → [known issues](known-issues.md).
-- **Operator:** [current status](current-status.md) → [deployment](deployment.md) → [runbooks](runbooks.md) → [security and authentication](security-authentication.md) → [supply chain](supply-chain.md) → [DR design](dr-design.md).
+- **Maintainer or coding agent:** [maintainer handoff](maintainer-handoff.md) → [new tenant bootstrap](new-tenant-bootstrap.md) → [domain context](CONTEXT.md) → [architecture](architecture.md) → [data model](data-model.md) → [development](development.md) → [known issues](known-issues.md).
+- **Operator:** [current status](current-status.md) → [new tenant bootstrap](new-tenant-bootstrap.md) → [deployment](deployment.md) → [runbooks](runbooks.md) → [security and authentication](security-authentication.md) → [supply chain](supply-chain.md) → [DR design](dr-design.md).
 - **Release reviewer:** [maintainer handoff](maintainer-handoff.md) → [current status](current-status.md) → [release evidence](release-evidence.md) → [connector availability](connector-availability.md) → [known issues](known-issues.md).
 
 ## Product
@@ -23,35 +23,36 @@ Start with the [root README](../README.md) for product value and the live-vs-moc
 
 ## Engineering
 
-| Document                                                            | Read this when you need to…                                                 |
-| ------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| [Maintainer handoff](maintainer-handoff.md)                         | Continue work safely from the current repository and deployment truth.      |
-| [Architecture](architecture.md)                                     | Understand runtime topology, boundaries, and package layout.                |
-| [Data model](data-model.md)                                         | Look up domain contracts, storage models, indexes, and messaging entities.  |
-| [Development](development.md)                                       | Set up WSL, run checks, and follow repository conventions.                  |
-| [Foundry live agents](foundry-live-agents.md)                       | Understand the six synthetic validation agents and operator-only lifecycle. |
-| [Agent 365 connector](agent365-connector.md)                        | Review the deployment-only package catalog contract and limits.             |
-| [Azure Resource Graph connector](azure-resource-graph-connector.md) | Review bounded cloud-resource inventory and scope semantics.                |
-| [Entra identity connector](entra-identity-connector.md)             | Review exact identity correlation and `RUNS_AS` rules.                      |
-| [Power Platform connector](power-platform-connector.md)             | Review the unsupported unattended-authorization boundary.                   |
-| [Defender connector](defender-cloud-apps-connector.md)              | Review the bounded privacy-reduced alert/activity contract.                 |
-| [Purview connector](purview-connector.md)                           | Review the sensitivity-label catalog and its usage blind spot.              |
-| [Teams connector](teams-distribution-connector.md)                  | Review the organization app catalog and distribution blind spot.            |
-| [Corporate onboarding](internal-onboarding.md)                      | Follow human-owned service and corporate identity onboarding.               |
+| Document                                                            | Read this when you need to…                                                              |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| [Maintainer handoff](maintainer-handoff.md)                         | Continue work safely from the current repository and deployment truth.                   |
+| [Architecture](architecture.md)                                     | Understand runtime topology, boundaries, and package layout.                             |
+| [Data model](data-model.md)                                         | Look up domain contracts, storage models, indexes, and messaging entities.               |
+| [Development](development.md)                                       | Set up WSL, run checks, and follow repository conventions.                               |
+| [New tenant bootstrap](new-tenant-bootstrap.md)                     | Separate mock use, live read access, operator access, approvals, and ownership transfer. |
+| [Foundry live agents](foundry-live-agents.md)                       | Understand the six synthetic validation agents and operator-only lifecycle.              |
+| [Agent 365 connector](agent365-connector.md)                        | Review the deployment-only package catalog contract and limits.                          |
+| [Azure Resource Graph connector](azure-resource-graph-connector.md) | Review bounded cloud-resource inventory and scope semantics.                             |
+| [Entra identity connector](entra-identity-connector.md)             | Review exact identity correlation and `RUNS_AS` rules.                                   |
+| [Power Platform connector](power-platform-connector.md)             | Review the unsupported unattended-authorization boundary.                                |
+| [Defender connector](defender-cloud-apps-connector.md)              | Review the bounded privacy-reduced alert/activity contract.                              |
+| [Purview connector](purview-connector.md)                           | Review the sensitivity-label catalog and its usage blind spot.                           |
+| [Teams connector](teams-distribution-connector.md)                  | Review the organization app catalog and distribution blind spot.                         |
+| [Corporate onboarding](internal-onboarding.md)                      | Follow human-owned service and corporate identity onboarding.                            |
 
 ## Operations and status
 
-| Document                                                  | Read this when you need to…                                                                 |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| [Current status](current-status.md)                       | Get the authoritative dated ledger of repository, deployment, connector, and blocker truth. |
-| [Connector availability](connector-availability.md)       | Distinguish implementation, provider access, deployment, and evidence quality.              |
-| [Known issues](known-issues.md)                           | Check named limitations and exact unblock conditions.                                       |
-| [Deployment](deployment.md)                               | Review approved deployment boundaries and the surgical rollout path.                        |
-| [Runbooks](runbooks.md)                                   | Execute a named operational procedure (RB-001 onward).                                      |
-| [Security and authentication](security-authentication.md) | Review auth states, roles, active-edge requirements, and activation gates.                  |
-| [Supply chain](supply-chain.md)                           | Understand private builds, full-SHA tags, digests, and provenance.                          |
+| Document                                                  | Read this when you need to…                                                                                               |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| [Current status](current-status.md)                       | Get the authoritative dated ledger of repository, deployment, connector, and blocker truth.                               |
+| [Connector availability](connector-availability.md)       | Distinguish implementation, provider access, deployment, and evidence quality.                                            |
+| [Known issues](known-issues.md)                           | Check named limitations and exact unblock conditions.                                                                     |
+| [Deployment](deployment.md)                               | Review approved deployment boundaries and the surgical rollout path.                                                      |
+| [Runbooks](runbooks.md)                                   | Execute a named operational procedure (RB-001 onward).                                                                    |
+| [Security and authentication](security-authentication.md) | Review auth states, roles, active-edge requirements, and activation gates.                                                |
+| [Supply chain](supply-chain.md)                           | Understand private builds, full-SHA tags, digests, and provenance.                                                        |
 | [Release evidence](release-evidence.md)                   | Generate and validate sanitized release evidence plus Security, Accessibility, and OneRAI dry-run review bundles offline. |
-| [DR design](dr-design.md)                                 | Review recovery objectives and failover behavior.                                           |
+| [DR design](dr-design.md)                                 | Review recovery objectives and failover behavior.                                                                         |
 
 ## Decisions and documentation governance
 

@@ -1,8 +1,15 @@
 # Roadmap
 
-Phased delivery plan for Agent Sentinel. Last reviewed **2026-09-14** against branch `feature/multi-source-otel`.
+Phased delivery plan for Agent Sentinel. Last reviewed **2026-09-14** against branch `feature/production-readiness-r1`.
 
 Every phase has an explicit definition of done. A phase is not done because its UI renders; it is done when its evidence is real, its boundaries are enforced in code, and its tests prove the behavior without model access.
+
+## Verified live checkpoint
+
+- Agent 365 is deployed, `ready`, and `complete`: 308 packages, 302 agent-package nodes, 6 extension-package nodes, and 308 live source-bound evidence records.
+- Demo Readiness remains **partial** because `RUNS_AS` has 0 exact edges, OTel has 0 qualifying live records, authentication is disabled, and writes are false.
+- The reference environment connector-source plane is provisioned. New tenants still need their own isolated resources and permissions.
+- Entra staged activation hardening and deterministic release-review v2 are newer than the deployed API and remain repository-only.
 
 ---
 
@@ -142,7 +149,7 @@ OneRAI and service onboarding proceed independently and do not block local imple
 
 ## Phase 4 — Runtime telemetry connector · _query path connected; evidence insufficient_
 
-The connector, engine bridge, source routing, and replacement-workspace query path are implemented. The current audit contains no analysis-ready request/dependency/trace rows, and metrics lack required agent attributes. Representative baseline and observed evidence remains blocked.
+The connector, engine bridge, source routing, and replacement-workspace query path are implemented. The verified live count is 0 qualifying records; representative baseline and observed evidence remains blocked.
 
 **Scope**
 
@@ -164,7 +171,7 @@ The connector, engine bridge, source routing, and replacement-workspace query pa
 
 ---
 
-## Phase 5 — Additional evidence connectors · _mixed live, undeployed, and blocked states_
+## Phase 5 — Additional evidence connectors · _mixed live and blocked states_
 
 **Multi-source prerequisite — implemented:** Foundry now accepts multiple
 tenant/project source definitions and exposes the aggregation, identity,
@@ -192,14 +199,13 @@ IDs and compose after Entra without inferred identity edges. The connector is
 disabled because Microsoft currently documents delegated inventory access only
 and explicitly excludes preview Power Platform RBAC roles from inventory.
 
-**Microsoft Agent 365 package catalog foundation — provider access verified, runtime undeployed:**
+**Microsoft Agent 365 package catalog — deployed, ready, and complete:**
 the official Microsoft Graph v1.0 list API supplies bounded tenant package
 inventory after Power Platform composition. Detail and all writes remain
-disabled. The entitlement has one assigned seat, the connector identity has the approved
-least-privilege package-list permission, and a bounded managed-identity call
-succeeded. The canonical branch binds enabled persisted and immutable deployment
-sources in API/jobs; that runtime is not deployed, persisted-snapshot validation
-remains pending, and the provider package total is not an agent total.
+disabled. The deployed source has the required license and
+`CopilotPackages.Read.All`; 308 packages produced 302 agent-package nodes, 6
+extension-package nodes, and 308 live source-bound evidence records. Package
+total is not an executing-agent total.
 
 **Microsoft Defender for Cloud Apps evidence — live for the primary source:**
 the official tenant-specific v1 alert and activity GET lists are consumed with
@@ -226,16 +232,16 @@ tool, entitlement, or access claim. The replacement primary source is ready
 through tenant-admin `AppCatalog.Read.All` and currently returns zero
 organization entries.
 
-| Connector                                   | Catalogued state         | Gate                                                                                                       |
-| ------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| Microsoft Agent 365 (`m365-agent-registry`) | `provider-verified`      | Runtime is undeployed; deploy and validate source-linked persisted inventory                               |
-| Microsoft Entra identity and entitlements   | `connected`              | Primary stable v1.0 inventory is live; each additional tenant requires consent                             |
-| Azure Resource Graph                        | `connected`              | Five resources are visible through existing UAMI roles; broader Reader coverage requires separate approval |
-| Microsoft Purview                           | `connected`              | Primary label-definition catalog is live; catalog evidence does not prove usage                            |
-| Microsoft Defender for Cloud Apps           | `connected`              | Primary bounded alert/activity lists are ready; current result is empty                                    |
-| Microsoft Copilot Studio / Agent Builder    | `authorization-required` | No supported unattended ResourceQuery inventory authorization; schema is preview                           |
-| Microsoft 365 and SharePoint agents         | `degraded`               | Classified from Agent 365 package metadata; deployment validation remains pending and no scraping is used  |
-| Microsoft Teams distribution                | `connected`              | Organization-catalog source is ready; current result is empty                                              |
+| Connector                                   | Catalogued state         | Gate                                                                                                                                          |
+| ------------------------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Microsoft Agent 365 (`m365-agent-registry`) | `connected`              | Deployed `ready + complete`; 308 packages normalize to 302 agent-package and 6 extension-package nodes with 308 source-bound evidence records |
+| Microsoft Entra identity and entitlements   | `connected`              | Primary stable v1.0 inventory is live; each additional tenant requires consent                                                                |
+| Azure Resource Graph                        | `connected`              | Five resources are visible through existing UAMI roles; broader Reader coverage requires separate approval                                    |
+| Microsoft Purview                           | `connected`              | Primary label-definition catalog is live; catalog evidence does not prove usage                                                               |
+| Microsoft Defender for Cloud Apps           | `connected`              | Primary bounded alert/activity lists are ready; current result is empty                                                                       |
+| Microsoft Copilot Studio / Agent Builder    | `authorization-required` | No supported unattended ResourceQuery inventory authorization; schema is preview                                                              |
+| Microsoft 365 and SharePoint agents         | `connected`              | Classified from deployed Agent 365 package metadata; no SharePoint scraping is used                                                           |
+| Microsoft Teams distribution                | `connected`              | Organization-catalog source is ready; current result is empty                                                                                 |
 
 **Definition of done, per connector**
 

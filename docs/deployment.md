@@ -8,10 +8,7 @@
 
 ## Current deployment safety
 
-The last evidenced deployed web/API/jobs image boundary is the short tag
-`7458b3e`. Its full 40-hex SHA and three running image digests have not been
-supplied in sanitized evidence, so later commits are code state only and this
-guide does not claim them as deployed. The checked-in full `platform.bicep`
+The reference deployment is `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`. Its verified immutable boundary is web SHA `372944b2e70f11050d20ca0596a5bfe1cb11e5db` / digest `sha256:ba52df80df821e67f2b8936a6f1c96bc6af881753c7187e70d0b033e66a8d1f4`, API revision `api-as-m098047--p168bc0baa` / SHA `68bc0baaa346111c3f36aef07c9d7f4a7eba33ea` / digest `sha256:aa6f191623b27ebeaaca47614bae7d582579ce251a3f62de23f09263fb7af4c9`, and jobs SHA `c26fe400d6f91bed897155e49d2f8e7b18b94f95` / digest `sha256:1438fd84ea10af0fd438609989875d8232ce43ff716e1d0d57be313476014648`. Entra activation hardening and release-review v2 are later repository changes and are not deployed. The checked-in full `platform.bicep`
 desired state is drifted from the live resource group. The latest what-if
 proposed 54 unrelated modifications. **Do not run a full Bicep deployment**
 until that drift is reconciled and separately reviewed. Use only a reviewed,
@@ -49,8 +46,7 @@ This is a clean IaC recreation, not an in-place tenant migration. Do not copy
 tenant IDs, principal IDs, federated credentials, Graph consent, or license state
 from the existing tenant.
 
-The Data AI Lab replacement tenant is represented by two checked-in, non-secret
-parameter files:
+The current reference environment is represented by checked-in, non-secret parameter files. The `mngenvmcap098047-*` files are examples of that environment, not portable defaults:
 
 - `infra/environments/mngenvmcap098047-foundry.parameters.bicepparam` creates the
   tenant-local Foundry account and project first.
@@ -65,19 +61,11 @@ parameter files:
   targets the existing `vnet-as-m098047/build` subnet and `acrm098047`; the SSH
   public key is supplied through `ADMIN_SSH_PUBLIC_KEY`, never source control.
 
-## Hackathon deployment-readiness sequence (not executed)
+## Reference-environment follow-up sequence
 
-This repository change prepares, but does not perform, deployment. Every create,
-role assignment, runner registration, image push, and Container App update below
-requires an operator approval at the indicated gate.
+The connector-source container and Agent 365 runtime are already deployed in the reference environment. Remaining identity, telemetry, image, and write changes still require operator approval at the indicated gate.
 
-1. **Approve and provision `connector-sources`.** Compile the target parameter
-   file offline, then run a resource-group what-if for
-   `infra/connector-sources.bicep`. Approve only if the payload creates exactly
-   `cosmos-as-m098047/agent-sentinel-db/connector-sources`, with partition key
-   `/estateId` and the checked-in indexing policy. Stop on any account, database,
-   network, identity, role, or unrelated container change. Only then may an
-   operator run the incremental create.
+1. **Verify the existing `connector-sources` boundary.** The reference container is provisioned and used by deployment-managed sources. Before a future change, compile the focused template offline and review a resource-group what-if that touches only the intended container contract. New tenants create their own isolated container and validate `/estateId`, indexing, ETag, and estate behavior.
 2. **Approve and provision the target runner.** Confirm the target account,
    subscription, resource group, `vnet-as-m098047/build`, and `acrm098047` before
    reviewing the `infra/ci-foundation.bicep` what-if with

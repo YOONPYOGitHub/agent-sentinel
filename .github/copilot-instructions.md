@@ -1,13 +1,13 @@
 # Agent Sentinel development instructions
 
-Operational truth last reconciled **2026-09-14** at `6e271f5a`.
+Operational truth last reconciled **2026-09-14** at `456d01f2`.
 
 Read `agent-sentinel-product-spec.md`, `docs/maintainer-handoff.md`, and
 `docs/current-status.md` before making changes.
 
 ## Working branch
 
-- The active integration branch is `feature/multi-source-otel`.
+- The active integration branch is `feature/production-readiness-r1`.
 - `main` is behind the integration branch. Do not implement a task from `main`
   unless the task explicitly says that `main` has been synchronized.
 - Keep each task in a focused branch and pull request. Do not combine unrelated

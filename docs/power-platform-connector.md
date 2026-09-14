@@ -1,6 +1,6 @@
 # Power Platform ResourceQuery connector
 
-**Implementation status:** complete on `feature/multi-source-otel`; disabled and
+**Implementation status:** complete on `feature/production-readiness-r1`; disabled and
 not activated in the live deployment. The Copilot Studio resource schema is
 preview overall, and Microsoft does not currently document a supported
 unattended authorization path for ResourceQuery inventory.
