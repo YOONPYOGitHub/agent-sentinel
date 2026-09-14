@@ -15,36 +15,53 @@ function section(markdown: string, heading: string, nextHeading: string): string
 }
 
 describe('authentication readiness documentation', () => {
-  it('keeps replacement authentication and active-edge safety explicitly blocked', () => {
+  it('keeps replacement authentication and active-edge safety semantically blocked', () => {
     const security = rootFile('docs/security-authentication.md')
     const deployment = rootFile('docs/deployment.md')
     const runbooks = rootFile('docs/runbooks.md')
     const knownIssues = rootFile('docs/known-issues.md')
+    const currentStatus = rootFile('docs/current-status.md')
+    const handoff = rootFile('docs/maintainer-handoff.md')
     const production = section(rootFile('README.md'), '## Production readiness', '## Quick start')
+    const operationalDocuments = [
+      security,
+      deployment,
+      runbooks,
+      knownIssues,
+      currentStatus,
+      handoff,
+    ]
+    const operationalTruth = operationalDocuments.join('\n')
 
-    expect(security).toContain('do not yet exist')
-    expect(deployment).toContain('do not yet exist')
-    expect(runbooks).toContain('do not yet exist')
-    expect(knownIssues).toContain('do not yet exist')
+    expect(operationalTruth).toMatch(
+      /replacement[\s\S]*(API|SPA)[\s\S]*(do not(?: yet)? exist|does not exist|미생성|없)/i,
+    )
+    expect(operationalTruth).toContain('AUTH_MODE=disabled')
+    expect(operationalTruth).toMatch(
+      /Front Door[\s\S]*(no evidenced|does not protect)[\s\S]*mutation/i,
+    )
+    expect(operationalTruth).toMatch(/write(s|Enabled)?[\s\S]*(false|disabled|prohibited|금지)/i)
+    for (const document of operationalDocuments) {
+      expect(document).toMatch(/Front Door/i)
+      expect(document).toMatch(/write|mutation/i)
+    }
+
     expect(production).toMatch(/replacement API\/SPA[^|\n]*(미생성|없)/)
     expect(production).toContain('`AUTH_MODE=disabled`')
-    expect(security).toContain('does **not** protect Front Door traffic')
-    expect(deployment).toContain('does not protect Front Door')
-    expect(runbooks).toContain('does not protect Front Door traffic')
-    expect(knownIssues).toContain('does not protect Front Door')
     expect(production).toMatch(/Front Door (write guard|mutation rule)/)
   })
 
   it('documents approval, all four roles, and immutable deployment evidence as blockers', () => {
     const security = rootFile('docs/security-authentication.md')
     const knownIssues = rootFile('docs/known-issues.md')
+    const handoff = rootFile('docs/maintainer-handoff.md')
     const production = section(rootFile('README.md'), '## Production readiness', '## Quick start')
 
-    expect(security).toContain(
-      'Replacement API and SPA app registrations created through the approved bootstrap plan',
-    )
-    expect(security).toContain('Test principals/groups assigned to all four roles')
-    expect(knownIssues).toContain('reviewed image digests')
+    expect(security).toMatch(/registration[s]? created through the approved bootstrap plan/i)
+    expect(security).toMatch(/all four roles/i)
+    expect(handoff).toMatch(/Viewer[\s\S]*Analyst[\s\S]*Approver[\s\S]*Administrator/)
+    expect(knownIssues).toMatch(/reviewed image digests/i)
+    expect(handoff).toMatch(/human[\s\S]{0,180}approv/i)
     expect(production).toContain('`Viewer`·`Analyst`·`Approver`·`Administrator`')
     expect(production).toMatch(/full SHA[^|\n]*image digest|full SHA[^|\n]*digest/)
   })

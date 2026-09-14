@@ -1,7 +1,9 @@
 # Agent Sentinel development instructions
 
-Read `agent-sentinel-product-spec.md` and `docs/copilot-agent-handoff.md` before
-making changes.
+Operational truth last reconciled **2026-09-14** at `6e271f5a`.
+
+Read `agent-sentinel-product-spec.md`, `docs/maintainer-handoff.md`, and
+`docs/current-status.md` before making changes.
 
 ## Working branch
 

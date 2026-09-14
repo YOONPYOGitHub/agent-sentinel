@@ -2,7 +2,7 @@
 
 Agent Sentinel is a cross-platform control plane for AI agent **operations, governance, security, optimization, and lifecycle**. It consumes authoritative records from the platforms that own agents and correlates them into a single typed evidence graph. It does not recreate or replace the native administration of those platforms.
 
-Last reviewed **2026-08-23**.
+Last reviewed **2026-09-14**.
 
 ---
 
@@ -39,7 +39,7 @@ Agent Sentinel answers those five questions from one evidence set.
 | -------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | **Security analyst**             | Triage exposure, understand the attack path, validate or dismiss a finding, propose remediation. | Exposure list and detail, graph, evidence drawer, Observability | **Current.** Live Cosmos-backed findings from Foundry declared configuration.                     |
 | **Agent platform owner / SRE**   | Keep discovery healthy, know which connectors are degraded, know which evidence is stale.        | Connectors, Observability, Overview                             | **Current.** Connector readiness and measured connection health are implemented.                  |
-| **Governance / compliance lead** | Prove which policies are enforced, where exceptions live, and which agents fail a control.       | Governance, Trust catalog, Lifecycle                            | **Current for posture.** The approval work queue is in progress.                                  |
+| **Governance / compliance lead** | Prove which policies are enforced, where exceptions live, and which agents fail a control.       | Governance, Trust catalog, Lifecycle                            | **Current in code.** Durable workflow exists; public mutation remains blocked.                    |
 | **Agent owner (business unit)**  | See only their agents, understand what is blocking release, and act on scoped recommendations.   | Agent inventory (filtered), Agent detail, Optimization          | **Current for read.** Owner-scoped personalization is blocked on authenticated login.             |
 | **Employee / agent consumer**    | Decide whether a discoverable agent is trustworthy enough to use for a specific task.            | Agent assurance catalog                                         | **Current for assurance overlay.** Entitlement personalization is blocked on Entra.               |
 | **Approver / Administrator**     | Authorize a remediation and keep an audit trail; configure the control plane.                    | Exposure detail, Settings                                       | **Code foundation complete, blocked.** See [Auth states](security-authentication.md#auth-states). |
@@ -114,15 +114,15 @@ Dimensions are deliberately **not** collapsed into a single number. An unknown d
 
 Three surfaces list agents. They answer different questions for different audiences and must not be conflated.
 
-|                     | **Agent inventory**                                         | **Agent assurance catalog**                                         | **Trust catalog**                                                      |
-| ------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Route               | `/agent-inventory`                                          | `/agent-catalog`                                                    | `/trust-catalog`                                                       |
-| Audience            | Security, platform, and governance operators                | Employees and agent consumers                                       | Security architects and reviewers                                      |
-| Question            | _"What does the organization run?"_                         | _"Is this agent safe enough for me to use?"_                        | _"What is this component made of and what may it do?"_                 |
-| Scope               | Every discovered agent, all environments                    | Discoverable agents presented as an assurance overlay               | Agents, MCP servers, tools, models, and connectors                     |
-| Columns             | Platform, ownership, environment, trust, readiness, version | Availability, assurance posture, owner, platform                    | Provenance, permissions, dependencies, validation, exposure, lifecycle |
-| Authoritative store | The source platform, never Agent Sentinel                   | Agent 365 or the publishing platform                                | The source platform                                                    |
-| Current gap         | Only the Foundry connector supplies live records            | Entitlement personalization is blocked on authenticated Entra login | Runtime usage evidence requires a telemetry connector                  |
+|                     | **Agent inventory**                                                                      | **Agent assurance catalog**                                         | **Trust catalog**                                                      |
+| ------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Route               | `/agent-inventory`                                                                       | `/agent-catalog`                                                    | `/trust-catalog`                                                       |
+| Audience            | Security, platform, and governance operators                                             | Employees and agent consumers                                       | Security architects and reviewers                                      |
+| Question            | _"What does the organization run?"_                                                      | _"Is this agent safe enough for me to use?"_                        | _"What is this component made of and what may it do?"_                 |
+| Scope               | Every discovered agent, all environments                                                 | Discoverable agents presented as an assurance overlay               | Agents, MCP servers, tools, models, and connectors                     |
+| Columns             | Platform, ownership, environment, trust, readiness, version                              | Availability, assurance posture, owner, platform                    | Provenance, permissions, dependencies, validation, exposure, lifecycle |
+| Authoritative store | The source platform, never Agent Sentinel                                                | Agent 365 or the publishing platform                                | The source platform                                                    |
+| Current gap         | Foundry is the only deployed authoritative agent source; Agent 365 runtime is undeployed | Entitlement personalization is blocked on authenticated Entra login | Runtime evidence exists only when strict OTel thresholds pass          |
 
 The assurance catalog is explicitly an **overlay**. Agent 365 or the publishing platform remains the authoritative store and access-control plane; Agent Sentinel adds assurance context and never grants, revokes, or brokers access.
 
@@ -130,7 +130,7 @@ The assurance catalog is explicitly an **overlay**. Agent 365 or the publishing 
 
 ## Differentiation from Microsoft Agent 365
 
-Agent 365 is an authoritative registry and administration plane for the agents it governs. Agent Sentinel is a **consumer** of that record, catalogued in the connector list as `m365-agent-registry` with lifecycle state `authorization-required` and ownership model `consumes`.
+Agent 365 is an authoritative registry and administration plane for the agents it governs. Agent Sentinel is a **consumer** of that record, catalogued as `m365-agent-registry` with provider access verified but the repository runtime still undeployed. Its ownership model remains `consumes`.
 
 | Concern                                    | Agent 365                         | Agent Sentinel                                                              |
 | ------------------------------------------ | --------------------------------- | --------------------------------------------------------------------------- |

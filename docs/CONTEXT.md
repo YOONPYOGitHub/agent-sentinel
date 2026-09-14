@@ -53,7 +53,7 @@ Environment variables:
 - `FOUNDRY_ENVIRONMENT`
 
 ```bash
-cd /home/yoonpyohong/project/agent-sentinel
+cd ~/project/agent-sentinel
 FOUNDRY_PROJECT_ENDPOINT=https://ais-agent-sentinel-260814.services.ai.azure.com/api/projects/agent-sentinel-pjt tsx scripts/provision-agents.ts
 FOUNDRY_PROJECT_ENDPOINT=https://ais-agent-sentinel-260814.services.ai.azure.com/api/projects/agent-sentinel-pjt tsx scripts/validate-live.ts
 # Destructive; review before running. Deletes only manifest agent names.

@@ -1,6 +1,6 @@
 # Roadmap
 
-Phased delivery plan for Agent Sentinel. Last reviewed **2026-08-28** against branch `feature/multi-source-otel`.
+Phased delivery plan for Agent Sentinel. Last reviewed **2026-09-14** against branch `feature/multi-source-otel`.
 
 Every phase has an explicit definition of done. A phase is not done because its UI renders; it is done when its evidence is real, its boundaries are enforced in code, and its tests prove the behavior without model access.
 
@@ -38,7 +38,7 @@ flowchart TD
 
 | Track                            | Gate                                                  | Can start today?  |
 | -------------------------------- | ----------------------------------------------------- | ----------------- |
-| Identity, write, and remediation | API and SPA app registration                          | **Yes**           |
+| Identity, write, and remediation | Replacement API/SPA registrations and approval        | **Code only**     |
 | Runtime telemetry and economics  | None — connector implementation work                  | **Yes**           |
 | Governance workflow              | None                                                  | **Yes**           |
 | Universal adapters               | Authenticated write activation for live API ingestion | **Code work yes** |
@@ -96,10 +96,12 @@ Durable live governance cases and append-only transition history are persisted i
 
 ## Phase 2 — Corporate identity activation · **In progress** · _approval required_
 
-**Current condition:** the single-tenant API and SPA registrations exist, the Front Door HTTPS
-origin is registered, and read-only JWT mode is deployed. Employee popup sign-in, logout,
-anonymous `401`, Viewer mutation `403`, and `/api/auth/me` have been validated in production.
-Analyst, Approver, Administrator, write-scope, and public mutation validation remain pending.
+| Dimension      | State                                                                                                                                   |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Code readiness | **Complete for staged activation:** JWT/RBAC, MSAL, bootstrap, preflight, protected workflows, and validators are implemented.          |
+| Activation     | **Blocked:** replacement API/SPA registrations, consent, role assignments, deployed JWT settings, and live employee login do not exist. |
+| Active edge    | Front Door is the intended HTTPS redirect/logout origin, but its WAF has no evidenced custom mutation rule; writes remain false.        |
+
 OneRAI and service onboarding proceed independently and do not block local implementation.
 
 **Scope**
@@ -112,10 +114,10 @@ OneRAI and service onboarding proceed independently and do not block local imple
 
 **Definition of done**
 
-- [x] A real employee signs in through the SPA and receives a token whose audience and tenant validate at the API.
+- [ ] A real employee signs in through the SPA and receives a token whose audience and tenant validate at the API.
 - Each of the four roles resolves to exactly its documented capability set, verified against a live token.
-- [x] Anonymous access to non-public routes returns `401`; an under-privileged token returns `403`.
-- [x] `/api/auth/me` returns a sanitized principal with no raw token or full claim set.
+- [ ] Anonymous access to non-public routes returns `401`; an under-privileged token returns `403`.
+- [ ] `/api/auth/me` returns a sanitized principal with no raw token or full claim set.
 - The activation checklist in [security-authentication.md](security-authentication.md#activation-checklist) is fully signed off.
 
 ---
@@ -138,9 +140,9 @@ OneRAI and service onboarding proceed independently and do not block local imple
 
 ---
 
-## Phase 4 — Runtime telemetry connector · _implementation complete; deployment activation pending_
+## Phase 4 — Runtime telemetry connector · _query path connected; evidence insufficient_
 
-The connector and engine bridge are implemented. Deployment prerequisites and the separate graph/evidence integrations below remain.
+The connector, engine bridge, source routing, and replacement-workspace query path are implemented. The current audit contains no analysis-ready request/dependency/trace rows, and metrics lack required agent attributes. Representative baseline and observed evidence remains blocked.
 
 **Scope**
 
@@ -149,7 +151,7 @@ The connector and engine bridge are implemented. Deployment prerequisites and th
 - [x] Resolve aggregate agents to source-specific workspace, tenant, environment, and provider agent id; rebind measured windows to the aggregate estate identity.
 - [x] Support multiple workspace sources with independent default or secretless federated credentials and per-source health.
 - [x] Normalize bounded representative trace/span/metric fixtures with exact estate, source, resource, trace, and span provenance; retain live/synthetic, sampling, aggregation, freshness, duplicate, and pagination quality without provider calls.
-- [ ] Instrument the target agents, inject workspace/tenant/environment configuration, and grant read-only query permission.
+- [ ] Emit approved representative non-customer spans with exact source/agent/trace/span fields, unsampled measured latency/tokens/cost, and enough fresh baseline and observed samples. The query permission and workspace path already exist.
 - [x] Map runtime spans to existing graph nodes and edges without inventing relationships.
 - [x] Distinguish observed runtime behavior from declared configuration at the evidence-type level.
 
@@ -162,7 +164,7 @@ The connector and engine bridge are implemented. Deployment prerequisites and th
 
 ---
 
-## Phase 5 — Additional evidence connectors · _partly Service Tree-dependent_
+## Phase 5 — Additional evidence connectors · _mixed live, undeployed, and blocked states_
 
 **Multi-source prerequisite — implemented:** Foundry now accepts multiple
 tenant/project source definitions and exposes the aggregation, identity,
@@ -190,16 +192,14 @@ IDs and compose after Entra without inferred identity edges. The connector is
 disabled because Microsoft currently documents delegated inventory access only
 and explicitly excludes preview Power Platform RBAC roles from inventory.
 
-**Microsoft Agent 365 package catalog foundation — provider access verified,
-deployment validation pending:**
+**Microsoft Agent 365 package catalog foundation — provider access verified, runtime undeployed:**
 the official Microsoft Graph v1.0 list API supplies bounded tenant package
 inventory after Power Platform composition. Detail and all writes remain
-disabled. Five `AGENT_365` seats exist with one assigned, the connector UAMI
-has tenant-admin `CopilotPackages.Read.All`, and a bounded managed-identity call
-returned HTTP 200 with 306 packages. The current task branch binds enabled
-persisted and immutable deployment sources in API/jobs; deployment and
-persisted-snapshot validation remain pending, and the package total is not an
-agent total.
+disabled. The entitlement has one assigned seat, the connector identity has the approved
+least-privilege package-list permission, and a bounded managed-identity call
+succeeded. The canonical branch binds enabled persisted and immutable deployment
+sources in API/jobs; that runtime is not deployed, persisted-snapshot validation
+remains pending, and the provider package total is not an agent total.
 
 **Microsoft Defender for Cloud Apps evidence — live for the primary source:**
 the official tenant-specific v1 alert and activity GET lists are consumed with
@@ -228,7 +228,7 @@ organization entries.
 
 | Connector                                   | Catalogued state         | Gate                                                                                                       |
 | ------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| Microsoft Agent 365 (`m365-agent-registry`) | `degraded`               | Provider read is verified; deploy and validate source-linked persisted inventory                           |
+| Microsoft Agent 365 (`m365-agent-registry`) | `provider-verified`      | Runtime is undeployed; deploy and validate source-linked persisted inventory                               |
 | Microsoft Entra identity and entitlements   | `connected`              | Primary stable v1.0 inventory is live; each additional tenant requires consent                             |
 | Azure Resource Graph                        | `connected`              | Five resources are visible through existing UAMI roles; broader Reader coverage requires separate approval |
 | Microsoft Purview                           | `connected`              | Primary label-definition catalog is live; catalog evidence does not prove usage                            |
@@ -292,7 +292,7 @@ organization entries.
 
 ---
 
-## Phase 8 — Behavioral drift and token economics · _live reliability deployed; sample coverage pending_
+## Phase 8 — Behavioral drift and token economics · _engine available; live evidence insufficient_
 
 **Scope**
 
@@ -385,7 +385,7 @@ Not a numbered phase; it constrains several of them.
 | Item                                 | State                                                                                                     |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------- |
 | Application Gateway HTTP listener    | Works, but HTTP on port 80 only, no custom domain or TLS. Management-automated and may stop.              |
-| Front Door endpoint                  | **Active**, routes web and API over HTTPS, and is the registered SPA redirect/logout origin.              |
+| Front Door endpoint                  | **Active** HTTPS route; WAF has no evidenced custom mutation rule, so writes must remain false.           |
 | Custom domain and TLS                | Optional production hardening beyond the active registered Front Door default HTTPS origin. See `RB-013`. |
 | Runner and deployment RBAC           | The runner identity holds `AcrPush` only; automated platform deploy and what-if lack permission.          |
 | Surgical Container App image updates | Currently manual. Automating them requires additional role assignment on the resource group.              |

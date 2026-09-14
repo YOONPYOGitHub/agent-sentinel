@@ -233,7 +233,7 @@ consent. Agent 365 sources are deployment-managed and read-only: API-created
 records are rejected, and legacy user-origin records remain visible but
 inactive. API/jobs receive the dedicated
 `AGENT365_MANAGED_IDENTITY_CLIENT_ID`; activation accepts only the existing
-connector UAMI `59dbea72-1e91-403a-89cf-e02cdb8da350`, never
+approved connector UAMI client ID supplied outside Git, never
 `AZURE_CLIENT_ID`, federation, Key Vault, secrets, delegated credentials, or an
 arbitrary managed identity. The reviewed replacement-environment candidate does
 not grant a Graph app role, broaden permissions, assign a license, or create
