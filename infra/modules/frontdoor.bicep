@@ -1,4 +1,4 @@
-﻿@description('Azure Front Door Premium profile name.')
+@description('Azure Front Door Premium profile name.')
 param profileName string
 
 @description('Tags to apply to all resources.')
@@ -13,36 +13,95 @@ param acaEnvId string
 @description('Azure region of the ACA environment (private-link location must match).')
 param acaPrivateLinkLocation string
 
+@description('Deploy the reviewed anonymous-mutation guard. Disabled by default; enable only after JWT read validation and before any write-switch change.')
+param authenticatedMutationGuardEnabled bool = false
+
+var mutationGuardContract = loadJsonContent('../auth/frontdoor-authenticated-mutation-guard.contract.json')
+var mutationGuardRules = [
+  for rule in mutationGuardContract.rules: {
+    name: rule.name
+    priority: rule.priority
+    ruleType: 'MatchRule'
+    action: 'Block'
+    enabledState: 'Enabled'
+    matchConditions: [
+      {
+        matchVariable: 'RequestUri'
+        operator: rule.pathOperator
+        negateCondition: false
+        matchValue: rule.pathValues
+        transforms: [
+          'Lowercase'
+        ]
+      }
+      {
+        matchVariable: 'RequestMethod'
+        operator: 'Equal'
+        negateCondition: false
+        matchValue: rule.methods
+        transforms: []
+      }
+      {
+        matchVariable: mutationGuardContract.authorizationBoundary.matchVariable
+        selector: mutationGuardContract.authorizationBoundary.selector
+        operator: mutationGuardContract.authorizationBoundary.operator
+        negateCondition: mutationGuardContract.authorizationBoundary.negateCondition
+        matchValue: mutationGuardContract.authorizationBoundary.matchValues
+        transforms: mutationGuardContract.authorizationBoundary.transforms
+      }
+    ]
+  }
+]
+var wafPolicyName = replace(replace(profileName, '-', ''), 'fd', 'waffd')
+var commonWafProperties = {
+  policySettings: {
+    enabledState: 'Enabled'
+    mode: 'Prevention'
+    requestBodyCheck: 'Enabled'
+    customBlockResponseStatusCode: 403
+  }
+  managedRules: {
+    managedRuleSets: [
+      {
+        ruleSetType: 'Microsoft_DefaultRuleSet'
+        ruleSetVersion: '2.1'
+        ruleSetAction: 'Block'
+      }
+      {
+        ruleSetType: 'Microsoft_BotManagerRuleSet'
+        ruleSetVersion: '1.1'
+        ruleSetAction: 'Block'
+      }
+    ]
+  }
+}
+
 // ── WAF Policy (must be in Global) ─────────────────────────────────────────
 resource wafPolicy 'Microsoft.Network/frontDoorWebApplicationFirewallPolicies@2024-02-01' = {
-  name: replace(replace(profileName, '-', ''), 'fd', 'waffd')
+  name: wafPolicyName
   location: 'Global'
   tags: tags
   sku: {
     name: 'Premium_AzureFrontDoor'
   }
-  properties: {
-    policySettings: {
-      enabledState: 'Enabled'
-      mode: 'Prevention'
-      requestBodyCheck: 'Enabled'
-      customBlockResponseStatusCode: 403
-    }
-    managedRules: {
-      managedRuleSets: [
-        {
-          ruleSetType: 'Microsoft_DefaultRuleSet'
-          ruleSetVersion: '2.1'
-          ruleSetAction: 'Block'
-        }
-        {
-          ruleSetType: 'Microsoft_BotManagerRuleSet'
-          ruleSetVersion: '1.1'
-          ruleSetAction: 'Block'
-        }
-      ]
-    }
+  properties: commonWafProperties
+}
+
+resource authenticatedMutationWafPolicy 'Microsoft.Network/frontDoorWebApplicationFirewallPolicies@2024-02-01' = if (authenticatedMutationGuardEnabled) {
+  name: '${wafPolicyName}-authn'
+  location: 'Global'
+  tags: union(tags, {
+    'agent-sentinel-auth-mutation-guard': 'enabled'
+    'agent-sentinel-auth-mutation-contract': mutationGuardContract.contractDigest
+  })
+  sku: {
+    name: 'Premium_AzureFrontDoor'
   }
+  properties: union(commonWafProperties, {
+    customRules: {
+      rules: mutationGuardRules
+    }
+  })
 }
 
 // ── Front Door Premium Profile ──────────────────────────────────────────────
@@ -142,7 +201,7 @@ resource securityPolicy 'Microsoft.Cdn/profiles/securityPolicies@2024-02-01' = {
     parameters: {
       type: 'WebApplicationFirewall'
       wafPolicy: {
-        id: wafPolicy.id
+        id: authenticatedMutationGuardEnabled ? authenticatedMutationWafPolicy.id : wafPolicy.id
       }
       associations: [
         {
@@ -163,7 +222,13 @@ resource securityPolicy 'Microsoft.Cdn/profiles/securityPolicies@2024-02-01' = {
 // ── Outputs ─────────────────────────────────────────────────────────────────
 output endpointHostName string = endpoint.properties.hostName
 output profileId string = profile.id
-output wafPolicyId string = wafPolicy.id
+output wafPolicyId string = authenticatedMutationGuardEnabled ? authenticatedMutationWafPolicy.id : wafPolicy.id
+output baselineWafPolicyId string = wafPolicy.id
+output authenticatedMutationWafPolicyId string = authenticatedMutationGuardEnabled
+  ? authenticatedMutationWafPolicy.id
+  : ''
+output authenticatedMutationGuardEnabled bool = authenticatedMutationGuardEnabled
+output authenticatedMutationGuardContractDigest string = mutationGuardContract.contractDigest
 
 @description('Shell command to list and approve the private-link connection requests after this deployment.')
 output privateLinkApprovalHint string = 'az network private-endpoint-connection list --resource-group <rg> --name ${last(split(acaEnvId, '/'))} --type Microsoft.App/managedEnvironments'

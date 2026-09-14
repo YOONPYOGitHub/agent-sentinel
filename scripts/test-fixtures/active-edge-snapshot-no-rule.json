@@ -16,6 +16,14 @@
     }
   },
   "frontDoor": {
+    "associatedSecurityPolicyIds": [
+      "/subscriptions/77777777-7777-4777-8777-777777777777/resourceGroups/rg-agent-sentinel/providers/Microsoft.Cdn/profiles/fd-as-m098047/securityPolicies/sp-waf"
+    ],
+    "associatedWafPolicyIds": [
+      "/subscriptions/77777777-7777-4777-8777-777777777777/resourceGroups/rg-agent-sentinel/providers/Microsoft.Network/frontDoorWebApplicationFirewallPolicies/waffdas-m098047"
+    ],
+    "wafPolicyId": "/subscriptions/77777777-7777-4777-8777-777777777777/resourceGroups/rg-agent-sentinel/providers/Microsoft.Network/frontDoorWebApplicationFirewallPolicies/waffdas-m098047",
+    "wafPolicyContractDigest": null,
     "endpointEnabled": true,
     "endpointHostName": "sentinel-replacement.example.com",
     "wafAssociated": true,

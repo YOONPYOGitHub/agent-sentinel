@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { AzureCliCredential } from '@azure/identity'
 import { z } from 'zod'
 
+import { frontDoorMutationGuardContract } from './frontdoor-mutation-guard-contract.js'
 import { parseJsonRejectingDuplicateKeys } from './strict-json.js'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -21,7 +22,10 @@ export const activeEdgePreflightInputSchema = z
     endpointName: z.string().regex(NAME_PATTERN),
     frontDoorOrigin: z.string().url().max(256),
     stage: z.enum(['read-only', 'write-readiness']),
-    reviewedMutationRuleName: z.string().regex(NAME_PATTERN).optional(),
+    reviewedMutationContractDigest: z
+      .string()
+      .regex(/^sha256:[0-9a-f]{64}$/)
+      .optional(),
   })
   .superRefine((input, context) => {
     const origin = new URL(input.frontDoorOrigin)
@@ -41,11 +45,11 @@ export const activeEdgePreflightInputSchema = z
         message: 'Active edge origin must be one exact HTTPS origin.',
       })
     }
-    if (input.stage === 'write-readiness' && input.reviewedMutationRuleName === undefined) {
+    if (input.stage === 'write-readiness' && input.reviewedMutationContractDigest === undefined) {
       context.addIssue({
         code: 'custom',
-        path: ['reviewedMutationRuleName'],
-        message: 'Write-stage readiness requires the exact reviewed Front Door rule name.',
+        path: ['reviewedMutationContractDigest'],
+        message: 'Write-stage readiness requires the exact reviewed Front Door contract digest.',
       })
     }
   })
@@ -54,10 +58,15 @@ export type ActiveEdgePreflightInput = z.infer<typeof activeEdgePreflightInputSc
 
 const mutationRuleSchema = z.strictObject({
   name: z.string().min(1),
+  priority: z.number().int().min(1).max(1000),
   enabled: z.boolean(),
   action: z.string(),
-  pathPrefix: z.string(),
-  blockedMethods: z.array(z.string()),
+  pathOperator: z.string(),
+  pathValues: z.array(z.string()),
+  pathTransforms: z.array(z.string()),
+  methodOperator: z.string(),
+  methods: z.array(z.string()),
+  authorizationBoundaryMatches: z.boolean(),
 })
 
 export const activeEdgeSnapshotSchema = z.strictObject({
@@ -85,6 +94,10 @@ export const activeEdgeSnapshotSchema = z.strictObject({
       .optional(),
   }),
   frontDoor: z.strictObject({
+    associatedSecurityPolicyIds: z.array(z.string().min(1)).max(20),
+    associatedWafPolicyIds: z.array(z.string().min(1)).max(20),
+    wafPolicyId: z.string().min(1).nullable(),
+    wafPolicyContractDigest: z.string().nullable(),
     endpointEnabled: z.boolean(),
     endpointHostName: z.string().min(1),
     wafAssociated: z.boolean(),
@@ -119,21 +132,66 @@ export interface ActiveEdgePreflightReport {
     readonly authRedirectAvailable: boolean
     readonly jwtActive: boolean
     readonly apiWriteEnabled: boolean | null
+    readonly securityPolicyId: string | null
+    readonly wafPolicyId: string | null
+    readonly wafPolicyContractDigest: string | null
+    readonly wafPolicyUnambiguous: boolean
+    readonly mutationContractDigestMatches: boolean
     readonly frontDoorMutationRulePresent: boolean
-    readonly reviewedMutationRulePresent: boolean
+    readonly exactMutationRuleContractPresent: boolean
+    readonly apiAllowRulePresent: boolean
   }
   readonly checks: readonly ActiveEdgeCheck[]
+  readonly activationOrder: readonly [
+    'validate-jwt-reads-with-writes-disabled',
+    'deploy-and-verify-front-door-anonymous-mutation-guard',
+    'separately-approve-write-switch',
+  ]
+  readonly rollbackOrder: readonly [
+    'restore-write-switch-false',
+    'restore-approved-front-door-waf-association',
+    'restore-last-known-good-container-revisions',
+  ]
+}
+
+function sameValues(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false
+  const sortedLeft = [...left].sort()
+  const sortedRight = [...right].sort()
+  return sortedLeft.every((value, index) => value === sortedRight[index])
 }
 
 function mutationRuleMatches(
   rule: ActiveEdgeSnapshot['frontDoor']['mutationRules'][number],
+  expected: (typeof frontDoorMutationGuardContract.rules)[number],
 ): boolean {
-  const blocked = new Set(rule.blockedMethods.map((method) => method.toUpperCase()))
   return (
+    rule.name === expected.name &&
+    rule.priority === expected.priority &&
     rule.enabled &&
     rule.action === 'Block' &&
-    rule.pathPrefix.toLowerCase() === '/api/' &&
-    ['POST', 'PUT', 'PATCH', 'DELETE'].every((method) => blocked.has(method))
+    rule.pathOperator === expected.pathOperator &&
+    sameValues(rule.pathValues, expected.pathValues) &&
+    sameValues(rule.pathTransforms, ['Lowercase']) &&
+    rule.methodOperator === 'Equal' &&
+    sameValues(
+      rule.methods.map((method) => method.toUpperCase()),
+      expected.methods,
+    ) &&
+    rule.authorizationBoundaryMatches
+  )
+}
+
+function apiAllowRulePresent(rules: ActiveEdgeSnapshot['frontDoor']['mutationRules']): boolean {
+  return rules.some(
+    (rule) =>
+      rule.enabled &&
+      rule.action === 'Allow' &&
+      (rule.pathValues.length === 0 ||
+        rule.pathValues.some((value) => {
+          const normalized = value.toLowerCase()
+          return normalized.startsWith('/api') || normalized.startsWith('^/api')
+        })),
   )
 }
 
@@ -160,23 +218,46 @@ export function assessActiveEdge(
   const jwtActive = authConfigMatches && authConfig?.enabled === true
   const apiWriteEnabled = snapshot.origin.apiStatus?.security.writeEnabled ?? null
   const writesDisabled = snapshot.origin.apiStatusStatus === 200 && apiWriteEnabled === false
-  const eligibleRules = snapshot.frontDoor.mutationRules.filter(mutationRuleMatches)
+  const wafPolicyUnambiguous =
+    snapshot.frontDoor.associatedSecurityPolicyIds.length === 1 &&
+    snapshot.frontDoor.associatedWafPolicyIds.length === 1 &&
+    snapshot.frontDoor.wafPolicyId === snapshot.frontDoor.associatedWafPolicyIds[0]
+  const noWafAssociation =
+    snapshot.frontDoor.associatedSecurityPolicyIds.length === 0 &&
+    snapshot.frontDoor.associatedWafPolicyIds.length === 0 &&
+    snapshot.frontDoor.wafPolicyId === null
+  const wafAssociationSafe = noWafAssociation || wafPolicyUnambiguous
+  const mutationContractDigestMatches =
+    snapshot.frontDoor.wafPolicyContractDigest === frontDoorMutationGuardContract.contractDigest &&
+    (input.reviewedMutationContractDigest === undefined ||
+      input.reviewedMutationContractDigest === frontDoorMutationGuardContract.contractDigest)
+  const names = snapshot.frontDoor.mutationRules.map((rule) => rule.name)
+  const priorities = snapshot.frontDoor.mutationRules.map((rule) => rule.priority)
+  const rulesUnambiguous =
+    new Set(names).size === names.length && new Set(priorities).size === priorities.length
+  const exactMutationRuleContractPresent =
+    rulesUnambiguous &&
+    frontDoorMutationGuardContract.rules.every(
+      (expected) =>
+        snapshot.frontDoor.mutationRules.filter((rule) => mutationRuleMatches(rule, expected))
+          .length === 1,
+    )
+  const allowRulePresent = apiAllowRulePresent(snapshot.frontDoor.mutationRules)
   const frontDoorMutationRulePresent =
+    wafPolicyUnambiguous &&
     snapshot.frontDoor.wafAssociated &&
     snapshot.frontDoor.wafEnabled &&
     snapshot.frontDoor.wafMode === 'Prevention' &&
-    eligibleRules.length > 0
-  const reviewedMutationRulePresent =
-    frontDoorMutationRulePresent &&
-    input.reviewedMutationRuleName !== undefined &&
-    eligibleRules.some((rule) => rule.name === input.reviewedMutationRuleName)
+    mutationContractDigestMatches &&
+    exactMutationRuleContractPresent &&
+    !allowRulePresent
   const commonReady =
     httpsOrigin && endpointMatches && authRedirectAvailable && authConfigMatches && writesDisabled
-  const writeActivationAllowed = commonReady && jwtActive && reviewedMutationRulePresent
+  const writeActivationAllowed = commonReady && jwtActive && frontDoorMutationRulePresent
   const ready =
     input.stage === 'read-only'
-      ? commonReady
-      : commonReady && jwtActive && reviewedMutationRulePresent
+      ? commonReady && wafAssociationSafe && !allowRulePresent
+      : commonReady && jwtActive && frontDoorMutationRulePresent
   const safeReadOnlyPolicy = frontDoorMutationRulePresent
     ? 'front-door-mutation-rule'
     : writesDisabled
@@ -213,14 +294,32 @@ export function assessActiveEdge(
           ? 'pass'
           : 'block',
       message: frontDoorMutationRulePresent
-        ? 'An associated Front Door WAF Prevention rule blocks API mutation methods.'
-        : 'No active Front Door mutation rule was found; only write-disabled read-only activation is allowed.',
+        ? 'One associated Front Door WAF Prevention policy has the exact reviewed anonymous-mutation contract.'
+        : 'The exact active Front Door mutation contract is absent or ambiguous; only write-disabled read-only activation is allowed.',
+    },
+    {
+      id: 'front-door-policy-identity',
+      status:
+        input.stage === 'read-only'
+          ? wafAssociationSafe
+            ? 'pass'
+            : 'block'
+          : wafPolicyUnambiguous && mutationContractDigestMatches
+            ? 'pass'
+            : 'block',
+      message:
+        'Write readiness requires one endpoint security policy, one WAF policy, and the exact immutable contract digest.',
+    },
+    {
+      id: 'no-api-allow-rule',
+      status: allowRulePresent ? 'block' : 'pass',
+      message: 'No enabled Front Door Allow rule may target the API boundary.',
     },
     {
       id: 'write-stage-jwt-and-reviewed-edge',
       status: input.stage === 'read-only' || writeActivationAllowed ? 'pass' : 'block',
       message:
-        'Write-stage readiness requires active JWT configuration and the exact reviewed Front Door mutation rule.',
+        'Write-stage readiness requires active JWT configuration and the exact reviewed Front Door mutation contract.',
     },
   ]
 
@@ -236,10 +335,29 @@ export function assessActiveEdge(
       authRedirectAvailable,
       jwtActive,
       apiWriteEnabled,
+      securityPolicyId:
+        snapshot.frontDoor.associatedSecurityPolicyIds.length === 1
+          ? (snapshot.frontDoor.associatedSecurityPolicyIds[0] ?? null)
+          : null,
+      wafPolicyId: snapshot.frontDoor.wafPolicyId,
+      wafPolicyContractDigest: snapshot.frontDoor.wafPolicyContractDigest,
+      wafPolicyUnambiguous,
+      mutationContractDigestMatches,
       frontDoorMutationRulePresent,
-      reviewedMutationRulePresent,
+      exactMutationRuleContractPresent,
+      apiAllowRulePresent: allowRulePresent,
     },
     checks,
+    activationOrder: [
+      'validate-jwt-reads-with-writes-disabled',
+      'deploy-and-verify-front-door-anonymous-mutation-guard',
+      'separately-approve-write-switch',
+    ],
+    rollbackOrder: [
+      'restore-write-switch-false',
+      'restore-approved-front-door-waf-association',
+      'restore-last-known-good-container-revisions',
+    ],
   }
 }
 
@@ -276,8 +394,12 @@ function extractMutationRules(policy: unknown): ActiveEdgeSnapshot['frontDoor'][
   return arrayValue(customRules?.['rules']).flatMap((candidate) => {
     const rule = objectValue(candidate)
     if (rule === undefined) return []
-    let pathPrefix = ''
-    let blockedMethods: string[] = []
+    let pathOperator = ''
+    let pathValues: string[] = []
+    let pathTransforms: string[] = []
+    let methodOperator = ''
+    let methods: string[] = []
+    let authorizationBoundaryMatches = false
     for (const rawCondition of arrayValue(rule['matchConditions'])) {
       const condition = objectValue(rawCondition)
       if (condition === undefined) continue
@@ -294,22 +416,54 @@ function extractMutationRules(policy: unknown): ActiveEdgeSnapshot['frontDoor'][
           ? arrayValue(condition['matchValue'])
           : arrayValue(condition['matchValues'])
       const strings = values.filter((value): value is string => typeof value === 'string')
-      if (variableNames.includes('RequestUri')) pathPrefix = strings[0] ?? pathPrefix
+      if (variableNames.includes('RequestUri')) {
+        pathOperator = stringValue(condition['operator']) ?? pathOperator
+        pathValues = strings
+        pathTransforms = arrayValue(condition['transforms']).filter(
+          (value): value is string => typeof value === 'string',
+        )
+      }
       if (variableNames.includes('RequestMethod')) {
+        methodOperator = stringValue(condition['operator']) ?? methodOperator
         const negated =
           condition['negateCondition'] === true || condition['negationConditon'] === true
-        blockedMethods = negated
+        methods = negated
           ? ['POST', 'PUT', 'PATCH', 'DELETE']
           : strings.map((method) => method.toUpperCase())
+      }
+      const conditionTransforms = arrayValue(condition['transforms']).filter(
+        (value): value is string => typeof value === 'string',
+      )
+      if (
+        variableNames.includes('RequestHeader') &&
+        stringValue(condition['selector'])?.toLowerCase() === 'authorization' &&
+        condition['operator'] === frontDoorMutationGuardContract.authorizationBoundary.operator &&
+        condition['negateCondition'] ===
+          frontDoorMutationGuardContract.authorizationBoundary.negateCondition &&
+        sameValues(strings, frontDoorMutationGuardContract.authorizationBoundary.matchValues) &&
+        sameValues(
+          conditionTransforms,
+          frontDoorMutationGuardContract.authorizationBoundary.transforms,
+        )
+      ) {
+        authorizationBoundaryMatches = true
       }
     }
     return [
       {
         name: stringValue(rule['name']) ?? 'unnamed',
+        priority:
+          typeof rule['priority'] === 'number' && Number.isInteger(rule['priority'])
+            ? rule['priority']
+            : 1000,
         enabled: rule['enabledState'] === 'Enabled' || rule['enabled'] === true,
         action: stringValue(rule['action']) ?? 'Unknown',
-        pathPrefix,
-        blockedMethods,
+        pathOperator,
+        pathValues,
+        pathTransforms,
+        methodOperator,
+        methods,
+        authorizationBoundaryMatches,
       },
     ]
   })
@@ -365,9 +519,9 @@ export class AzureActiveEdgeInspectionClient implements ActiveEdgeInspectionClie
     ])
     const endpointProperties = objectValue(objectValue(endpoint)?.['properties'])
     const policyItems = arrayValue(objectValue(policies)?.['value'])
-    let wafPolicyId: string | undefined
-    let wafAssociated = false
-    for (const rawPolicy of policyItems) {
+    const associatedSecurityPolicyIds: string[] = []
+    const associatedWafPolicyIds: string[] = []
+    for (const [index, rawPolicy] of policyItems.entries()) {
       const parameters = objectValue(
         objectValue(objectValue(rawPolicy)?.['properties'])?.['parameters'],
       )
@@ -380,18 +534,26 @@ export class AzureActiveEdgeInspectionClient implements ActiveEdgeInspectionClie
             .endsWith(`/afdendpoints/${input.endpointName.toLowerCase()}`),
         ),
       )
-      if (associated && stringValue(wafPolicy?.['id']) !== undefined) {
-        wafPolicyId = stringValue(wafPolicy?.['id'])
-        wafAssociated = true
-        break
+      if (associated) {
+        associatedSecurityPolicyIds.push(
+          stringValue(objectValue(rawPolicy)?.['id']) ?? `unknown-security-policy-${String(index)}`,
+        )
+        const associatedWafPolicyId = stringValue(wafPolicy?.['id'])
+        if (associatedWafPolicyId !== undefined) {
+          associatedWafPolicyIds.push(associatedWafPolicyId)
+        }
       }
     }
+    const uniqueSecurityPolicyIds = [...new Set(associatedSecurityPolicyIds)]
+    const uniqueWafPolicyIds = [...new Set(associatedWafPolicyIds)]
+    const wafPolicyId = uniqueWafPolicyIds.length === 1 ? uniqueWafPolicyIds[0] : undefined
     const waf =
       wafPolicyId === undefined
         ? undefined
         : await this.arm(`${wafPolicyId}?api-version=2024-02-01`)
     const wafProperties = objectValue(objectValue(waf)?.['properties'])
     const settings = objectValue(wafProperties?.['policySettings'])
+    const wafTags = objectValue(objectValue(waf)?.['tags'])
     const authBody = objectValue(authConfig.body)
     const statusBody = objectValue(apiStatus.body)
     const security = objectValue(statusBody?.['security'])
@@ -440,9 +602,14 @@ export class AzureActiveEdgeInspectionClient implements ActiveEdgeInspectionClie
             }),
       },
       frontDoor: {
+        associatedSecurityPolicyIds: uniqueSecurityPolicyIds,
+        associatedWafPolicyIds: uniqueWafPolicyIds,
+        wafPolicyId: wafPolicyId ?? null,
+        wafPolicyContractDigest:
+          stringValue(wafTags?.['agent-sentinel-auth-mutation-contract']) ?? null,
         endpointEnabled: endpointProperties?.['enabledState'] === 'Enabled',
         endpointHostName: stringValue(endpointProperties?.['hostName']) ?? '',
-        wafAssociated,
+        wafAssociated: uniqueSecurityPolicyIds.length > 0 && uniqueWafPolicyIds.length > 0,
         wafEnabled: settings?.['enabledState'] === 'Enabled',
         wafMode:
           settings?.['mode'] === 'Prevention' || settings?.['mode'] === 'Detection'

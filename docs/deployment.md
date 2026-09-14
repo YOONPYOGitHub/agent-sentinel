@@ -114,6 +114,21 @@ the new IDs through the `auth*` parameters. Keep `authMode = 'disabled'` and
 `agentSentinelWriteEnabled = false` until the replacement registration and
 read-only sign-in checks pass.
 
+Front Door mutation protection is a separate staged deployment. The module parameter
+`frontDoorAuthenticatedMutationGuardEnabled` defaults to `false`; do not add it to an
+environment-specific parameter file in advance. After JWT read validation succeeds with writes
+false, review the exact contract digest from
+`infra/auth/frontdoor-authenticated-mutation-guard.contract.json` and a Bicep what-if that changes
+only the Front Door WAF contract. Enabling the parameter creates a separate immutable guarded policy
+and changes the endpoint security-policy association only after that policy exists; the baseline
+managed-rule policy remains the rollback target. Run the write-readiness edge preflight and
+revalidate anonymous API denial before seeking a separate `agentSentinelWriteEnabled=true`
+approval.
+
+Rollback must first restore `agentSentinelWriteEnabled=false`, then restore the reviewed Front Door
+contract and digest, then restore last-known-good Container Apps image digests. Never relax or remove
+the anonymous guard while the write-switch state is unknown.
+
 Foundry agents are workload data and are not created by Bicep. After the
 replacement project and its manifest-referenced model deployments are ready,
 grant the provisioning operator `Foundry User` on that project and run:

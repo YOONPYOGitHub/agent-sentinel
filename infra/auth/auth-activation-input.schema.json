@@ -103,11 +103,20 @@
     "waf": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["policyMode", "mutationRuleName", "mutationRuleAction", "unchanged"],
+      "required": [
+        "policyMode",
+        "mutationGuardContractDigest",
+        "mutationGuardDeployment",
+        "mutationGuardEnabledDuringAuthActivation",
+        "unchanged"
+      ],
       "properties": {
         "policyMode": { "const": "Prevention" },
-        "mutationRuleName": { "const": "BlockApiMutationPreAuth" },
-        "mutationRuleAction": { "const": "Block" },
+        "mutationGuardContractDigest": {
+          "const": "sha256:f8aa6df2920fc6ba05a5695a4372c7b72b46054ac40b9aa14cd9a469d41ac19d"
+        },
+        "mutationGuardDeployment": { "const": "separate-after-jwt-read-validation" },
+        "mutationGuardEnabledDuringAuthActivation": { "const": false },
         "unchanged": { "const": true }
       }
     },

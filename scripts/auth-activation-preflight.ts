@@ -4,6 +4,8 @@ import { pathToFileURL } from 'node:url'
 
 import { z } from 'zod'
 
+import { frontDoorMutationGuardContract } from './frontdoor-mutation-guard-contract.js'
+
 export const AUTH_ACTIVATION_ROLES = [
   'AgentSentinel.Viewer',
   'AgentSentinel.Analyst',
@@ -56,8 +58,9 @@ export const authActivationInputSchema = z
     writesEnabled: z.literal(false),
     waf: z.strictObject({
       policyMode: z.literal('Prevention'),
-      mutationRuleName: z.literal('BlockApiMutationPreAuth'),
-      mutationRuleAction: z.literal('Block'),
+      mutationGuardContractDigest: z.literal(frontDoorMutationGuardContract.contractDigest),
+      mutationGuardDeployment: z.literal('separate-after-jwt-read-validation'),
+      mutationGuardEnabledDuringAuthActivation: z.literal(false),
       unchanged: z.literal(true),
     }),
     deployment: z.strictObject({
@@ -379,7 +382,7 @@ export function assessAuthActivation(input: unknown): AuthActivationPreflightRep
         id: 'read-only-boundary',
         status: 'pass',
         message:
-          'SPA scopes are read-only, application writes are disabled, and WAF remains blocking.',
+          'SPA scopes are read-only, application writes are disabled, and this activation makes no WAF change.',
       },
       {
         id: 'roles-and-estates',
@@ -416,7 +419,7 @@ export function assessAuthActivation(input: unknown): AuthActivationPreflightRep
       ],
       invariants: [
         'AGENT_SENTINEL_WRITE_ENABLED remains false.',
-        'BlockApiMutationPreAuth remains enabled in Prevention mode with Block action.',
+        `Front Door mutation contract ${value.waf.mutationGuardContractDigest} is deployed only after JWT read validation.`,
         'No Entra application, grant, role assignment, secret, or WAF resource is mutated.',
         'API is updated and verified before web.',
       ],
@@ -517,8 +520,9 @@ function inputFromOptions(values: Map<string, string[]>): unknown {
     'production',
     'writes-enabled',
     'waf-policy-mode',
-    'waf-rule-name',
-    'waf-rule-action',
+    'waf-contract-digest',
+    'waf-guard-deployment',
+    'waf-guard-enabled',
     'waf-unchanged',
   ])
   const unknown = [...values.keys()].filter((name) => !known.has(name))
@@ -555,8 +559,9 @@ function inputFromOptions(values: Map<string, string[]>): unknown {
     writesEnabled: required(values, 'writes-enabled') === 'true',
     waf: {
       policyMode: required(values, 'waf-policy-mode'),
-      mutationRuleName: required(values, 'waf-rule-name'),
-      mutationRuleAction: required(values, 'waf-rule-action'),
+      mutationGuardContractDigest: required(values, 'waf-contract-digest'),
+      mutationGuardDeployment: required(values, 'waf-guard-deployment'),
+      mutationGuardEnabledDuringAuthActivation: required(values, 'waf-guard-enabled') === 'true',
       unchanged: required(values, 'waf-unchanged') === 'true',
     },
     deployment: {

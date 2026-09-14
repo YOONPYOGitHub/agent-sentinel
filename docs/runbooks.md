@@ -161,15 +161,22 @@ configuration, API write switch, Front Door security-policy association, WAF mod
 
 Two read-only activation policies are allowed:
 
-1. `front-door-mutation-rule`: an associated enabled Front Door WAF policy is in Prevention mode and
-   an exact rule blocks `POST`, `PUT`, `PATCH`, and `DELETE` under `/api/`.
+1. `front-door-mutation-rule`: exactly one associated Front Door security policy and WAF policy are
+   in Prevention mode, the immutable contract digest matches, and every exact path/method rule from
+   `infra/auth/frontdoor-authenticated-mutation-guard.contract.json` blocks requests with a missing
+   or malformed Bearer-token-shaped `Authorization` header.
 2. `api-writes-disabled-no-write-activation`: the active API reports `writeEnabled=false`; no write
    activation is allowed while the Front Door mutation rule is absent.
 
-Write-stage readiness must remain blocked unless JWT is active and the exact Front Door mutation
-rule name has been reviewed and rediscovered. The WAF cannot authenticate an Entra token; API JWT
-and role authorization remain authoritative. If a reviewed Front Door rule is later changed,
-rollback order is Front Door block, writes false, then last known-good Container Apps revision.
+The contract contains no API `Allow` rule and no broad `/api/*` match. Write-stage readiness fails
+closed on missing or ambiguous policies, duplicate or drifted rules, digest mismatch, or any API
+`Allow` rule. The WAF cannot authenticate an Entra token; API JWT and role authorization remain
+authoritative.
+
+Activation order is JWT read validation with writes false, separately approved WAF deployment with
+writes still false, exact edge rediscovery, then a separate write-switch approval. Rollback order is
+writes false, reviewed WAF association restoration (guarded or baseline policy as approved), then
+last-known-good Container Apps revisions.
 
 ## RB-012: Registration Bootstrap, Auth Activation, and Live Validation
 
@@ -198,7 +205,8 @@ old redirect origins and do not infer activation from repository code or prior d
    `pnpm auth:validate-live`. Assign isolated Analyst, Approver, and Administrator principals only
    after approval, then validate all four capability boundaries.
 9. Do not run `AUTH_VALIDATION_PHASE=write` until RB-011 reports JWT plus the exact reviewed active
-   Front Door rule. Use only the explicitly approved bounded, reversible mutation target.
+   Front Door contract digest and rules. Use only the explicitly approved bounded, reversible
+   mutation target.
 
 The validators never acquire, persist, or print user tokens. Do not place token values in shell
 history, Git, logs, screenshots, or reports. Record only pass/fail status and correlation IDs.

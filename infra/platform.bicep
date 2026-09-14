@@ -43,6 +43,9 @@ param agentSentinelDataMode string = 'mock'
 @description('Global write switch. Keep false until JWT authorization and a private authenticated write test pass.')
 param agentSentinelWriteEnabled bool = false
 
+@description('Deploy the reviewed Front Door anonymous-mutation guard. Keep false until JWT read validation passes; enable before changing the write switch.')
+param frontDoorAuthenticatedMutationGuardEnabled bool = false
+
 @description('Foundry project endpoint URL for live mode.')
 param foundryProjectEndpoint string = ''
 
@@ -563,6 +566,7 @@ module frontdoor './modules/frontdoor.bicep' = {
     webOriginHostName: containerApps.outputs.webFqdn
     acaEnvId: containerApps.outputs.acaEnvId
     acaPrivateLinkLocation: location
+    authenticatedMutationGuardEnabled: frontDoorAuthenticatedMutationGuardEnabled
   }
   dependsOn: [containerApps]
 }
@@ -594,3 +598,5 @@ output appGatewayPublicFqdn string = appGateway.outputs.publicIpFqdn
 
 // Active HTTPS public edge
 output frontDoorEndpointHostName string = frontdoor.outputs.endpointHostName
+output frontDoorAuthenticatedMutationGuardEnabled bool = frontdoor.outputs.authenticatedMutationGuardEnabled
+output frontDoorAuthenticatedMutationGuardContractDigest string = frontdoor.outputs.authenticatedMutationGuardContractDigest

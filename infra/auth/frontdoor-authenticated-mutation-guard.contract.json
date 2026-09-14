@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "1.0.0",
+  "contractId": "frontdoor-authenticated-mutation-guard-v1",
+  "contractDigest": "sha256:f8aa6df2920fc6ba05a5695a4372c7b72b46054ac40b9aa14cd9a469d41ac19d",
+  "authorizationBoundary": {
+    "matchVariable": "RequestHeader",
+    "selector": "Authorization",
+    "operator": "RegEx",
+    "negateCondition": true,
+    "matchValues": ["^Bearer [A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"],
+    "transforms": ["Trim"]
+  },
+  "rules": [
+    {
+      "name": "BlockAnonConnectorSourceCreate",
+      "priority": 101,
+      "pathOperator": "RegEx",
+      "pathValues": ["^/api/connector-sources/?$", "^/api/connector-sources/?\\?.*$"],
+      "methods": ["POST"],
+      "examplePaths": ["/api/connector-sources"]
+    },
+    {
+      "name": "BlockAnonConnectorSourceChange",
+      "priority": 102,
+      "pathOperator": "RegEx",
+      "pathValues": ["^/api/connector-sources/[^/?]+/?$", "^/api/connector-sources/[^/?]+/?\\?.*$"],
+      "methods": ["PATCH", "DELETE"],
+      "examplePaths": ["/api/connector-sources/example-source"]
+    },
+    {
+      "name": "BlockAnonGovernanceCaseCreate",
+      "priority": 103,
+      "pathOperator": "RegEx",
+      "pathValues": ["^/api/governance/queue/?$", "^/api/governance/queue/?\\?.*$"],
+      "methods": ["POST"],
+      "examplePaths": ["/api/governance/queue"]
+    },
+    {
+      "name": "BlockAnonGovernanceTransition",
+      "priority": 104,
+      "pathOperator": "RegEx",
+      "pathValues": [
+        "^/api/governance/queue/[^/?]+/transitions/?$",
+        "^/api/governance/queue/[^/?]+/transitions/?\\?.*$"
+      ],
+      "methods": ["POST"],
+      "examplePaths": ["/api/governance/queue/example-case/transitions"]
+    },
+    {
+      "name": "BlockAnonManifestIngestion",
+      "priority": 105,
+      "pathOperator": "RegEx",
+      "pathValues": ["^/api/manifests/ingestions/?$", "^/api/manifests/ingestions/?\\?.*$"],
+      "methods": ["POST"],
+      "examplePaths": ["/api/manifests/ingestions"]
+    },
+    {
+      "name": "BlockAnonDemoReset",
+      "priority": 106,
+      "pathOperator": "RegEx",
+      "pathValues": ["^/api/demo/reset/?$", "^/api/demo/reset/?\\?.*$"],
+      "methods": ["POST"],
+      "examplePaths": ["/api/demo/reset"]
+    },
+    {
+      "name": "BlockAnonDemoFindingMutation",
+      "priority": 107,
+      "pathOperator": "RegEx",
+      "pathValues": [
+        "^/api/demo/findings/[^/?]+/validate/?$",
+        "^/api/demo/findings/[^/?]+/validate/?\\?.*$",
+        "^/api/demo/findings/[^/?]+/remediations/?$",
+        "^/api/demo/findings/[^/?]+/remediations/?\\?.*$"
+      ],
+      "methods": ["POST"],
+      "examplePaths": [
+        "/api/demo/findings/example-finding/validate",
+        "/api/demo/findings/example-finding/remediations"
+      ]
+    },
+    {
+      "name": "BlockAnonDemoRemediationMutation",
+      "priority": 108,
+      "pathOperator": "RegEx",
+      "pathValues": [
+        "^/api/demo/remediations/[^/?]+/approve/?$",
+        "^/api/demo/remediations/[^/?]+/approve/?\\?.*$",
+        "^/api/demo/remediations/[^/?]+/execute/?$",
+        "^/api/demo/remediations/[^/?]+/execute/?\\?.*$"
+      ],
+      "methods": ["POST"],
+      "examplePaths": [
+        "/api/demo/remediations/example-remediation/approve",
+        "/api/demo/remediations/example-remediation/execute"
+      ]
+    },
+    {
+      "name": "BlockAnonExposureNarrative",
+      "priority": 109,
+      "pathOperator": "RegEx",
+      "pathValues": [
+        "^/api/exposures/[^/?]+/narrative/?$",
+        "^/api/exposures/[^/?]+/narrative/?\\?.*$"
+      ],
+      "methods": ["POST"],
+      "examplePaths": ["/api/exposures/example-finding/narrative"]
+    }
+  ]
+}

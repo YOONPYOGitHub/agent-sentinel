@@ -23,8 +23,19 @@
     "endpointName": { "type": "string", "minLength": 1, "maxLength": 90 },
     "frontDoorOrigin": { "type": "string", "format": "uri", "pattern": "^https://[^/?#:]+$" },
     "stage": { "enum": ["read-only", "write-readiness"] },
-    "reviewedMutationRuleName": { "type": "string", "minLength": 1, "maxLength": 90 }
+    "reviewedMutationContractDigest": {
+      "const": "sha256:f8aa6df2920fc6ba05a5695a4372c7b72b46054ac40b9aa14cd9a469d41ac19d"
+    }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "stage": { "const": "write-readiness" } },
+        "required": ["stage"]
+      },
+      "then": { "required": ["reviewedMutationContractDigest"] }
+    }
+  ],
   "$defs": {
     "uuid": {
       "type": "string",

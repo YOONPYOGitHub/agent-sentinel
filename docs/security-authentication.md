@@ -17,6 +17,13 @@ Application Gateway and does **not** protect Front Door traffic. The current saf
 therefore relies on the API write switch remaining false; write activation is prohibited until an
 active Front Door mutation rule is reviewed, present, and verified together with JWT.
 
+The repository now contains a disabled-by-default Front Door contract at
+`infra/auth/frontdoor-authenticated-mutation-guard.contract.json`. It enumerates the exact public
+mutation path/method pairs and blocks requests whose `Authorization` header is missing or is not a
+three-segment Bearer-token shape. It creates no `Allow` rule and no `/api/*` wildcard. Token shape is
+only an edge guard: the API remains the authority for JWT signature, tenant, audience, scope, role,
+and write-switch enforcement.
+
 ## Roles
 
 | Role          | Exact app-role value          | Capability boundary                                         |
@@ -100,10 +107,11 @@ pnpm auth:edge-preflight -- --input /secure/local/path/active-edge-input.json \
   --output active-edge-preflight.json
 ```
 
-The active-edge report explicitly selects one safe read-only policy: an associated Front Door
-Prevention rule that blocks API mutations, or `writeEnabled=false` with no write activation allowed.
-Write-stage readiness always blocks unless JWT is active and the exact reviewed Front Door rule is
-present.
+The active-edge report explicitly selects one safe read-only policy: one unambiguous associated
+Front Door Prevention policy with the exact contract digest and rules, or `writeEnabled=false` with
+no write activation allowed. Write-stage readiness always blocks on missing or multiple security
+policies/WAF policies, digest drift, duplicate rules, any API `Allow` rule, inactive JWT, or a true
+write switch.
 
 1. **Read-only activation — pending in the replacement deployment.** Register
    the exact replacement HTTPS redirect/logout URIs, inject the fail-closed JWT
@@ -112,11 +120,14 @@ present.
 2. **Complete role validation.** Assign least-privilege test principals/groups for Analyst,
    Approver, and Administrator and verify every documented capability boundary. Do not assign
    broad groups by default.
-3. **Create an active-edge write guard.** Separately review and deploy the smallest Front Door WAF
-   rule that blocks public mutation methods, then rediscover it with the write-readiness preflight.
-4. **Validate a bounded write.** Only after JWT and the reviewed Front Door rule both pass, use an
+3. **Create the active-edge anonymous guard.** Review the exact contract digest, Bicep what-if, and
+   `frontDoorAuthenticatedMutationGuardEnabled=true` parameter without changing the write switch.
+   Deploy it separately from auth activation, then rediscover the one policy and all exact rules.
+4. **Validate a bounded write.** Only after JWT and the reviewed Front Door contract both pass, use an
    approved private endpoint for one reversible write. Any later Front Door exception is a separate
    approval and must preserve anonymous API denial. WAF never replaces API authorization.
+5. **Activate public writes separately.** A later reviewed deployment may change only
+   `AGENT_SENTINEL_WRITE_ENABLED`; this repository change does not enable or deploy that switch.
 
 The custom manifest ingestion endpoint is independently gated by JWT mode, the Administrator
 `configure` capability, and `AGENT_SENTINEL_WRITE_ENABLED=true`. Its manifest tenant/environment
@@ -168,7 +179,9 @@ mutation endpoint or resource identifier.
 - [ ] Replacement employee sign-in, logout, anonymous `401`, Viewer `403`, and `/api/auth/me` validated
 - [ ] Analyst, Approver, Administrator, and all four role boundaries validated with live tokens
 - [ ] Private authenticated write smoke test passed
-- [ ] Active Front Door mutation rule reviewed, deployed, and public anonymous denial revalidated
+- [ ] Exact Front Door contract digest and Bicep what-if approved
+- [ ] Disabled-by-default Front Door anonymous-mutation guard deployed and rediscovered
+- [ ] Public anonymous denial revalidated before any separate write-switch approval
 
 OneRAI or corporate service onboarding can proceed independently; it does not block local auth
 engineering. It also does not substitute for identity, consent, role-assignment, deployment, or WAF
@@ -176,9 +189,12 @@ approval.
 
 ## Emergency rollback
 
-1. If an active Front Door mutation rule was changed, restore its reviewed Prevention-mode block before any other relaxation is reverted; do not rely on the stopped Application Gateway rule.
-2. Set `AGENT_SENTINEL_WRITE_ENABLED=false` and restore the last known-good Container Apps revision.
-3. Return to `AUTH_MODE=disabled` only while writes remain false; no public write activation is
+1. Set `AGENT_SENTINEL_WRITE_ENABLED=false` first and verify `/api/status`; do not remove or relax the
+   Front Door anonymous guard while the write state is unknown.
+2. Restore the reviewed Front Door Prevention-mode contract and digest. Do not rely on the stopped
+   Application Gateway rule.
+3. Restore the last known-good Container Apps revisions and immutable image digests.
+4. Return to `AUTH_MODE=disabled` only while writes remain false; no public write activation is
    permitted without an active reviewed Front Door mutation rule.
-4. Remove incorrect role assignments or consent grants through the approved identity process.
-5. Record status codes and correlation IDs only; never copy tokens, personal claims, or secrets.
+5. Remove incorrect role assignments or consent grants through the approved identity process.
+6. Record status codes and correlation IDs only; never copy tokens, personal claims, or secrets.

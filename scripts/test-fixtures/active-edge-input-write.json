@@ -7,5 +7,5 @@
   "endpointName": "agent-sentinel",
   "frontDoorOrigin": "https://sentinel-replacement.example.com",
   "stage": "write-readiness",
-  "reviewedMutationRuleName": "BlockApiMutationPreAuth"
+  "reviewedMutationContractDigest": "sha256:f8aa6df2920fc6ba05a5695a4372c7b72b46054ac40b9aa14cd9a469d41ac19d"
 }

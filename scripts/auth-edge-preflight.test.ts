@@ -10,6 +10,10 @@ async function fixture(name: string): Promise<unknown> {
   ) as unknown
 }
 
+function copy<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
 describe('assessActiveEdge', () => {
   it('models write-disabled API state as the safe fallback when active Front Door has no mutation rule', async () => {
     const report = assessActiveEdge(
@@ -55,8 +59,81 @@ describe('assessActiveEdge', () => {
 
     expect(report.status).toBe('ready')
     expect(report.observations.jwtActive).toBe(true)
-    expect(report.observations.reviewedMutationRulePresent).toBe(true)
+    expect(report.observations.exactMutationRuleContractPresent).toBe(true)
+    expect(report.observations.mutationContractDigestMatches).toBe(true)
     expect(report.writeActivationAllowed).toBe(true)
+    expect(report.activationOrder).toEqual([
+      'validate-jwt-reads-with-writes-disabled',
+      'deploy-and-verify-front-door-anonymous-mutation-guard',
+      'separately-approve-write-switch',
+    ])
+    expect(report.rollbackOrder[0]).toBe('restore-write-switch-false')
+  })
+
+  it('fails closed on missing or ambiguous WAF policy associations', async () => {
+    const input = await fixture('active-edge-input-write')
+    const ready = (await fixture('active-edge-snapshot-rule')) as {
+      frontDoor: {
+        associatedSecurityPolicyIds: string[]
+        associatedWafPolicyIds: string[]
+        wafPolicyId: string | null
+      }
+    }
+    const missing = copy(ready)
+    missing.frontDoor.associatedWafPolicyIds = []
+    missing.frontDoor.wafPolicyId = null
+    expect(assessActiveEdge(input, missing).status).toBe('blocked')
+
+    const ambiguous = copy(ready)
+    ambiguous.frontDoor.associatedSecurityPolicyIds.push(
+      `${ambiguous.frontDoor.associatedSecurityPolicyIds[0] ?? 'security-policy'}-duplicate`,
+    )
+    ambiguous.frontDoor.associatedWafPolicyIds.push(
+      `${ambiguous.frontDoor.associatedWafPolicyIds[0] ?? 'waf-policy'}-duplicate`,
+    )
+    ambiguous.frontDoor.wafPolicyId = null
+    const report = assessActiveEdge(input, ambiguous)
+    expect(report.status).toBe('blocked')
+    expect(report.observations.wafPolicyUnambiguous).toBe(false)
+  })
+
+  it('fails closed on duplicate rules, contract drift, and API Allow rules', async () => {
+    const input = await fixture('active-edge-input-write')
+    const ready = (await fixture('active-edge-snapshot-rule')) as {
+      frontDoor: {
+        wafPolicyContractDigest: string | null
+        mutationRules: Array<Record<string, unknown>>
+      }
+    }
+
+    const duplicate = copy(ready)
+    duplicate.frontDoor.mutationRules.push(copy(duplicate.frontDoor.mutationRules[0] ?? {}))
+    expect(assessActiveEdge(input, duplicate).status).toBe('blocked')
+
+    const drifted = copy(ready)
+    drifted.frontDoor.wafPolicyContractDigest =
+      'sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
+    expect(assessActiveEdge(input, drifted).status).toBe('blocked')
+
+    const allowed = copy(ready)
+    allowed.frontDoor.mutationRules.push({
+      name: 'AllowAllApi',
+      priority: 50,
+      enabled: true,
+      action: 'Allow',
+      pathOperator: 'RegEx',
+      pathValues: ['^/api/.*'],
+      pathTransforms: ['Lowercase'],
+      methodOperator: 'Equal',
+      methods: ['POST'],
+      authorizationBoundaryMatches: false,
+    })
+    const report = assessActiveEdge(input, allowed)
+    expect(report.status).toBe('blocked')
+    expect(report.observations.apiAllowRulePresent).toBe(true)
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({ id: 'no-api-allow-rule', status: 'block' }),
+    )
   })
 
   it('rejects non-HTTPS and mismatched-origin inputs', async () => {
