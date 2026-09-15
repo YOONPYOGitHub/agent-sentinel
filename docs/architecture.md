@@ -36,29 +36,29 @@ jobs-as-260814는 인그레스가 없으며 프라이빗 플랫폼 서비스를 
 
 ## 네트워크 경계 강제
 
-| 리소스       | 인그레스 유형     | 접근 가능한 위치               | 비고                              |
-| -------------- | ---------------- | ----------------------------- | ---------------------------------- |
-| web-as-260814  | external:true    | Front Door Private Link, VNet | ACA 환경 내부 포트 80 |
-| api-as-260814  | external:false   | ACA 환경 내부만                  | nginx 프록시를 통해서만 접근 가능     |
-| jobs-as-260814 | 없음             | 접근 불가                 | SB(Service Bus) 트리거 작업만 실행             |
-| Cosmos DB      | 프라이빗 엔드포인트       | VNet private-endpoints 서브넷 | 공개 접근 없음                   |
-| PostgreSQL     | 위임된 서브넷 | VNet database 서브넷          | 공개 접근 없음                   |
-| AI Search      | 프라이빗 엔드포인트       | VNet private-endpoints 서브넷 | 공개 접근 없음                   |
-| Service Bus    | 프라이빗 엔드포인트       | VNet private-endpoints 서브넷 | 공개 접근 없음                   |
-| Key Vault      | 프라이빗 엔드포인트       | VNet private-endpoints 서브넷 | 공개 접근 없음                   |
-| ACR            | 프라이빗 엔드포인트       | VNet private-endpoints 서브넷 | publicNetworkAccess: Disabled      |
+| 리소스         | 인그레스 유형       | 접근 가능한 위치              | 비고                               |
+| -------------- | ------------------- | ----------------------------- | ---------------------------------- |
+| web-as-260814  | external:true       | Front Door Private Link, VNet | ACA 환경 내부 포트 80              |
+| api-as-260814  | external:false      | ACA 환경 내부만               | nginx 프록시를 통해서만 접근 가능  |
+| jobs-as-260814 | 없음                | 접근 불가                     | SB(Service Bus) 트리거 작업만 실행 |
+| Cosmos DB      | 프라이빗 엔드포인트 | VNet private-endpoints 서브넷 | 공개 접근 없음                     |
+| PostgreSQL     | 위임된 서브넷       | VNet database 서브넷          | 공개 접근 없음                     |
+| AI Search      | 프라이빗 엔드포인트 | VNet private-endpoints 서브넷 | 공개 접근 없음                     |
+| Service Bus    | 프라이빗 엔드포인트 | VNet private-endpoints 서브넷 | 공개 접근 없음                     |
+| Key Vault      | 프라이빗 엔드포인트 | VNet private-endpoints 서브넷 | 공개 접근 없음                     |
+| ACR            | 프라이빗 엔드포인트 | VNet private-endpoints 서브넷 | publicNetworkAccess: Disabled      |
 
 <a id="vnet-subnets-1000016"></a>
 
 ## VNet 서브넷(10.0.0.0/16)
 
-| 서브넷            | CIDR        | 용도                          |
-| ----------------- | ----------- | -------------------------------- |
-| apps              | 10.0.0.0/23 | ACA 환경(위임됨)      |
-| private-endpoints | 10.0.2.0/24 | PaaS용 프라이빗 엔드포인트       |
-| database          | 10.0.3.0/24 | PostgreSQL Flexible Server       |
-| integration       | 10.0.4.0/24 | 향후 통합을 위해 예약됨 |
-| appgw             | 10.0.5.0/24 | Application Gateway WAF v2       |
+| 서브넷            | CIDR        | 용도                       |
+| ----------------- | ----------- | -------------------------- |
+| apps              | 10.0.0.0/23 | ACA 환경(위임됨)           |
+| private-endpoints | 10.0.2.0/24 | PaaS용 프라이빗 엔드포인트 |
+| database          | 10.0.3.0/24 | PostgreSQL Flexible Server |
+| integration       | 10.0.4.0/24 | 향후 통합을 위해 예약됨    |
+| appgw             | 10.0.5.0/24 | Application Gateway WAF v2 |
 
 <a id="azure-front-door-status"></a>
 
@@ -176,14 +176,14 @@ jobs는 스냅샷을 의도적으로 승격하지 않은 부분 실행을 포함
 
 ### 증거 경계
 
-| 경계                     | 상태                                                                                                             |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| 토큰 경제성 엔진       | 구현됨. 결정론적 MAD 기반 분석, 중복 제거, 커버리지 추적.                                  |
-| 모의 합성 픽스처      | 에이전트 3개(hr-policy-agent, code-review-copilot, sales-research-agent)의 정상/이상/비용 없음 시나리오. |
-| GET /api/token-economics/... | 구현됨. mock은 합성 결과를 반환하고 foundry는 connector-not-connected를 반환한다.                                     |
-| OTel 런타임 쿼리 커넥터 | 구현됨. 완전한 Azure Monitor 구성과 제한된 Logs 쿼리 권한이 있을 때만 활성화된다.       |
-| 비용 매핑                 | 실측 `agent.sentinel.cost.usd`에 대해 구현됨. 값이 없으면 알 수 없음으로 유지하며 절대 추정하지 않는다.           |
-| 실환경 효율성 스코어카드    | 구성된 공급자가 유효하고 충분한 커버리지를 갖춘 실측 윈도를 반환할 때만 사용할 수 있다.                  |
+| 경계                         | 상태                                                                                                     |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------- |
+| 토큰 경제성 엔진             | 구현됨. 결정론적 MAD 기반 분석, 중복 제거, 커버리지 추적.                                                |
+| 모의 합성 픽스처             | 에이전트 3개(hr-policy-agent, code-review-copilot, sales-research-agent)의 정상/이상/비용 없음 시나리오. |
+| GET /api/token-economics/... | 구현됨. mock은 합성 결과를 반환하고 foundry는 connector-not-connected를 반환한다.                        |
+| OTel 런타임 쿼리 커넥터      | 구현됨. 완전한 Azure Monitor 구성과 제한된 Logs 쿼리 권한이 있을 때만 활성화된다.                        |
+| 비용 매핑                    | 실측 `agent.sentinel.cost.usd`에 대해 구현됨. 값이 없으면 알 수 없음으로 유지하며 절대 추정하지 않는다.  |
+| 실환경 효율성 스코어카드     | 구성된 공급자가 유효하고 충분한 커버리지를 갖춘 실측 윈도를 반환할 때만 사용할 수 있다.                  |
 
 <a id="mode-boundaries"></a>
 

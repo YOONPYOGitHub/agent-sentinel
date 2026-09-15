@@ -105,15 +105,15 @@
 
 ### Cosmos DB 저장소(agent-sentinel-db)
 
-| 컨테이너         | 파티션 키 | 용도                                      |
-| ----------------- | ------------- | -------------------------------------------- |
-| snapshots         | /tenantId     | EstateSnapshot 이력                       |
-| findings          | /tenantId     | Finding 레코드                              |
-| evidence          | /tenantId     | Evidence 항목                               |
-| graph-nodes       | /tenantId     | GraphNode 인접 관계                          |
-| graph-edges       | /tenantId     | GraphEdge 인접 관계                          |
-| governance-cases  | /tenantId     | 사례, 불변 전이, 재시도 키 |
-| connector-sources | /estateId     | 자산군 바인딩, 소스, 감사, 재시도 키  |
+| 컨테이너          | 파티션 키 | 용도                                 |
+| ----------------- | --------- | ------------------------------------ |
+| snapshots         | /tenantId | EstateSnapshot 이력                  |
+| findings          | /tenantId | Finding 레코드                       |
+| evidence          | /tenantId | Evidence 항목                        |
+| graph-nodes       | /tenantId | GraphNode 인접 관계                  |
+| graph-edges       | /tenantId | GraphEdge 인접 관계                  |
+| governance-cases  | /tenantId | 사례, 불변 전이, 재시도 키           |
+| connector-sources | /estateId | 자산군 바인딩, 소스, 감사, 재시도 키 |
 
 <a id="connectorsourcedefinition"></a>
 
@@ -174,8 +174,8 @@ Azure Monitor 소스 쓰기에는 명시적인 `sourceProjectId`가 필요하다
 
 ### PostgreSQL 저장소(pg-as-260814)
 
-| 테이블           | 용도                               |
-| --------------- | ------------------------------------- |
+| 테이블          | 용도                                       |
+| --------------- | ------------------------------------------ |
 | findings        | JSONB 데이터가 포함된 Finding 레코드       |
 | validation_runs | JSONB 데이터가 포함된 ValidationRun 레코드 |
 
@@ -183,7 +183,7 @@ Azure Monitor 소스 쓰기에는 명시적인 `sourceProjectId`가 필요하다
 
 ### AI Search 검색 저장소(search-as-260814)
 
-| 인덱스          | 용도                                |
+| 인덱스         | 용도                                   |
 | -------------- | -------------------------------------- |
 | findings-index | 발견 사항에 대한 의미 체계 + 벡터 검색 |
 
@@ -191,12 +191,12 @@ Azure Monitor 소스 쓰기에는 명시적인 `sourceProjectId`가 필요하다
 
 ### Service Bus 메시징(sb-as-260814)
 
-| 큐/토픽           | 용도                      |
-| --------------------- | ---------------------------- |
-| findings-validation   | 검증 작업 요청      |
-| remediation-execution | 개선 조치 작업 요청     |
-| snapshot-ingestion    | 스냅샷 처리 요청 |
-| domain-events (토픽) | 도메인 이벤트 팬아웃        |
+| 큐/토픽               | 용도                 |
+| --------------------- | -------------------- |
+| findings-validation   | 검증 작업 요청       |
+| remediation-execution | 개선 조치 작업 요청  |
+| snapshot-ingestion    | 스냅샷 처리 요청     |
+| domain-events (토픽)  | 도메인 이벤트 팬아웃 |
 
 <a id="exposurefinding"></a>
 
@@ -359,16 +359,16 @@ Cosmos DB 컨테이너: `findings`(파티션 키 `/tenantId`, upsert 시 `firstS
 
 ### 한도
 
-| 제한 항목                   | 한도 |
-| ----------------------- | ----- |
-| 메타데이터 키           | 20    |
+| 제한 항목            | 한도  |
+| -------------------- | ----- |
+| 메타데이터 키        | 20    |
 | 메타데이터 값 길이   | 256   |
-| 증거당 주장 키 | 50    |
-| 주장 값 길이      | 512   |
-| 타입별 엔터티       | 500   |
-| 간선                   | 2000  |
-| 증거 레코드        | 2000  |
-| 매니페스트 파일 크기      | 5 MiB |
+| 증거당 주장 키       | 50    |
+| 주장 값 길이         | 512   |
+| 타입별 엔터티        | 500   |
+| 간선                 | 2000  |
+| 증거 레코드          | 2000  |
+| 매니페스트 파일 크기 | 5 MiB |
 
 <a id="identity-and-idempotency"></a>
 
@@ -452,12 +452,12 @@ MAD(중앙값 절대 편차)는 이상치와 경계가 있는 분포의 비대�
 
 ### 한도
 
-| 제한 항목                   | 한도  |
-| ----------------------- | ------ |
-| 윈도당 관찰값 | 500    |
-| 분석당 차원 | 10     |
-| 관찰값당 도구 호출 이름 | 50     |
-| 추적하는 고유 도구    | 100    |
+| 제한 항목               | 한도  |
+| ----------------------- | ----- |
+| 윈도당 관찰값           | 500   |
+| 분석당 차원             | 10    |
+| 관찰값당 도구 호출 이름 | 50    |
+| 추적하는 고유 도구      | 100   |
 | unavailableReason       | 500자 |
 
 ---
@@ -515,13 +515,13 @@ OTel 호출 페이로드 없이 비권위적인 `migration-required` 알 수 없
 품질을 거부하므로 이러한 조건이 정상 또는 성공 결과로 바뀔 수 없다.
 합성 레코드는 정규화 후에도 합성으로 유지하며 실환경 행동 분석에서 제거한다.
 
-| 제한 항목                            | 한도  |
-| -------------------------------- | ------ |
-| 공급자 페이지                   | 20     |
-| 페이지당 레코드                 | 500    |
-| 정규화당 레코드        | 10,000 |
-| 윈도당 투영 호출 | 500    |
-| 호출당 증거 레코드  | 6      |
+| 제한 항목          | 한도   |
+| ------------------ | ------ |
+| 공급자 페이지      | 20     |
+| 페이지당 레코드    | 500    |
+| 정규화당 레코드    | 10,000 |
+| 윈도당 투영 호출   | 500    |
+| 호출당 증거 레코드 | 6      |
 
 ---
 
