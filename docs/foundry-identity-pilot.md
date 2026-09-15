@@ -1,38 +1,40 @@
-# Foundry identity-aware synthetic pilot
+<a id="foundry-identity-aware-synthetic-pilot"></a>
 
-This runbook prepares one side-by-side validation agent. It does not migrate,
-update, or delete the six legacy synthetic agents. The checked-in command is
-plan-only by default and makes no Azure or Microsoft Graph request unless an
-operator explicitly selects `create` or `cleanup`, adds `--apply`, and supplies
-the exact confirmation string.
+# Foundry ID 인식 합성 파일럿
 
-## Fixed pilot contract
+이 런북은 기존 에이전트와 나란히 검증할 에이전트 하나를 준비합니다.
+기존 합성 에이전트 6개를 마이그레이션, 업데이트 또는 삭제하지 않습니다.
+저장소에 포함된 명령은 기본적으로 계획만 수행합니다.
+운영자가 명시적으로 `create` 또는 `cleanup`을 선택하고 `--apply`를 추가하며
+정확한 확인 문자열을 제공하지 않는 한 Azure 또는 Microsoft Graph 요청을 하지 않습니다.
 
-| Item                         | Value                                       |
-| ---------------------------- | ------------------------------------------- |
-| Agent name                   | `agent-sentinel-identity-pilot-readonly-v1` |
-| Marker                       | `[pilot:foundry-instance-identity-v1]`      |
-| Pilot version                | `1`                                         |
-| Semantic source              | `customer-support-safe`                     |
-| Foundry API                  | Stable project data-plane `v1`              |
-| Expected estate after create | Six unchanged legacy agents plus one pilot  |
+<a id="fixed-pilot-contract"></a>
 
-The repository uses its bounded `FoundryHttpClient` rather than an agent SDK.
-Both discovery and CRUD are pinned to the stable Foundry project data-plane
-`v1`. The corresponding current official Python SDK is
-`azure-ai-projects` 2.6.1 (released 2026-09-14); its stable
-`agents.create_version` operation also defaults to `api-version=v1` and accepts
-the same `definition`, `description`, `metadata`, and optional
-`blueprint_reference` fields.
+## 고정된 파일럿 계약
 
-`customer-support-safe` is the safest existing definition to clone
-semantically: it has one synthetic read-only `knowledge_search` function, no
-write operation, no external transfer, no employee or other sensitive-domain
-lookup, and explicit instructions prohibiting personal-data disclosure,
-external sends, and writes. The pilot copies no provider object, application,
-agent, version, or blueprint identifier.
+| 항목                   | 값                                           |
+| ---------------------- | -------------------------------------------- |
+| 에이전트 이름          | `agent-sentinel-identity-pilot-readonly-v1`  |
+| 표식                   | `[pilot:foundry-instance-identity-v1]`       |
+| 파일럿 버전            | `1`                                          |
+| 의미적 원본            | `customer-support-safe`                      |
+| Foundry API            | 안정 버전 프로젝트 데이터 플레인 `v1`        |
+| 생성 후 예상 관리 영역 | 변경되지 않은 기존 에이전트 6개와 파일럿 1개 |
 
-The stable create request is:
+이 저장소는 에이전트 SDK 대신 한도가 있는 자체 `FoundryHttpClient`를 사용합니다.
+검색과 CRUD는 모두 안정 버전 Foundry 프로젝트 데이터 플레인 `v1`으로 고정됩니다.
+이에 대응하는 현재 공식 Python SDK는 `azure-ai-projects` 2.6.1
+(2026-09-14 릴리스)입니다. 안정 버전의 `agents.create_version` 작업 역시
+기본값으로 `api-version=v1`을 사용하며, 동일한 `definition`, `description`,
+`metadata` 및 선택적인 `blueprint_reference` 필드를 허용합니다.
+
+`customer-support-safe`는 기존 정의 중 의미적으로 복제하기에 가장 안전합니다.
+읽기 전용 합성 함수 `knowledge_search` 하나만 있고, 쓰기 작업, 외부 전송,
+직원이나 기타 민감한 영역의 조회가 없으며, 개인정보 공개, 외부 전송, 쓰기를
+금지하는 명시적인 지침이 있습니다. 파일럿은 공급자 객체, 애플리케이션,
+에이전트, 버전, 청사진 식별자를 복사하지 않습니다.
+
+안정 버전 생성 요청은 다음과 같습니다.
 
 ```http
 POST {FOUNDRY_PROJECT_ENDPOINT}/agents/agent-sentinel-identity-pilot-readonly-v1/versions?api-version=v1
@@ -40,65 +42,67 @@ Authorization: Bearer <token for https://ai.azure.com/.default>
 Content-Type: application/json
 ```
 
-The body printed by `pnpm foundry:identity-pilot -- plan` contains only the
-fixed prompt definition and bounded metadata. It deliberately omits
-`blueprint_reference` and all identity IDs. Under the current Foundry agent
-object model, creating a new agent causes the service to create its unique
-agent identity and blueprint. Supplying the project managed identity or any
-historical provider ID is prohibited.
+`pnpm foundry:identity-pilot -- plan`이 출력하는 본문에는 고정 프롬프트 정의와
+한도가 있는 메타데이터만 들어 있습니다. `blueprint_reference`와 모든 ID 식별자는
+의도적으로 생략합니다. 현재 Foundry 에이전트 객체 모델에서는 새 에이전트를
+만들면 서비스가 고유한 에이전트 ID와 청사진을 생성합니다.
+프로젝트 관리 ID나 과거 공급자 ID를 제공하는 것은 금지됩니다.
 
-## Repository findings
+<a id="repository-findings"></a>
 
-- `@agent-sentinel/scenarios` defines exactly six synthetic agents.
-  `customer-support-safe` is the only one-tool, nonsensitive, read-only option.
-- `scripts/provision-agents.ts` iterates the full six-agent manifest, so it
-  cannot safely create only this pilot.
-- `scripts/cleanup-agents.ts` considers all six manifest names and is not an
-  identity-pilot rollback command.
-- `scripts/foundry-http.ts` and the live connector use the stable `v1` API and
-  the `https://ai.azure.com/.default` token scope.
-- Foundry discovery already maps only
-  `instance_identity.principal_id` to exact runtime object authority. Blueprint
-  and project identities remain descriptive and cannot produce `RUNS_AS`.
-- The jobs service discovers once at startup and every five minutes by default.
-- IaC creates a separate connector UAMI but doesn't establish the
-  project-scoped Foundry or Microsoft Graph grants for it. Those grants remain
-  explicit deployment prerequisites.
-- `ENTRA_RUNS_AS_BINDINGS_JSON` must already contain the exact Foundry-to-Entra
-  source boundary. No name-based or implicit `primary` binding is allowed.
+## 저장소에서 확인한 사항
 
-## Prerequisites and permissions
+- `@agent-sentinel/scenarios`는 정확히 6개의 합성 에이전트를 정의합니다.
+  `customer-support-safe`만이 도구 하나를 사용하는 비민감 읽기 전용 선택지입니다.
+- `scripts/provision-agents.ts`는 6개 에이전트 전체 매니페스트를 순회하므로
+  이 파일럿만 안전하게 생성할 수 없습니다.
+- `scripts/cleanup-agents.ts`는 매니페스트 이름 6개를 모두 대상으로 하며,
+  ID 파일럿 롤백 명령이 아닙니다.
+- `scripts/foundry-http.ts`와 실제 커넥터는 안정 버전 `v1` API와
+  `https://ai.azure.com/.default` 토큰 범위를 사용합니다.
+- Foundry 검색은 이미 `instance_identity.principal_id`만 정확한 런타임 객체
+  식별 근거로 매핑합니다. 청사진과 프로젝트 ID는 설명용으로 남으며
+  `RUNS_AS`를 생성할 수 없습니다.
+- 작업 서비스는 시작 시 한 번 검색하고, 기본적으로 5분마다 검색합니다.
+- IaC는 별도의 커넥터 UAMI를 만들지만, 이에 대한 프로젝트 범위 Foundry 또는
+  Microsoft Graph 권한을 부여하지 않습니다. 해당 권한은 명시적인 배포 전제 조건입니다.
+- `ENTRA_RUNS_AS_BINDINGS_JSON`에는 정확한 Foundry-Entra 소스 경계가 이미
+  포함되어 있어야 합니다. 이름 기반 또는 암묵적인 `primary` 바인딩은 허용하지 않습니다.
 
-Before approval, an operator must verify:
+<a id="prerequisites-and-permissions"></a>
 
-1. The target is the intended project and the stable `v1` data plane is
-   available.
-2. The six manifest names are the complete current agent estate, each has the
-   Agent Sentinel ownership marker, and each has null `instance_identity`.
-3. Project `properties.agentIdentityId` remains null and is recorded only as a
-   baseline observation, never as a `RUNS_AS` candidate.
-4. The fixed pilot name does not exist.
-5. The configured model deployment used by `customer-support-safe` exists.
-6. The creating principal has **Foundry User** at the project scope. Azure
-   Resource Manager Owner alone is insufficient for Foundry data-plane CRUD.
-7. The project's managed identity has the platform-required **Foundry User**
-   assignment. It authenticates the service-managed blueprint; it is never a
-   `RUNS_AS` endpoint and receives no downstream pilot permission.
-8. Stable Graph inventory has `Application.Read.All`. Stable v1.0 subtype
-   verification has approved `AgentIdentity.Read.All`; delegated nonowners also
-   require the supported Agent ID Administrator role.
+## 사전 요구 사항과 권한
 
-No downstream role assignment is expected or permitted for this basic pilot.
-The function tool is a schema-only synthetic callback with no provider
-connection. If a real downstream tool is added later, treat that as a separate
-change and assign the least-privilege role to
-`instance_identity.principal_id`, never to the project managed identity or
-blueprint.
+승인 전에 운영자는 다음을 확인해야 합니다.
 
-## Preview and create sequence
+1. 대상이 의도한 프로젝트이고 안정 버전 `v1` 데이터 플레인을 사용할 수 있습니다.
+2. 매니페스트 이름 6개가 현재 에이전트 관리 영역 전체이며, 각 에이전트에
+   Agent Sentinel 소유권 표식이 있고 `instance_identity`는 null입니다.
+3. 프로젝트 `properties.agentIdentityId`는 여전히 null이며, 기준 관찰값으로만
+   기록하고 `RUNS_AS` 후보로 사용하지 않습니다.
+4. 고정된 파일럿 이름이 존재하지 않습니다.
+5. `customer-support-safe`가 사용하는 설정된 모델 배포가 존재합니다.
+6. 생성하는 보안 주체에게 프로젝트 범위의 **Foundry User**가 있습니다.
+   Azure Resource Manager Owner만으로는 Foundry 데이터 플레인 CRUD에 충분하지 않습니다.
+7. 프로젝트 관리 ID에는 플랫폼에서 요구하는 **Foundry User** 할당이 있습니다.
+   이는 서비스 관리 청사진을 인증하며, `RUNS_AS` 끝점이 되지 않고
+   파일럿의 다운스트림 권한을 받지 않습니다.
+8. 안정 버전 Graph 인벤토리에 `Application.Read.All`이 있습니다.
+   안정 버전 v1.0 하위 유형 검증에는 승인된 `AgentIdentity.Read.All`이 있고,
+   위임된 비소유자에게는 지원되는 Agent ID Administrator 역할도 필요합니다.
 
-Run from a clean checkout at the approved commit. Store environment-specific
-output only in the protected session files or the approved audit system.
+이 기본 파일럿에서는 다운스트림 역할 할당을 예상하지도 허용하지도 않습니다.
+함수 도구는 공급자 연결이 없는 스키마 전용 합성 콜백입니다.
+나중에 실제 다운스트림 도구를 추가하면 별도의 변경으로 취급하고 최소 권한 역할을
+`instance_identity.principal_id`에 할당해야 합니다.
+프로젝트 관리 ID나 청사진에 할당해서는 안 됩니다.
+
+<a id="preview-and-create-sequence"></a>
+
+## 미리 확인 및 생성 순서
+
+승인된 커밋의 깨끗한 체크아웃에서 실행하세요. 환경별 출력은 보호된 세션 파일이나
+승인된 감사 시스템에만 저장하세요.
 
 ```bash
 set -o pipefail
@@ -113,26 +117,27 @@ pnpm foundry:identity-pilot -- create --apply \
   | tee "${PILOT_EVIDENCE_DIR}/foundry-identity-pilot-create.log"
 ```
 
-The create command fails closed unless the pre-create estate is exactly the six
-owned manifest agents with null runtime identities. It creates only the fixed
-pilot name, waits for identity material, then compares all six legacy
-fingerprints before reporting success.
+생성 전 관리 영역이 런타임 ID가 null인 소유된 매니페스트 에이전트 정확히 6개가
+아니면 생성 명령은 실패 시 차단합니다. 고정된 파일럿 이름만 생성하고
+ID 정보가 준비될 때까지 기다린 뒤, 기존 지문 6개를 모두 비교하고 성공을 보고합니다.
 
-Expected non-null response fields:
+null이 아니어야 하는 응답 필드:
 
 - `instance_identity.principal_id`
 - `instance_identity.client_id`
 - `blueprint.principal_id`
 - `blueprint.client_id`
-- `blueprint_reference.type` equal to `ManagedAgentIdentityBlueprint`
+- `blueprint_reference.type`은 `ManagedAgentIdentityBlueprint`와 같아야 함
 - `blueprint_reference.blueprint_id`
 
-Preserve the command's JSON output. It contains the pilot immutable ID and the
-identity and blueprint IDs needed for verification and rollback.
+명령의 JSON 출력을 보존하세요. 검증과 롤백에 필요한 파일럿의 변경 불가 ID,
+ID 식별자, 청사진 ID가 포함되어 있습니다.
 
-## Graph and ingestion verification
+<a id="graph-and-ingestion-verification"></a>
 
-Set values from the preserved create evidence; do not infer them from names.
+## Graph 및 수집 검증
+
+보존한 생성 증거에서 값을 설정하세요. 이름에서 추정하지 마세요.
 
 ```bash
 export PILOT_AGENT_ID='<immutable-agent-id>'
@@ -154,26 +159,25 @@ az rest --method get \
   --url "https://graph.microsoft.com/v1.0/servicePrincipals/${PILOT_BLUEPRINT_PRINCIPAL_ID}?\$select=id,appId,displayName,servicePrincipalType"
 ```
 
-Require exact equality:
+다음 값이 정확히 같아야 합니다.
 
 - Foundry `principal_id` = Graph `id`
 - Foundry `client_id` = Graph `appId`
-- subtype `@odata.type` = `#microsoft.graph.agentIdentity`
-- subtype `servicePrincipalType` = `ServiceIdentity`
-- subtype `agentIdentityBlueprintId` = Foundry `blueprint.client_id`
-- blueprint service-principal `id` = Foundry `blueprint.principal_id`
-- blueprint service-principal `appId` = Foundry `blueprint.client_id`
+- 하위 유형 `@odata.type` = `#microsoft.graph.agentIdentity`
+- 하위 유형 `servicePrincipalType` = `ServiceIdentity`
+- 하위 유형 `agentIdentityBlueprintId` = Foundry `blueprint.client_id`
+- 청사진 서비스 주체 `id` = Foundry `blueprint.principal_id`
+- 청사진 서비스 주체 `appId` = Foundry `blueprint.client_id`
 
-Both reads use Microsoft Graph v1.0. Production correlation continues to use
-the stable service-principal inventory and the exact object ID.
+두 읽기 모두 Microsoft Graph v1.0을 사용합니다. 프로덕션 상관관계는 계속
+안정 버전 서비스 주체 인벤토리와 정확한 객체 ID를 사용합니다.
 
-The jobs service discovers immediately at startup and then every
-`DISCOVERY_INTERVAL_MS` (default five minutes). After create, either wait for
-the next scheduled run or restart only the jobs revision under the normal
-deployment procedure. Do not restart the API/web applications and do not run
-the six-agent provision or cleanup commands.
+작업 서비스는 시작 즉시 검색하고 이후 `DISCOVERY_INTERVAL_MS`마다
+(기본 5분) 검색합니다. 생성 후 다음 예약 실행을 기다리거나 일반 배포 절차에
+따라 작업 리비전만 다시 시작하세요. API/웹 애플리케이션을 다시 시작하지 말고,
+6개 에이전트 프로비전 또는 정리 명령도 실행하지 마세요.
 
-Query the authenticated live read model:
+인증된 실제 읽기 모델을 조회하세요.
 
 ```bash
 curl --fail --silent --show-error \
@@ -207,23 +211,23 @@ jq --arg from "${PILOT_NODE_ID}" --arg to "${IDENTITY_NODE_ID}" \
   "${PILOT_EVIDENCE_DIR}/pilot-state.json"
 ```
 
-Acceptance requires:
+수용 조건은 다음과 같습니다.
 
-- seven authoritative Foundry agents and the original six immutable IDs;
-- one pilot node with the exact Foundry principal/client metadata;
-- one and only one `RUNS_AS` edge, from the pilot agent node to the Entra
-  identity whose provider object ID equals `PILOT_PRINCIPAL_ID`;
-- correlation diagnostics report one exact object-ID match, zero ambiguity,
-  and the six legacy agents remain explicitly unmatched for missing provider
-  identity IDs;
-- no new `CAN_READ`, `CAN_EXFILTRATE_TO`, or other downstream authorization
-  edge for the pilot.
+- 권위 있는 Foundry 에이전트 7개와 원래의 변경 불가 ID 6개.
+- 정확한 Foundry 보안 주체/클라이언트 메타데이터가 있는 파일럿 노드 1개.
+- 파일럿 에이전트 노드에서 공급자 객체 ID가 `PILOT_PRINCIPAL_ID`와 같은
+  Entra ID로 향하는 `RUNS_AS` 간선이 정확히 1개.
+- 상관관계 진단이 정확한 객체 ID 일치 1개, 모호성 0개를 보고하고,
+  기존 에이전트 6개는 공급자 ID 식별자 누락으로 명시적인 미일치 상태를 유지.
+- 파일럿에 대한 새로운 `CAN_READ`, `CAN_EXFILTRATE_TO` 또는 기타
+  다운스트림 권한 부여 간선이 없음.
 
-## Rollback
+<a id="rollback"></a>
 
-First preserve the create output, Foundry GET, Graph responses, and post-refresh
-snapshot in protected audit storage. Then authorize deletion with the exact
-immutable pilot ID:
+## 롤백
+
+먼저 생성 출력, Foundry GET, Graph 응답, 새로 고침 후 스냅샷을 보호된
+감사 저장소에 보존하세요. 그런 다음 정확한 변경 불가 파일럿 ID로 삭제를 승인하세요.
 
 ```bash
 pnpm foundry:identity-pilot -- cleanup --apply \
@@ -232,36 +236,39 @@ pnpm foundry:identity-pilot -- cleanup --apply \
   | tee "${PILOT_EVIDENCE_DIR}/foundry-identity-pilot-cleanup.log"
 ```
 
-Cleanup refuses any legacy name, mismatched ID, missing marker, missing pilot
-metadata, or incomplete identity. After matching that ID to the one fixed pilot
-name, it calls the stable delete endpoint for that name, verifies the pilot is
-absent, and verifies all six legacy fingerprints are unchanged.
+정리는 기존 이름, 불일치 ID, 표식 누락, 파일럿 메타데이터 누락, 불완전한 ID를
+모두 거부합니다. ID를 고정된 파일럿 이름 하나와 대조한 뒤,
+해당 이름의 안정 버전 삭제 엔드포인트를 호출하고, 파일럿이 없어졌는지와
+기존 지문 6개가 모두 변경되지 않았는지 확인합니다.
 
-Foundry owns the lifecycle of the service-created agent identity and blueprint.
-There is no separate direct Graph deletion in this runbook. After propagation,
-verify the subtype read returns `404` or the directory object is present only
-in deleted items. If Foundry documents a supported orphan-cleanup operation,
-use it only after proving the object IDs came from the preserved pilot evidence;
-never delete by display name and never delete the project identity.
+서비스가 생성한 에이전트 ID와 청사진의 수명 주기는 Foundry가 관리합니다.
+이 런북에는 별도의 직접 Graph 삭제가 없습니다. 전파 후 하위 유형 읽기가
+`404`를 반환하거나 디렉터리 객체가 삭제된 항목에만 존재하는지 확인하세요.
+Foundry가 지원되는 고아 객체 정리 작업을 문서화하면, 객체 ID가 보존된 파일럿
+증거에서 왔음을 입증한 뒤에만 사용하세요.
+표시 이름으로 삭제하지 말고 프로젝트 ID를 삭제하지 마세요.
 
-Finally allow or trigger one jobs discovery cycle and require six agents, zero
-pilot `RUNS_AS` edges, and unchanged legacy IDs. Retain the audit evidence
-instead of deleting it.
+마지막으로 작업 검색 주기 한 번이 실행되게 하거나 직접 트리거하고,
+에이전트 6개, 파일럿 `RUNS_AS` 간선 0개, 변경되지 않은 기존 ID를 요구하세요.
+감사 증거는 삭제하지 말고 보관하세요.
 
-## Risks
+<a id="risks"></a>
 
-- Entra identity and deletion propagation are eventually consistent.
-- The `agentIdentity` subtype read needs separate `AgentIdentity.Read.All`
-  approval even though it is available in Microsoft Graph v1.0.
-- A create can succeed before local verification receives the identity fields;
-  preserve the fixed name and provider response for controlled cleanup.
-- Any real tool connection or role assignment changes the risk boundary and is
-  outside this pilot.
+## 위험
 
-## Official references
+- Entra ID와 삭제 전파는 최종 일관성을 따릅니다.
+- `agentIdentity` 하위 유형 읽기는 Microsoft Graph v1.0에서 사용할 수 있지만
+  별도의 `AgentIdentity.Read.All` 승인이 필요합니다.
+- 로컬 검증이 ID 필드를 받기 전에 생성이 성공할 수 있습니다.
+  통제된 정리를 위해 고정 이름과 공급자 응답을 보존하세요.
+- 실제 도구 연결이나 역할 할당은 위험 경계를 바꾸며 이 파일럿의 범위를 벗어납니다.
 
-- [Microsoft Foundry agent identity concepts](https://learn.microsoft.com/azure/foundry/agents/concepts/agent-identity)
-- [New Foundry agent object model](https://learn.microsoft.com/azure/foundry/agents/how-to/migrate-agent-applications)
-- [Foundry RBAC](https://learn.microsoft.com/azure/foundry/concepts/rbac-foundry)
-- [Microsoft Graph v1.0 get agentIdentity](https://learn.microsoft.com/graph/api/agentidentity-get?view=graph-rest-1.0)
-- [Azure AI Projects Python SDK release history](https://github.com/Azure/azure-sdk-for-python/blob/main/sdk/ai/azure-ai-projects/CHANGELOG.md)
+<a id="official-references"></a>
+
+## 공식 참조
+
+- [Microsoft Foundry 에이전트 ID 개념](https://learn.microsoft.com/azure/foundry/agents/concepts/agent-identity)
+- [새 Foundry 에이전트 객체 모델](https://learn.microsoft.com/azure/foundry/agents/how-to/migrate-agent-applications)
+- [Foundry 역할 기반 액세스 제어(RBAC)](https://learn.microsoft.com/azure/foundry/concepts/rbac-foundry)
+- [Microsoft Graph v1.0 agentIdentity 조회](https://learn.microsoft.com/graph/api/agentidentity-get?view=graph-rest-1.0)
+- [Azure AI Projects Python SDK 릴리스 기록](https://github.com/Azure/azure-sdk-for-python/blob/main/sdk/ai/azure-ai-projects/CHANGELOG.md)

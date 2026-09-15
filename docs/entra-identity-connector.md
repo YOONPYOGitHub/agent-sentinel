@@ -1,168 +1,162 @@
-# Microsoft Entra identity connector
+<a id="microsoft-entra-identity-connector"></a>
 
-`@agent-sentinel/entra-identity-connector` is a read-only, authorization-gated
-multi-source connector. It does not share configuration or consent with
-`AUTH_*` user sign-in. `AUTH_*` controls employee/API authentication;
-`ENTRA_*` controls provider inventory and enrichment. Neither prefix activates
-or supplies configuration for the other.
+# Microsoft Entra ID 커넥터
 
-## Supported live boundary
+`@agent-sentinel/entra-identity-connector`는 권한 부여를 전제로 하는 읽기 전용
+다중 소스 커넥터입니다. `AUTH_*` 사용자 로그인과 설정이나 동의를 공유하지 않습니다.
+`AUTH_*`는 직원/API 인증을 제어하고, `ENTRA_*`는 공급자 인벤토리와 보강을
+제어합니다. 어느 접두사도 다른 쪽을 활성화하거나 설정을 제공하지 않습니다.
 
-The mandatory path uses Microsoft Graph v1.0
-`GET /servicePrincipals` with an explicit field projection. It creates distinct
-identity nodes and authoritative evidence. It never correlates by display name:
-a `RUNS_AS` edge is emitted only when an explicit `ENTRA_RUNS_AS_BINDINGS_JSON`
-entry exactly binds the estate, globally scoped Foundry and Entra source IDs,
-tenant, source environments, providers, Foundry project ID, and Entra inventory
-tenant. Foundry and Entra source tenants may differ when both endpoints match
-their independently registered exact source metadata in the same estate. The
-Foundry agent must then expose a complete, non-conflicting exact
-service-principal object ID. Stable Foundry
-`instance_identity.principal_id` supplies that runtime object authority;
-`instance_identity.client_id` is retained as application metadata but remains
-insufficient by itself. Agent Identity object IDs are eligible only when the
-separately enabled preview read confirms that classification.
-Application/client-ID-only matches remain unmatched until the connector emits a
-distinct application-ID authority; they never compare an application ID with a
-service-principal object ID. Names, aliases, owners, tags, descriptions, shared
-`primary` IDs, blueprint identities, blueprint references, project managed
-identities, and fuzzy text are never correlation keys.
+<a id="supported-live-boundary"></a>
 
-Microsoft Entra tenant, inventory-source, principal, and binding GUIDs are
-validated as GUIDs and canonicalized to lowercase when parsed. Authority and
-graph comparisons remain case-insensitive at persisted boundaries, so casing
-differences cannot suppress an otherwise exact `RUNS_AS` match; malformed IDs
-still fail closed.
+## 지원되는 실제 연동 경계
 
-Before any Microsoft Graph request, the client decodes the access-token payload
-and requires a valid GUID `tid` claim that canonically matches the configured
-source tenant. Missing, malformed, or cross-tenant tokens fail as authentication
-errors without issuing the request.
+필수 경로는 명시적인 필드 프로젝션으로 Microsoft Graph v1.0
+`GET /servicePrincipals`를 사용합니다. 별도의 ID 노드와 권위 있는 증거를 생성합니다.
+표시 이름으로 연관 짓지 않습니다. 명시적인 `ENTRA_RUNS_AS_BINDINGS_JSON`
+항목이 관리 영역, 전역 범위의 Foundry 및 Entra 소스 ID, 테넌트, 소스 환경,
+공급자, Foundry 프로젝트 ID, Entra 인벤토리 테넌트를 정확히 바인딩할 때만
+`RUNS_AS` 간선을 생성합니다. 두 끝점이 같은 관리 영역에서 각각 독립적으로 등록된
+정확한 소스 메타데이터와 일치한다면 Foundry와 Entra의 소스 테넌트가 달라도 됩니다.
+이때 Foundry 에이전트는 완전하고 충돌이 없는 정확한 서비스 주체 객체 ID를
+노출해야 합니다. 안정 버전 Foundry의 `instance_identity.principal_id`가
+해당 런타임 객체의 권위 있는 식별 근거를 제공합니다.
+`instance_identity.client_id`는 애플리케이션 메타데이터로 보관하지만
+그 자체만으로는 충분하지 않습니다. Agent Identity 객체 ID는 별도로 활성화한
+미리 보기 읽기가 해당 분류를 확인한 경우에만 사용할 수 있습니다.
+애플리케이션/클라이언트 ID만 일치하는 경우, 커넥터가 별도의 애플리케이션 ID
+식별 근거를 생성하기 전까지는 미일치로 남습니다. 애플리케이션 ID를 서비스 주체
+객체 ID와 비교하지 않습니다. 이름, 별칭, 소유자, 태그, 설명, 공유된 `primary` ID,
+청사진 ID, 청사진 참조, 프로젝트 관리 ID, 유사 텍스트는 상관 키로 사용하지 않습니다.
 
-Each endpoint must attach exactly one matching authoritative evidence record
-whose typed authority matches node metadata for estate, source, tenant,
-environment, provider, source object, provider object, source release, and
-source snapshot generation. The edge must cite those exact two endpoint
-records, and edge-state simulations must retain the exact registered
-`runsAsBinding`. Duplicate node or evidence IDs are rejected before Entra
-composition indexes them. Correlation GUID ownership is keyed by identifier
-kind and the exact estate/source/tenant/environment boundary, allowing
-legitimate reuse across boundaries while rejecting ambiguity within one
-boundary. Unattached or multiple matching authority records and stale,
-synthetic, malformed, unregistered, cross-estate, or cross-project evidence
-cannot traverse `RUNS_AS`. A source tenant may differ from the estate tenant;
-live request and ingestion boundaries resolve the estate independently and
-validate source authority against registered source and endpoint metadata.
-Microsoft Agent 365 package `appId` values remain catalog metadata and never
-establish an Entra principal identity.
+Microsoft Entra의 테넌트, 인벤토리 소스, 보안 주체, 바인딩 GUID는 파싱 시
+GUID로 검증하고 소문자로 정규화합니다. 저장 경계에서 식별 근거 및 그래프 비교는
+대소문자를 구분하지 않으므로, 대소문자 차이가 그 외에는 정확한 `RUNS_AS`
+일치를 막을 수 없습니다. 잘못된 ID는 여전히 실패 시 차단합니다.
 
-Optional stable capabilities are separately gated:
+Microsoft Graph 요청 전에 클라이언트는 액세스 토큰 페이로드를 디코딩하고,
+설정된 소스 테넌트와 정규화된 값이 일치하는 유효한 GUID `tid` 클레임을 요구합니다.
+토큰이 없거나 형식이 잘못되었거나 다른 테넌트의 토큰이면 요청을 보내지 않고
+인증 오류로 실패합니다.
 
-- `ENTRA_CONNECTOR_OWNERS_ENABLED=true` reads each inventory principal's
-  `/owners` collection.
-- `ENTRA_CONNECTOR_APP_ROLES_ENABLED=true` reads app roles granted to each
-  inventory principal from `/appRoleAssignments`.
+각 끝점에는 일치하는 권위 있는 증거 레코드를 정확히 하나 연결해야 합니다.
+그 레코드의 유형화된 식별 근거는 관리 영역, 소스, 테넌트, 환경, 공급자,
+소스 객체, 공급자 객체, 소스 릴리스, 소스 스냅샷 세대에 대한 노드 메타데이터와
+일치해야 합니다. 간선은 바로 그 두 끝점 레코드를 인용해야 하며,
+간선 상태 시뮬레이션은 정확히 등록된 `runsAsBinding`을 유지해야 합니다.
+중복된 노드 또는 증거 ID는 Entra 합성이 인덱싱하기 전에 거부합니다.
+상관 GUID의 소유 관계는 식별자 종류와 정확한 관리 영역/소스/테넌트/환경 경계를
+키로 사용하여, 경계 간의 정당한 재사용은 허용하되 한 경계 안의 모호성은 거부합니다.
+연결되지 않았거나 여러 개가 일치하는 식별 근거 레코드, 오래된 증거, 합성 증거,
+잘못된 형식, 미등록, 다른 관리 영역 또는 다른 프로젝트의 증거는 `RUNS_AS`를
+탐색할 수 없습니다. 소스 테넌트는 관리 영역의 테넌트와 다를 수 있습니다.
+실제 요청과 수집 경계는 관리 영역을 독립적으로 해석하고, 등록된 소스 및 끝점
+메타데이터를 기준으로 소스 식별 근거를 검증합니다.
+Microsoft Agent 365 패키지의 `appId` 값은 카탈로그 메타데이터로만 남으며
+Entra 보안 주체의 ID를 확립하지 않습니다.
 
-Both use `Application.Read.All`. They have shared page/item bounds and report a
-typed degraded state on failure; stable inventory remains truthful. Sponsors
-are deliberately excluded because the preview endpoint currently requires
-`AgentIdentity.ReadWrite.All`, which violates this connector's read-only
-least-privilege boundary.
+선택적인 안정 버전 기능에는 별도의 게이트가 적용됩니다.
 
-`ENTRA_CONNECTOR_AGENT_IDENTITY_PREVIEW=true` independently enables the
-Microsoft Graph beta
-`/servicePrincipals/microsoft.graph.agentIdentity` endpoint. It requires
-`AgentIdentity.Read.All`, is labeled preview, defaults off, and can degrade
-without failing v1.0 inventory.
+- `ENTRA_CONNECTOR_OWNERS_ENABLED=true`는 각 인벤토리 보안 주체의
+  `/owners` 컬렉션을 읽습니다.
+- `ENTRA_CONNECTOR_APP_ROLES_ENABLED=true`는 `/appRoleAssignments`에서
+  각 인벤토리 보안 주체에게 부여된 앱 역할을 읽습니다.
 
-## Migration parity diagnostics
+두 기능 모두 `Application.Read.All`을 사용합니다. 페이지/항목 한도를 공유하고
+실패 시 유형화된 저하 상태를 보고하며, 안정 버전 인벤토리는 사실성을 유지합니다.
+스폰서는 의도적으로 제외합니다. 현재 미리 보기 엔드포인트가
+`AgentIdentity.ReadWrite.All`을 요구하여 이 커넥터의 읽기 전용 최소 권한 경계를
+위반하기 때문입니다.
 
-Inventory connectivity and migration parity are distinct:
+`ENTRA_CONNECTOR_AGENT_IDENTITY_PREVIEW=true`는 Microsoft Graph beta의
+`/servicePrincipals/microsoft.graph.agentIdentity` 엔드포인트를 독립적으로
+활성화합니다. `AgentIdentity.Read.All`이 필요하고, 미리 보기로 표시되며,
+기본적으로 꺼져 있고, v1.0 인벤토리를 실패시키지 않고도 저하될 수 있습니다.
 
-- connectivity means the bounded Microsoft Graph v1.0 inventory read
-  succeeded;
-- parity additionally measures authoritative agents considered, exact
-  service-principal object-ID matches, exact application/client-ID matches,
-  preview-confirmed Agent Identity matches, unmatched agents, ambiguous agents,
-  and emitted `RUNS_AS` edges;
-- diagnostics retain the exact source ID, tenant, environment, and evidence
-  references used for the result;
-- owner, app-role, and preview coverage each has an independent status.
+<a id="migration-parity-diagnostics"></a>
 
-Disabled or failed optional reads do not become zero coverage. Their diagnostic
-status remains `disabled`, `authorization-required`, or `degraded`, and numeric
-coverage is omitted. Stable inventory and successful exact correlations remain
-usable when only an optional capability fails.
+## 마이그레이션 동등성 진단
 
-All requests use `DefaultAzureCredential`, the
-`https://graph.microsoft.com/.default` scope, HTTPS-only
-`graph.microsoft.com`, strict projected response schemas, same-resource
-next-link validation, bounded pagination, request timeouts, and retries only
-for 429/500/502/503/504 responses carrying a bounded `Retry-After`. Response
-bodies are streamed through a configured byte limit, with both
-`Content-Length` and actual bytes enforced before JSON parsing.
-Multi-source enrichment accepts at most 50 configured sources, runs at most
-four source reads concurrently, and applies one 60-second aggregate deadline.
-Caller cancellation is propagated through token acquisition, retry waits, and
-Graph requests. Cancellation and deadline outcomes remain `cancelled`, but the
-aggregator waits for every provider execution that already started to settle
-before returning. Results are composed in configured source order even when
-provider calls complete out of order.
+인벤토리 연결성과 마이그레이션 동등성은 서로 다릅니다.
 
-## Configuration
+- 연결성은 한도가 있는 Microsoft Graph v1.0 인벤토리 읽기가 성공했음을 뜻합니다.
+- 동등성은 여기에 더해 검토한 권위 있는 에이전트, 정확한 서비스 주체 객체 ID 일치,
+  정확한 애플리케이션/클라이언트 ID 일치, 미리 보기로 확인된 Agent Identity 일치,
+  미일치 에이전트, 모호한 에이전트, 생성된 `RUNS_AS` 간선을 측정합니다.
+- 진단은 결과에 사용된 정확한 소스 ID, 테넌트, 환경, 증거 참조를 보존합니다.
+- 소유자, 앱 역할, 미리 보기의 포괄 범위는 각각 독립적인 상태를 가집니다.
 
-See `.env.example`. `ENTRA_CONNECTOR_ENABLED` is reserved as the activation
-gate. API `GET /api/connectors` exposes per-source readiness without marking a
-healthy Foundry source failed when optional Entra enrichment is awaiting
-consent. Jobs report partial success when primary discovery succeeds but Entra
-does not. Stable inventory or composition failures remain partial and are not
-persisted, so a transient Graph failure cannot erase the last complete state.
-Optional-only degradation reports partial success but preserves the complete
-stable v1.0 inventory and exact `RUNS_AS` correlations. A successful zero-row
-probe or inventory remains insufficient and non-ready. There is no mock
-fallback.
+비활성화되거나 실패한 선택적 읽기를 포괄 범위 0으로 처리하지 않습니다.
+진단 상태는 `disabled`, `authorization-required`, `degraded`로 유지하고
+수치 범위는 생략합니다. 선택적 기능만 실패하면 안정 버전 인벤토리와 성공한
+정확한 상관관계는 계속 사용할 수 있습니다.
 
-For multiple Foundry tenant/project sources, set `ENTRA_SOURCES_JSON` for each
-directory inventory and `ENTRA_RUNS_AS_BINDINGS_JSON` for the explicit
-many-project-to-one-inventory relationships. In Bicep deployments, use the
-`entraRunsAsBindingsJson` parameter; `platform.bicep` validates its JSON and
-projects it only to the API and jobs container apps. Entra source IDs are independent
-from Foundry source IDs. One estate-scoped Entra inventory is queried once and
-may be bound to multiple Foundry projects only when every binding names the
-complete exact same-tenant source boundary. Identity nodes and evidence are
-namespaced by the globally scoped `entra:<id>` identity; Foundry nodes use
-`foundry:<id>`. Missing bindings remain unattributed and make identity coverage
-partial; missing source authorization remains `authorization-required` and is
-never substituted with another tenant or inventory.
-Per-source health also retains a typed data state: `complete` for a non-empty
-bounded inventory, `partial` when optional evidence is degraded, `empty` for a
-successful zero-record inventory, `unsupported` for a disabled or unmatched
-configuration, `failed` for provider/composition failure, and `cancelled` for
-caller or aggregate deadline cancellation. Empty, partial, unsupported,
-failed, or cancelled sources never become complete live identity coverage.
+모든 요청은 `DefaultAzureCredential`, `https://graph.microsoft.com/.default`
+범위, HTTPS 전용 `graph.microsoft.com`, 엄격하게 투영된 응답 스키마,
+동일 리소스의 다음 링크 검증, 한도가 있는 페이지 매김, 요청 시간 제한을 사용합니다.
+재시도는 한도 내 `Retry-After`가 있는 429/500/502/503/504 응답에만 적용합니다.
+응답 본문은 설정된 바이트 한도를 적용해 스트리밍하며, JSON 파싱 전에
+`Content-Length`와 실제 바이트 수를 모두 검사합니다.
+다중 소스 보강은 최대 50개의 설정된 소스를 허용하며, 소스 읽기를 최대 4개
+동시에 실행하고, 전체에 단일 60초 기한을 적용합니다. 호출자 취소는 토큰 획득,
+재시도 대기, Graph 요청으로 전파됩니다. 취소와 기한 초과 결과는 `cancelled`로
+유지하지만, 집계기는 이미 시작한 모든 공급자 실행이 끝날 때까지 기다린 후
+반환합니다. 공급자 호출이 순서와 다르게 끝나더라도 결과는 설정된 소스 순서로 합성합니다.
 
-For the single-source legacy path, `ENTRA_CONNECTOR_TENANT_ID` and
-`ENTRA_CONNECTOR_ENVIRONMENT` form one required tuple: configuring either
-without the other is invalid. Non-empty `ENTRA_SOURCES_JSON` takes precedence
-over that tuple. The same mode-aware resolver drives jobs activation and
-deployment-source projection; mock mode neither parses nor exposes inactive
-Entra sources.
+<a id="configuration"></a>
 
-Same-tenant sources use the default managed identity credential. Cross-tenant
-sources use `credential.mode=federated-app`, the target-tenant app client ID,
-and the attached UAMI (`managedIdentityClientId` or `AZURE_CLIENT_ID`) as the
-secretless assertion issuer.
+## 설정
 
-Next, obtain tenant-admin consent for `Application.Read.All`, configure the
-tenant/environment values, then enable and validate bounded v1.0 inventory.
-Separately review `AgentIdentity.Read.All` before enabling beta enrichment.
+`.env.example`을 참조하세요. `ENTRA_CONNECTOR_ENABLED`는 활성화 게이트로
+예약되어 있습니다. API `GET /api/connectors`는 선택적 Entra 보강이 동의를
+기다리는 동안 정상 Foundry 소스를 실패로 표시하지 않고 소스별 준비 상태를
+노출합니다. 기본 검색은 성공했지만 Entra가 성공하지 못하면 작업은 부분 성공을
+보고합니다. 안정 버전 인벤토리 또는 합성 실패는 부분 완료로 남고 저장되지 않으므로,
+일시적 Graph 실패가 마지막 완전한 상태를 지울 수 없습니다.
+선택적 기능만 저하되면 부분 성공을 보고하되 완전한 안정 버전 v1.0 인벤토리와
+정확한 `RUNS_AS` 상관관계를 보존합니다. 성공했더라도 행이 0개인 프로브나
+인벤토리는 여전히 불충분하며 준비 상태가 아닙니다. 모의 데이터 대체 경로는 없습니다.
 
-The last replacement-tenant observation recorded 6 authoritative Foundry
-agents, 335 Entra identity nodes, and 0 `RUNS_AS` edges. All six current agents
-exposed null instance identity, and the project ARM `properties.agentIdentityId`
-was also null. The project system-assigned managed identity is not a runtime
-fallback, so no current principal attribution can be claimed. The remaining
-pilot blocker is a newly provisioned identity-aware agent with a non-null
-`instance_identity.principal_id`, a matching Entra service-principal inventory
-record, and reviewed exact source binding. `AUTH_MODE=disabled` is a separate
-corporate sign-in state and does not affect inventory.
+여러 Foundry 테넌트/프로젝트 소스가 있으면 각 디렉터리 인벤토리에
+`ENTRA_SOURCES_JSON`을 설정하고, 여러 프로젝트와 하나의 인벤토리 사이의
+명시적인 관계에 `ENTRA_RUNS_AS_BINDINGS_JSON`을 설정하세요.
+Bicep 배포에서는 `entraRunsAsBindingsJson` 매개변수를 사용합니다.
+`platform.bicep`는 해당 JSON을 검증하고 API 및 작업 컨테이너 앱에만 투영합니다.
+Entra 소스 ID는 Foundry 소스 ID와 독립적입니다. 관리 영역 범위의 Entra
+인벤토리 하나는 한 번만 조회하며, 모든 바인딩이 완전하고 정확한 동일 테넌트
+소스 경계를 지정할 때만 여러 Foundry 프로젝트에 바인딩할 수 있습니다.
+ID 노드와 증거는 전역 범위의 `entra:<id>` 식별자를 네임스페이스로 사용하고,
+Foundry 노드는 `foundry:<id>`를 사용합니다. 바인딩이 없으면 귀속되지 않은
+상태로 남고 ID 포괄 범위가 부분적이 됩니다. 소스 권한 부여가 없으면
+`authorization-required`로 유지하며 다른 테넌트나 인벤토리로 대체하지 않습니다.
+소스별 상태는 유형화된 데이터 상태도 유지합니다. 비어 있지 않은 한정된
+인벤토리는 `complete`, 선택적 증거가 저하되면 `partial`, 성공한 0건 인벤토리는
+`empty`, 비활성 또는 미일치 설정은 `unsupported`, 공급자/합성 실패는 `failed`,
+호출자 또는 전체 기한에 의한 취소는 `cancelled`입니다.
+빈 소스, 부분 완료, 미지원, 실패, 취소 소스는 완전한 실시간 ID 포괄 범위가 될 수 없습니다.
+
+단일 소스 레거시 경로에서 `ENTRA_CONNECTOR_TENANT_ID`와
+`ENTRA_CONNECTOR_ENVIRONMENT`는 하나의 필수 튜플입니다.
+한쪽만 설정하면 유효하지 않습니다. 비어 있지 않은 `ENTRA_SOURCES_JSON`은
+이 튜플보다 우선합니다. 모드를 인식하는 동일한 해석기가 작업 활성화와
+배포 소스 프로젝션을 처리하며, 모의 모드는 비활성 Entra 소스를 파싱하거나
+노출하지 않습니다.
+
+동일 테넌트 소스는 기본 관리 ID 자격 증명을 사용합니다. 테넌트 간 소스는
+`credential.mode=federated-app`, 대상 테넌트 앱 클라이언트 ID, 그리고 연결된
+UAMI(`managedIdentityClientId` 또는 `AZURE_CLIENT_ID`)를 비밀 없는 어설션
+발급자로 사용합니다.
+
+다음으로 `Application.Read.All`에 대한 테넌트 관리자 동의를 받고,
+테넌트/환경 값을 설정한 뒤, 한도가 있는 v1.0 인벤토리를 활성화하고 검증하세요.
+beta 보강을 활성화하기 전에는 `AgentIdentity.Read.All`을 별도로 검토하세요.
+
+대체 테넌트의 마지막 관찰에서는 권위 있는 Foundry 에이전트 6개,
+Entra ID 노드 335개, `RUNS_AS` 간선 0개가 기록되었습니다.
+현재 에이전트 6개 모두 인스턴스 ID가 null이었고, 프로젝트 ARM의
+`properties.agentIdentityId`도 null이었습니다. 프로젝트의 시스템 할당 관리 ID는
+런타임 대체 값이 아니므로 현재 보안 주체 귀속을 주장할 수 없습니다.
+파일럿의 남은 차단 요건은 null이 아닌 `instance_identity.principal_id`,
+일치하는 Entra 서비스 주체 인벤토리 레코드, 검토된 정확한 소스 바인딩을 갖춘
+ID 인식 에이전트를 새로 프로비전하는 것입니다. `AUTH_MODE=disabled`는
+별도의 회사 로그인 상태이며 인벤토리에 영향을 주지 않습니다.
