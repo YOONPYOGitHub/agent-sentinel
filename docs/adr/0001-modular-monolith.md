@@ -1,23 +1,30 @@
-# ADR 0001: Start as a modular monolith
+<a id="adr-0001-start-as-a-modular-monolith"></a>
 
-- Status: Accepted
-- Date: 2026-08-14
+# ADR 0001: 모듈형 모놀리스로 시작
 
-## Context
+- 상태: 채택됨
+- 날짜: 2026-08-14
 
-Agent Sentinel spans ingestion, evidence graphs, policy evaluation, attack-path
-analysis, validation, approvals, remediation, and a web console. Premature
-service boundaries would slow feedback and make domain changes expensive.
+<a id="context"></a>
 
-## Decision
+## 배경
 
-Use a TypeScript monorepo with independently testable packages and two initial
-deployables: a React web application and a Fastify API. Background behavior uses
-explicit application services and ports so it can move to workers later.
+Agent Sentinel은 수집, 증거 그래프, 정책 평가, 공격 경로 분석, 검증, 승인, 개선 조치,
+웹 콘솔을 포괄한다. 서비스 경계를 너무 일찍 나누면 피드백이 느려지고 도메인 변경 비용이 커진다.
 
-## Consequences
+<a id="decision"></a>
 
-- Domain boundaries are enforced through package APIs and dependency direction.
-- The first vertical slice runs without cloud infrastructure.
-- Connector, persistence, event bus, and remediation ports remain replaceable.
-- Services may be extracted only after measured scaling or ownership needs.
+## 결정
+
+독립적으로 테스트할 수 있는 패키지로 구성한 TypeScript 모노레포를 사용하고, 초기 배포 단위는
+React 웹 애플리케이션과 Fastify API 두 개로 둔다. 백그라운드 동작에는 명시적인 애플리케이션
+서비스와 포트를 사용하여 이후 워커로 옮길 수 있게 한다.
+
+<a id="consequences"></a>
+
+## 결과
+
+- 패키지 API와 의존성 방향으로 도메인 경계를 강제한다.
+- 첫 번째 수직 기능 단위는 클라우드 인프라 없이 실행된다.
+- 커넥터, 영속성, 이벤트 버스, 개선 조치 포트는 교체 가능한 상태로 유지한다.
+- 측정으로 확인한 확장 요구나 소유권상의 필요가 있을 때만 서비스를 분리할 수 있다.

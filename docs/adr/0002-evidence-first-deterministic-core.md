@@ -1,24 +1,30 @@
-# ADR 0002: Use an evidence-first deterministic core
+<a id="adr-0002-use-an-evidence-first-deterministic-core"></a>
 
-- Status: Accepted
-- Date: 2026-08-14
+# ADR 0002: 증거 우선의 결정론적 코어 사용
 
-## Context
+- 상태: 채택됨
+- 날짜: 2026-08-14
 
-Security findings and automated responses must be explainable and reproducible.
-An LLM-only implementation would introduce non-determinism and unsupported
-claims.
+<a id="context"></a>
 
-## Decision
+## 배경
 
-Represent assets and relationships as typed evidence. Use deterministic policy
-rules and graph traversal for findings, risk factors, paths, and blast radius.
-LLMs may later summarize structured evidence but cannot create uncited facts or
-authorize actions.
+보안 발견 사항과 자동 대응은 설명 가능하고 재현 가능해야 한다.
+LLM만으로 구현하면 비결정성과 근거 없는 주장이 유입된다.
 
-## Consequences
+<a id="decision"></a>
 
-- Unit tests can prove security behavior without model access.
-- Every UI claim can deep-link to evidence.
-- Missing connector data is visible as reduced confidence.
-- LLM integration can be added without changing the security source of truth.
+## 결정
+
+자산과 관계를 타입이 지정된 증거로 표현한다. 발견 사항, 위험 요인, 경로, 영향 반경에는
+결정론적 정책 규칙과 그래프 탐색을 사용한다. 이후 LLM으로 구조화된 증거를 요약할 수 있지만,
+인용 근거가 없는 사실을 만들거나 작업을 승인하도록 허용하지 않는다.
+
+<a id="consequences"></a>
+
+## 결과
+
+- 모델에 접근하지 않고도 단위 테스트로 보안 동작을 입증할 수 있다.
+- UI의 모든 주장에 증거로 연결되는 딥 링크를 제공할 수 있다.
+- 누락된 커넥터 데이터는 신뢰도 저하로 드러난다.
+- 보안 판단의 기준 원천을 바꾸지 않고 LLM 통합을 추가할 수 있다.
