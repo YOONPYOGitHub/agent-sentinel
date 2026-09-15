@@ -348,6 +348,9 @@ export function assessDemoReadiness(input: {
     approvedManagedIdentity
   const bindingStatus: DemoReadinessStatus =
     binding === undefined ? 'unavailable' : bindingReady ? 'ready' : 'blocked'
+  // Deployment-projected sources use the Unix epoch when no update time is recorded.
+  const bindingUpdatedAt =
+    binding?.updatedAt === '1970-01-01T00:00:00.000Z' ? undefined : binding?.updatedAt
   if (!bindingReady) {
     requirements.push(
       'The deployment-managed agent365-primary connector source must bind to primary with the approved managed identity.',
@@ -524,7 +527,7 @@ export function assessDemoReadiness(input: {
       summary: bindingReady
         ? 'Deployment runtime binding and approved managed identity are present; identity value is redacted.'
         : 'Exact deployment runtime binding or approved managed identity is unavailable.',
-      ...(binding?.updatedAt === undefined ? {} : { observedAt: binding.updatedAt }),
+      ...(bindingUpdatedAt === undefined ? {} : { observedAt: bindingUpdatedAt }),
       ...(binding?.sourceId === undefined ? {} : { configurationSourceId: binding.sourceId }),
       ...(runtimeBinding?.bindingSourceId === undefined
         ? {}

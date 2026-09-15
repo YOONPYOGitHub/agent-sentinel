@@ -51,10 +51,12 @@ function ReadinessCard({
   title,
   category,
   children,
+  configurationTimestamp = false,
 }: {
   title: string
   category: DemoReadinessCategory
   children: ReactNode
+  configurationTimestamp?: boolean
 }) {
   return (
     <article className={`demo-readiness-card demo-readiness-card--${category.status}`}>
@@ -67,7 +69,12 @@ function ReadinessCard({
       </header>
       <p>{category.summary}</p>
       <dl>{children}</dl>
-      <small>Last observed: {formatDate(category.observedAt)}</small>
+      <small>
+        {configurationTimestamp ? 'Configuration updated' : 'Last observed'}:{' '}
+        {configurationTimestamp && category.observedAt === undefined
+          ? 'Not recorded'
+          : formatDate(category.observedAt)}
+      </small>
     </article>
   )
 }
@@ -170,7 +177,11 @@ export function ReleaseReadinessPage({
               <dd>{assessment.agent365.liveSourceStatusCount}</dd>
             </ReadinessCard>
 
-            <ReadinessCard title="Connector runtime binding" category={assessment.connectorBinding}>
+            <ReadinessCard
+              title="Connector runtime binding"
+              category={assessment.connectorBinding}
+              configurationTimestamp
+            >
               <dt>Deployment managed</dt>
               <dd>{assessment.connectorBinding.deploymentManaged ? 'Yes' : 'No'}</dd>
               <dt>Runtime binding</dt>

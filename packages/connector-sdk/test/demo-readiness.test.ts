@@ -321,6 +321,24 @@ describe('assessDemoReadiness', () => {
     expect(JSON.stringify(assessment)).not.toContain('59dbea72')
   })
 
+  it('does not present a deployment timestamp placeholder as observed evidence', () => {
+    const value = fixture()
+    value.connectorSources[0]!.updatedAt = '1970-01-01T00:00:00.000Z'
+
+    const assessment = assessDemoReadiness(value)
+
+    expect(assessment.connectorBinding.status).toBe('ready')
+    expect(assessment.connectorBinding).not.toHaveProperty('observedAt')
+  })
+
+  it('preserves a recorded connector configuration update timestamp', () => {
+    const value = fixture()
+
+    expect(assessDemoReadiness(value).connectorBinding.observedAt).toBe(
+      value.connectorSources[0]!.updatedAt,
+    )
+  })
+
   it('never promotes empty Agent365 or zero OTel evidence to ready', () => {
     const value = fixture()
     value.connectors.health!.sources[0] = {

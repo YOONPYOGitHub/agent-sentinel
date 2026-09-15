@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ConnectorsCollectionResponse } from '@agent-sentinel/connector-sdk'
 import type { ConnectorSourceReadModel } from '@agent-sentinel/domain'
@@ -126,5 +126,43 @@ describe('ReleaseReadinessPage', () => {
     expect(screen.getByText(/No mock success fallback/)).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Refresh readiness' }))
     expect(refresh).toHaveBeenCalledOnce()
+  })
+
+  it('shows unknown deployment configuration time without a 1970 observation', () => {
+    render(
+      <ReleaseReadinessPage
+        state={testState}
+        connectors={connectors}
+        connectorSources={[{ ...source, updatedAt: '1970-01-01T00:00:00.000Z' }]}
+        loading={false}
+        onRefresh={vi.fn()}
+      />,
+    )
+
+    const bindingCard = screen
+      .getByRole('heading', { name: 'Connector runtime binding' })
+      .closest('article')
+    if (bindingCard === null) throw new Error('Connector runtime binding card is missing.')
+    expect(within(bindingCard).getByText('Configuration updated: Not recorded')).toBeVisible()
+    expect(bindingCard).not.toHaveTextContent('1970')
+    expect(bindingCard).not.toHaveTextContent('Last observed')
+    expect(screen.getByLabelText('Overall release readiness')).toHaveTextContent('Blocked')
+  })
+
+  it('labels recorded configuration updates separately from provider observations', () => {
+    render(
+      <ReleaseReadinessPage
+        state={testState}
+        connectors={connectors}
+        connectorSources={[source]}
+        loading={false}
+        onRefresh={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByText(`Configuration updated: ${new Date(observedAt).toLocaleString()}`),
+    ).toBeVisible()
+    expect(screen.getAllByText(/^Last observed:/).length).toBe(3)
   })
 })
