@@ -7,6 +7,23 @@
 **조사 기준일**: 2026-08-14  
 **조사 범위**: Microsoft 공식 Docs, Microsoft Security Blog, ServiceNow, Palo Alto Networks, Wiz 공식 자료 (공개 URL 명시)
 
+> **역사적 조사 기록 — 현재 구현 명세가 아님.** 본문의 “현재”, GA/Preview, 라이선스,
+> 경쟁 제품 공백, 구현 아이디어와 API 후보는 모두 **2026-08-14 당시 조사자의 주장·제안**이다.
+> 원래 날짜·출처·불확실성을 보존하며, 2026-09-15에 공개 자료를 다시 검증한 것으로
+> 소급 해석하지 않는다. 공급자 문서상의 가용성은 Agent Sentinel의 권한·구현·배포·실행 증거가 아니다.
+>
+> **2026-09-15 코드 대조 메모:** 현재 코드 기준은 `1129bbe8`, 실제 배포는 `7c1336bc`이며
+> 핵심은 API/jobs/web 세 앱의 읽기 전용 인벤토리다. 현재 사실은
+> [현재 상태](docs/current-status.md), 구현 구조는 [아키텍처](docs/architecture.md),
+> 계약은 [데이터 모델](docs/data-model.md)을 따른다.
+> 아래의 Z-score·Prophet/ARIMA·Isolation Forest, Neo4j/Gremlin, 자동 차단 워크플로는
+> 연구 아이디어이지 현재 구현이 아니다. 현재 행동 엔진은 결정론적 중앙값/MAD,
+> 그래프는 Cosmos DB에 저장한 타입 지정 스냅샷과 TypeScript 탐색을 사용한다.
+> `/admin/serviceAnnouncement` 등 본문의 API 후보를 에이전트 인벤토리용 구현 계약으로
+> 사용하지 않는다. 현재 로그인·쓰기는 비활성화되어 있고, 정확한 `RUNS_AS`와 적격 런타임
+> 증거는 0개다. SDK·도구·승인용 산출물이 있어도 실제 실행·사용 권한·교정·고객 성과나
+> 사람의 승인으로 간주하지 않는다.
+
 ---
 
 ## 1. 요약 (Executive Summary)
@@ -25,33 +42,35 @@
 
 **세 가지 핵심 기둥**:
 
-| 기둥 | 세부 기능 | 상태 |
-|------|----------|------|
-| **Observe (관찰)** | Agent Registry (중앙 인벤토리), Agent Map (시각화), Single Agent Map (Preview), Shadow AI 페이지, 사용량/세션/예외율/Assisted Hours 지표 | GA (Single Agent Map은 Preview) |
+| 기둥                  | 세부 기능                                                                                                                                                                                                | 상태                                                        |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| **Observe (관찰)**    | Agent Registry (중앙 인벤토리), Agent Map (시각화), Single Agent Map (Preview), Shadow AI 페이지, 사용량/세션/예외율/Assisted Hours 지표                                                                 | GA (Single Agent Map은 Preview)                             |
 | **Govern (거버넌스)** | 에이전트 생명주기 관리(설치/차단/삭제/소유자 재지정), Connected Platforms 동기화(AWS Bedrock·Google Vertex AI·Salesforce Agentforce·Databricks Genie·Anthropic·Oracle), 에이전트 제출·검토·게시 워크플로 | GA; Connected Platforms(Bedrock/Vertex AI)는 Public Preview |
-| **Secure (보안)** | Entra 기반 ID 제어, Purview 데이터 보호, Defender 위협 탐지, Global Secure Access 네트워크 제어(Copilot Studio 에이전트·엔드포인트 로컬 에이전트) | GA; 일부 기능 Preview |
+| **Secure (보안)**     | Entra 기반 ID 제어, Purview 데이터 보호, Defender 위협 탐지, Global Secure Access 네트워크 제어(Copilot Studio 에이전트·엔드포인트 로컬 에이전트)                                                        | GA; 일부 기능 Preview                                       |
 
 **Agent Registry 주요 항목**:
+
 - 에이전트 유형: Microsoft agents, External partner-built, Published by org, Shared by creator
 - 필터: Status, Publisher Type, Channel(Copilot/Teams/Outlook/M365 apps/SharePoint), Platform, Data source
 - 대시보드: Total agents, Agents at risk, Agents without owners, Unmanaged agents
 - CSV/Excel 내보내기 지원
 
 **Agent Map 클러스터** (`learn.microsoft.com/en-us/microsoft-365/admin/manage/agent-map`):
+
 - M365 Copilot Agent Builder, Copilot Studio, Azure AI Foundry, Amazon Bedrock, Google Vertex AI, Microsoft 1st party, External Partners 분류 시각화
 - Usage 필터: Active users Top 100, Inactive, Total sessions, Exception rate, Assisted hours
 - ⚠️ **제약**: Usage/Observability 필터는 **4,000명 미만 테넌트**에서만 지원됨
 
 **Connected Platforms 지원** (`learn.microsoft.com/en-us/microsoft-agent-365/admin/connected-platforms`):
 
-| 플랫폼 | 인증 방식 | 주요 권한 |
-|--------|----------|----------|
-| Amazon Bedrock | IAM Access Key/Secret | bedrock:ListAgents, GetAgent + bedrock-agentcore 권한 목록 |
-| Google Vertex AI | Service Account JSON | aiplatform.reasoningEngines.list/get/delete |
-| Salesforce Agentforce | OAuth2 Client Credentials Flow | chatbot_api, sfap_api, api, refresh_token |
-| Databricks Genie | - | - |
-| Anthropic Claude Managed Agents | - | - |
-| Oracle Generative AI Agents | - | - |
+| 플랫폼                          | 인증 방식                      | 주요 권한                                                  |
+| ------------------------------- | ------------------------------ | ---------------------------------------------------------- |
+| Amazon Bedrock                  | IAM Access Key/Secret          | bedrock:ListAgents, GetAgent + bedrock-agentcore 권한 목록 |
+| Google Vertex AI                | Service Account JSON           | aiplatform.reasoningEngines.list/get/delete                |
+| Salesforce Agentforce           | OAuth2 Client Credentials Flow | chatbot_api, sfap_api, api, refresh_token                  |
+| Databricks Genie                | -                              | -                                                          |
+| Anthropic Claude Managed Agents | -                              | -                                                          |
+| Oracle Generative AI Agents     | -                              | -                                                          |
 
 **Shadow AI / 로컬 에이전트 관리**: Defender + Intune을 통해 Windows 디바이스에서 실행 중인 에이전트(OpenClaw, GitHub Copilot CLI, Claude Code 등) 발견·차단. Shadow AI 페이지는 Agent 365 Admin Center에 통합됨.
 
@@ -72,15 +91,15 @@ Agent Identity Blueprint (템플릿, 부모)
 
 **주요 기능**:
 
-| 기능 | 설명 | 문서 링크 |
-|------|------|----------|
-| **에이전트 인증** | OAuth 2.0, OIDC, MCP, A2A 프로토콜 지원; 위임 접근(OBO) + 자율 접근(클라이언트 자격증명) | `entra/agent-id/agent-oauth-protocols` |
-| **Conditional Access for Agents** | 에이전트에 위치·위험 기반 조건부 접근 정책 적용 | `entra/identity/conditional-access/agent-id` |
-| **Identity Protection for Agents** | 유출된 자격증명·비정상 로그인 위험 감지 | `entra/id-protection/concept-risky-agents` |
-| **Identity Governance for Agents** | 에이전트 접근 검토, 권한 부여 수명주기 관리 | `entra/id-governance/agent-id-governance-overview` |
-| **Network Controls** | Global Secure Access를 통한 네트워크 레벨 제어 | `entra/global-secure-access/concept-secure-web-ai-gateway-agents` |
-| **서드파티 에이전트 통합** | AWS Bedrock, n8n 등 – Microsoft Entra ID Auth SDK(sidecar) 또는 Workload Identity Federation 방식 | `entra/agent-id/configure-third-party-agents` |
-| **Sign-in/Audit Logs** | Entra 관리 센터에서 에이전트 활동 로그 조회 | `entra/agent-id/sign-in-audit-logs-agents` |
+| 기능                               | 설명                                                                                              | 문서 링크                                                         |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| **에이전트 인증**                  | OAuth 2.0, OIDC, MCP, A2A 프로토콜 지원; 위임 접근(OBO) + 자율 접근(클라이언트 자격증명)          | `entra/agent-id/agent-oauth-protocols`                            |
+| **Conditional Access for Agents**  | 에이전트에 위치·위험 기반 조건부 접근 정책 적용                                                   | `entra/identity/conditional-access/agent-id`                      |
+| **Identity Protection for Agents** | 유출된 자격증명·비정상 로그인 위험 감지                                                           | `entra/id-protection/concept-risky-agents`                        |
+| **Identity Governance for Agents** | 에이전트 접근 검토, 권한 부여 수명주기 관리                                                       | `entra/id-governance/agent-id-governance-overview`                |
+| **Network Controls**               | Global Secure Access를 통한 네트워크 레벨 제어                                                    | `entra/global-secure-access/concept-secure-web-ai-gateway-agents` |
+| **서드파티 에이전트 통합**         | AWS Bedrock, n8n 등 – Microsoft Entra ID Auth SDK(sidecar) 또는 Workload Identity Federation 방식 | `entra/agent-id/configure-third-party-agents`                     |
+| **Sign-in/Audit Logs**             | Entra 관리 센터에서 에이전트 활동 로그 조회                                                       | `entra/agent-id/sign-in-audit-logs-agents`                        |
 
 **에이전트 스프롤 문제 대응**: 블루프린트-인스턴스 계층 구조로 대규모 에이전트 집합에 중앙화된 보안 정책 적용. 소유자가 없는 에이전트(orphaned)를 식별하고 고아 자격증명 차단 가능.
 
@@ -102,6 +121,7 @@ Custom Rule (Block) → 실행 전 차단 + BehaviorInfo 기록
 ```
 
 **탐지 유형(Detection Types)**:
+
 - Secret exfiltration (비밀 데이터 유출)
 - Malicious content propagation (악성 콘텐츠 전파)
 - Evasion techniques (회피 기법)
@@ -109,12 +129,12 @@ Custom Rule (Block) → 실행 전 차단 + BehaviorInfo 기록
 
 **에이전트 유형별 보호 범위**:
 
-| 에이전트 유형 | 보호 범위 | 의존성 |
-|-------------|----------|--------|
-| Agent 365 tool invocations | Tool 호출 전 평가 | Work IQ MCP 통합 필요 |
-| Copilot Studio agents | Tool 호출 평가 | Copilot Studio 커넥터 설정 필요 (Preview) |
-| Foundry agents | 사용자 요청·에이전트 응답·Tool 호출·Tool 응답 | Preview |
-| Local AI agents | 엔드포인트 런타임 보호 | Defender for Endpoint 활성 모드 |
+| 에이전트 유형              | 보호 범위                                     | 의존성                                    |
+| -------------------------- | --------------------------------------------- | ----------------------------------------- |
+| Agent 365 tool invocations | Tool 호출 전 평가                             | Work IQ MCP 통합 필요                     |
+| Copilot Studio agents      | Tool 호출 평가                                | Copilot Studio 커넥터 설정 필요 (Preview) |
+| Foundry agents             | 사용자 요청·에이전트 응답·Tool 호출·Tool 응답 | Preview                                   |
+| Local AI agents            | 엔드포인트 런타임 보호                        | Defender for Endpoint 활성 모드           |
 
 **Prompt Evidence Collection**: 프롬프트 스니펫을 알림 증거로 포함(기본 활성화); 민감 데이터 및 비밀은 자동 편집.
 
@@ -129,22 +149,24 @@ Custom Rule (Block) → 실행 전 차단 + BehaviorInfo 기록
 
 **에이전트별 지원 매트릭스** (`learn.microsoft.com/en-us/purview/ai-agents`):
 
-| AI 앱/에이전트 | 정보 보호 | 컴플라이언스 관리 |
-|--------------|---------|----------------|
-| Microsoft 365 Copilot agents | ✓ | ✓ |
-| Copilot Studio agents | ✓ (데이터분류·감도레이블·DLP·IRM) | ✓ |
-| Microsoft Foundry agents | ✓ (데이터분류·감도레이블·DLP·IRM) | ✓ |
-| Entra-registered agents | ✓ | ✓ |
-| Microsoft Agent 365 | ✓ (DSPM AI observability 포함) | ✓ |
-| ChatGPT Enterprise agents | ✓ (데이터분류·IRM만) | ✗ |
-| Anthropic Claude Enterprise | ✗ | ✗ |
+| AI 앱/에이전트               | 정보 보호                         | 컴플라이언스 관리 |
+| ---------------------------- | --------------------------------- | ----------------- |
+| Microsoft 365 Copilot agents | ✓                                 | ✓                 |
+| Copilot Studio agents        | ✓ (데이터분류·감도레이블·DLP·IRM) | ✓                 |
+| Microsoft Foundry agents     | ✓ (데이터분류·감도레이블·DLP·IRM) | ✓                 |
+| Entra-registered agents      | ✓                                 | ✓                 |
+| Microsoft Agent 365          | ✓ (DSPM AI observability 포함)    | ✓                 |
+| ChatGPT Enterprise agents    | ✓ (데이터분류·IRM만)              | ✗                 |
+| Anthropic Claude Enterprise  | ✗                                 | ✗                 |
 
 **Agent 365 전용 기능** (DSPM 신버전):
+
 - **AI observability 페이지**: 활성 에이전트 인스턴스 가시성, 잠재 리스크 파악 및 교정
 - **Audit**: 에이전트-대-인간, 인간-대-에이전트, 에이전트-대-도구, **에이전트-대-에이전트** 모든 상호작용 감사
 - Agent 365 활동 전용 감사 로그 카테고리 존재
 
 **DSPM 신버전 데이터 보안 목표 기반 워크플로**:
+
 - "M365 Copilot 과공유 방지", "민감 데이터 유출 방지" 등 목표 단위 가이드
 - 자동 교정(공유 링크 제거, DLP 정책 적용, 권한 취소)을 AI 에이전트가 수행 → 관리자 승인 후 실행 (모든 작업 감사됨)
 
@@ -156,6 +178,7 @@ Custom Rule (Block) → 실행 전 차단 + BehaviorInfo 기록
 **참고**: "Copilot Control System"은 마케팅 용어로 M365 관리 센터 내 Copilot/에이전트 관리 기능의 집합을 지칭함.
 
 **M365 관리 센터 에이전트 워크로드 기능**:
+
 - **Overview**: 30일 에이전트 활동 스냅샷, 리스크·거버넌스 갭, 보류 중 승인 요청 처리
 - **Registry**: 전체 에이전트 목록, CSV 내보내기
 - **Map**: 플랫폼별 클러스터 시각화
@@ -171,6 +194,7 @@ Custom Rule (Block) → 실행 전 차단 + BehaviorInfo 기록
 **위치**: Power Platform 관리 센터 + Copilot Studio 포털
 
 **주요 관리 기능**:
+
 - 에이전트 공유(조직 전체, 보안 그룹, 개인)
 - Analytics Viewer 역할 (수정 권한 없이 분석 열람)
 - Entra 조건부 인증 설정 (Microsoft Entra ID Provider)
@@ -185,15 +209,16 @@ Custom Rule (Block) → 실행 전 차단 + BehaviorInfo 기록
 
 **Agent Monitoring Dashboard 메트릭**:
 
-| 메트릭 | 설명 | 임계값 기준 |
-|-------|------|-----------|
-| Token usage | 기간 내 토큰 수 | 높으면 프롬프트 최적화 권고 |
-| Latency | 에이전트 실행 응답 시간 | >10초 → 조사 권고 |
-| Run success rate | 성공 실행 비율 | <95% → 조사 권고 |
-| Evaluation metrics | 평가자 점수 | 평가자별 기준 상이 |
-| Red teaming results | 예약 레드팀 스캔 결과 | 실패 → 보안 위험 |
+| 메트릭              | 설명                    | 임계값 기준                 |
+| ------------------- | ----------------------- | --------------------------- |
+| Token usage         | 기간 내 토큰 수         | 높으면 프롬프트 최적화 권고 |
+| Latency             | 에이전트 실행 응답 시간 | >10초 → 조사 권고           |
+| Run success rate    | 성공 실행 비율          | <95% → 조사 권고            |
+| Evaluation metrics  | 평가자 점수             | 평가자별 기준 상이          |
+| Red teaming results | 예약 레드팀 스캔 결과   | 실패 → 보안 위험            |
 
 **내장 평가자(Built-in Evaluators)**:
+
 - 일반 품질: Coherence, Fluency
 - RAG 전용: Groundedness, Relevance
 - 안전·보안: Hate/Unfairness, Violence, Protected Materials
@@ -203,15 +228,15 @@ Custom Rule (Block) → 실행 전 차단 + BehaviorInfo 기록
 **Foundry Control Plane** (`learn.microsoft.com/en-us/azure/ai-foundry/control-plane/overview`):  
 상태: **Preview**
 
-| 기능 | 설명 |
-|------|------|
-| Fleet 인벤토리 | Foundry agents, Azure SRE Agent, Logic Apps agent loops, 커스텀 에이전트 |
-| 크로스 프로젝트 가시성 | 구독 내 모든 프로젝트 에이전트 통합 관리 |
-| 준수 가드레일 | 엔터프라이즈 전체 안전·컴플라이언스·품질 정책 정의, 대규모 일괄 교정 |
-| 보안 통합 | Defender·Purview 알림 Control Plane 대시보드에서 직접 조회 |
-| 비용 추적 | 토큰 사용량·비용 이상 감지 |
-| 레드팀 에이전트 | 자동 취약점 탐지 |
-| 클러스터 분석 | 오류 근본 원인 자동 분석 |
+| 기능                   | 설명                                                                     |
+| ---------------------- | ------------------------------------------------------------------------ |
+| Fleet 인벤토리         | Foundry agents, Azure SRE Agent, Logic Apps agent loops, 커스텀 에이전트 |
+| 크로스 프로젝트 가시성 | 구독 내 모든 프로젝트 에이전트 통합 관리                                 |
+| 준수 가드레일          | 엔터프라이즈 전체 안전·컴플라이언스·품질 정책 정의, 대규모 일괄 교정     |
+| 보안 통합              | Defender·Purview 알림 Control Plane 대시보드에서 직접 조회               |
+| 비용 추적              | 토큰 사용량·비용 이상 감지                                               |
+| 레드팀 에이전트        | 자동 취약점 탐지                                                         |
+| 클러스터 분석          | 오류 근본 원인 자동 분석                                                 |
 
 **지원 플랫폼**: Foundry agents, Azure SRE Agent, Azure Logic Apps agent loops, 커스텀 에이전트 (수동 등록 가능)  
 **미지원**: Classic agents, Azure OpenAI Assistants
@@ -233,51 +258,51 @@ Custom Rule (Block) → 실행 전 차단 + BehaviorInfo 기록
 
 **공식 출처**: `learn.microsoft.com/en-us/azure/ai-services/content-safety/overview`
 
-| 기능 | 상태 |
-|------|------|
-| Prompt Shields (지일브레이크 감지) | **GA** |
-| Protected material text detection | **GA** |
-| Analyze text/image APIs (해악 카테고리) | **GA** |
-| Task Adherence API (에이전트 도구 사용 이탈 감지) | **GA** |
-| Groundedness detection | **Preview** |
-| Custom categories (standard/rapid) | **Preview** |
+| 기능                                              | 상태        |
+| ------------------------------------------------- | ----------- |
+| Prompt Shields (지일브레이크 감지)                | **GA**      |
+| Protected material text detection                 | **GA**      |
+| Analyze text/image APIs (해악 카테고리)           | **GA**      |
+| Task Adherence API (에이전트 도구 사용 이탈 감지) | **GA**      |
+| Groundedness detection                            | **Preview** |
+| Custom categories (standard/rapid)                | **Preview** |
 
 ---
 
 ## 3. API/SDK/Preview/GA 상태 종합표 (2026-08-14 기준)
 
-| 컴포넌트 | GA/Preview | 비고 |
-|---------|-----------|------|
-| Microsoft Agent 365 | **GA** (2026-05-01) | Commercial 세그먼트 |
-| Entra Agent ID | **GA** | 모든 Entra 고객 |
-| Entra Agent Identity Platform SDK (.NET/sidecar) | **GA** | - |
-| Agent 365 Registry | **GA** | - |
-| Agent Map | **GA** | - |
-| Single Agent Map | **Preview** | - |
-| Connected Platforms (Bedrock/Vertex AI) | **Public Preview** | 2026-05 발표 |
-| Connected Platforms (Salesforce/Databricks/Anthropic/Oracle) | **GA** | 공식 문서 기재 |
-| Shadow AI 페이지 + 로컬 에이전트 발견 | **Public Preview** | 2026-06 |
-| Windows 365 for Agents | **Public Preview** | 미국 한정 |
-| Agent 365 네트워크 제어 (Global Secure Access) | **GA** | 2026-05-01 발표 |
-| Defender 실시간 보호 – Agent 365 | **GA** | - |
-| Defender 실시간 보호 – Copilot Studio | **Preview** | - |
-| Defender 실시간 보호 – Foundry | **Preview** | - |
-| Defender 로컬 에이전트 런타임 보호 | **Preview** | 2026-06 |
-| Defender 컨텍스트 매핑 (로컬 에이전트) | **Preview** | 2026-06 |
-| Purview DSPM (신버전) | **GA** | DSPM for AI classic 대체 |
-| Purview AI observability (DSPM Agent 365) | **GA** | - |
-| Azure AI Foundry Evaluation SDK | **GA** | azure-ai-projects>=2.0.0 |
-| Foundry Control Plane | **Preview** | - |
-| Foundry Agent Monitoring Dashboard | **Preview** | - |
-| Foundry 연속 평가 | **Preview** | - |
-| Foundry 레드팀 스캔 | **Preview** | - |
-| Foundry 알림 | **Preview** | - |
-| Azure AI Content Safety Prompt Shields | **GA** | - |
-| Azure AI Content Safety Task Adherence | **GA** | - |
-| Azure AI Content Safety Groundedness | **Preview** | - |
-| Azure Monitor OpenTelemetry Distro | **GA** | .NET/Node.js/Python/Java |
-| Entra Conditional Access for Agents | **GA** | - |
-| Entra Identity Protection for Agents | **GA** | - |
+| 컴포넌트                                                     | GA/Preview          | 비고                     |
+| ------------------------------------------------------------ | ------------------- | ------------------------ |
+| Microsoft Agent 365                                          | **GA** (2026-05-01) | Commercial 세그먼트      |
+| Entra Agent ID                                               | **GA**              | 모든 Entra 고객          |
+| Entra Agent Identity Platform SDK (.NET/sidecar)             | **GA**              | -                        |
+| Agent 365 Registry                                           | **GA**              | -                        |
+| Agent Map                                                    | **GA**              | -                        |
+| Single Agent Map                                             | **Preview**         | -                        |
+| Connected Platforms (Bedrock/Vertex AI)                      | **Public Preview**  | 2026-05 발표             |
+| Connected Platforms (Salesforce/Databricks/Anthropic/Oracle) | **GA**              | 공식 문서 기재           |
+| Shadow AI 페이지 + 로컬 에이전트 발견                        | **Public Preview**  | 2026-06                  |
+| Windows 365 for Agents                                       | **Public Preview**  | 미국 한정                |
+| Agent 365 네트워크 제어 (Global Secure Access)               | **GA**              | 2026-05-01 발표          |
+| Defender 실시간 보호 – Agent 365                             | **GA**              | -                        |
+| Defender 실시간 보호 – Copilot Studio                        | **Preview**         | -                        |
+| Defender 실시간 보호 – Foundry                               | **Preview**         | -                        |
+| Defender 로컬 에이전트 런타임 보호                           | **Preview**         | 2026-06                  |
+| Defender 컨텍스트 매핑 (로컬 에이전트)                       | **Preview**         | 2026-06                  |
+| Purview DSPM (신버전)                                        | **GA**              | DSPM for AI classic 대체 |
+| Purview AI observability (DSPM Agent 365)                    | **GA**              | -                        |
+| Azure AI Foundry Evaluation SDK                              | **GA**              | azure-ai-projects>=2.0.0 |
+| Foundry Control Plane                                        | **Preview**         | -                        |
+| Foundry Agent Monitoring Dashboard                           | **Preview**         | -                        |
+| Foundry 연속 평가                                            | **Preview**         | -                        |
+| Foundry 레드팀 스캔                                          | **Preview**         | -                        |
+| Foundry 알림                                                 | **Preview**         | -                        |
+| Azure AI Content Safety Prompt Shields                       | **GA**              | -                        |
+| Azure AI Content Safety Task Adherence                       | **GA**              | -                        |
+| Azure AI Content Safety Groundedness                         | **Preview**         | -                        |
+| Azure Monitor OpenTelemetry Distro                           | **GA**              | .NET/Node.js/Python/Java |
+| Entra Conditional Access for Agents                          | **GA**              | -                        |
+| Entra Identity Protection for Agents                         | **GA**              | -                        |
 
 ---
 
@@ -289,6 +314,7 @@ Custom Rule (Block) → 실행 전 차단 + BehaviorInfo 기록
 **상태**: GA (가격 문의 필요)
 
 **핵심 기능**:
+
 - **자동 발견**: 에이전트, 모델, MCP 서버, 데이터셋을 엔터프라이즈 전체에서 자동 인벤토리 (1st party/3rd party, Shadow AI 포함)
 - **CMDB 통합**: AI 자산을 CMDB Configuration Item으로 등록, 비즈니스 서비스와 관계 매핑
 - **컴플라이언스 콘텐츠 팩**: NIST AI RMF, EU AI Act, 캘리포니아 AI 투명성법 **기본 제공**
@@ -306,6 +332,7 @@ Custom Rule (Block) → 실행 전 차단 + BehaviorInfo 기록
 **상태**: GA (Palo Alto SASE 포트폴리오 일부)
 
 **핵심 기능**:
+
 - **4,000+ GenAI 앱 카탈로그**: Shadow AI 발견 특화
 - **80+ GenAI 특화 속성, 300+ ML 데이터 분류기**: 세밀한 앱 위험 분류
 - 정책 기반 접근 제어(Sanctioned/Tolerated/Unsanctioned 분류)
@@ -314,7 +341,7 @@ Custom Rule (Block) → 실행 전 차단 + BehaviorInfo 기록
 - 사용자 코칭(비준수 행동 시 실시간 알림)
 - Strata Copilot: 트래픽 기반 AI 정책 권고
 
-**Microsoft 대비 차별점**: 네트워크 레이어에서 제3자 GenAI 앱 접근을 통제하는 SASE/ZTNA 접근법. Microsoft 에이전트 생태계 외부의 GenAI 사용까지 커버. 
+**Microsoft 대비 차별점**: 네트워크 레이어에서 제3자 GenAI 앱 접근을 통제하는 SASE/ZTNA 접근법. Microsoft 에이전트 생태계 외부의 GenAI 사용까지 커버.
 
 ---
 
@@ -323,6 +350,7 @@ Custom Rule (Block) → 실행 전 차단 + BehaviorInfo 기록
 **공식 출처**: `wiz.io/blog/ai-security-posture-management` (발표 글 기준)
 
 **핵심 기능**:
+
 - **AI-BOM (AI Bill of Materials)**: 에이전트리스로 AWS SageMaker, GCP Vertex AI, Amazon Bedrock, Azure Cognitive 등 클라우드 AI 서비스 전체 인벤토리
 - **AI 설정 오류 감지**: SageMaker 암호화 미설정, Vertex AI Workbench 공개 IP 노출 등 기본 규칙 제공
 - **DSPM → AI 확장**: AI 학습 데이터 민감도 분석, 공격 경로 상의 데이터 위험 식별
@@ -349,44 +377,51 @@ Custom Rule (Block) → 실행 전 차단 + BehaviorInfo 기록
 
 ### 5-1. Agent Sentinel과 중복되는 기능
 
-| Agent Sentinel 예상 기능 | Microsoft 기존 제공 제품 | 중복 정도 |
-|------------------------|----------------------|---------|
-| 에이전트 인벤토리/레지스트리 | Agent 365 Registry, Agent Map | **높음** (GA, CSV 내보내기, 멀티플랫폼 동기화 포함) |
-| 에이전트 ID·접근 제어 | Entra Agent ID, Conditional Access | **높음** (GA, OAuth/OIDC/MCP/A2A 지원) |
-| 실시간 위협 차단 | Defender for Cloud Apps 실시간 보호 | **중간** (GA이나 Copilot Studio·Foundry는 Preview, 커스텀 탐지 규칙 제한) |
-| 데이터 보안·DLP | Purview DSPM, 감도 레이블, DLP | **높음** (GA) |
-| 감사 로그 | Purview 통합 감사 로그, Entra Sign-in logs | **높음** (에이전트-대-에이전트 상호작용 포함) |
-| 에이전트 품질 평가 | Foundry Evaluation SDK, 내장 평가자 | **높음** (GA, Tool Call Accuracy·Task Completion 포함) |
-| 프롬프트 인젝션 탐지 | Azure AI Content Safety Prompt Shields | **높음** (GA) |
-| 생명주기 관리(설치/차단/삭제) | M365 관리 센터 에이전트 액션 | **높음** (GA) |
+| Agent Sentinel 예상 기능      | Microsoft 기존 제공 제품                   | 중복 정도                                                                 |
+| ----------------------------- | ------------------------------------------ | ------------------------------------------------------------------------- |
+| 에이전트 인벤토리/레지스트리  | Agent 365 Registry, Agent Map              | **높음** (GA, CSV 내보내기, 멀티플랫폼 동기화 포함)                       |
+| 에이전트 ID·접근 제어         | Entra Agent ID, Conditional Access         | **높음** (GA, OAuth/OIDC/MCP/A2A 지원)                                    |
+| 실시간 위협 차단              | Defender for Cloud Apps 실시간 보호        | **중간** (GA이나 Copilot Studio·Foundry는 Preview, 커스텀 탐지 규칙 제한) |
+| 데이터 보안·DLP               | Purview DSPM, 감도 레이블, DLP             | **높음** (GA)                                                             |
+| 감사 로그                     | Purview 통합 감사 로그, Entra Sign-in logs | **높음** (에이전트-대-에이전트 상호작용 포함)                             |
+| 에이전트 품질 평가            | Foundry Evaluation SDK, 내장 평가자        | **높음** (GA, Tool Call Accuracy·Task Completion 포함)                    |
+| 프롬프트 인젝션 탐지          | Azure AI Content Safety Prompt Shields     | **높음** (GA)                                                             |
+| 생명주기 관리(설치/차단/삭제) | M365 관리 센터 에이전트 액션               | **높음** (GA)                                                             |
 
 ### 5-2. 분명한 공백 (Agent Sentinel의 차별화 공간)
 
 **공백 1: 에이전트 단위 통합 컴플라이언스 점수 (Agent Compliance Health Score)**
+
 - 현황: Defender 위험, Entra 위험, Purview 데이터 위험, Foundry 품질 점수가 각각 별도 콘솔에 분산. M365 관리 센터의 "Agents at risk" 카드는 집계를 제공하지만 에이전트 단위 상세 점수화는 없음.
 - 공백: **단일 에이전트에 대한 종합 보안·컴플라이언스·품질 스코어카드** (예: Security 70/100, Compliance 85/100, Quality 60/100) 부재. 점수 하락 원인 드릴다운 및 자동 교정 제안 미존재.
 
 **공백 2: 크로스플랫폼 행동 베이스라인 + 드리프트 감지**
+
 - 현황: Foundry 에이전트는 토큰 사용량·성공률·평가 점수를 모니터링. 그러나 "이 에이전트는 정상 상태에서 이 순서로 이 도구를 호출한다"는 **행동 베이스라인**을 자동 학습하고, 해당 패턴에서 이탈 시 알림을 주는 기능은 없음.
 - 공백: Copilot Studio, Foundry, 서드파티 에이전트에 걸쳐 **통일된 행동 프로파일링 및 이상 감지 엔진** 부재.
 
 **공백 3: 자동화된 거버넌스 워크플로 (Approval Gate + Remediation Pipeline)**
+
 - 현황: Agent 365 DSPM은 "AI 에이전트가 자동 교정 수행 후 관리자 승인"을 지원하지만, 이는 데이터 공유 링크 제거 같은 데이터 중심 시나리오에 한정. 에이전트 거버넌스(소유자 지정, 정책 할당, 권한 검토 요청 자동화)에 대한 **end-to-end 워크플로 자동화**는 없음.
 - 공백: "소유자 없는 에이전트 → 자동 오너십 지정 요청 → 30일 내 미응답 시 자동 차단" 같은 규칙 기반 거버넌스 파이프라인 부재. ServiceNow AI Control Tower가 이 영역에 특화.
 
 **공백 4: 에이전트-대-에이전트 신뢰 체인 보안 시각화**
+
 - 현황: Entra Agent ID는 A2A 프로토콜 인증 지원, Agent Map은 에이전트 간 관계 조회 가능(Preview). 그러나 오케스트레이터 에이전트 → 서브 에이전트 체인에서의 **신뢰 전파 경로, 권한 상속, 블래스트 반경**을 보안 관점으로 시각화하는 기능은 없음.
 - 공백: "이 에이전트가 침해될 경우 영향을 받는 다운스트림 에이전트 목록, 접근 가능한 데이터, 실행 가능한 액션"을 그래프 형태로 제시하는 **Agent Blast Radius Analysis** 부재.
 
 **공백 5: 비즈니스 가치/ROI 측정**
+
 - 현황: Agent 365는 "Assisted Hours" 지표 제공. Foundry는 비용 추정 제공.
 - 공백: 에이전트별 **비즈니스 임팩트 정량화**(절감 비용, 처리된 티켓 수, 사용자 만족도 연계 등) 부재. ServiceNow AI Control Tower는 이를 명시적으로 제공.
 
 **공백 6: 비Microsoft 플랫폼 에이전트의 심층 거버넌스**
+
 - 현황: Connected Platforms는 인벤토리 동기화와 기본 생명주기 액션(일부 Preview)을 제공.
 - 공백: AWS Bedrock, Google Vertex AI 에이전트에 대한 **실시간 위협 보호, 행동 분석, 정책 강제**는 Microsoft 네이티브 에이전트 수준에 비해 현저히 얕음. 동기화된 에이전트에 Entra Conditional Access를 적용하는 것도 제한적.
 
 **공백 7: 에이전트 설계 단계 보안 검증 (Shift-Left)**
+
 - 현황: Foundry는 배포 전 평가·레드팀을 제공하지만 개발자 IDE 수준의 통합은 없음.
 - 공백: 에이전트 개발 시점에 **권한 최소화 검증, 프롬프트 인젝션 취약점 정적 분석, 도구 호출 범위 검토**를 제공하는 Shift-Left 보안 도구 부재. (Protect AI의 도구 영역과 유사)
 
@@ -397,8 +432,9 @@ Custom Rule (Block) → 실행 전 차단 + BehaviorInfo 기록
 ### 방향 1: 에이전트 단위 통합 보안·컴플라이언스 스코어카드
 
 **구현 아이디어**:
+
 ```
-데이터 수집원: Microsoft Graph API (Agent 365), Defender XDR API (BehaviorInfo), 
+데이터 수집원: Microsoft Graph API (Agent 365), Defender XDR API (BehaviorInfo),
                Purview Compliance API, Entra ID API, Foundry SDK
     ↓
 집계 엔진: 각 소스에서 신호 수집 후 가중치 기반 점수 계산
@@ -419,6 +455,7 @@ Custom Rule (Block) → 실행 전 차단 + BehaviorInfo 기록
 ### 방향 2: 행동 베이스라인 + 이상 감지 엔진
 
 **구현 아이디어**:
+
 ```
 OpenTelemetry 트레이스 수집 (Foundry/LangChain/LangGraph 에이전트)
     ↓
@@ -438,6 +475,7 @@ OpenTelemetry 트레이스 수집 (Foundry/LangChain/LangGraph 에이전트)
 ### 방향 3: 자동화된 거버넌스 워크플로 엔진
 
 **구현 아이디어**:
+
 ```
 규칙 정의 UI:
   IF 에이전트.소유자 = null AND 에이전트.마지막활동 > 30일
@@ -460,6 +498,7 @@ OpenTelemetry 트레이스 수집 (Foundry/LangChain/LangGraph 에이전트)
 ### 방향 4: 에이전트-대-에이전트 신뢰 체인 시각화 (Agent Blast Radius)
 
 **구현 아이디어**:
+
 ```
 데이터 수집: Entra Agent ID API (에이전트 관계, A2A 토큰 교환 로그)
              Foundry 트레이스 (오케스트레이터→서브에이전트 호출 체인)
@@ -482,9 +521,10 @@ OpenTelemetry 트레이스 수집 (Foundry/LangChain/LangGraph 에이전트)
 ### 방향 5: 비Microsoft 에이전트 심층 거버넌스 (Universal Agent Adapter)
 
 **구현 아이디어**:
+
 ```
 Universal Agent Adapter (오픈 소스 커넥터 레이어):
-  - 인풋: 각 플랫폼 API (Bedrock Agents API, Vertex AI Reasoning Engine, 
+  - 인풋: 각 플랫폼 API (Bedrock Agents API, Vertex AI Reasoning Engine,
                         Salesforce Agentforce API, 자체 REST API)
   - 아웃풋: Agent Sentinel 표준 스키마 (이름, ID, 소유자, 도구 목록, 권한 범위, 마지막 실행)
     ↓
@@ -500,35 +540,35 @@ Gap 명시: Microsoft Agent 365 Connected Platforms보다 깊은 정책 강제 �
 
 ## 7. 주요 근거 URL 정리
 
-| 항목 | URL |
-|------|-----|
-| Microsoft Agent 365 개요 | `learn.microsoft.com/en-us/microsoft-agent-365/overview` |
-| Agent 365 GA 공식 블로그 | `microsoft.com/security/blog/2026/05/01/microsoft-agent-365-now-generally-available-expands-capabilities-and-integrations/` |
-| Entra Agent ID 공식 문서 | `learn.microsoft.com/en-us/entra/agent-id/what-is-microsoft-entra-agent-id` |
-| Entra Agent Identity Platform | `learn.microsoft.com/en-us/entra/agent-id/what-is-agent-id-platform` |
-| Entra Security for AI Overview | `learn.microsoft.com/en-us/entra/agent-id/security-for-ai-overview` |
-| Entra Agent Identities 개념 | `learn.microsoft.com/en-us/entra/agent-id/what-are-agent-identities` |
-| Agent 365 Registry | `learn.microsoft.com/en-us/microsoft-365/admin/manage/agent-registry` |
-| Agent Map | `learn.microsoft.com/en-us/microsoft-365/admin/manage/agent-map` |
-| Agent 365 Management Overview | `learn.microsoft.com/en-us/microsoft-365/admin/manage/agent-365-overview` |
-| Agent Actions | `learn.microsoft.com/en-us/microsoft-365/admin/manage/agent-actions` |
-| Connected Platforms | `learn.microsoft.com/en-us/microsoft-agent-365/admin/connected-platforms` |
-| Defender 실시간 에이전트 보호 | `learn.microsoft.com/en-us/defender-cloud-apps/real-time-agent-protection-during-runtime` |
-| Purview AI 에이전트 | `learn.microsoft.com/en-us/purview/ai-agents` |
-| Purview Agent 365 | `learn.microsoft.com/en-us/purview/ai-agent-365` |
-| Purview AI Microsoft 개요 | `learn.microsoft.com/en-us/purview/ai-microsoft-purview` |
-| Purview DSPM 신버전 | `learn.microsoft.com/en-us/purview/data-security-posture-management-learn-about` |
-| Azure AI Foundry 평가 접근법 | `learn.microsoft.com/en-us/azure/ai-foundry/concepts/evaluation-approach-gen-ai` |
-| Foundry Agent 모니터링 대시보드 | `learn.microsoft.com/en-us/azure/ai-foundry/observability/how-to/how-to-monitor-agents-dashboard` |
-| Foundry Control Plane | `learn.microsoft.com/en-us/azure/ai-foundry/control-plane/overview` |
-| Foundry Control Plane 에이전트 관리 | `learn.microsoft.com/en-us/azure/ai-foundry/control-plane/how-to-manage-agents` |
-| Foundry Agent Service 개요 | `learn.microsoft.com/en-us/azure/ai-foundry/agents/overview` |
-| Azure AI Content Safety | `learn.microsoft.com/en-us/azure/ai-services/content-safety/overview` |
-| Azure Monitor OpenTelemetry | `learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-enable` |
-| Copilot Studio 에이전트 공유 | `learn.microsoft.com/en-us/microsoft-copilot-studio/admin-share-bots` |
-| ServiceNow AI Control Tower | `servicenow.com/products/ai-control-tower.html` |
-| Palo Alto AI Access Security | `paloaltonetworks.com/network-security/ai-access-security` |
-| Wiz AI-SPM | `wiz.io/blog/ai-security-posture-management` |
+| 항목                                | URL                                                                                                                         |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Microsoft Agent 365 개요            | `learn.microsoft.com/en-us/microsoft-agent-365/overview`                                                                    |
+| Agent 365 GA 공식 블로그            | `microsoft.com/security/blog/2026/05/01/microsoft-agent-365-now-generally-available-expands-capabilities-and-integrations/` |
+| Entra Agent ID 공식 문서            | `learn.microsoft.com/en-us/entra/agent-id/what-is-microsoft-entra-agent-id`                                                 |
+| Entra Agent Identity Platform       | `learn.microsoft.com/en-us/entra/agent-id/what-is-agent-id-platform`                                                        |
+| Entra Security for AI Overview      | `learn.microsoft.com/en-us/entra/agent-id/security-for-ai-overview`                                                         |
+| Entra Agent Identities 개념         | `learn.microsoft.com/en-us/entra/agent-id/what-are-agent-identities`                                                        |
+| Agent 365 Registry                  | `learn.microsoft.com/en-us/microsoft-365/admin/manage/agent-registry`                                                       |
+| Agent Map                           | `learn.microsoft.com/en-us/microsoft-365/admin/manage/agent-map`                                                            |
+| Agent 365 Management Overview       | `learn.microsoft.com/en-us/microsoft-365/admin/manage/agent-365-overview`                                                   |
+| Agent Actions                       | `learn.microsoft.com/en-us/microsoft-365/admin/manage/agent-actions`                                                        |
+| Connected Platforms                 | `learn.microsoft.com/en-us/microsoft-agent-365/admin/connected-platforms`                                                   |
+| Defender 실시간 에이전트 보호       | `learn.microsoft.com/en-us/defender-cloud-apps/real-time-agent-protection-during-runtime`                                   |
+| Purview AI 에이전트                 | `learn.microsoft.com/en-us/purview/ai-agents`                                                                               |
+| Purview Agent 365                   | `learn.microsoft.com/en-us/purview/ai-agent-365`                                                                            |
+| Purview AI Microsoft 개요           | `learn.microsoft.com/en-us/purview/ai-microsoft-purview`                                                                    |
+| Purview DSPM 신버전                 | `learn.microsoft.com/en-us/purview/data-security-posture-management-learn-about`                                            |
+| Azure AI Foundry 평가 접근법        | `learn.microsoft.com/en-us/azure/ai-foundry/concepts/evaluation-approach-gen-ai`                                            |
+| Foundry Agent 모니터링 대시보드     | `learn.microsoft.com/en-us/azure/ai-foundry/observability/how-to/how-to-monitor-agents-dashboard`                           |
+| Foundry Control Plane               | `learn.microsoft.com/en-us/azure/ai-foundry/control-plane/overview`                                                         |
+| Foundry Control Plane 에이전트 관리 | `learn.microsoft.com/en-us/azure/ai-foundry/control-plane/how-to-manage-agents`                                             |
+| Foundry Agent Service 개요          | `learn.microsoft.com/en-us/azure/ai-foundry/agents/overview`                                                                |
+| Azure AI Content Safety             | `learn.microsoft.com/en-us/azure/ai-services/content-safety/overview`                                                       |
+| Azure Monitor OpenTelemetry         | `learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-enable`                                                    |
+| Copilot Studio 에이전트 공유        | `learn.microsoft.com/en-us/microsoft-copilot-studio/admin-share-bots`                                                       |
+| ServiceNow AI Control Tower         | `servicenow.com/products/ai-control-tower.html`                                                                             |
+| Palo Alto AI Access Security        | `paloaltonetworks.com/network-security/ai-access-security`                                                                  |
+| Wiz AI-SPM                          | `wiz.io/blog/ai-security-posture-management`                                                                                |
 
 ---
 
@@ -550,4 +590,4 @@ Gap 명시: Microsoft Agent 365 Connected Platforms보다 깊은 정책 강제 �
 
 ---
 
-*본 보고서는 2026-08-14 기준 Microsoft 공식 문서, Microsoft Security Blog, ServiceNow, Palo Alto Networks, Wiz의 공개 자료만을 근거로 작성되었습니다. 내부 로드맵, 비공개 Preview, 계약별 상이한 기능 범위는 반영되지 않았습니다.*
+_본 보고서는 2026-08-14 기준 Microsoft 공식 문서, Microsoft Security Blog, ServiceNow, Palo Alto Networks, Wiz의 공개 자료만을 근거로 작성되었습니다. 내부 로드맵, 비공개 Preview, 계약별 상이한 기능 범위는 반영되지 않았습니다._

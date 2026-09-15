@@ -2,6 +2,12 @@
 
 # Agent Sentinel 데이터 모델
 
+**코드 기준:** `1129bbe8727ab9cb7a2e49a1f417a8e042d9ad94`(2026-09-15).
+아래는 도메인 스키마·저장 어댑터·API/jobs 연결을 대조한 구현 계약이다.
+실제 배포는 `7c1336bc`이며 인증·쓰기가 비활성화되어 있다.
+컨테이너나 타입의 존재는 기능 활성화·실제 호출 증거가 아니다.
+배포와 증거의 기준 기록은 [현재 상태](current-status.md)이다.
+
 <a id="domain-types-packagesdomain"></a>
 
 ## 도메인 타입(packages/domain)
@@ -18,6 +24,13 @@
 - `nodes`: GraphNode[] — 에이전트 그래프 노드
 - `edges`: GraphEdge[] — 관계
 - `evidence`: Evidence[] — 근거 증거
+
+도메인 스냅샷 자체에는 `estateId`나 `snapshotId`가 없다. 저장 시 별도의 봉투에
+`documentType: 'estate-snapshot'`, `estateId`, `tenantId`, `environment`,
+`snapshotId`, `generatedAt`, `snapshotSchemaVersion: 2`, `snapshot`을 담는다.
+논리 ID는 `<tenantId>-<environment>-<generatedAt>`, 물리 ID는
+`snapshot:<estateId>:<snapshotId>`이다. 단건 읽기와 목록은 `/tenantId` 파티션에 더해
+자산군 ID·환경을 확인한다. 구형 평면 문서 읽기는 `default` 자산군에만 허용한다.
 
 <a id="graphnode"></a>
 
@@ -97,6 +110,10 @@
 - `id`, `findingId`, `status` (queued|running|validated|not-reproduced|failed)
 - `startedAt`, `completedAt`, `syntheticCanary`, `observedAtTarget`, `trace`
 
+`Finding`/`ValidationRun`은 기존 데모·시뮬레이션 계약이다. 현재 실환경 노출 저장소의
+`ExposureFinding`과 구분해야 하며, 타입의 `validated` 값이 실제 에이전트 검증 성공을
+입증하지 않는다.
+
 <a id="storage-layout"></a>
 
 ## 저장소 구성
@@ -105,21 +122,29 @@
 
 ### Cosmos DB 저장소(agent-sentinel-db)
 
-| 컨테이너          | 파티션 키 | 용도                                 |
-| ----------------- | --------- | ------------------------------------ |
-| snapshots         | /tenantId | EstateSnapshot 이력                  |
-| findings          | /tenantId | Finding 레코드                       |
-| evidence          | /tenantId | Evidence 항목                        |
-| graph-nodes       | /tenantId | GraphNode 인접 관계                  |
-| graph-edges       | /tenantId | GraphEdge 인접 관계                  |
-| governance-cases  | /tenantId | 사례, 불변 전이, 재시도 키           |
-| connector-sources | /estateId | 자산군 바인딩, 소스, 감사, 재시도 키 |
+| 컨테이너                 | 파티션 키   | 현재 코드의 용도와 경계                                                                      |
+| ------------------------ | ----------- | -------------------------------------------------------------------------------------------- |
+| `snapshots`              | `/tenantId` | 자산군 스냅샷 봉투와 불변 커넥터 상태 측정. 자산군 ID·환경을 추가로 검증                     |
+| `findings`               | `/tenantId` | 실환경 `ExposureFinding` 봉투. 자산군 ID·환경을 추가로 검증                                  |
+| `evidence`               | `/tenantId` | Bicep 정의. 현재 API/jobs 코어는 증거를 스냅샷 안에 저장                                     |
+| `graph-nodes`            | `/tenantId` | Bicep 정의. 현재 코어의 별도 인접 관계 저장소가 아님                                         |
+| `graph-edges`            | `/tenantId` | Bicep 정의. 현재 코어는 스냅샷의 `nodes`/`edges` 배열을 사용                                 |
+| `governance-cases`       | `/tenantId` | 기본 자산군의 사례·불변 전이·재시도 표시. 컨테이너 설정은 `COSMOS_GOVERNANCE_CONTAINER`      |
+| `manifest-ingestions`    | `/tenantId` | 기본 호환 매니페스트 수집 계약. 환경별 조회, 테넌트 파티션 안의 매니페스트/생산 시각 고유 키 |
+| `manifest-ingestions-v2` | `/tenantId` | Bicep의 소스별 고유 키 전환 대상. 현재 기본 수집 계약으로 사용하지 않음                      |
+| `connector-sources`      | `/estateId` | 자산군 테넌트·환경 바인딩, 소스, 감사, 재시도 표시                                           |
+
+정의 기준은 `infra/modules/cosmos.bicep`, 실제 선택 기준은
+`apps/api/src/app.ts`와 `apps/jobs/src/worker.ts`이다.
+컨테이너 정의만으로 프로비저닝·전환 완료를 주장하지 않는다.
+`snapshots`의 상태 문서는 자산군·테넌트·환경·커넥터·측정 시각 튜플에 바인딩된
+SHA-256 ID를 사용하며, 스냅샷 문서와 문서 타입으로 구별한다.
 
 <a id="connectorsourcedefinition"></a>
 
 ### ConnectorSourceDefinition: 커넥터 소스 정의
 
-커넥터 소스 하나에 대한 비활성 구성 평면 레코드는 `estateId`, 데이터 테넌트/환경,
+커넥터 소스 하나의 구성 평면 레코드는 `estateId`, 데이터 테넌트/환경,
 안정적인 소스 ID, 커넥터 타입, 변경 불가능한 배포/사용자 기원, 엄격한 비밀 비포함 구성,
 안전한 자격 증명 ID/참조 메타데이터, 증거에 바인딩된 테스트 상태, 버전/ETag, 행위자,
 타임스탬프를 보존한다. 배포 기원 레코드는 변경 불가능한 `runtimeBinding.bindingSourceId`를
@@ -137,7 +162,8 @@
 재생성할 수 없게 한다. 정확히 같은 커밋된 업데이트·삭제 재시도는 불변 감사 결과를 재생한다.
 새로운 업데이트·삭제 감사 타임스탬프는 모두 이전 소스의 `updatedAt`보다 엄격히 늦어야 하므로,
 감사 순서는 인과관계를 따르며 호출자가 선택한 감사 ID의 영향을 받지 않는다.
-이후 활성화 작업이 이루어질 때까지 기존 배포 JSON을 활성 런타임 소스로 유지한다.
+구성 레코드 생성은 공급자 활성화와 별개다. 현재 일반 커넥터는 배포 환경 설정을 사용하며,
+Agent 365는 아래의 명시적 런타임 해석 경로를 사용한다.
 
 소스 목록은 `sourceId` 순서의 리포지토리 기반 탐색 페이지 매김을 사용하고,
 감사 목록은 안정적인 `(occurredAt, id)` 튜플로 탐색한다. API 페이지는 다음 페이지가 있는지
@@ -152,13 +178,24 @@ API 호출자는 자산군 경계, 기원, 행위자, 감사 타임스탬프, �
 위임 호출자는 사용자로 기록한다. 배포 기원 레코드는 계속 불변이며 삭제할 수 없다.
 연결 테스트 엔드포인트는 상태만 제공한다. 저장되고 레이블이 지정된 증거를 반환하며,
 테스트되지 않은 소스는 증거 사용 불가와 함께 `unknown`으로 보고한다.
-공급자를 호출하거나 성공 결과를 합성하지 않는다. 배포 JSON이 커넥터 런타임 소스로 유지되며,
-이 비활성 레코드에서 활성화되지는 않는다. 기존 `*_SOURCES_JSON` 정의는 변경 가능한
+공급자를 호출하거나 성공 결과를 합성하지 않는다. 기존 `*_SOURCES_JSON` 정의는 변경 가능한
 영속 저장소에 복사하지 않고, API 읽기 시 불변 배포 기원 레코드로 투영한다.
 개별 프로젝트가 다른 공급자 테넌트나 환경에 있어도 Foundry 포트폴리오 배포 소스는 포트폴리오의
 `estateTenantId`와 `estateEnvironment`에 속한다. 중첩 Foundry 구성은 정확한 공급자 테넌트,
 환경, 프로젝트 엔드포인트, 범위가 제한된 프로젝트 ID를 유지한다.
 출력된 Foundry 권위 메타데이터도 동일한 공급자 경계를 유지하며, 스냅샷은 포트폴리오 자산군 범위로 유지된다.
+
+Agent 365에 대해서는 API/jobs의 `@agent-sentinel/connector-runtime`이 배포 투영과
+영속 소스를 함께 읽어 `resolveAgent365Runtime`으로 런타임 결합을 해석한다.
+현재 활성화 정책은 **배포 기원**, `enabled: true`, 승인된 Managed Identity를 요구한다.
+사용자 기원 소스는 `deployment-origin-required`로 비활성 상태를 유지하고, 중복 공급자
+테넌트도 활성화하지 않는다. 상태는 소스 집합 지문·버전·ETag와 대조하므로 오래된
+성공 측정이 바뀐 구성의 준비도를 대신하지 않는다. 현재 배포의 Agent 365 소스 결합이
+사용된다는 사실과 임의 사용자 소스의 활성화를 구분한다.
+
+배포 투영의 `createdAt`/`updatedAt`에는 실제 구성 시각을 모를 때
+`1970-01-01T00:00:00.000Z` 호환 값이 쓰인다. 이는 실제 구성·관찰 시각이 아니며,
+현재 코드의 준비도 평가는 이를 알 수 없음으로 취급한다. `checkedAt` 측정 시각과 혼동하지 않는다.
 
 Azure Monitor 소스 쓰기에는 명시적인 `sourceProjectId`가 필요하다. 이 필드가 도입되기 전에
 영속화된 레거시 Azure Monitor 레코드는 읽기 전용 호환성 모델로 디코딩한다.
@@ -172,7 +209,11 @@ Azure Monitor 소스 쓰기에는 명시적인 `sourceProjectId`가 필요하다
 
 <a id="postgresql-pg-as-260814"></a>
 
-### PostgreSQL 저장소(pg-as-260814)
+### PostgreSQL 저장소 어댑터
+
+`pg-as-260814`는 과거 배포명이며 위 앵커는 링크 호환용이다.
+`PgFindingRepository`·`PgValidationRunRepository`와 테이블 정의는 있지만,
+현재 API/jobs의 실환경 리포지토리 팩터리는 Cosmos DB를 사용한다.
 
 | 테이블          | 용도                                       |
 | --------------- | ------------------------------------------ |
@@ -181,22 +222,33 @@ Azure Monitor 소스 쓰기에는 명시적인 `sourceProjectId`가 필요하다
 
 <a id="ai-search-search-as-260814"></a>
 
-### AI Search 검색 저장소(search-as-260814)
+### AI Search 검색 어댑터
 
-| 인덱스         | 용도                                   |
-| -------------- | -------------------------------------- |
-| findings-index | 발견 사항에 대한 의미 체계 + 벡터 검색 |
+`search-as-260814`는 과거 배포명이며 위 앵커는 링크 호환용이다.
+검색 스키마·수집·RAG 어댑터가 있다는 사실은 현재 API/jobs가 이 인덱스를 채우거나
+조회한다는 증거가 아니다.
+
+| 인덱스         | 용도                                                                     |
+| -------------- | ------------------------------------------------------------------------ |
+| findings-index | 검색 가능 텍스트 필드와 3,072차원 `contentVector`, HNSW 벡터 검색 프로필 |
 
 <a id="service-bus-sb-as-260814"></a>
 
-### Service Bus 메시징(sb-as-260814)
+### Service Bus 메시징 계약
 
-| 큐/토픽               | 용도                 |
-| --------------------- | -------------------- |
-| findings-validation   | 검증 작업 요청       |
-| remediation-execution | 개선 조치 작업 요청  |
-| snapshot-ingestion    | 스냅샷 처리 요청     |
-| domain-events (토픽)  | 도메인 이벤트 팬아웃 |
+`sb-as-260814`는 과거 배포명이며 위 앵커는 링크 호환용이다.
+아래 엔터티는 `infra/modules/servicebus.bicep`의 정의이다.
+
+| 큐/토픽               | 용도                                                                                            |
+| --------------------- | ----------------------------------------------------------------------------------------------- |
+| findings-validation   | 검증 작업 요청용 정의. 현재 jobs 수신 경로 없음                                                 |
+| remediation-execution | 개선 조치 요청용 정의. 현재 공급자 실행 워커 없음                                               |
+| snapshot-ingestion    | `SERVICE_BUS_FQDN` 구성 시 jobs가 수신. 자산군 검증 후 `snapshot.ingested` 이벤트에서 발견 실행 |
+| domain-events (토픽)  | `api-subscriber`·`jobs-subscriber` 구독 정의. 현재 worker.ts의 수신 대상은 이 토픽이 아님       |
+
+jobs는 메시지 수신만으로 실행되는 Container Apps Job이 아니라 Container App이다.
+시작 시 한 번과 `DISCOVERY_INTERVAL_MS` 주기(기본 300,000ms)로 발견하고,
+선택적으로 큐에서도 트리거한다.
 
 <a id="exposurefinding"></a>
 
@@ -214,7 +266,14 @@ Azure Monitor 소스 쓰기에는 명시적인 `sourceProjectId`가 필요하다
 - `validationStatus` (theoretical|validated|mitigated)
 - `tenantId`, `snapshotId`
 
-Cosmos DB 컨테이너: `findings`(파티션 키 `/tenantId`, upsert 시 `firstSeen` 보존).
+Cosmos DB 컨테이너는 `findings`, 파티션 키는 `/tenantId`다.
+현재 봉투는 `documentType: 'exposure-finding'`, `estateId`, `tenantId`,
+`environment`, `findingId`, `finding`을 담고, 물리 ID는
+`finding:<estateId>:<findingId>`이다. 읽기는 요청 자산군·테넌트·환경을 모두 검사하며
+구형 평면 문서는 `default` 자산군의 테넌트·환경 일치 조건에서만 읽는다.
+upsert는 같은 범위의 기존 `firstSeen`을 보존한다.
+jobs의 정책 평가는 현재 스냅샷과 증거에 기반하며, 발견 사항의 해소 상태가
+실제 공급자 개선 조치 실행을 뜻하지는 않는다.
 
 <a id="remediationpreview"></a>
 
@@ -247,6 +306,7 @@ Cosmos DB 컨테이너: `findings`(파티션 키 `/tenantId`, upsert 시 `firstS
 - `createdByIdentity`, `createdByRole`, `createdAt`
 - `assigneeIdentity`, `proposerIdentity`, `lastTransitionAt`
 - 선택적 링크: `findingId`, `agentId`, `policyId`
+- 선택적 `expiresAt`, `lifecycleAction` — 정책 예외 만료와 수명주기 작업 범위
 - `evidenceSnapshotIds` — 워크플로 전반에 전달되는 증거 스냅샷 참조
 - `sourceMode` (mock|foundry) 및 `writeEnabledAtCreation`
 
@@ -264,17 +324,24 @@ Cosmos DB 컨테이너: `findings`(파티션 키 `/tenantId`, upsert 시 `firstS
 
 허용되는 전이 작업은 결정론적이며 서버 측에서 강제한다.
 
-- `open` → `pick-up`
-- `in-review` → `propose`, `reject-finding`, `withdraw`
-- `pending-approval` → `approve`, `reject`, `withdraw`
-- `approved` → `close`
+- `open` → `pick-up`, `expire`
+- `in-review` → `propose`, `reject-finding`, `withdraw`, `expire`
+- `pending-approval` → `approve`, `reject`, `withdraw`, `expire`
+- `approved` → `close`, `expire`, `promote`, `acknowledge-drift`, `rollback`, `retire`
 - `rejected` → `reopen`
 - `expired` → `re-evaluate`
 - `closed` → 없음
 
+`approved` 상태의 수명주기 사례는 선언된 `lifecycleAction` 및 `expire`로 추가 제한되며,
+일반 사례에는 수명주기 작업을 허용하지 않는다.
+이 작업들은 거버넌스 레코드 전이이며 공급자 배포·롤백·폐기 실행을 입증하지 않는다.
+
 실환경 모드는 큐를 전용 `governance-cases` Cosmos 컨테이너에 저장한다.
 리포지토리 인스턴스는 구성된 테넌트 하나에 바인딩되며, 모든 단건 읽기·쿼리·트랜잭션 배치는
 해당 `/tenantId` 파티션 키를 제공한다.
+현재 API는 이 리포지토리를 기본 자산군 테넌트에 바인딩하고, 거버넌스 큐 요청에
+기본값이 아닌 자산군을 선택하면 거부한다. 모든 워크플로가 다중 자산군으로
+확장되었다고 해석해서는 안 된다.
 
 컨테이너는 세 가지 문서 봉투를 사용한다.
 
@@ -351,9 +418,20 @@ Cosmos DB 컨테이너: `findings`(파티션 키 `/tenantId`, upsert 시 `firstS
 - 서버의 `ingestedAt` 및 민감 정보를 제거한 인증된 `ingestedBySubject`
 - 검증된 `ManifestEnvelope` 및 정규화된 비권위적 `EstateSnapshot`
 
-해시가 재시도 멱등성 키이다. `(manifestId, envelope.producedAt)`은 유일하므로 서로 다른 두
-페이로드가 같은 생산자 버전 타임스탬프를 주장할 수 없다. jobs는 고유 매니페스트 ID를 나열하고
-합성 전에 각 ID의 최신 생산자 버전만 읽는다.
+물리 ID는 `ingestion:<manifestHash>`, `documentType`은 `manifest-ingestion`이다.
+해시가 재시도 멱등성 키이다. `(manifestId, envelope.producedAt)`은 **동일 `/tenantId`
+파티션 안에서** 유일하므로 서로 다른 환경이라도 같은 매니페스트 ID·생산 시각의
+다른 페이로드를 저장할 수 없다. jobs는 환경을 필터링한 뒤 고유 매니페스트 ID를 나열하고
+합성 전에 각 ID의 최신 생산자 버전만 읽는다. 현재 레코드에는 `estateId`나
+`source` 버전 결합 필드가 없으며, API 수집은 기본 자산군 경계로 제한된다.
+
+API/jobs의 컨테이너 선택은 `COSMOS_MANIFEST_INGESTIONS_CONTAINER`이고 기본값은
+`manifest-ingestions`다. Bicep의 `manifest-ingestions-v2`는
+`/source/estateId`, `/source/sourceId`, `/source/version`, `/source/etag`,
+`/manifestId`, `/envelope/producedAt` 복합 고유 키를 정의한다.
+이는 현재 `ManifestIngestionRecord`가 해당 필드를 기록한다는 뜻이 아니다.
+호환 저장소가 현재 기준 원천이며, 단순 환경 변수 변경이 아닌 별도 복사·계약 검증·전환
+검토 전에는 v2를 활성 저장소로 주장하지 않는다.
 
 <a id="bounds"></a>
 
@@ -398,21 +476,29 @@ Cosmos DB 컨테이너: `findings`(파티션 키 `/tenantId`, upsert 시 `firstS
 
 ### RuntimeObservation: 런타임 관찰값
 
-표본으로 수집한 호출 하나이다. 필드: `id`, `tenantId`, `agentId`, `environment`, `source`, `observedAt`(ISO 8601), `latencyMs`(정수 ≥ 0), `inputTokens`(정수 ≥ 0), `outputTokens`(정수 ≥ 0), `costUsd`(숫자 ≥ 0, 선택 사항), `success`(boolean), `toolCallNames`(최대 50개의 제한된 문자열 배열), 선택적 `correlations`(`agent-run-id`, `correlation-id`, `agent-version` 각각 최대 하나). 상관관계 배열은 이 고정 유형 순서로 정규화하며, 중복 유형은 거부한다. 원본 프롬프트나 크기가 제한되지 않은 페이로드는 포함하지 않는다.
+호출 하나의 범위가 제한된 관찰값이다. 필드: `id`, `tenantId`, `agentId`, `environment`,
+`source`, `observedAt`(ISO 8601), `success`(boolean), `toolCallNames`(최대 50개,
+기본 빈 배열), `synthetic`(기본 false). `latencyMs`(0..300,000 정수),
+`inputTokens`·`outputTokens`(각 0..1,000,000 정수), `costUsd`(0..10,000 숫자),
+`errorCode`, `correlations`, `otelProvenance`는 선택 필드다.
+`correlations`는 `agent-run-id`, `correlation-id`, `agent-version` 각각 최대 하나이며
+이 유형 순서로 정규화하고 중복 유형을 거부한다. 필드 선택 가능성은 실환경 분석의
+완전성 검사를 생략한다는 뜻이 아니다. 원본 프롬프트나 크기가 제한되지 않은 페이로드는 포함하지 않는다.
 
 <a id="observationwindow"></a>
 
 ### ObservationWindow: 관찰 윈도
 
 크기가 제한되고 타임스탬프가 지정된 `RuntimeObservation` 객체 모음:
-`id`, `agentId`, `tenantId`, `environment`, `source`, `windowStart`, `windowEnd`, `observations`(배열 ≤ 10,000).
+`windowId`, `agentId`, `tenantId`, `environment`, `source`, `windowStart`, `windowEnd`,
+`observations`(배열 ≤ 10,000), 선택적 `otelQuality`.
 
 <a id="baselinewindow"></a>
 
 ### BaselineWindow: 기준선 윈도
 
 과거 윈도에 대해 미리 계산한 통계 요약:
-`agentId`, `tenantId`, `environment`, `source`, `windowStart`, `windowEnd`, `sampleCount`(정수 ≥ 0), `latencyMs`(`DistributionStats`, 선택 사항), `inputTokens`(`DistributionStats`, 선택 사항), `outputTokens`(`DistributionStats`, 선택 사항), `totalTokens`(`DistributionStats`, 선택 사항), `costUsd`(`DistributionStats`, 선택 사항 — **비용을 측정하지 않았다면 절대 포함하지 않음**), `successRate`, `errorRate`, `toolSequence`(`ToolSequenceSummary`), `evidenceId`(불변 증거 참조), `computedAt`.
+`agentId`, `tenantId`, `environment`, `source`, `windowStart`, `windowEnd`, `sampleCount`(정수 ≥ 0), `latencyMs`(`DistributionStats`, 선택 사항), `inputTokens`(`DistributionStats`, 선택 사항), `outputTokens`(`DistributionStats`, 선택 사항), `totalTokens`(`DistributionStats`, 선택 사항), `costUsd`(`DistributionStats`, 선택 사항 — **비용을 측정하지 않았다면 절대 포함하지 않음**), 선택적 `successRate`, `errorRate`, `toolSequence`(`ToolSequenceSummary`), `evidenceId`(불변 증거 참조), `computedAt`.
 
 `ToolSequenceSummary`는 정렬된 고유 도구 집합과 크기가 제한된 호출별 정규 순서 패턴을
 모두 기록하므로, 도구 집합이 바뀌지 않아도 순서만 달라진 경우를 감지할 수 있다.
@@ -452,13 +538,13 @@ MAD(중앙값 절대 편차)는 이상치와 경계가 있는 분포의 비대�
 
 ### 한도
 
-| 제한 항목               | 한도  |
-| ----------------------- | ----- |
-| 윈도당 관찰값           | 500   |
-| 분석당 차원             | 10    |
-| 관찰값당 도구 호출 이름 | 50    |
-| 추적하는 고유 도구      | 100   |
-| unavailableReason       | 500자 |
+| 제한 항목               | 한도   |
+| ----------------------- | ------ |
+| 윈도당 관찰값           | 10,000 |
+| 분석당 차원             | 10     |
+| 관찰값당 도구 호출 이름 | 50     |
+| 추적하는 고유 도구      | 100    |
+| unavailableReason       | 500자  |
 
 ---
 
@@ -484,7 +570,10 @@ Azure Monitor OTel 커넥터는 네트워크 접근 없이 민감 정보를 제�
 분석 준비가 된 호출에는 호환되는 추적 호출 주장 하나, 스팬 지연 시간 및 오류 주장,
 입력 토큰·출력 토큰·실측 USD 비용의 원시 메트릭 주장이 필요하다.
 이를 구조화된 `otelProvenance`와 함께 `RuntimeObservation`으로 투영한다.
-근거 `Evidence`는 최대 500개의 정확한 호출 레코드와 범위가 제한된 전체 품질 요약을 보존한다.
+대표 페이지 정규화 경로의 근거 `Evidence`는 최대 500개의 정확한 호출 레코드와
+범위가 제한된 전체 품질 요약을 보존한다. 공통 `ObservationWindow`와
+`otelEvidenceDetails.invocations` 스키마는 각각 최대 10,000개를 허용한다.
+대표 정규화 한도와 실환경 공통 계약 한도를 혼동하지 않는다.
 제공된 `correlation-id`는 정확히 보존하며, 해당 상관관계 유형이 없을 때만 추적 ID를 대체값으로 사용한다.
 
 자산군 스냅샷 영속 쓰기는 스냅샷 스키마 버전 2를 사용하며 엄격성을 유지한다.
@@ -515,13 +604,14 @@ OTel 호출 페이로드 없이 비권위적인 `migration-required` 알 수 없
 품질을 거부하므로 이러한 조건이 정상 또는 성공 결과로 바뀔 수 없다.
 합성 레코드는 정규화 후에도 합성으로 유지하며 실환경 행동 분석에서 제거한다.
 
-| 제한 항목          | 한도   |
-| ------------------ | ------ |
-| 공급자 페이지      | 20     |
-| 페이지당 레코드    | 500    |
-| 정규화당 레코드    | 10,000 |
-| 윈도당 투영 호출   | 500    |
-| 호출당 증거 레코드 | 6      |
+| 제한 항목                           | 한도   |
+| ----------------------------------- | ------ |
+| 공급자 페이지                       | 20     |
+| 페이지당 레코드                     | 500    |
+| 정규화당 레코드                     | 10,000 |
+| 대표 정규화당 투영 호출             | 500    |
+| 공통 관찰 윈도·증거 페이로드당 호출 | 10,000 |
+| 호출당 증거 레코드                  | 6      |
 
 ---
 

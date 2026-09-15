@@ -4,6 +4,13 @@
 
 > 통합 AI 에이전트 운영·거버넌스·보안·수명주기 플랫폼
 
+**문서의 역할:** 원래 제품 목표·요구사항·단계별 계획을 보존하는 명세다.
+현재 구현·배포 완료를 뜻하지 않는 목표는 그대로 목표로 유지한다.
+2026-09-15 코드 대조 기준은 `1129bbe8727ab9cb7a2e49a1f417a8e042d9ad94`,
+실제 배포는 `7c1336bc7985ea7e383c335d631b7c705fffb97c`이다.
+[현재 상태](docs/current-status.md)가 날짜별 현황의 기준 원천이며, 아래 구현 상태 표와
+[아키텍처](docs/architecture.md)·[데이터 모델](docs/data-model.md)이 설계와 구현의 차이를 설명한다.
+
 <a id="1-executive-summary"></a>
 
 ## 1. 핵심 요약
@@ -12,7 +19,7 @@ Agent Sentinel은 Microsoft와 타사 생태계 전반의 기업용 에이전트
 
 Microsoft Agent 365, Microsoft Entra Agent ID, Microsoft Defender, Microsoft Purview, Copilot Studio, Microsoft Foundry는 이미 등록, ID, 모니터링, 보호, 거버넌스의 일부 영역에서 권위 있는 기능을 제공한다. Agent Sentinel은 이를 대체하지 않는다. 각 시스템의 증거를 연결하고 제어 평면 사이의 운영 공백을 메운다.
 
-플랫폼은 운영 수명주기 전반의 질문에 답한다.
+플랫폼이 지향하는 것은 운영 수명주기 전반의 다음 질문에 답하는 일이다.
 
 1. **발견:** 어떤 에이전트, ID, 도구, MCP 서버, 소유자, 의존성이 존재하는가?
 2. **거버넌스:** 승인과 소유권이 확보되어 있고, 규정을 준수하며 정책 범위 안에서 운영되는가?
@@ -34,6 +41,24 @@ Microsoft Agent 365, Microsoft Entra Agent ID, Microsoft Defender, Microsoft Pur
 <a id="2-decision-and-evidence-status"></a>
 
 ## 2. 결정 및 증거 현황
+
+### 현재 구현 상태(2026-09-15)
+
+| 영역                | 코드에 구현된 범위                                                               | 배포·관찰 사실                                                                                                  | 남은 목표·경계                                                                 |
+| ------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 실행 구조           | `apps/web`, `apps/api`, `apps/jobs`와 공통 TypeScript 패키지                     | `fd-as-m098047` 뒤 세 앱은 `7c1336bc`; 핵심은 읽기 전용 인벤토리                                                | 최신 코드 `1129bbe8`은 미배포                                                  |
+| 발견·카탈로그       | Foundry 및 선택적 공급자 커넥터, 영속 스냅샷, Catalog                            | Foundry 합성 검증 에이전트 6개; Agent 365 패키지 308개 = 에이전트 패키지 노드 302개 + 확장 패키지 제어 노드 6개 | 패키지·카탈로그는 실행 중인 에이전트 수나 개인별 사용 권한이 아님              |
+| ID·로그인           | Entra 인벤토리, 정확한 ID 결합, MSAL/JWT와 네 역할                               | Entra 레코드 344개; `RUNS_AS` 0개; `AUTH_MODE=disabled`                                                         | 동의·역할 할당·실제 JWT 검증과 에이전트 측 정확한 런타임 ID 증거가 별도로 필요 |
+| 개인화              | `/my-agents`, 기본 거부형 `/api/employee/agent-catalog`                          | 권위 있는 사용 권한 해석기 미구성                                                                               | 로그인만으로 `My agents`가 채워지지 않음                                       |
+| 보호·그래프         | 결정론적 그래프·정책, `AS-POL-001..003` 노출 평가, 증거 기반 개선 조치 미리 보기 | 선언된 구성에 대한 실환경 읽기 모델; 기존 공격 경로 픽스처는 모의 전용                                          | 실제 악용·런타임 경로 검증·공급자 개선 조치 실행 증거 없음                     |
+| 거버넌스·수명주기   | 사례·예외·전이·감사, 릴리스 준비도, 오프라인 release-review 도구                 | `AGENT_SENTINEL_WRITE_ENABLED=false`, 준비도 `partial`                                                          | 도구나 상태 전이는 실제 승격·롤백·폐기 또는 사람의 승인이 아님                 |
+| 관찰·최적화         | OTel 읽기 어댑터, 결정론적 기준선·드리프트·실측 비용 분석                        | 런타임 증거 `unavailable`; 적격/조회 에이전트·증거 모두 0; OTel `degraded`/`not-queried`                        | 실제 호출·권위 있는 호출 비용·고객 절감·성과 증거 없음                         |
+| 확장·개발 단계 검사 | 비권위적 매니페스트 어댑터, 오프라인 스캔/SARIF, 외부 런타임 SDK·ID 파일럿 도구  | 매니페스트 수집 차단; SDK·파일럿 도구와 Foundry `instance_identity` 지원은 미배포                               | 파일럿 승인·생성·SDK 채택·실제 계측 실행을 주장하지 않음                       |
+| 검증·승인           | 자동 검사와 릴리스 증거 도구                                                     | 정식 Security·Accessibility·OneRAI·릴리스 승인 미기록                                                           | 과거 전체 검사 수는 원래 날짜/SHA에만 귀속; 최신 후보 전체 통과 선언 없음      |
+
+2026-09-16 18:00 KST는 **내부 후보 동결 목표**이지 프로덕션 가동 승인일이 아니다.
+현재 시연은 [인수인계의 5분 데모](docs/maintainer-handoff.md#5-minute-demo)를 따르며,
+아래의 원래 7분 보안 시나리오나 장기 목표를 실환경 달성으로 발표하지 않는다.
 
 <a id="21-is-there-already-an-identical-microsoft-internal-app"></a>
 
@@ -57,6 +82,9 @@ Microsoft Agent 365, Microsoft Entra Agent ID, Microsoft Defender, Microsoft Pur
 <a id="22-existing-overlap"></a>
 
 ### 2.2 기존 기능과의 중복
+
+아래는 2026-08-14 기획 당시의 활용 후보와 중복 분석이다. 각 공급자의 전체 기능이
+현재 커넥터로 수집된다는 뜻은 아니며, 실제 범위는 [커넥터 가용성](docs/connector-availability.md)을 따른다.
 
 | 기존 기능                   | 기준 기록 시스템 후보              | Agent Sentinel의 활용 방식              |
 | --------------------------- | ---------------------------------- | --------------------------------------- |
@@ -218,6 +246,10 @@ Microsoft Agent 365, Microsoft Entra Agent ID, Microsoft Defender, Microsoft Pur
 
 ### 6.1 에이전트 노출 그래프
 
+이 절의 노드·간선 목록은 목표 모델이다. 현재 `GraphNode.kind`와 `GraphEdge.relationship`
+열거형은 [데이터 모델](docs/data-model.md#graphnode)에 정의된 더 작은 집합이며,
+아래 관계가 모두 현재 스키마에 존재하거나 실환경에서 관찰되었다고 가정하지 않는다.
+
 다음 노드 타입을 모델링한다.
 
 - 에이전트
@@ -371,6 +403,9 @@ UI는 요인별 값과 증거를 보여 주어야 한다. 설명 없는 LLM 생�
 ### 6.6 코드형 정책
 
 버전이 지정된 YAML 정책과 결정론적 평가 엔진을 사용한다.
+
+다음 `AS-POL-004`는 원래 목표를 설명하는 정책 예시이며 현재 배포 정책이 아니다.
+현재 실환경 노출 평가는 `@agent-sentinel/policy-engine`의 `AS-POL-001..003`을 사용한다.
 
 ```yaml
 id: AS-POL-004
@@ -538,116 +573,104 @@ LLM은 구조화된 증거 요약에만 사용한다. 중요한 모든 진술에
 
 <a id="7-proposed-architecture"></a>
 
-## 7. 제안 아키텍처
+## 7. 제안 아키텍처와 현재 구현
+
+아래 그림은 현재 코드의 핵심 읽기 경로만 나타낸다. 제안했던 MCP 게이트웨이,
+일반 이벤트 기반 오케스트레이션, 공급자 개선 조치 실행은 이 경로에 구현된 것으로
+그리지 않는다. 그 기능 목표는 앞 절과 단계별 계획에 남긴다.
 
 ```mermaid
 flowchart LR
-    A[Agent 365 / Entra] --> I["커넥터 워커"]
-    B[Copilot Studio / Power Platform] --> I
-    C[Microsoft Foundry / Azure Monitor] --> I
-    D[Defender / Purview] --> I
-    E["타사 에이전트"] --> O[OpenTelemetry + Sentinel SDK]
-    F["MCP 트래픽"] --> G[Sentinel MCP Gateway]
-    O --> I
-    G --> I
-
-    I --> N["정규화 및 ID 식별"]
-    N --> Q["이벤트 버스"]
-    Q --> P["정책 엔진"]
-    Q --> X["노출 그래프 생성기"]
-    Q --> T["원격 분석 및 비용 저장소"]
-    Q --> L["수명주기 및 릴리스 서비스"]
-    Q --> C["신뢰 카탈로그"]
-
-    X --> R["위험 및 공격 경로 엔진"]
-    P --> R
-    T --> R
-    L --> R
-    C --> R
-    R --> V["검증 오케스트레이터"]
-    R --> S["발견 사항 및 인시던트"]
-    R --> OX["최적화 및 권고"]
-    V --> S
-
-    S --> W["웹 콘솔"]
-    OX --> W
-    L --> W
-    C --> W
-    S --> H["승인 워크플로"]
-    OX --> H
-    H --> M["개선 조치 오케스트레이터"]
-    M --> I
+    F["Foundry 선언된 구성"] --> J["jobs: 발견·정규화·그래프·정책 평가"]
+    E["Entra / Agent 365 등 구성된 읽기 전용 소스"] --> J
+    Q["선택적 snapshot-ingestion 큐"] --> J
+    J -->|"스냅샷·상태·노출 저장"| C["Cosmos DB"]
+    A["api: 영속 읽기 모델"] -->|"조회"| C
+    D["Front Door fd-as-m098047"] -->|"Private Link"| W["web: nginx + React"]
+    W -->|"/api/*"| A
 ```
 
 <a id="71-recommended-implementation-stack"></a>
 
-### 7.1 권장 구현 스택
+### 7.1 현재 구현 스택과 원래 선택지
 
-해커톤 개발 속도를 높이기 위해 TypeScript 모노레포를 우선한다.
+현재 TypeScript 모노레포 구현은 다음과 같다.
 
 - **웹:** React, TypeScript, Vite, Fluent UI
 - **API:** Node.js, TypeScript, Fastify
-- **워커:** 기본적으로 Azure Container Apps jobs 사용. 이벤트 트리거 커넥터가 더 단순해지는 경우 Azure Functions 사용
-- **인증:** MSAL을 사용하는 Microsoft Entra ID
-- **운영 데이터:** Azure Database for PostgreSQL
-- **그래프:** 초기에는 PostgreSQL 테이블 사용. 이후 선택적으로 Azure Cosmos DB Gremlin 또는 Neo4j 어댑터 사용
-- **이벤트:** Azure Service Bus
-- **캐시:** 필요한 경우 Azure Cache for Redis
-- **원격 분석:** OpenTelemetry 및 Application Insights
-- **비밀:** Managed Identity 및 Azure Key Vault
+- **워커:** `apps/jobs`는 Azure Container App이다. 시작 시·주기적 발견 및 선택적 `snapshot-ingestion` 큐 수신을 수행하며 Container Apps Job이나 Azure Functions가 아니다.
+- **인증:** Microsoft Entra ID/MSAL/JWT 코드가 있으나 현재 배포는 비활성화
+- **운영 데이터:** API/jobs의 실환경 읽기 모델은 Azure Cosmos DB SQL API; 모의 모드는 인메모리
+- **그래프:** 스냅샷의 타입 지정 노드·간선 배열과 TypeScript 그래프 탐색. PostgreSQL 재귀 쿼리·Gremlin·Neo4j가 현재 코어가 아님
+- **이벤트:** Azure Service Bus 계약과 선택적 스냅샷 수집 트리거. 모든 기능이 이벤트 버스로 연결된 것은 아님
+- **원격 분석:** OpenTelemetry/Application Insights 통합 및 읽기 어댑터. 제품 자체 로그와 분석 가능한 외부 에이전트 호출 증거는 별개
+- **비밀:** 지원되는 Azure 접근의 Managed Identity와 Key Vault 구성
 - **배포:** Azure Container Apps 및 Bicep
-- **정책 엔진:** 별도 패키지로 구현한 JSON/YAML 규칙
+- **정책 엔진:** 별도 TypeScript 패키지의 결정론적 규칙
 - **테스트:** Vitest, Playwright, 커넥터 계약 테스트
 
-관계형 재귀 쿼리가 측정된 워크로드를 처리하지 못하는 경우가 아니면 첫 반복 단계에 그래프 데이터베이스를 도입하지 않는다.
+PostgreSQL 우선, 이후 필요 시 Gremlin/Neo4j·Redis·Functions를 검토한다는 원래 제안은
+과거 설계 선택지다. 현재 Cosmos DB 문서 저장과 별도의 PostgreSQL·AI Search 어댑터
+존재를 혼동하지 않는다. 전용 그래프 데이터베이스나 캐시 도입은 여전히 검증된 필요에 따른 후속 결정이다.
 
 <a id="72-monorepo-layout"></a>
 
 ### 7.2 모노레포 구성
+
+현재 경로의 주요 구성이다. 원래 제안의 `worker-ingestion`, `worker-analysis`,
+`remediation-sdk`, `infrastructure/bicep`는 현재 디렉터리가 아니다.
 
 ```text
 agent-sentinel/
   apps/
     web/
     api/
-    worker-ingestion/
-    worker-analysis/
-    cli/
+    jobs/
   packages/
     domain/
     connector-sdk/
     policy-engine/
     graph-engine/
-    risk-engine/
-    remediation-sdk/
-    telemetry/
-    ui-components/
+    persistence/
+    connector-runtime/
+    behavior-engine/
+    messaging/
+    search/
+    runtime-instrumentation/
+    shift-left-scanner/
+    scenarios/
+    ui/
   connectors/
     mock/
-    entra/
+    entra-identity/
     azure-resource-graph/
     foundry/
-    copilot-studio/
-    defender/
+    agent365/
+    power-platform/
+    defender-cloud-apps/
     purview/
-    otel/
-    mcp-gateway/
-  infrastructure/
-    bicep/
-    policies/
-    dashboards/
-  samples/
-    vulnerable-sales-agent/
-    safe-sales-agent/
+    teams-distribution/
+    azure-monitor-otel/
+    manifest/
+  tools/
+  scripts/
+  infra/
+    modules/
+    environments/
+    auth/
   docs/
-    architecture/
-    threat-model/
-    demo/
+    adr/
 ```
 
 <a id="73-azure-subscription-deployment-profile"></a>
 
 ### 7.3 Azure 구독 배포 프로필
+
+이 절의 리소스 후보·인수 기준은 원래 설계 목표다. 현재 참조 배포의
+Front Door는 `fd-as-m098047`, Application Gateway는 `appgw-as-m098047`,
+ACR은 프라이빗 `acrm098047`이며 대상 리소스 그룹의 VM은 0개다.
+실제 토폴로지와 컨테이너 선택은 [현재 아키텍처](docs/architecture.md)를 따른다.
+후보 표에서 확장 리소스로 분류했던 Cosmos DB와 Front Door는 현재 핵심 경로에 사용된다.
 
 프로젝트는 Microsoft가 제공한 Azure 구독을 적극적으로 활용할 수 있다. 프로젝트 자체에서 정한 비용 상한, SKU 제한, 아키텍처 제한, Azure 서비스 수 최소화 요구는 없다. 제품 품질, 기술 적합성, 확장성, 보안, 데모 가치를 기준으로 리소스를 선택한다.
 
@@ -730,7 +753,10 @@ agent-sentinel/
 - 전용 리소스 그룹의 완전한 철거 지원.
 - 리소스 그룹 또는 리소스 범위로 충분하면 광범위한 구독 범위 역할 할당 회피.
 
-권장 명령:
+다음은 **2026-08-14 설계 당시의 배포 명령 예제**다.
+`infrastructure/bicep` 경로는 현재 저장소 경로가 아니므로 그대로 실행하지 않는다.
+실제 절차는 [배포 안내](docs/deployment.md)를 따르며, 현재 환경은 관련 없는 플랫폼
+드리프트가 있어 전체 Bicep 적용 대신 검토된 제한적 변경이 필요하다.
 
 ```powershell
 az deployment sub what-if `
@@ -766,6 +792,11 @@ az deployment sub create `
 모든 Microsoft 미리 보기 API와 사용할 수 없는 API는 어댑터 뒤에 격리해야 한다.
 제품은 모의 커넥터로도 시연 가능한 상태를 유지해야 한다.
 
+아래 인터페이스는 원래 설계 예시다. 현재 구현 계약은
+`packages/connector-sdk/src/index.ts`의 `AgentConnector`이며 `descriptor`,
+`discover(): Promise<EstateSnapshot>`, `getEvidence(evidenceId: string)` 등을 사용한다.
+공급자 페이지 매김은 커넥터 내부에서 제한하며, 실환경 실패를 모의 데이터로 자동 대체하지 않는다.
+
 ```ts
 export interface AgentConnector {
   readonly id: string
@@ -794,7 +825,7 @@ export interface AgentConnector {
 
 ## 9. 도메인 모델
 
-최소 엔터티:
+목표 엔터티 목록(현재 TypeScript 타입·테이블 목록이 아님):
 
 ```text
 AgentAsset
@@ -879,7 +910,7 @@ ConnectorState
 - 가능한 모든 곳에서 Managed Identity 사용
 - 로그에 비밀 미포함
 - 전송 중 및 저장 시 암호화
-- RBAC 역할: Viewer(조회자), Analyst(분석가), Approver(승인자), Connector Admin(커넥터 관리자), Policy Admin(정책 관리자)
+- 원래 RBAC 책임 분리 목표: Viewer(조회자), Analyst(분석가), Approver(승인자), Connector Admin(커넥터 관리자), Policy Admin(정책 관리자). 현재 구현 역할은 `Viewer`, `Analyst`, `Approver`, `Administrator` 네 개이며 관리 책임은 `Administrator`의 `configure` 기능으로 묶인다. 별도 관리자 역할은 후속 설계 목표이고 현재 배포 로그인은 비활성화다.
 - 조사와 프로덕션 개선 조치 승인 분리
 - 변조 여부를 확인할 수 있는 감사 로그
 - 구성 가능한 증거 보존 기간
@@ -928,7 +959,7 @@ ConnectorState
 - 가능한 경우 필터와 선택 상태를 URL에 보존한다.
 - 핵심 요약을 먼저 보여 주고 증거와 원시 기술 세부사항은 요청 시 공개하는 점진적 공개 방식을 사용한다.
 - 파괴적이거나 영향이 큰 작업에는 영향 미리 보기, 적절한 경우 직접 입력 확인, 승인 상태, 실행 진행, 결과, 롤백 수단이 필요하다.
-- 현실적인 합성 이름, 타임스탬프, 소유자, 활동, 인시던트, 정책 데이터를 사용한다. `foo`, `test`, lorem ipsum 자리표시자, 눈에 띄는 데모 전용 레이블은 피한다.
+- 현실적인 합성 이름, 타임스탬프, 소유자, 활동, 인시던트, 정책 데이터를 사용한다. `foo`, `test`, lorem ipsum 자리표시자는 피하되, 합성·모의·미관찰 증거 레이블은 반드시 명확히 유지한다.
 - 동작하지 않는 컨트롤은 표시하지 않는다. 기능을 사용할 수 없으면 미리 보기, 시뮬레이션, 권한 필요, 추후 제공 상태를 명확히 표시한다.
 - 브라우저 경고창, 기본 표시 방식으로 쓰는 원시 JSON, 설명 없는 ID, 디버그 추적, 스타일을 적용하지 않은 컴포넌트 라이브러리 기본값을 피한다.
 
@@ -1125,6 +1156,9 @@ Storybook에는 의미 있는 모든 상태의 접근성 검사와 현실적인 
 
 ## 12. 단계별 제공 계획
 
+아래 기간과 단계는 원래 기획 순서이며 현재 완료율이나 새 일정이 아니다.
+동결 범위와 남은 외부 게이트는 2절의 현재 상태 표를 따른다.
+
 <a id="phase-0-technical-feasibility-spike"></a>
 
 ### 0단계: 기술 실현 가능성 검증
@@ -1228,6 +1262,10 @@ Storybook에는 의미 있는 모든 상태의 접근성 검사와 현실적인 
 
 ## 13. 권장 데모
 
+이 절은 원래 목표한 **합성 보안 시나리오**다. 실제 배포의 `RUNS_AS`는 0개이며,
+현재 URL에서 아래 검증·실행 순서가 성립한다고 발표해서는 안 된다.
+현재 내부 후보 데모는 2절에 연결한 인수인계 절차로 제한한다.
+
 <a id="131-scenario"></a>
 
 ### 13.1 시나리오
@@ -1312,6 +1350,9 @@ Storybook에는 의미 있는 모든 상태의 접근성 검사와 현실적인 
 
 ## 15. 성공 지표
 
+아래는 측정할 목표다. 현재 실사용자 연구·고객 절감·권위 있는 호출 비용·실환경 개선 조치
+성공의 측정 기록은 없으며, 합성 데모 수치를 고객 성과나 릴리스 승인으로 제시하지 않는다.
+
 기술:
 
 - 커넥터별 발견 커버리지
@@ -1395,6 +1436,10 @@ Storybook에는 의미 있는 모든 상태의 접근성 검사와 현실적인 
 
 ## 18. 초기 엔지니어링 백로그
 
+아래 체크박스는 **초기 기획 기록**으로 보존한다. 미체크가 현재 미구현을 뜻하지 않으며,
+현재 완료·부분 구현·미배포 상태는 2절과 연결된 현황 기록으로 판단한다.
+기존 모노레포·커넥터·역할·스토리북을 이 목록 때문에 다시 만들지 않는다.
+
 <a id="p0"></a>
 
 ### P0 우선순위
@@ -1462,11 +1507,12 @@ Storybook에는 의미 있는 모든 상태의 접근성 검사와 현실적인 
 
 ## 19. VS Code Copilot용 지침
 
-이 명세를 제품의 기준 원천으로 사용한다.
+이 명세를 **제품 목표**의 기준 원천으로 사용한다. 현재 구현 계약과 운영 상태는
+[현재 상태](docs/current-status.md) 및 연결된 아키텍처·데이터 모델을 우선한다.
 
 구현 규칙:
 
-1. 0단계와 P0 백로그에서 시작한다.
+1. 현재 코드와 완료된 범위를 확인한 뒤 남은 티켓에서 시작한다. 0단계와 P0는 초기 착수 기록이다.
 2. 모든 플랫폼 통합은 타입이 지정된 커넥터 인터페이스 뒤에 유지한다.
 3. API 엔드포인트나 권한을 만들어 내지 않는다. 사용할 수 없는 통합은 모의 어댑터로 표시한다.
 4. LLM을 추가하기 전에 결정론적 그래프 및 정책 동작을 구현한다.
@@ -1481,7 +1527,7 @@ Storybook에는 의미 있는 모든 상태의 접근성 검사와 현실적인 
 13. 제품의 여섯 축인 발견, 거버넌스, 보호, 관찰, 최적화, 수명주기를 모두 보존한다.
 14. 더 넓은 플랫폼을 지원하는 공통 도메인 기본 요소를 설계하면서 보호를 대표 수직 기능 단위로 유지한다.
 
-권장 첫 Copilot 작업:
+다음은 초기 착수 때의 Copilot 프롬프트이며, 기존 구현을 재초기화하는 현재 작업 지시가 아니다.
 
 ```text
 agent-sentinel-product-spec.md를 읽는다. 명세에 기술된 0단계 TypeScript
@@ -1510,7 +1556,7 @@ agent-sentinel-product-spec.md를 읽는다. 명세에 기술된 0단계 TypeScr
 권장 순서:
 
 1. VS Code Copilot 또는 사용 가능한 코딩 에이전트를 주 구현 에이전트로 사용한다.
-2. 이 문서를 제품의 기준 원천으로 유지한다.
+2. 이 문서를 제품 목표의 기준 원천으로 유지하고 현재 구현·배포 사실은 `docs/current-status.md`와 대조한다.
 3. 각 단계를 명시적인 인수 기준이 있는 작은 수직 기능 티켓으로 전환한다.
 4. 실패 테스트→통과→리팩터링 순환으로 한 번에 티켓 하나를 구현한다.
 5. 각 기능 단위가 끝날 때 테스트, 타입 검사, 린트, 관련 데모 경로를 실행한다.
@@ -1611,7 +1657,8 @@ Sandcastle은 격리된 샌드박스와 브랜치에서 코딩 에이전트를 �
 
 ### 20.5 모든 코딩 에이전트용 기본 프롬프트
 
-다음 프롬프트를 VS Code Copilot 또는 다른 코딩 에이전트에 복사한다.
+다음은 초기 구축용 프롬프트 참조다. 현재 작업에 재사용할 때는 이미 구현된 0단계를
+다시 만들지 말고 현재 상태·작업 범위·남은 인수 기준을 먼저 반영한다.
 
 ```text
 당신은 Agent Sentinel의 주 구현 에이전트다.
@@ -1738,6 +1785,8 @@ Microsoft Foundry를 보완한다. 기본 관리 기능을 재구현하는 대�
 <a id="22-final-product-statement"></a>
 
 ## 22. 최종 제품 선언
+
+아래는 지향하는 제품 선언이며 현재 배포의 기능 완료 진술이 아니다.
 
 > Agent Sentinel은 AI 에이전트, ID, 도구, MCP 서버, 데이터, 소유자, 정책,
 > 활동, 품질, 비용, 수명주기가 어떻게 연결되는지 지속적으로 매핑한다.

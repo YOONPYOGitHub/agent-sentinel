@@ -9,9 +9,18 @@
 Agent Sentinel은 여러 플랫폼에 걸친 AI 에이전트 운영 및 보안 제어 평면이다.
 Microsoft와 타사 시스템의 권위 있는 데이터를 활용하며, 각 시스템의 기본 관리 기능을 재구현하지 않는다.
 
+이는 제품 목표이며 모든 기능이 현재 활성화된 것은 아니다. **2026-09-15 기준** 구현 검토
+기준은 `1129bbe8`, 실제 배포는 `7c1336bc`이다. `apps/web`, `apps/api`, `apps/jobs`
+세 앱의 핵심은 읽기 전용 실환경 인벤토리와 결정론적 노출 분석이다.
+로그인과 쓰기는 비활성화되어 있고 공급자 개선 조치 실행, 권위 있는 개인별 사용 권한,
+실제 런타임·고객 성과 증거는 없다. [현재 상태](current-status.md)를 기준 기록으로,
+[아키텍처](architecture.md)와 [데이터 모델](data-model.md)을 현재 구현 계약으로 사용한다.
+
 <a id="product-pillars"></a>
 
 ## 제품의 핵심 축
+
+아래 여섯 축은 유지할 제품 목표이며 배포 완료 목록이 아니다.
 
 - **발견:** 에이전트 플랫폼 전반의 인벤토리와 소유권.
 - **거버넌스:** 정책, 예외, 승인, 컴플라이언스 증거.
@@ -48,12 +57,22 @@ Microsoft와 타사 시스템의 권위 있는 데이터를 활용하며, 각 �
 
 `@agent-sentinel/foundry-connector` 워크스페이스는 Foundry v1 API에서 선언된 에이전트 및 함수 도구 구성을 발견한다. 이 증거에는 **선언된 구성**이라는 레이블을 붙이며, 관찰된 런타임 동작으로 제시하지 않는다. `@agent-sentinel/scenarios` 워크스페이스는 합성 검증 에이전트 6개를 정의하고, `@agent-sentinel/scripts`는 프로비저닝과 실환경 검증을 담당한다.
 
-환경 변수:
+현재 저장소는 단일 프로젝트 설정과 `FOUNDRY_SOURCES_JSON` 포트폴리오 설정을 지원한다.
+서버의 `AGENT_SENTINEL_ESTATE_ID`, `AGENT_SENTINEL_TENANT_ID`,
+`AGENT_SENTINEL_ENVIRONMENT` 자산군 경계와 공급자 소스의 테넌트·환경 경계는 구분한다.
+Entra, Agent 365 등의 선택적 커넥터는 이를 보강하며, jobs는 완료된 발견 결과와 상태를
+Cosmos DB에 저장하고 API는 영속 읽기 모델을 조회한다.
+
+단일 프로젝트 호환 설정의 환경 변수:
 
 - `AGENT_SENTINEL_CONNECTOR=mock|foundry` (기본값: `mock`)
 - `FOUNDRY_PROJECT_ENDPOINT`
 - `FOUNDRY_TENANT_ID`
 - `FOUNDRY_ENVIRONMENT`
+
+다음 명령은 **2026-08-14 환경의 과거 예제**이며 현재 리소스나 실행 승인이 아니다.
+현재 환경·범위는 [Foundry 운영 안내](foundry-live-agents.md)에서 확인해야 한다.
+프로비저닝·삭제·검증 스크립트가 있다는 사실은 실행 증거가 아니다.
 
 ```bash
 cd ~/project/agent-sentinel
@@ -64,6 +83,12 @@ FOUNDRY_PROJECT_ENDPOINT=https://ais-agent-sentinel-260814.services.ai.azure.com
 ```
 
 실환경 검증은 민감 정보를 제거하고 Git 추적에서 제외한 `scripts/live-validation-report.json`을 작성한다.
+
+2026-09-15 관찰에서 Foundry는 합성 검증 에이전트 6개, Entra는 ID 레코드 344개,
+Agent 365는 패키지 308개(에이전트 패키지 노드 302개, 확장 패키지 제어 노드 6개)이다.
+정확한 `RUNS_AS`는 0개다. 코드의 Foundry `instance_identity` 지원은 아직 미배포이며,
+프로젝트 관리 ID를 에이전트 실행 ID로 대체하지 않는다. 카탈로그 항목은 개인별 사용 권한
+또는 실제 사용을 입증하지 않으며, `My agents`의 권위 있는 사용 권한 해석기는 미구성이다.
 
 <a id="custom-manifest-adapter"></a>
 
@@ -92,6 +117,10 @@ FOUNDRY_PROJECT_ENDPOINT=https://ais-agent-sentinel-260814.services.ai.azure.com
 - API 수집에는 JWT Administrator의 `configure` 권한과 배포 쓰기 게이트가 모두 필요하다.
   인증되지 않은 수집 엔드포인트는 없다.
 - 변경 불가능한 콘텐츠 해시 버전을 별도로 저장하며, jobs는 매니페스트별 최신 버전만 비권위적 증거로 합성한다.
+
+현재 수집은 기본 자산군의 서버 테넌트·환경에 한정되며, 저장 레코드는
+`manifest-ingestions` 호환 계약이다. 소스별 `manifest-ingestions-v2` 고유 키 정의를
+현재 활성 계약으로 간주하지 않는다. 공개 배포의 인증·쓰기 게이트는 수집을 차단한다.
 
 ```bash
 pnpm manifest:validate -- /absolute/path/to/manifest.json
@@ -145,6 +174,11 @@ Azure Monitor Logs 쿼리를 수행하고, 필요한 필드로 투영된 OTel `A
 `ObservationWindow` 객체로 엄격하게 매핑한다. 워크스페이스·테넌트·환경 구성이 주입된 경우에만
 활성화된다. 구성이 없거나 공급자/계약 실패가 발생하면 타입이 지정된 알 수 없음 상태를 유지한다.
 `@agent-sentinel/mock-connector`의 고정 픽스처는 모의 모드에서만 읽는다.
+
+2026-09-15 배포 관찰에서는 적격/조회 에이전트 0개, 런타임 증거 0개이며 OTel 소스는
+`degraded`/`not-queried`다. `@agent-sentinel/runtime-instrumentation` SDK와
+Foundry ID 파일럿 도구는 코드에만 있고 미배포이며, 파일럿 승인·생성이나
+실제 계측 채택·호출·비용을 입증하지 않는다.
 
 불변 조건:
 
