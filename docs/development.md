@@ -1,24 +1,30 @@
-# Development
+<a id="development"></a>
 
-## Canonical environment
+# 개발
 
-The canonical source is the WSL repository at `~/project/agent-sentinel`.
-GitHub is the shared source of truth. Do not install dependencies or develop
-from a OneDrive-synchronized clone.
+<a id="canonical-environment"></a>
 
-Requirements:
+## 기준 개발 환경
+
+기준 소스는 `~/project/agent-sentinel`의 WSL 저장소입니다.
+GitHub를 공동 작업의 기준으로 사용합니다. OneDrive로 동기화되는 복제본에서는
+종속성을 설치하거나 개발하지 마세요.
+
+요구사항:
 
 - Node.js 22
 - pnpm 10
-- Azure CLI and Bicep for infrastructure validation
+- 인프라 검증용 Azure CLI 및 Bicep
 
-Install from the existing WSL store when offline:
+오프라인에서는 WSL의 기존 package store를 사용해 설치합니다.
 
 ```bash
 pnpm install --offline --frozen-lockfile
 ```
 
-## Common commands
+<a id="common-commands"></a>
+
+## 자주 사용하는 명령
 
 ```bash
 pnpm lint
@@ -27,20 +33,22 @@ pnpm test:e2e
 pnpm --filter @agent-sentinel/web build
 ```
 
-Run live Foundry validation only when explicitly intended:
+실제 Foundry 검증은 명시적으로 의도한 경우에만 실행합니다.
 
 ```bash
 pnpm foundry:validate
 ```
 
-It exercises synthetic Azure resources and is never part of CI.
+이 검증은 합성 Azure 리소스를 사용하며 CI에는 절대 포함되지 않습니다.
 
-## Custom manifest adapter
+<a id="custom-manifest-adapter"></a>
 
-`connectors/manifest` (`@agent-sentinel/manifest-connector`) turns an
-operator-supplied manifest into an `EstateSnapshot`. The envelope contract itself
-lives in `packages/connector-sdk/src/manifest.ts` so the SDK stays the single
-source of truth; the connector re-exports it rather than duplicating schemas.
+## 사용자 지정 매니페스트 어댑터
+
+`connectors/manifest` (`@agent-sentinel/manifest-connector`)는
+운영자가 제공한 매니페스트를 `EstateSnapshot`으로 변환합니다. 엔벌로프 계약 자체는
+`packages/connector-sdk/src/manifest.ts`에 두어 SDK가 단일 기준으로 유지되도록 합니다.
+커넥터는 스키마를 중복 정의하지 않고 다시 내보냅니다.
 
 ```bash
 pnpm --filter @agent-sentinel/manifest-connector test
@@ -52,228 +60,219 @@ pnpm manifest:scan /absolute/path/to/manifest.json \
   --environment production
 ```
 
-The validator CLI (`tools/validate-manifest.ts`) is offline: it requires the
-expected tenant binding, optionally verifies the environment binding, runs the
-same strict validation as the connector, and prints the
-normalized entity counts plus the deterministic SHA-256 manifest hash used for
-ingestion idempotency. A worked example lives at
-`connectors/manifest/examples/sample-manifest.json`.
+검증기 CLI(`tools/validate-manifest.ts`)는 오프라인으로 동작합니다.
+예상 테넌트 바인딩이 필수이며, 환경 바인딩은 선택적으로 검증합니다.
+커넥터와 동일한 엄격한 검증을 수행하고, 정규화된 엔터티 수와
+수집의 멱등성에 사용하는 결정적 SHA-256 매니페스트 해시를 출력합니다.
+구체적인 예제는 `connectors/manifest/examples/sample-manifest.json`에 있습니다.
 
-The scanner CLI is also offline. It uses the same strict acceptance and
-normalization path, then the same deterministic policy-engine entry point used
-after runtime discovery. JSON is the default for CI; add `--format text` for an
-author explanation or `--fail-on warn` for a stricter gate. Exit codes are `0`
-accepted, `1` policy gate failed, `2` invalid input, and `3` unexpected failure.
+스캐너 CLI도 오프라인으로 동작합니다. 동일한 엄격한 수락 및 정규화 경로를 거친 후,
+런타임 검색 이후에 사용하는 것과 동일한 결정적 정책 엔진 진입점을 사용합니다.
+CI를 위해 기본 출력은 JSON입니다. 작성자용 설명은 `--format text`를,
+더 엄격한 통과 기준은 `--fail-on warn`을 추가합니다. 종료 코드는
+`0` 수락, `1` 정책 통과 기준 실패, `2` 잘못된 입력, `3` 예상치 못한 실패입니다.
 
-Manifest evidence may include an optional `sourceBinding` with
-`sourceConnectorId`, `sourceTenantId`, `sourceObjectId`, and
-`sourceEnvironment`. The live read model uses only an exact four-field match to
-an authoritative agent or tool, and the manifest `subjectId` must equal the
-provider `sourceObjectId`. It never merges nodes or infers relationships.
-For `runtime_observed` evidence, only non-synthetic Azure Monitor evidence
-verifies the claim; missing,
-ambiguous, unavailable, and successfully queried-but-unobserved states remain
-explicit. Lack of an observation is never reported as a contradiction. Runtime
-verification is bounded to the latest 500 manifest sources for an environment;
-exceeding that cap reports `source-limit-exceeded` rather than masquerading as
-a repository outage. Declared-configuration reconciliation reports only an
-exact authoritative object match and its cited evidence. It does not compare or
-endorse free-form manifest claims.
+매니페스트 증거에는 `sourceConnectorId`, `sourceTenantId`, `sourceObjectId`,
+`sourceEnvironment`를 가진 선택적 `sourceBinding`을 포함할 수 있습니다.
+실제 데이터 읽기 모델은 권위 있는 에이전트 또는 도구와 네 필드가 모두 정확히 일치하는 경우만 사용하며,
+매니페스트의 `subjectId`는 공급자의 `sourceObjectId`와 같아야 합니다.
+노드를 병합하거나 관계를 추론하지 않습니다.
+`runtime_observed` 증거의 주장은 합성이 아닌 Azure Monitor 증거로만 검증합니다.
+누락, 모호함, 사용 불가, 쿼리는 성공했지만 관측되지 않음 상태를 명시적으로 유지합니다.
+관측이 없다는 사실을 모순으로 보고하지 않습니다. 런타임 검증은 환경별 최신 매니페스트 소스
+500개로 제한합니다. 이 한도를 넘으면 저장소 장애인 것처럼 처리하지 않고
+`source-limit-exceeded`를 보고합니다. 선언된 구성의 대조 결과는
+권위 있는 개체의 정확한 일치와 인용된 증거만 보고합니다.
+자유 형식 매니페스트 주장을 비교하거나 보증하지 않습니다.
 
-When changing the envelope:
+엔벌로프를 변경할 때:
 
-- Update `manifest.ts`, `connectors/manifest/schemas/manifest.schema.json`, and
-  the example together. Tests assert parity between the Zod schema and the
-  hand-maintained JSON Schema on the critical constraints.
-- Bump `MANIFEST_SCHEMA_VERSION` and extend `SUPPORTED_MANIFEST_VERSIONS` for a
-  breaking change; unsupported versions must be rejected, never coerced.
-- Keep the adapter read-only. `ManifestConnector` intentionally has no
-  `execute()`, and an `execute` action depth is rejected at load time.
+- `manifest.ts`, `connectors/manifest/schemas/manifest.schema.json`, 예제를
+  함께 업데이트합니다. 테스트는 주요 제약조건에 대해 Zod 스키마와
+  수동으로 관리하는 JSON Schema의 일치 여부를 검증합니다.
+- 호환성을 깨는 변경에는 `MANIFEST_SCHEMA_VERSION`을 올리고
+  `SUPPORTED_MANIFEST_VERSIONS`를 확장합니다. 지원하지 않는 버전은 강제 변환하지 말고 반드시 거부해야 합니다.
+- 어댑터를 읽기 전용으로 유지합니다. `ManifestConnector`에는 의도적으로
+  `execute()`가 없으며, `execute` 작업 깊이는 로드 시 거부됩니다.
 
-## Azure Monitor OpenTelemetry runtime connector
+<a id="azure-monitor-opentelemetry-runtime-connector"></a>
 
-`@agent-sentinel/azure-monitor-otel-connector` is query-only. It sends one
-bounded query to the fixed Azure Monitor Logs endpoint and fixed `AppRequests`
-table, then strictly maps the projected rows into baseline and observed
-`ObservationWindow` objects. It does not create resources, ingest telemetry, or
-fall back to local data.
+## Azure Monitor OpenTelemetry 런타임 커넥터
 
-Live activation requires `AGENT_SENTINEL_DATA_MODE=live` and at least one
-validated source. Configure sources with `AZURE_MONITOR_SOURCES_JSON`, or use
-the legacy single-source variables:
+`@agent-sentinel/azure-monitor-otel-connector`는 쿼리 전용입니다.
+고정된 Azure Monitor Logs 엔드포인트와 `AppRequests` 테이블에 범위가 제한된 쿼리
+하나를 보내고, 반환된 행을 기준 및 관측 `ObservationWindow` 개체에 엄격하게 매핑합니다.
+리소스를 만들거나, 원격 분석을 수집하거나, 로컬 데이터로 대체하지 않습니다.
+
+실제 데이터 활성화에는 `AGENT_SENTINEL_DATA_MODE=live`와 검증된 소스 하나 이상이 필요합니다.
+`AZURE_MONITOR_SOURCES_JSON`으로 소스를 구성하거나 다음 레거시 단일 소스 변수를 사용합니다.
 
 - `AZURE_MONITOR_WORKSPACE_ID`
-- `AZURE_MONITOR_TENANT_ID` (must match the API tenant binding)
+- `AZURE_MONITOR_TENANT_ID`(API 테넌트 바인딩과 일치해야 함)
 - `AZURE_MONITOR_ENVIRONMENT`
-- `FOUNDRY_PROJECT_ENDPOINT` (the final path segment supplies the exact source
-  project ID)
+- `FOUNDRY_PROJECT_ENDPOINT`(마지막 경로 세그먼트가 정확한 소스 프로젝트 ID를 제공함)
 
-Each `AZURE_MONITOR_SOURCES_JSON` item must include `sourceProjectId` matching
-the authoritative Foundry agent metadata for that source.
-Foundry configuration applies the same trimmed 200-character project-ID schema
-to connector-source API/domain endpoint ingress, legacy environment ingress,
-JSON portfolio parsing, and connector construction. An overlong final endpoint
-segment is rejected before persistence, credentials, or any provider request
-can start.
+각 `AZURE_MONITOR_SOURCES_JSON` 항목에는 해당 소스의 권위 있는 Foundry 에이전트
+메타데이터와 일치하는 `sourceProjectId`가 포함되어야 합니다.
+Foundry 구성은 앞뒤 공백을 제거한 최대 200자 프로젝트 ID 스키마를
+커넥터 소스 API/도메인 엔드포인트 입력, 레거시 환경 입력, JSON 포트폴리오 파싱,
+커넥터 생성에 동일하게 적용합니다. 엔드포인트의 마지막 세그먼트가 너무 길면
+영구 저장, 자격 증명 처리 또는 공급자 요청을 시작하기 전에 거부합니다.
 
-The runtime does not read a separate Azure Monitor connector-enabled
-environment variable. The `azureMonitorConnectorEnabled` Bicep parameter gates
-whether deployment configuration is injected; runtime activation is derived
-from data mode and the validated source configuration.
+런타임은 Azure Monitor 커넥터 활성화 여부를 나타내는 별도 환경 변수를 읽지 않습니다.
+`azureMonitorConnectorEnabled` Bicep 매개변수는 배포 구성의 주입 여부를 제어하며,
+런타임 활성화 여부는 데이터 모드와 검증된 소스 구성에서 결정됩니다.
 
-Deployment-source projection uses the same activation resolution as the runtime:
-live mode projects validated JSON sources or the complete legacy tuple, while
-mock mode does not parse or project Azure Monitor configuration. Projected
-records remain read-only and `not-tested`; projection is not readiness evidence.
-In live mode, configuring any legacy tuple field requires all three fields;
-an incomplete tuple is a configuration error rather than an inactive connector.
-Leaving all three fields empty keeps the connector inactive. Non-empty source
-JSON takes precedence over the legacy tuple.
+배포 소스 투영은 런타임과 동일한 활성화 판정을 사용합니다.
+실제 데이터 모드에서는 검증된 JSON 소스 또는 완전한 레거시 튜플을 투영하고,
+모의 모드에서는 Azure Monitor 구성을 파싱하거나 투영하지 않습니다.
+투영된 레코드는 읽기 전용 및 `not-tested` 상태를 유지하며, 투영은 준비 완료의 증거가 아닙니다.
+실제 데이터 모드에서 레거시 튜플의 필드 하나라도 구성하면 세 필드가 모두 필요합니다.
+불완전한 튜플은 비활성 커넥터가 아니라 구성 오류입니다.
+세 필드를 모두 비워 두면 커넥터는 비활성 상태를 유지합니다.
+비어 있지 않은 소스 JSON이 레거시 튜플보다 우선합니다.
 
-Optional bounds are `AZURE_MONITOR_BASELINE_WINDOW_HOURS` (default 168),
-`AZURE_MONITOR_OBSERVED_WINDOW_HOURS` (default 24), and
-`AZURE_MONITOR_REQUEST_TIMEOUT_MS` (default 15000). Authentication uses
-`DefaultAzureCredential`; grant only the Azure Monitor Logs query data action
-(`Microsoft.OperationalInsights/workspaces/query/read`, commonly through Log
-Analytics Reader) on the target workspace. No shared key is accepted.
-Window and observation freshness are recomputed from the trusted provider
-`queriedAt` timestamp and `maximumFreshnessHours`; connector-supplied
-`available` status or stale caveats are not authoritative. A missing freshness
-maximum degrades quality as unverified, and timestamps outside the configured
-maximum remain stale. A default 168-hour baseline that ends within the
-168-hour freshness limit is therefore valid.
+선택적 제한값은 `AZURE_MONITOR_BASELINE_WINDOW_HOURS`(기본값 168),
+`AZURE_MONITOR_OBSERVED_WINDOW_HOURS`(기본값 24),
+`AZURE_MONITOR_REQUEST_TIMEOUT_MS`(기본값 15000)입니다. 인증에는
+`DefaultAzureCredential`을 사용합니다. 대상 workspace에는 Azure Monitor Logs 쿼리 data action
+(`Microsoft.OperationalInsights/workspaces/query/read`, 일반적으로 Log Analytics Reader를 통해 부여)만
+허용합니다. 공유 키는 허용하지 않습니다.
+시간 구간과 관측의 최신성은 신뢰할 수 있는 공급자의 `queriedAt` 타임스탬프와
+`maximumFreshnessHours`를 기준으로 다시 계산합니다. 커넥터가 제공하는
+`available` 상태나 오래된 데이터에 대한 주의사항은 권위 있는 기준이 아닙니다.
+최신성 최대값이 없으면 품질을 미검증으로 낮추며, 구성된 최대값을 벗어난 타임스탬프는
+오래된 상태를 유지합니다. 따라서 종료 시점이 168시간 최신성 한도 이내인
+기본 168시간 기준 구간은 유효합니다.
 
-Behavior and token-economics routes require a snapshot resolver to return the
-exact authoritative telemetry request before calling the runtime connector.
-Eligibility rejects unresolved or mixed-authority citations,
-`isNonAuthoritative=true`, synthetic/test markers, `synthetic_validation`
-evidence, missing exact declared configuration, and any estate, source,
-environment, or provider-agent mismatch. Identity names, owners, primary IDs,
-tenant inventory, and `RUNS_AS` edges never establish runtime eligibility.
+행동 및 토큰 경제성 라우트는 런타임 커넥터를 호출하기 전에 스냅샷 해석기가
+정확하고 권위 있는 원격 분석 요청을 반환하도록 요구합니다.
+적격성 검사는 해석되지 않았거나 권위 수준이 혼합된 인용,
+`isNonAuthoritative=true`, 합성/테스트 표식, `synthetic_validation` 증거,
+정확한 선언 구성의 누락, 자산 범위·소스·환경·공급자 에이전트의 불일치를 거부합니다.
+ID 이름, 소유자, 기본 ID, 테넌트 인벤토리, `RUNS_AS` 간선으로 런타임 적격성을 성립시킬 수는 없습니다.
 
-Instrumented request spans must reach `AppRequests` with these OTel/custom
-properties:
+계측된 요청 스팬은 다음 OTel/사용자 지정 속성을 포함하여 `AppRequests`에 도달해야 합니다.
 
-The resource `service.name` must equal the connector
-`applicationRoleName`, the span name must be `agent.invoke`, and the span kind
-must be `SERVER` (or `CONSUMER` only for a queue consumer). See
-[external runtime instrumentation](external-runtime-instrumentation.md).
+리소스의 `service.name`은 커넥터의 `applicationRoleName`과 같아야 하고,
+스팬 이름은 `agent.invoke`, 스팬 종류는 `SERVER`여야 합니다
+(큐 소비자에 한해서만 `CONSUMER` 허용).
+[외부 런타임 계측](external-runtime-instrumentation.md)을 참조하세요.
 
-| Property                                | Mapping                                                            |
-| --------------------------------------- | ------------------------------------------------------------------ |
-| `agent.sentinel.tenant_id`              | Required source tenant binding                                     |
-| `gen_ai.agent.id`                       | Required provider agent binding                                    |
-| `deployment.environment.name`           | Required source environment binding                                |
-| `agent.sentinel.source_project_id`      | Required exact source project binding                              |
-| `agent.sentinel.contract_version`       | Required literal `1`                                               |
-| `agent.sentinel.record_type`            | Required literal `agent_invocation`                                |
-| `agent.sentinel.source_connector_id`    | Required exact connector source binding                            |
-| `agent.sentinel.estate_id`              | Required estate binding                                            |
-| `agent.sentinel.estate_tenant_id`       | Required estate tenant binding                                     |
-| `agent.sentinel.estate_environment`     | Required estate environment binding                                |
-| `agent.sentinel.source_tenant_id`       | Required exact source tenant binding                               |
-| `agent.sentinel.source_environment`     | Required exact source environment binding                          |
-| `agent.sentinel.provider_agent_id`      | Required exact provider agent binding                              |
-| `agent.sentinel.provider_resource_id`   | Required exact lower-cased Application Insights ARM resource ID    |
-| `agent.sentinel.provider_invocation_id` | Required unique invocation/observation ID                          |
-| `agent.sentinel.outcome`                | Required terminal `success` or `error` matching native span status |
-| `agent.sentinel.synthetic`              | Required explicit classification; live evidence must be `false`    |
-| `gen_ai.agent.run.id`                   | Optional exact agent-run identifier                                |
-| `agent.sentinel.run_id`                 | Optional fallback exact agent-run identifier                       |
-| `agent.sentinel.correlation_id`         | Optional exact correlation identifier (falls back to operation)    |
-| `gen_ai.agent.version`                  | Optional broad agent-version context; not counted as an exact run  |
-| `gen_ai.usage.input_tokens`             | Optional measured provider input tokens; absent stays unknown      |
-| `gen_ai.usage.output_tokens`            | Optional measured provider output tokens; absent stays unknown     |
-| `agent.sentinel.cost.usd`               | Optional authoritative measured USD cost; never estimated          |
-| `agent.sentinel.tool_call_names`        | Optional bounded JSON string array of validated tool names         |
-| `error.type`                            | Optional sanitized error code/type                                 |
+| 속성                                    | 매핑                                                           |
+| --------------------------------------- | -------------------------------------------------------------- |
+| `agent.sentinel.tenant_id`              | 필수 소스 테넌트 바인딩                                        |
+| `gen_ai.agent.id`                       | 필수 공급자 에이전트 바인딩                                    |
+| `deployment.environment.name`           | 필수 소스 환경 바인딩                                          |
+| `agent.sentinel.source_project_id`      | 필수 정확한 소스 프로젝트 바인딩                               |
+| `agent.sentinel.contract_version`       | 필수 리터럴 `1`                                                |
+| `agent.sentinel.record_type`            | 필수 리터럴 `agent_invocation`                                 |
+| `agent.sentinel.source_connector_id`    | 필수 정확한 커넥터 소스 바인딩                                 |
+| `agent.sentinel.estate_id`              | 필수 자산 범위 바인딩                                          |
+| `agent.sentinel.estate_tenant_id`       | 필수 자산 범위 테넌트 바인딩                                   |
+| `agent.sentinel.estate_environment`     | 필수 자산 범위 환경 바인딩                                     |
+| `agent.sentinel.source_tenant_id`       | 필수 정확한 소스 테넌트 바인딩                                 |
+| `agent.sentinel.source_environment`     | 필수 정확한 소스 환경 바인딩                                   |
+| `agent.sentinel.provider_agent_id`      | 필수 정확한 공급자 에이전트 바인딩                             |
+| `agent.sentinel.provider_resource_id`   | 필수 정확한 소문자 Application Insights ARM 리소스 ID          |
+| `agent.sentinel.provider_invocation_id` | 필수 고유 호출/관측 ID                                         |
+| `agent.sentinel.outcome`                | 네이티브 스팬 상태와 일치하는 최종 `success` 또는 `error` 필수 |
+| `agent.sentinel.synthetic`              | 명시적 분류 필수. 실제 증거는 `false`여야 함                   |
+| `gen_ai.agent.run.id`                   | 선택적 정확한 에이전트 실행 식별자                             |
+| `agent.sentinel.run_id`                 | 선택적 대체용 정확한 에이전트 실행 식별자                      |
+| `agent.sentinel.correlation_id`         | 선택적 정확한 correlation ID(없으면 operation ID로 대체)       |
+| `gen_ai.agent.version`                  | 선택적 포괄 에이전트 버전 맥락. 정확한 실행으로 집계하지 않음  |
+| `gen_ai.usage.input_tokens`             | 선택적 공급자 입력 토큰 실측값. 없으면 알 수 없음 상태 유지    |
+| `gen_ai.usage.output_tokens`            | 선택적 공급자 출력 토큰 실측값. 없으면 알 수 없음 상태 유지    |
+| `agent.sentinel.cost.usd`               | 선택적 권위 있는 USD 비용 실측값. 추정값은 사용하지 않음       |
+| `agent.sentinel.tool_call_names`        | 선택적 검증된 도구 이름의 크기가 제한된 JSON 문자열 배열       |
+| `error.type`                            | 선택적 민감 정보를 제거한 오류 코드/유형                       |
 
-`pnpm --filter @agent-sentinel/scripts validate-live` emits bounded synthetic
-validation spans. Their exact sanitized Foundry project ID supports source
-binding, but `agent.sentinel.synthetic=true` remains authoritative and the span
-must never be described as live runtime evidence.
+`pnpm --filter @agent-sentinel/scripts validate-live`는 범위가 제한된 합성 검증 스팬을 내보냅니다.
+민감 정보를 제거한 정확한 Foundry 프로젝트 ID가 소스 바인딩을 지원하지만,
+`agent.sentinel.synthetic=true`가 권위 있는 분류 기준으로 유지되며,
+이 스팬을 실제 런타임 증거로 설명해서는 안 됩니다.
 
-The Azure Monitor row must also expose a 32-lowercase-hex trace ID, a
-16-lowercase-hex span ID, and `ItemCount == 1`. Each row is converted into
-invocation, latency, error, input-token, output-token, and cost claims and then
-passed through the same representative normalizer used by offline contract
-tests. Missing, sampled, stale, synthetic, conflicting, or mismatched claims
-remain `unknown`, `insufficient-data`, or degraded; the connector does not
-substitute `AppMetrics`, fixtures, or estimated values.
+Azure Monitor 행에는 32자리 소문자 16진수 추적 ID, 16자리 소문자 16진수 스팬 ID,
+`ItemCount == 1`도 포함되어야 합니다. 각 행은 호출, 지연 시간, 오류, 입력 토큰,
+출력 토큰, 비용 주장으로 변환한 뒤 오프라인 계약 테스트와 동일한 대표성 정규화기를 거칩니다.
+누락되거나 샘플링되었거나 오래되었거나 합성이거나 충돌하거나 불일치하는 주장은
+`unknown`, `insufficient-data` 또는 품질 저하 상태로 유지됩니다.
+커넥터는 이를 `AppMetrics`, 픽스처 또는 추정값으로 대체하지 않습니다.
 
-The complete bounded response is canonicalized by observation ID before
-baseline/observed partitioning. If one observation ID is reused with conflicting
-content across windows, every conflicting row is removed and each affected
-window is degraded with `conflicting-duplicate`.
+크기가 제한된 전체 응답은 기준/관측 구간으로 나누기 전에 관측 ID별로 정규화합니다.
+하나의 관측 ID가 구간 사이에서 서로 충돌하는 내용으로 재사용되면
+충돌하는 모든 행을 제거하고 영향을 받은 각 구간의 품질을
+`conflicting-duplicate`로 낮춥니다.
 
-Jobs and the live read model map validated telemetry windows onto an already
-discovered agent node. Both paths validate the returned estate, snapshot,
-tenant, environment, source project, workspace, provider agent, and nested
-observation provenance against the exact request before projection. Jobs
-persists only validated projections and retains the authoritative discovery
-snapshot when optional runtime evidence is rejected; the API performs the same
-validation before its short-lived request projection. Tool and `CAN_CALL` edge
-evidence is added only when a tool-call name has exactly one existing outgoing
-tool match; unmatched or ambiguous names are reported as coverage gaps and
-never create graph objects. Synthetic validation spans are typed separately and
-excluded from behavior-baseline and token-economics analysis. Token Economics
-reports runtime correlation-ID availability as the fraction of measured
-observations carrying an agent-run or correlation identifier. This is
-linkability, not evidence that an outcome was actually joined. Agent-version
-context is preserved but is not counted as exact because one version can span
-many unrelated runs and outcomes.
+Jobs와 실제 데이터 읽기 모델은 검증된 원격 분석 시간 구간을 이미 검색된 에이전트 노드에 매핑합니다.
+두 경로 모두 투영 전에 반환된 자산 범위, 스냅샷, 테넌트, 환경, 소스 프로젝트,
+workspace, 공급자 에이전트 및 중첩 관측의 출처를 정확한 요청과 대조하여 검증합니다.
+Jobs는 검증된 투영만 영구 저장하고, 선택적 런타임 증거가 거부되면 권위 있는 검색 스냅샷을 유지합니다.
+API는 수명이 짧은 요청 투영 전에 동일한 검증을 수행합니다.
+도구 호출 이름이 기존 나가는 도구 관계 하나와 정확히 일치할 때만 도구 및 `CAN_CALL` 간선 증거를 추가합니다.
+일치하지 않거나 모호한 이름은 커버리지 공백으로 보고하며 그래프 개체를 생성하지 않습니다.
+합성 검증 스팬은 별도 유형으로 분류하며 행동 기준 및 토큰 경제성 분석에서 제외합니다.
+Token Economics는 측정된 관측 중 에이전트 실행 또는 상관관계 식별자가 있는 비율을
+런타임 상관관계 ID 가용성으로 보고합니다. 이는 연결 가능성을 나타내며,
+결과가 실제로 조인되었다는 증거가 아닙니다.
+에이전트 버전 맥락은 보존하지만 하나의 버전이 관련 없는 여러 실행과 결과에 걸칠 수 있으므로
+정확한 실행 식별로 집계하지 않습니다.
 
-Before either path queries telemetry, the discovered agent and one cited
-declared-configuration evidence record must both be authoritative and exactly
-match the snapshot estate, connector source, source tenant, source project,
-source environment, and provider agent ID. Names, owners, primary IDs, tenant
-inventory membership, and non-authoritative manifest metadata never establish
-runtime eligibility or a `RUNS_AS` relationship.
+어느 경로든 원격 분석을 쿼리하기 전에, 검색된 에이전트와 인용된 선언 구성 증거 레코드 하나가
+모두 권위 있는 자료여야 하며 스냅샷의 자산 범위, 커넥터 소스, 소스 테넌트, 소스 프로젝트,
+소스 환경 및 공급자 에이전트 ID와 정확히 일치해야 합니다.
+이름, 소유자, 기본 ID, 테넌트 인벤토리 소속, 비권위적 매니페스트 메타데이터로
+런타임 적격성이나 `RUNS_AS` 관계를 성립시킬 수는 없습니다.
 
-Persisted runtime invocation evidence retains bounded agent-run ID, correlation
-ID, agent version, and the original order of tool-call names that matched
-exactly one declared tool edge. Those fields participate in immutable evidence
-collision checks and are returned unchanged through `/api/demo/state`.
+영구 저장된 런타임 호출 증거는 길이가 제한된 에이전트 실행 ID, 상관관계 ID, 에이전트 버전과,
+선언된 도구 간선 하나에 정확히 일치한 도구 호출 이름의 원래 순서를 유지합니다.
+이 필드들은 불변 증거 충돌 검사에 사용되며 `/api/demo/state`를 통해 변경 없이 반환됩니다.
 
-The checked-in Azure Monitor response fixture is local-only and contract-tested:
+저장소에 포함된 Azure Monitor 응답 픽스처는 로컬 전용이며 계약 테스트로 검증합니다.
 
 ```bash
 pnpm --filter @agent-sentinel/azure-monitor-otel-connector test
 ```
 
-## Shared UI and Storybook
+<a id="shared-ui-and-storybook"></a>
 
-`@agent-sentinel/ui` owns design tokens and reusable operational primitives.
-Start Storybook for isolated component work:
+## 공통 UI와 Storybook
+
+`@agent-sentinel/ui`는 디자인 토큰과 재사용 가능한 운영 기본 요소를 관리합니다.
+독립적인 컴포넌트 작업에는 Storybook을 시작합니다.
 
 ```bash
 pnpm storybook
 ```
 
-Build the static catalog and run the component contract tests:
+정적 카탈로그를 빌드하고 컴포넌트 계약 테스트를 실행합니다.
 
 ```bash
 pnpm storybook:build
 pnpm --filter @agent-sentinel/ui test
 ```
 
-Storybook wraps stories in the production Fluent dark theme. The accessibility
-addon runs in `error` mode so violations fail supported Storybook test flows.
-Stories use synthetic operational states only and do not call APIs.
+Storybook은 스토리에 프로덕션 Fluent 어두운 테마를 적용합니다.
+접근성 애드온은 `error` 모드로 실행되어 위반이 있으면 지원되는 Storybook 테스트 흐름이 실패합니다.
+스토리는 합성 운영 상태만 사용하며 API를 호출하지 않습니다.
 
-If configuration is absent, credentials fail, the provider rejects the query,
-or any row violates its tenant/agent/environment/time binding, the API returns
-typed unknown. It never reads the mock fixtures in live mode.
+구성이 없거나, 자격 증명이 실패하거나, 공급자가 쿼리를 거부하거나,
+어떤 행이든 테넌트/에이전트/환경/시간 바인딩을 위반하면 API는
+명시적 유형의 알 수 없음 상태를 반환합니다. 실제 데이터 모드에서는 모의 픽스처를 읽지 않습니다.
 
-## Contribution practice
+<a id="contribution-practice"></a>
 
-- Work on feature branches.
-- Keep deterministic policy and graph behavior independent of model access.
-- Add tests for behavior changes.
-- Preserve explicit live, synthetic, mock, planned, and unknown boundaries.
-- Never substitute mock success when a live connector fails.
-- Use full-commit build tags and verified digest-qualified deployment references.
+## 기여 원칙
 
-The private CI runner can be deallocated. Start it before expecting queued jobs
-to run. Its managed identity is intentionally limited to image push; platform
-deployment remains a separate privileged operation.
+- 기능 브랜치에서 작업합니다.
+- 결정적 정책과 그래프 동작을 모델 접근과 독립적으로 유지합니다.
+- 동작 변경에는 테스트를 추가합니다.
+- 실제, 합성, 모의, 계획됨, 알 수 없음의 경계를 명시적으로 유지합니다.
+- 실제 커넥터가 실패했을 때 모의 성공으로 대체하지 않습니다.
+- 전체 커밋 빌드 태그와 검증된 다이제스트 기반 배포 참조를 사용합니다.
+
+프라이빗 CI runner는 할당 해제되어 있을 수 있습니다.
+대기 중인 jobs를 실행하려면 먼저 runner를 시작합니다.
+runner의 managed identity는 의도적으로 이미지 푸시 권한으로 제한되어 있으며,
+플랫폼 배포는 별도의 권한이 필요한 작업으로 유지됩니다.

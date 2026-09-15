@@ -1,43 +1,49 @@
-# Agent Sentinel – DR Design
+<a id="agent-sentinel--dr-design"></a>
 
-## Recovery Objectives
+# Agent Sentinel – 재해 복구 설계
 
-- RTO (Recovery Time Objective): 4 hours
-- RPO (Recovery Point Objective): 1 hour
+<a id="recovery-objectives"></a>
+
+## 복구 목표
+
+- RTO(복구 시간 목표): 4시간
+- RPO(복구 시점 목표): 1시간
 
 ## Cosmos DB
 
-- Automatic backups every 1 hour, retained 8 hours (periodic backup mode)
-- Multi-region reads can be added for lower RTO
-- Session consistency allows reads from nearest replica
+- 1시간마다 자동 백업, 8시간 보존(주기적 백업 모드)
+- RTO를 줄이기 위해 다중 지역 읽기 추가 가능
+- 세션 일관성을 통해 가장 가까운 복제본에서 읽기 가능
 
 ## PostgreSQL
 
-- Zone-redundant HA with standby in availability zone 2
-- Automated backups: 7 days, geo-redundant
-- Point-in-time restore available
-- Failover: automatic (< 120s) via AZ failover
+- 가용성 영역 2의 대기 인스턴스를 사용하는 영역 중복 고가용성
+- 자동 백업: 7일 보존, 지역 중복
+- 지정 시간 복원 가능
+- 장애 조치: AZ 장애 조치를 통해 자동 수행(120초 미만)
 
 ## Container Apps
 
-- Consumption workload profile: automatic scale-to-zero + scale-out
-- Multiple replicas for api and jobs in production
+- Consumption 워크로드 프로필: 자동으로 0까지 축소 및 수평 확장
+- 프로덕션에서 api와 jobs에 여러 복제본 사용
 
 ## Service Bus Premium
 
-- Built-in zone redundancy (Premium tier)
-- Dead-letter queue for failed messages
-- Message lock duration: 5 minutes
+- 기본 제공 영역 중복(Premium 계층)
+- 실패한 메시지용 dead-letter queue
+- 메시지 잠금 기간: 5분
 
 ## AI Search
 
-- S1 tier with 1 replica (dev); add replicas for HA
-- Index rebuild from source data if needed
+- 복제본 1개의 S1 계층(개발용). 고가용성을 위해 복제본 추가
+- 필요시 원본 데이터에서 인덱스 재구축
 
-## Runbook: Failover Steps
+<a id="runbook-failover-steps"></a>
 
-1. Verify PostgreSQL automatic failover completed
-2. Check ACA app health endpoints
-3. Verify Cosmos DB replication lag
-4. Check Service Bus DLQ for unprocessed messages
-5. Validate AI Search index completeness
+## 런북: 장애 조치 절차
+
+1. PostgreSQL 자동 장애 조치 완료 확인
+2. ACA 앱 상태 엔드포인트 확인
+3. Cosmos DB 복제 지연 확인
+4. Service Bus DLQ에서 미처리 메시지 확인
+5. AI Search 인덱스 완전성 검증
