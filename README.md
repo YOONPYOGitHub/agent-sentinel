@@ -147,6 +147,16 @@ flowchart LR
 Package 수는 실행 중인 agent 수로 해석하지 않습니다. empty, unknown, stale, synthetic
 evidence는 ready로 승격되지 않으며, ready 상태도 release approval을 의미하지 않습니다.
 
+### 5분 데모
+
+**Catalog → synthetic Foundry 한 레코드 → Exposure evidence → Lifecycle / Release readiness**
+순서로 “어디서 온 증거이며, 무엇을 아직 모르는가”를 확인합니다. 현재 Catalog는 **302개
+Agent 365 agent-package + 6개 Foundry synthetic** 레코드이지 308개 running production
+agent가 아닙니다. 운영 목록은 개인별 사용 권한도 부여하지 않습니다.
+[진행 대본·제품 Q&A](docs/maintainer-handoff.md#5-minute-demo)와
+[선택적 내부 사용자 과제](docs/maintainer-handoff.md#small-real-user-task-protocol)를 참고하십시오.
+고객 시간·비용 절감 성과는 아직 측정되지 않았습니다.
+
 ---
 
 ## Why it is different
@@ -292,7 +302,7 @@ pnpm release-review:validate -- \
 
 ## Deployment overview
 
-Production candidate 이미지는 mutable tag가 아니라 `@sha256:<digest>`로 식별하고, private ACR에 접근 가능한 target VNet self-hosted runner에서 빌드합니다. 현재 reference deployment의 immutable 버전은 위 Production readiness 표에 기록되어 있으며, repository head `456d01f2`와 동일하지 않습니다.
+Production candidate 이미지는 mutable tag가 아니라 `@sha256:<digest>`로 식별하고, private ACR에 접근 가능한 target VNet self-hosted runner에서 빌드합니다. 현재 reference deployment는 `7c1336bc`이며 handoff Git base `3c303279`와 다릅니다. 새 instance identity 지원·runtime SDK·Foundry pilot 도구·packaging/timing 수정은 **미배포**입니다. 정확한 SHA와 차이는 [Current status](docs/current-status.md#repository-only-gap)를 참고하십시오.
 
 1. 검증할 exact full Git SHA를 선택합니다.
 2. web/API/jobs image를 빌드하고 각각의 canonical digest를 기록합니다.
@@ -311,10 +321,13 @@ Production candidate 이미지는 mutable tag가 아니라 `@sha256:<digest>`로
 
 다음 조건이 모두 증거로 확인되기 전에는 production release로 선언하지 않습니다.
 
+수요일 최종 `main` PR은 **정직하게 시연·인계할 candidate의 동결**이지 production go-live가
+아닙니다. 외부 승인 미완료는 backlog에 남기고, [동결 체크리스트](docs/maintainer-handoff.md#frozen-candidate-checklist)와 아래 production gate를 구분합니다.
+
 - [ ] reviewed full SHA와 web/API/jobs digest가 실제 revision과 일치
 - [ ] Entra `AUTH_MODE=jwt`, writes false, 로그인·로그아웃·anonymous `401`·Viewer `403` 검증
 - [ ] `Viewer`·`Analyst`·`Approver`·`Administrator` 네 역할의 capability 경계 검증
-- [x] Agent 365 source가 persisted snapshot에서 `ready + complete` (308 packages, 302 agent-package nodes, 6 extension-package nodes, 308 source-bound evidence records)
+- [ ] 최종 release 후보의 Agent 365 source가 fresh persisted snapshot에서 `ready + complete`임을 재확인 (`7c1336bc`의 기록된 기준은 308 packages, 302 agent-package nodes, 6 extension-package nodes, 308 source-bound evidence records)
 - [ ] 모든 대상 agent의 exact `RUNS_AS` edge 존재, unmatched 0, ambiguous 0
 - [ ] representative non-synthetic OTel span과 trace/span/token/cost provenance 충족
 - [ ] 공개 write는 차단되고, 필요한 경우 승인된 private reversible write만 검증
