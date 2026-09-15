@@ -20,7 +20,7 @@
   "demoReadiness": {
     "outcome": "blocked",
     "evidenceRefs": [],
-    "summary": "Demo Readiness evidence has not been supplied."
+    "summary": "Operational release-readiness evidence has not been supplied."
   },
   "knownIssues": [],
   "blockers": [],

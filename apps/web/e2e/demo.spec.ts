@@ -92,3 +92,27 @@ test('supports required routes and wildcard 404', async ({ page }) => {
   await page.goto('/not-a-real-route')
   await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
 })
+
+test('separates operator catalog, personalized agents, and release readiness routes', async ({
+  page,
+}) => {
+  await page.goto('/agent-catalog')
+  await expect(page.getByRole('heading', { name: 'Agent assurance catalog' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Agent catalog' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
+  await expect(page.getByRole('link', { name: 'My agents' })).toHaveCount(0)
+
+  await page.goto('/my-agents')
+  await expect(page).toHaveURL(/\/agent-catalog$/)
+  await expect(page.getByRole('heading', { name: 'Agent assurance catalog' })).toBeVisible()
+
+  await page.goto('/demo-readiness')
+  await expect(page).toHaveURL(/\/release-readiness$/)
+  await expect(page.getByRole('heading', { name: 'Release readiness' })).toBeVisible()
+
+  await page.goto('/lifecycle')
+  await page.getByRole('link', { name: 'Review release readiness' }).click()
+  await expect(page).toHaveURL(/\/release-readiness$/)
+})

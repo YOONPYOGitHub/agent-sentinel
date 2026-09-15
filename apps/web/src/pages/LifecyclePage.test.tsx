@@ -50,6 +50,10 @@ describe('LifecyclePage', () => {
       screen.getByText('Current-version evidence, not full release orchestration'),
     ).toBeVisible()
     expect(screen.getByRole('heading', { name: 'Agent readiness evidence' })).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Review release readiness' })).toHaveAttribute(
+      'href',
+      '/release-readiness',
+    )
     expect(screen.getByText('Sales Research Agent')).toBeVisible()
     expect(screen.getByText('17')).toBeVisible()
     expect(screen.getAllByText('Not recorded').length).toBeGreaterThan(0)

@@ -27,11 +27,11 @@ The repository is a Node.js 22, pnpm 10, TypeScript, Turborepo monorepo.
 
 | Area                                                                          | Responsibility                                                                                                                                                    |
 | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/web`                                                                    | React/Vite SPA, MSAL integration, operational and Demo Readiness surfaces                                                                                         |
+| `apps/web`                                                                    | React/Vite SPA, MSAL integration, operational and Release readiness surfaces                                                                                      |
 | `apps/api`                                                                    | Fastify API, authentication/RBAC, read models, connector and governance routes                                                                                    |
 | `apps/jobs`                                                                   | Scheduled/event-driven discovery, composition, snapshot persistence, policy evaluation                                                                            |
 | `packages/domain`                                                             | Canonical entities, evidence, findings, estate and connector-source contracts                                                                                     |
-| `packages/connector-sdk`                                                      | Connector contracts, health, manifest and demo-readiness schemas                                                                                                  |
+| `packages/connector-sdk`                                                      | Connector contracts, health, manifest and operational readiness evaluator (`demo-readiness` compatibility export)                                                 |
 | `packages/connector-runtime`                                                  | Source construction and bounded connector orchestration                                                                                                           |
 | `connectors/*`                                                                | Read-only provider adapters for Foundry, Entra, Agent 365, Azure Monitor, Azure Resource Graph, Defender, Purview, Teams, Power Platform, outcomes, and manifests |
 | `packages/persistence`                                                        | In-memory and Cosmos repositories, ETag and estate isolation behavior                                                                                             |
@@ -39,7 +39,7 @@ The repository is a Node.js 22, pnpm 10, TypeScript, Turborepo monorepo.
 | `packages/scenarios`                                                          | Explicit synthetic validation agents and fixtures                                                                                                                 |
 | `packages/ui`                                                                 | Shared accessible design-system primitives and Storybook                                                                                                          |
 | `packages/shift-left-scanner`, `tools`                                        | Offline manifest validation and pre-publication policy checks                                                                                                     |
-| `scripts`                                                                     | Auth planning, live validators, Demo Readiness, Foundry helpers, release evidence                                                                                 |
+| `scripts`                                                                     | Auth planning, live validators, Release readiness, Foundry helpers, release evidence                                                                              |
 | `infra`                                                                       | Bicep modules, environment parameters, private runner, identity, edge, and data services                                                                          |
 
 The runtime is a modular monolith deployed as web, API, and jobs Container Apps. Jobs compose bounded connector reads into one estate snapshot in Cosmos; API surfaces read that persisted state. See [architecture](architecture.md) and [data model](data-model.md).
@@ -108,7 +108,7 @@ Treat the dated baseline as historical, not as proof for the current commit. Rec
 - Foundry data mode is live against one reference source containing six synthetic validation agents and no production customer agents.
 - The connector-source plane is provisioned for the reference environment.
 - Agent 365 is deployed and `ready + complete`: 308 packages, 302 agent-package nodes, 6 extension-package nodes, and 308 live source-bound evidence records.
-- Demo Readiness is **partial**: Agent 365 ready; `RUNS_AS` 0; qualifying live OTel records 0; authentication disabled; writes false.
+- Release readiness is **partial**: Agent 365 ready; `RUNS_AS` 0; qualifying live OTel records 0; authentication disabled; writes false. Ready would still require separate human release approval.
 
 ## Exact connector state
 
@@ -185,16 +185,16 @@ Deployment is human-approved and surgical:
 4. Build on the approved private runner; record canonical image digests.
 5. Deploy API first by digest, verify one active revision, health, connector status, and anonymous mutation denial.
 6. Deploy jobs second, verify one bounded ingestion and persisted health. Deploy web last only if needed.
-7. Keep writes false. Run auth edge validation, Demo Readiness, and sanitized release-evidence validation.
+7. Keep writes false. Run auth edge validation, Release readiness, and sanitized release-evidence validation.
 8. Stop on any mismatch, stale/partial evidence, unexpected resource change, or extra active revision.
 
 Rollback restores the previous reviewed API digest first, then jobs, then web if changed; restore the active Front Door mutation block first if a future approved rule exists, and keep writes false. Verify one active revision and the same smoke checks. Never retag images. See [deployment](deployment.md), [supply chain](supply-chain.md), and [runbooks](runbooks.md).
 
 ## Operational tools
 
-### Demo Readiness
+### Release readiness
 
-Use only after an approved deployment. `pnpm demo:verify -- --url <https-url> ...` performs bounded documented `GET` requests, accepts expected SHAs/digests, emits sanitized JSON, and returns `0` ready, `3` partial, `1` blocked/unavailable/error, or `2` invalid arguments. Omit the token option only while auth is disabled. The web **Demo readiness** page uses the same evaluator. See RB-013 in [runbooks](runbooks.md).
+Use only after an approved deployment. `pnpm release-readiness:verify -- --url <https-url> ...` performs bounded documented `GET` requests, accepts expected SHAs/digests, emits sanitized JSON, and returns `0` ready, `3` partial, `1` blocked/unavailable/error, or `2` invalid arguments. Omit the token option only while auth is disabled. The web **Release readiness** page uses the same evaluator. Ready is evidence for human release review, not approval. `pnpm demo:verify` remains a compatibility alias. See RB-013 in [runbooks](runbooks.md).
 
 ### Auth preflight and bootstrap
 
@@ -250,7 +250,7 @@ The generator is offline and does not run tests or contact providers. Unsupplied
 - **0 `RUNS_AS`:** inspect exact identity diagnostics. Missing provider IDs are expected; never add a name-based join.
 - **OTel remains insufficient:** verify raw request spans, exact attributes, unsampled rows, both time windows, sample counts, freshness, and workspace binding. Metrics alone do not qualify.
 - **Auth preflight blocks:** fix the input or approval evidence; do not relax schemas, use mutable tags, enable writes, or bypass the protected workflow.
-- **Demo Readiness is partial/blocked:** follow its categorized requirements. Never replace a missing live category with fixtures.
+- **Release readiness is partial/blocked:** follow its categorized requirements. Never replace a missing live category with fixtures or treat ready as release approval.
 - **Prettier fails on untouched files:** record the baseline and run Prettier only on touched files; do not mix cleanup into the handoff change.
 
 ## Handoff checklist

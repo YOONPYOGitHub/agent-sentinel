@@ -32,7 +32,8 @@
     "auth:edge-preflight": "tsx auth-edge-preflight.ts",
     "auth:deploy": "tsx deploy-auth-activation.ts",
     "validate-auth-live": "tsx validate-auth-live.ts",
-    "verify-demo-readiness": "tsx verify-demo-readiness.ts"
+    "verify-release-readiness": "tsx verify-demo-readiness.ts",
+    "verify-demo-readiness": "pnpm verify-release-readiness"
   },
   "dependencies": {
     "@agent-sentinel/foundry-connector": "workspace:*",

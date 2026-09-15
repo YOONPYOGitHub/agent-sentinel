@@ -7,7 +7,6 @@ import {
   CheckmarkCircleRegular,
   ChevronRightRegular,
   DataUsageRegular,
-  DesktopPulseRegular,
   HomeRegular,
   LockClosedRegular,
   NavigationRegular,
@@ -37,6 +36,7 @@ const navigation = [
   { label: 'Agent inventory', icon: BotRegular, to: '/agent-inventory', end: false },
   { label: 'Cloud resources', icon: DataUsageRegular, to: '/cloud-resources', end: false },
   { label: 'Agent catalog', icon: BookmarkRegular, to: '/agent-catalog', end: false },
+  { label: 'My agents', icon: PersonRegular, to: '/my-agents', end: false, requiresAuth: true },
   { label: 'Exposure', icon: ShieldCheckmarkRegular, to: '/exposure', end: false },
   { label: 'Governance', icon: LockClosedRegular, to: '/governance', end: false },
   { label: 'Work queue', icon: TaskListLtrRegular, to: '/work-queue', end: false },
@@ -45,7 +45,6 @@ const navigation = [
   { label: 'Lifecycle', icon: ArrowResetRegular, to: '/lifecycle', end: false },
   { label: 'Trust catalog', icon: CheckmarkCircleRegular, to: '/trust-catalog', end: false },
   { label: 'Connectors', icon: PlugConnectedRegular, to: '/connectors', end: false },
-  { label: 'Demo readiness', icon: DesktopPulseRegular, to: '/demo-readiness', end: false },
 ]
 
 function AuthShellMenu() {
@@ -133,6 +132,7 @@ export function AppLayout() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [prefs] = usePreferences()
   const { connectorStatus, state } = useDemoState()
+  const { isConfigured } = useAuth()
   const { state: estateState } = useEstate()
   if (estateState.status !== 'ready') {
     throw new Error('AppLayout requires a selected estate.')
@@ -175,21 +175,23 @@ export function AppLayout() {
           ) : null}
         </NavLink>
         <nav aria-label="Primary navigation">
-          {navigation.map((item) => {
-            const Icon = item.icon
-            return (
-              <NavLink
-                className={({ isActive }) => `nav-item ${isActive ? 'nav-item--active' : ''}`}
-                key={item.label}
-                to={item.to}
-                end={item.end}
-                aria-label={item.label}
-              >
-                <Icon aria-hidden="true" />
-                {navExpanded ? <span>{item.label}</span> : null}
-              </NavLink>
-            )
-          })}
+          {navigation
+            .filter((item) => item.requiresAuth !== true || isConfigured)
+            .map((item) => {
+              const Icon = item.icon
+              return (
+                <NavLink
+                  className={({ isActive }) => `nav-item ${isActive ? 'nav-item--active' : ''}`}
+                  key={item.label}
+                  to={item.to}
+                  end={item.end}
+                  aria-label={item.label}
+                >
+                  <Icon aria-hidden="true" />
+                  {navExpanded ? <span>{item.label}</span> : null}
+                </NavLink>
+              )
+            })}
         </nav>
         <div className="side-nav__footer">
           <NavLink
@@ -295,7 +297,7 @@ export function AppLayout() {
             </div>
             <div className="shell-menu__status shell-menu__status--bordered">
               <strong>Agent Sentinel</strong>
-              <span>Operations &amp; Security · Hackathon build</span>
+              <span>Operations &amp; Security</span>
             </div>
           </ShellMenu>
           <AuthShellMenu />

@@ -31,7 +31,7 @@ A Git commit or image publication alone does not prove deployment. The immutable
 | Connector source plane      | Strict non-secret schemas, ETags, idempotency, immutable audit, and deployment-source protection are implemented | The reference environment's `connector-sources` container and deployment-managed source bindings are provisioned and in use. New tenants must create their own isolated container and source records. |
 | Authentication              | JWT validation, MSAL, four roles, preflight, registration bootstrap, and protected workflows are implemented     | Replacement registrations are created, but admin consent and the test-principal role assignment are blocked on an active Entra application-administrator role; JWT remains disabled.                  |
 | Release evidence            | Versioned offline generator, schema, validator, and deterministic release-review v2 are implemented              | Release-review v2 is repository-only. Human Security, Accessibility, OneRAI, and release decisions remain external gates.                                                                             |
-| Demo Readiness              | Shared evaluator, CLI, and web page are implemented                                                              | **Partial:** Agent 365 is ready; `RUNS_AS` has 0 edges; OTel has 0 qualifying live records; authentication is disabled; writes are false.                                                             |
+| Release readiness           | Shared operational evaluator, CLI, and web page are implemented                                                  | **Partial:** Agent 365 is ready; `RUNS_AS` has 0 edges; OTel has 0 qualifying live records; authentication is disabled; writes are false. Ready is evidence for review, not release approval.         |
 
 ## Connector ledger
 
@@ -57,6 +57,8 @@ Detailed state definitions and limits are in [connector availability](connector-
 - The six Foundry agents are synthetic validation agents, not production customer agents.
 - Foundry returns declared agent/tool configuration, not observed runtime execution or authorization decisions.
 - Agent 365's 308 packages are normalized into 302 agent-package nodes and 6 extension-package nodes; package totals must not be restated as a count of executing agents.
+- `/agent-catalog` shows the 302 Agent 365 agent-package nodes plus the six explicitly synthetic Foundry validation agents for operators; extension-package controls are excluded.
+- `/my-agents` remains a separate fail-closed personalized surface. With authentication disabled, `/api/employee/agent-catalog` correctly returns no personalized results.
 - Valid-empty Defender and Teams results prove only that bounded requests returned zero rows.
 - Purview label definitions do not prove label application or compliance.
 - Azure Resource Graph scope reflects current role visibility, not full subscription coverage.

@@ -37,7 +37,7 @@ Agent Sentinel은 이 조각들을 **evidence graph(증거 그래프)** 로 정�
 | 상황                                                     | Agent Sentinel 이전                                                                                             | Agent Sentinel 이후                                                                                    |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | 보안 리더가 외부 전송 가능 에이전트의 영향 범위를 묻는다 | Foundry에서 agent 설정, Entra에서 service principal, Defender에서 alert, 운영팀에서 trace를 각각 찾아 수동 대조 | Exposure에서 동일 evidence graph의 경로·근거·최신성을 확인하고, 이론적 finding과 검증된 finding을 구분 |
-| 플랫폼 소유자가 릴리스 가능 여부를 묻는다                | “connector가 연결됐다”는 보고와 실제 배포 이미지·인증·telemetry 상태가 섞임                                     | Demo Readiness와 릴리스 게이트에서 저장소 기능, 배포 상태, 누락 증거를 분리해 판단                     |
+| 플랫폼 소유자가 릴리스 가능 여부를 묻는다                | “connector가 연결됐다”는 보고와 실제 배포 이미지·인증·telemetry 상태가 섞임                                     | Release readiness와 릴리스 게이트에서 저장소 기능, 배포 상태, 누락 증거를 분리해 판단                  |
 | 담당자가 정확한 identity ID를 찾지 못한다                | 이름·별칭으로 연결해 잘못된 권한 경로를 만들 위험                                                               | `RUNS_AS`를 생성하지 않고 unmatched 원인을 표시; 누락을 안전으로 간주하지 않음                         |
 
 ---
@@ -46,7 +46,7 @@ Agent Sentinel은 이 조각들을 **evidence graph(증거 그래프)** 로 정�
 
 | 사용자                            | Agent Sentinel에서 내리는 결정                                                                          |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| **Hackathon evaluator / judge**   | 제품이 실제 문제를 어떻게 풀고, demo evidence가 live·synthetic·unknown 중 무엇인지 판단                 |
+| **Release reviewer / operator**   | 운영 증거가 release review에 충분한지 판단하되 readiness와 최종 승인을 구분                             |
 | **Security leader / analyst**     | 어떤 exposure를 먼저 조사하고, 공격 경로와 영향 범위가 어떤 증거로 성립하는지 판단                      |
 | **Agent platform owner / SRE**    | connector·snapshot·telemetry가 충분히 최신이고 완전한지, 무엇이 릴리스를 막는지 판단                    |
 | **Governance / compliance owner** | 어떤 정책이 적용되고 어떤 예외·승인·감사 증거가 필요한지 판단                                           |
@@ -119,33 +119,33 @@ flowchart LR
 
 라우트 목록을 외우는 대신, 다음 workflow로 제품을 탐색할 수 있습니다.
 
-| Workflow                | 주요 surface                                                              | 답하는 질문                                                                                |
-| ----------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| **Estate 발견**         | Overview, Agent inventory, Agent detail, Cloud resources, Connectors      | 무엇이 존재하고, 어디에서 왔으며, 어느 범위까지 보이는가?                                  |
-| **노출 조사**           | Exposure list/detail, attack-path graph, Evidence drawer                  | finding이 왜 생겼고, 경로와 영향 범위는 무엇이며, 어떤 증거가 부족한가?                    |
-| **거버넌스와 수명주기** | Governance, Work queue, Lifecycle, Trust catalog, Agent assurance catalog | 어떤 control·예외·승인·release/rollback 상태가 적용되는가?                                 |
-| **관측과 최적화**       | Observability, Optimization                                               | evidence가 최신·완전한가, 측정된 drift·reliability·cost로 무엇을 개선할 수 있는가?         |
-| **데모·릴리스 확인**    | Demo Readiness (`/demo-readiness`)                                        | Agent 365, connector binding, exact `RUNS_AS`, OTel, image identity가 실제로 준비되었는가? |
+| Workflow                | 주요 surface                                                              | 답하는 질문                                                                              |
+| ----------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Estate 발견**         | Overview, Agent inventory, Agent detail, Cloud resources, Connectors      | 무엇이 존재하고, 어디에서 왔으며, 어느 범위까지 보이는가?                                |
+| **노출 조사**           | Exposure list/detail, attack-path graph, Evidence drawer                  | finding이 왜 생겼고, 경로와 영향 범위는 무엇이며, 어떤 증거가 부족한가?                  |
+| **거버넌스와 수명주기** | Governance, Work queue, Lifecycle, Trust catalog, Agent assurance catalog | 어떤 control·예외·승인·release/rollback 상태가 적용되는가?                               |
+| **관측과 최적화**       | Observability, Optimization                                               | evidence가 최신·완전한가, 측정된 drift·reliability·cost로 무엇을 개선할 수 있는가?       |
+| **릴리스 검토**         | Release readiness (`/release-readiness`)                                  | Agent 365, connector binding, exact `RUNS_AS`, OTel, image identity가 검토 준비되었는가? |
 
-### 5-minute hackathon demo journey
+### Operator release-review journey
 
-1. **0:00 — Demo Readiness:** mock 성공으로 대체하지 않는 전체 readiness와 차단 원인을 먼저 보여 줍니다.
-2. **0:45 — Overview → Agent inventory:** estate 규모와 source 상태를 확인하고 synthetic validation agent 하나를 선택합니다.
-3. **1:30 — Agent detail:** declared configuration, identity, tool, evidence freshness를 함께 확인합니다.
-4. **2:30 — Exposure detail:** 결정론적 finding, attack path, blast radius, cited evidence, bounded validation/what-if를 설명합니다.
-5. **3:30 — Governance → Work queue:** 같은 finding이 policy posture와 승인·예외·감사 흐름으로 이어지는 모습을 보여 줍니다.
-6. **4:15 — Observability → Lifecycle:** 누락·stale·insufficient evidence가 숨겨지지 않고 release blocker로 남는지 확인합니다.
-7. **4:50 — Demo Readiness로 복귀:** 무엇이 repository-ready이고 무엇이 Azure에서 아직 미검증인지 요약합니다.
+1. **Release readiness:** mock 성공으로 대체하지 않는 전체 operational readiness와 차단 원인을 확인합니다.
+2. **Overview → Agent inventory:** estate 규모와 source 상태를 확인하고 검토할 agent를 선택합니다.
+3. **Agent assurance catalog:** 조직 전체의 Agent 365 package record와 Foundry declared record를 source·platform별로 확인합니다.
+4. **My agents:** 인증과 권위 있는 entitlement evidence가 구성된 경우에만 개인화된 접근 가능 목록을 확인합니다.
+5. **Exposure → Governance → Work queue:** finding 근거와 승인·예외·감사 흐름을 검토합니다.
+6. **Observability → Lifecycle:** 누락·stale·insufficient evidence가 release blocker로 남는지 확인합니다.
+7. **Release readiness로 복귀:** 운영 증거를 요약합니다. `Ready`는 release review 입력이며 최종 release approval이 아닙니다.
 
-### Demo Readiness가 확인하는 것
+### Release readiness가 확인하는 것
 
 - complete·live·source-bound Agent 365 package evidence와 deployment-managed connector binding
 - 모든 대상 agent의 정확한 `RUNS_AS` edge, 그리고 **unmatched 0 / ambiguous 0**
 - non-synthetic OTel invocation, trace/span provenance, measured token/cost provenance
 - web/API/jobs의 기대 full Git SHA와 canonical image digest 일치
 
-Package 수는 agent 수로 해석하지 않습니다. empty, unknown, stale, synthetic evidence는
-ready로 승격되지 않습니다.
+Package 수는 실행 중인 agent 수로 해석하지 않습니다. empty, unknown, stale, synthetic
+evidence는 ready로 승격되지 않으며, ready 상태도 release approval을 의미하지 않습니다.
 
 ---
 
@@ -189,7 +189,7 @@ Agent Sentinel은 이를 대체하거나 agent 접근 권한을 부여하지 않
 | **Action safety**         | 역할·승인·감사·what-if·rollback foundation 구현                                        | live provider remediation 비활성; 공개 환경은 read-only posture                                                                                                                                                                                                                                                                                       | JWT와 reviewed Front Door mutation rule을 검증한 뒤 승인된 private reversible write만 별도 검증  |
 | **Release review**        | exact-SHA 기반 deterministic release-review v2 구현                                    | 도구는 `dd7ff6a2` 배포에 포함됐지만 실제 Security·Accessibility·OneRAI·Release 승인은 없음                                                                                                                                                                                                                                                            | 실행된 증거 bundle과 네 human decision 필요                                                      |
 
-Demo Readiness 결과는 **partial**입니다. Agent 365는 ready이지만 `RUNS_AS` 0, qualifying live OTel 0, authentication disabled, writes false가 그대로 blocker로 남습니다.
+Release readiness 결과는 **partial**입니다. Agent 365는 ready이지만 `RUNS_AS` 0, qualifying live OTel 0, authentication disabled, writes false가 그대로 blocker로 남습니다. 이 결과는 release review 입력이며 release approval이 아닙니다.
 
 상세하고 날짜가 있는 상태는 [Current status](docs/current-status.md), 새 tenant 준비는 [New tenant bootstrap](docs/new-tenant-bootstrap.md), 제약은 [Known issues](docs/known-issues.md), connector별 상태는 [Connector availability](docs/connector-availability.md)를 기준으로 확인하십시오.
 
@@ -237,19 +237,19 @@ pnpm validate
 수행합니다. 검증 수치는 해당 full SHA와 실행 날짜가 함께 기록된 release evidence에서만
 인용합니다.
 
-### Post-deployment Demo Readiness verifier
+### Post-deployment release readiness verifier
 
 Verifier는 credential이 포함되지 않은 `--url`, token 값이 아닌 `--token-env`, 그리고
 web/API/jobs **모두의** full SHA와 digest를 요구하도록 사용합니다.
 
 ```bash
 export AGENT_SENTINEL_BASE_URL='https://approved-front-door-host.example'
-read -rsp 'Short-lived Viewer token: ' AGENT_SENTINEL_DEMO_TOKEN && echo
-export AGENT_SENTINEL_DEMO_TOKEN
+read -rsp 'Short-lived Viewer token: ' AGENT_SENTINEL_RELEASE_READINESS_TOKEN && echo
+export AGENT_SENTINEL_RELEASE_READINESS_TOKEN
 
-pnpm demo:verify -- \
+pnpm release-readiness:verify -- \
   --url "$AGENT_SENTINEL_BASE_URL" \
-  --token-env AGENT_SENTINEL_DEMO_TOKEN \
+  --token-env AGENT_SENTINEL_RELEASE_READINESS_TOKEN \
   --expected-web-sha "$WEB_SHA" \
   --expected-api-sha "$API_SHA" \
   --expected-jobs-sha "$JOBS_SHA" \
@@ -259,11 +259,11 @@ pnpm demo:verify -- \
 ```
 
 Token, digest, tenant 정보는 문서·로그·shell history에 기록하지 않습니다. 상세 절차는
-[Runbooks](docs/runbooks.md)의 Demo Readiness runbook을 따릅니다.
+[Runbooks](docs/runbooks.md)의 Release readiness runbook을 따릅니다. `pnpm demo:verify`는 호환성을 위해 유지됩니다.
 
 ### Exact-SHA release review dry-run
 
-`release-review:dry-run`은 Security·Accessibility·OneRAI·배포·connector·Demo Readiness
+`release-review:dry-run`은 Security·Accessibility·OneRAI·배포·connector·operational release-readiness
 증거를 한 exact SHA에 묶고, 누락된 증거와 human decision을 `blocked`로 남깁니다. 로컬
 Git과 제공된 sanitized JSON만 읽으며 배포, 승인, reviewer 연락, 외부 form 제출을 하지
 않습니다.
@@ -298,7 +298,7 @@ Production candidate 이미지는 mutable tag가 아니라 `@sha256:<digest>`로
 2. web/API/jobs image를 빌드하고 각각의 canonical digest를 기록합니다.
 3. 전체 Bicep 재적용 대신 reviewed surgical change와 `what-if`를 검토합니다.
 4. **API → jobs → web** 순서로 배포하며 각 단계의 health·snapshot·same-origin 동작을 확인합니다.
-5. `pnpm demo:verify`로 Agent 365, exact `RUNS_AS`, OTel, version/digest를 판정합니다.
+5. `pnpm release-readiness:verify`로 Agent 365, exact `RUNS_AS`, OTel, version/digest를 판정합니다.
 6. 실패하면 저장한 이전 revision/digest로 **API → jobs → web** 순서로 rollback합니다.
 
 현재 resource group에는 desired state와 drift가 있으므로 승인 없이 전체

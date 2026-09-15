@@ -6,7 +6,7 @@ import type { ConnectorsCollectionResponse } from '@agent-sentinel/connector-sdk
 import type { ConnectorSourceReadModel } from '@agent-sentinel/domain'
 
 import { testState } from '../test-fixture'
-import { DemoReadinessPage } from './DemoReadinessPage'
+import { ReleaseReadinessPage } from './DemoReadinessPage'
 
 const observedAt = '2026-09-12T00:00:00.000Z'
 const connectors: ConnectorsCollectionResponse = {
@@ -95,10 +95,10 @@ const source: ConnectorSourceReadModel = {
 
 afterEach(cleanup)
 
-describe('DemoReadinessPage', () => {
+describe('ReleaseReadinessPage', () => {
   it('shows truthful blocked and partial categories without sensitive identity values', () => {
     render(
-      <DemoReadinessPage
+      <ReleaseReadinessPage
         state={testState}
         connectors={connectors}
         connectorSources={[source]}
@@ -107,17 +107,20 @@ describe('DemoReadinessPage', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Demo readiness' })).toBeVisible()
-    expect(screen.getByLabelText('Overall demo readiness')).toHaveTextContent('Blocked')
+    expect(screen.getByRole('heading', { name: 'Release readiness' })).toBeVisible()
+    expect(screen.getByLabelText('Overall release readiness')).toHaveTextContent('Blocked')
+    expect(screen.getByText(/does not approve a release/i)).toBeVisible()
     expect(screen.getByText('Exact Agent 365 live package evidence is not ready.')).toBeVisible()
-    expect(screen.getByText('Live OTel evidence is insufficient for demo readiness.')).toBeVisible()
+    expect(
+      screen.getByText('Live OTel evidence is insufficient for operational release readiness.'),
+    ).toBeVisible()
     expect(screen.getByText('redacted')).toBeVisible()
     expect(document.body).not.toHaveTextContent('59dbea72-1e91-403a-89cf-e02cdb8da350')
   })
 
   it('shows unavailable evidence instead of a mock success fallback', () => {
     const refresh = vi.fn()
-    render(<DemoReadinessPage state={testState} loading={false} onRefresh={refresh} />)
+    render(<ReleaseReadinessPage state={testState} loading={false} onRefresh={refresh} />)
 
     expect(screen.getByText('Readiness is unavailable')).toBeVisible()
     expect(screen.getByText(/No mock success fallback/)).toBeVisible()

@@ -76,7 +76,7 @@ function runCli(
   })
 }
 
-describe('demo readiness verifier CLI', () => {
+describe('release readiness verifier CLI', () => {
   it('parses bounded immutable version expectations', () => {
     expect(
       parseVerifyDemoArgs([
@@ -197,7 +197,7 @@ describe('demo readiness verifier CLI', () => {
     expect(report.readiness?.runsAs.exactEdgeCount).toBe(1)
     expect(report.readiness?.otel.liveInvocationCount).toBe(1)
     expect(report.version.apiHeadersMatchStatus).toBe(true)
-    expect(result.stderr).toContain('demo readiness: READY')
+    expect(result.stderr).toContain('release readiness: READY')
     expect(result.stdout).not.toContain('Package agent')
     expect(result.stdout).not.toContain('11111111-1111-4111-8111-111111111111')
     expect(result.stdout).not.toContain('59dbea72-1e91-403a-89cf-e02cdb8da350')

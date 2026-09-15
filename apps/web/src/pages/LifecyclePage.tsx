@@ -3,6 +3,7 @@ import {
   ArrowResetRegular,
   CheckmarkCircleRegular,
   ClockRegular,
+  DesktopPulseRegular,
   WarningRegular,
 } from '@fluentui/react-icons'
 import { useMemo, useState } from 'react'
@@ -106,6 +107,12 @@ export function LifecyclePage() {
         section="Lifecycle"
         title="Lifecycle evidence"
         description="Version, ownership, environment, source lifecycle, and evidence readiness for every discovered agent."
+        actions={
+          <Link className="lifecycle-readiness-link" to="/release-readiness">
+            <DesktopPulseRegular aria-hidden="true" />
+            Review release readiness
+          </Link>
+        }
       />
 
       <section className="lifecycle-boundary">

@@ -7,7 +7,7 @@ Every phase has an explicit definition of done. A phase is not done because its 
 ## Verified live checkpoint
 
 - Agent 365 is deployed, `ready`, and `complete`: 308 packages, 302 agent-package nodes, 6 extension-package nodes, and 308 live source-bound evidence records.
-- Demo Readiness remains **partial** because `RUNS_AS` has 0 exact edges, OTel has 0 qualifying live records, authentication is disabled, and writes are false.
+- Release readiness remains **partial** because `RUNS_AS` has 0 exact edges, OTel has 0 qualifying live records, authentication is disabled, and writes are false. This operational result is required input to release review, not release approval.
 - The reference environment connector-source plane is provisioned. New tenants still need their own isolated resources and permissions.
 - Entra staged activation hardening and deterministic release-review v2 are newer than the deployed API and remain repository-only.
 

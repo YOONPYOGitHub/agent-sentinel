@@ -523,13 +523,13 @@ The jobs worker (`apps/jobs`) runs the exposure ingestion loop:
 4. Environment variables: `AGENT_SENTINEL_CONNECTOR`, `AGENT_SENTINEL_TENANT_ID`, `DISCOVERY_INTERVAL_MS`, `COSMOS_ENDPOINT`, `COSMOS_DATABASE_ID`, `FOUNDRY_PROJECT_ENDPOINT`, `FOUNDRY_TENANT_ID`, `FOUNDRY_ENVIRONMENT`, `SERVICE_BUS_FQDN`.
 5. All Azure access uses `DefaultAzureCredential` (AAD only; no keys).
 
-## RB-013: Bounded post-deployment demo readiness verification
+## RB-013: Bounded post-deployment release readiness verification
 
 Run this only after an approved deployment. It performs documented `GET` requests only; it does not deploy, mutate configuration, create traffic, or query Azure control-plane APIs.
 
 ```bash
 export AGENT_SENTINEL_ACCESS_TOKEN='<short-lived read token>' # omit when AUTH_MODE is disabled
-pnpm demo:verify -- \
+pnpm release-readiness:verify -- \
   --url "https://${FRONT_DOOR_HOST}" \
   --token-env AGENT_SENTINEL_ACCESS_TOKEN \
   --timeout-ms 15000 \
@@ -540,7 +540,7 @@ pnpm demo:verify -- \
   --expected-web-digest "${WEB_IMAGE_DIGEST}" \
   --expected-api-digest "${API_IMAGE_DIGEST}" \
   --expected-jobs-digest "${JOBS_IMAGE_DIGEST}" \
-  --output demo-readiness.json
+  --output release-readiness.json
 ```
 
 If authentication is disabled, omit `--token-env`. The token is read from the named environment variable and is never included in JSON or console output. The verifier bounds every response and runs the seven read requests in parallel under the supplied per-request timeout.
@@ -548,7 +548,7 @@ If authentication is disabled, omit `--token-env`. The token is read from the na
 Expected concise console result:
 
 ```text
-demo readiness: READY | Agent365 ready | RUNS_AS 4 | OTel 3/12 | version ready
+release readiness: READY | Agent365 ready | RUNS_AS 4 | OTel 3/12 | version ready
 ```
 
 The JSON result contains `overall`, categorized readiness evidence, immutable version comparisons, and bounded request outcomes. It intentionally omits package names, provider identities, access tokens, and source payloads. Exit codes are `0` ready, `3` partial, `1` blocked/unavailable/error, and `2` invalid arguments.
@@ -557,7 +557,7 @@ Interpretation:
 
 - `ready`: exact `agent365:primary` is fresh, ready, complete, non-empty, and provenance-bound; the deployment source binding is valid; exact `RUNS_AS` evidence exists; accepted live OTel evidence includes trace/span and token/cost provenance; supplied immutable versions match.
 - `partial`: evidence is incomplete but not contradicted. Zero `RUNS_AS` is partial only when exact diagnostics account for every authoritative agent as missing provider identity IDs. Zero OTel requires approved representative application traffic and is never live-ready.
-- `blocked`: stale, empty, unknown, synthetic, mismatched, ambiguous, or unsafe evidence prevents a live demo claim.
+- `blocked`: stale, empty, unknown, synthetic, mismatched, ambiguous, or unsafe evidence prevents a ready operational result.
 - `unavailable`: required endpoints or documented response contracts could not be observed.
 
-The web UI exposes the same categories at **Demo readiness**. It uses current API state and connector-source contracts and has no mock-success fallback.
+The web UI exposes the same categories at **Release readiness** (`/release-readiness`). It uses current API state and connector-source contracts and has no mock-success fallback. A ready result is required operational evidence for release review; it does not constitute release approval. `pnpm demo:verify` and `/demo-readiness` remain compatibility aliases.

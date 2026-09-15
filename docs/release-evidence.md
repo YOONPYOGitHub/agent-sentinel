@@ -8,7 +8,8 @@ stricter cross-field checks in `scripts/release-evidence-schema.ts`.
 
 The exact-SHA review bundle version `2.0.0` composes that manifest with
 Security, Accessibility, OneRAI, threat/control, connector, live-validation,
-Demo Readiness, deployment, blocker, and human-decision gates. Its contracts are
+operational release-readiness, deployment, blocker, and human-decision gates. The
+machine fields remain `demoReadiness` and `demo-readiness` for v2 compatibility. Its contracts are
 [`input.schema.json`](../release-evidence/v2/input.schema.json) and
 [`bundle.schema.json`](../release-evidence/v2/bundle.schema.json).
 
@@ -97,7 +98,7 @@ Security, Accessibility, and OneRAI cannot be approved while their evidence gate
 is blocked. Release approval additionally requires every non-decision gate and
 all three specialist decisions. Open categorized blockers also block their
 matching quality, Security, Accessibility, OneRAI, deployment, live-validation,
-connector, Demo Readiness, or human-decision gate, as well as the aggregate
+connector, operational release-readiness, or human-decision gate, as well as the aggregate
 declared-blocker gate. The CLI never creates an approval.
 
 ## Classifications and outcomes

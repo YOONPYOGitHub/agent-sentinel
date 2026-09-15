@@ -526,11 +526,11 @@ export async function verifyDemoReadiness(
     overall,
     summary:
       overall === 'ready'
-        ? 'Hackathon demo readiness verified from bounded live deployment evidence.'
+        ? 'Operational release readiness verified from bounded live deployment evidence; release approval remains separate.'
         : overall === 'partial'
           ? 'Deployment is reachable, but one or more explicitly identified evidence gates are incomplete.'
           : overall === 'blocked'
-            ? 'Deployment evidence contains a blocked demo-readiness gate.'
+            ? 'Deployment evidence contains a blocked operational readiness gate.'
             : 'Deployment evidence is unavailable or could not be validated.',
     ...(readiness === undefined ? {} : { readiness }),
     web: {
@@ -563,7 +563,7 @@ export async function verifyDemoReadiness(
 export function consoleSummary(report: DemoVerificationReport): string {
   const readiness = report.readiness
   const parts = [
-    `demo readiness: ${report.overall.toUpperCase()}`,
+    `release readiness: ${report.overall.toUpperCase()}`,
     readiness === undefined ? 'evidence unavailable' : `Agent365 ${readiness.agent365.status}`,
     readiness === undefined ? 'RUNS_AS unavailable' : `RUNS_AS ${readiness.runsAs.exactEdgeCount}`,
     readiness === undefined

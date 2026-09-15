@@ -266,7 +266,7 @@
   "demoReadiness": {
     "outcome": "blocked",
     "evidenceRefs": [],
-    "summary": "No sanitized Demo Readiness result was supplied."
+    "summary": "No sanitized operational release-readiness result was supplied."
   },
   "knownIssues": [],
   "blockers": [],
@@ -355,7 +355,7 @@
     },
     "demoReadiness": {
       "status": "blocked",
-      "reasons": ["Demo Readiness evidence is not passing and complete."]
+      "reasons": ["Operational release-readiness evidence is not passing and complete."]
     },
     "humanDecisions": {
       "status": "blocked",
@@ -397,7 +397,7 @@
       "Allow-listed configuration hash evidence is missing.",
       "Fresh passing live-validation evidence is missing or incomplete.",
       "Every required connector must have live ready evidence.",
-      "Demo Readiness evidence is not passing and complete.",
+      "Operational release-readiness evidence is not passing and complete.",
       "security human decision is pending.",
       "accessibility human decision is pending.",
       "oneRai human decision is pending.",
@@ -407,6 +407,6 @@
   "canonicalHash": {
     "algorithm": "sha256",
     "scope": "bundle-excluding-canonicalHash",
-    "value": "bbfc23e4b40182afa447dd660b7b10374365790b0c5264cee596c8453f816deb"
+    "value": "590b8b8a16b8e7e34f1726b791c24929cdb48618f6ab20440769804e71295628"
   }
 }

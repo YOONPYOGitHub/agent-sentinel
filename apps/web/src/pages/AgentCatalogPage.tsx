@@ -1,211 +1,285 @@
-import { Badge, Button, Input, Spinner } from '@fluentui/react-components'
-import {
-  BotRegular,
-  InfoRegular,
-  LockClosedRegular,
-  SearchRegular,
-  ShieldCheckmarkRegular,
-} from '@fluentui/react-icons'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Badge, Input, Select } from '@fluentui/react-components'
+import { BotRegular, InfoRegular, SearchRegular } from '@fluentui/react-icons'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import type { EmployeeAgentCatalogResponse } from '@agent-sentinel/domain'
-import { EmployeeCatalogApiError, employeeCatalogApi } from '../api/employee-catalog-api'
-import { EstateSelector } from '../components/EstateSelector'
+import type { Evidence, GraphNode } from '@agent-sentinel/domain'
 import { PageHeading } from '../components/PageHeading'
+import { useAuth } from '../hooks/useAuth'
+import { useDemoState } from '../hooks/useDemoState'
 
-function failureCopy(
-  result: Extract<EmployeeAgentCatalogResponse, { status: 'unknown' | 'unavailable' }>,
-) {
-  if (result.status === 'unavailable') {
-    return {
-      title: 'Personalized catalog unavailable',
-      description:
-        'Authoritative employee entitlement evidence is not available. No agent inventory is shown.',
-    }
+type CatalogSource = 'Agent 365' | 'Microsoft Foundry' | 'Other'
+
+interface CatalogItem {
+  agent: GraphNode
+  source: CatalogSource
+  platform: string
+  synthetic: boolean
+}
+
+function isTrue(value: string | undefined): boolean {
+  return value?.toLocaleLowerCase() === 'true'
+}
+
+function catalogSource(agent: GraphNode): CatalogSource {
+  if (
+    agent.metadata['sourceConnector'] === 'agent365-package-catalog' ||
+    agent.metadata['inventoryEntityType'] === 'agent-package'
+  ) {
+    return 'Agent 365'
   }
-  return {
-    title: 'Agent access cannot be confirmed',
-    description:
-      'Entitlement evidence is missing, stale, ambiguous, synthetic, non-authoritative, or unsupported. The catalog fails closed and shows no agents.',
+  if (agent.metadata['platform']?.toLocaleLowerCase().includes('foundry') === true) {
+    return 'Microsoft Foundry'
   }
+  return 'Other'
+}
+
+function catalogPlatform(agent: GraphNode): string {
+  return (
+    agent.metadata['packagePlatform'] ??
+    agent.metadata['platform'] ??
+    agent.metadata['sourceConnectorName'] ??
+    'Platform not provided'
+  )
+}
+
+function isSyntheticAgent(agent: GraphNode, evidence: readonly Evidence[]): boolean {
+  if (
+    isTrue(agent.metadata['synthetic']) ||
+    isTrue(agent.metadata['syntheticOnly']) ||
+    isTrue(agent.metadata['testOnly']) ||
+    agent.metadata['trustAssessmentSourceMode'] === 'synthetic'
+  ) {
+    return true
+  }
+  const evidenceIds = new Set(agent.evidenceIds)
+  return evidence.some(
+    (item) =>
+      evidenceIds.has(item.id) &&
+      (item.evidenceTypes.includes('synthetic_validation') ||
+        item.metadata?.['sourceMode'] === 'synthetic' ||
+        isTrue(item.metadata?.['synthetic']) ||
+        isTrue(item.metadata?.['testOnly'])),
+  )
+}
+
+function sourceBoundary(item: CatalogItem): string {
+  if (item.source === 'Agent 365') {
+    return 'Authoritative package catalog evidence only; entitlement, installation, trust, and runtime use are not established.'
+  }
+  if (item.source === 'Microsoft Foundry') {
+    return item.synthetic
+      ? 'Synthetic/test Foundry declared configuration; not production use or observed runtime behavior.'
+      : 'Foundry declared configuration; not proof of entitlement, trust, or observed runtime behavior.'
+  }
+  return 'Discovered catalog evidence; verify source authority and runtime state separately.'
 }
 
 export function AgentCatalogPage() {
-  const [result, setResult] = useState<EmployeeAgentCatalogResponse>()
-  const [error, setError] = useState<string>()
-  const [loading, setLoading] = useState(true)
+  const { state } = useDemoState()
+  const { isConfigured } = useAuth()
   const [search, setSearch] = useState('')
-  const load = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true)
-    setError(undefined)
-    try {
-      setResult(await employeeCatalogApi.get(signal))
-    } catch (caught: unknown) {
-      if (signal?.aborted === true) return
-      setResult(undefined)
-      setError(
-        caught instanceof EmployeeCatalogApiError
-          ? caught.message
-          : 'Employee catalog could not be loaded.',
-      )
-    } finally {
-      if (signal?.aborted !== true) setLoading(false)
-    }
-  }, [])
+  const [sourceFilter, setSourceFilter] = useState('')
+  const [platformFilter, setPlatformFilter] = useState('')
 
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load])
+  const items = useMemo(() => {
+    if (state === undefined) return []
+    return state.snapshot.nodes
+      .filter((node) => node.kind === 'agent')
+      .map((agent) => ({
+        agent,
+        source: catalogSource(agent),
+        platform: catalogPlatform(agent),
+        synthetic: isSyntheticAgent(agent, state.snapshot.evidence),
+      }))
+      .sort((left, right) => left.agent.name.localeCompare(right.agent.name))
+  }, [state])
 
-  const filteredAgents = useMemo(() => {
-    const catalogAgents =
-      result?.status === 'available' || result?.status === 'mock' ? result.agents : []
+  const sources = useMemo(() => [...new Set(items.map((item) => item.source))].sort(), [items])
+  const platforms = useMemo(() => [...new Set(items.map((item) => item.platform))].sort(), [items])
+  const filteredItems = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
-    if (query.length === 0) return catalogAgents
-    return catalogAgents.filter((agent) =>
-      [agent.name, agent.description, agent.platform].some(
-        (value) => value?.toLocaleLowerCase().includes(query) === true,
-      ),
-    )
-  }, [result, search])
+    return items.filter((item) => {
+      const matchesText =
+        query.length === 0 ||
+        [
+          item.agent.name,
+          item.agent.description,
+          item.agent.owner,
+          item.platform,
+          item.source,
+          item.agent.metadata['publisher'],
+        ].some((value) => value?.toLocaleLowerCase().includes(query) === true)
+      return (
+        matchesText &&
+        (sourceFilter.length === 0 || item.source === sourceFilter) &&
+        (platformFilter.length === 0 || item.platform === platformFilter)
+      )
+    })
+  }, [items, platformFilter, search, sourceFilter])
+
+  const agent365Count = items.filter((item) => item.source === 'Agent 365').length
+  const foundryCount = items.filter((item) => item.source === 'Microsoft Foundry').length
+  const syntheticCount = items.filter((item) => item.synthetic).length
 
   return (
-    <div className="employee-catalog-shell">
-      <header className="employee-catalog-shell__header">
-        <Link to="/agent-catalog" className="brand" aria-label="Agent Sentinel employee catalog">
-          <span className="brand-mark">
-            <ShieldCheckmarkRegular />
-          </span>
+    <>
+      <PageHeading
+        section="Agent catalog"
+        title="Agent assurance catalog"
+        description="Organization-wide catalog evidence for authorized operators across connected agent platforms."
+      />
+      <div className="catalog-boundary" role="note">
+        <InfoRegular aria-hidden="true" />
+        <div>
+          <strong>Catalog evidence is not access or runtime evidence.</strong>
           <span>
-            <strong>Agent Sentinel</strong>
-            <small>Employee assurance catalog</small>
+            Agent 365 entries are authoritative package records, not proof of entitlement,
+            installation, trust, or runtime use. Foundry entries are declared configuration, and
+            synthetic or test records remain visibly labeled.
           </span>
-        </Link>
-        <EstateSelector />
-      </header>
-      <main className="employee-catalog-shell__content">
-        <PageHeading
-          section="Agent catalog"
-          title="Agents available to you"
-          description="A personalized assurance view based only on authoritative employee entitlement evidence. Agent 365 or the publishing platform remains the access-control authority."
-        />
-
-        {loading ? (
-          <div className="catalog-empty" role="status">
-            <Spinner label="Checking authoritative agent entitlements..." />
-          </div>
-        ) : error !== undefined ? (
-          <div className="catalog-empty" role="alert">
-            <LockClosedRegular aria-hidden="true" />
-            <h2>Personalized catalog unavailable</h2>
-            <p>{error} No agent inventory is shown.</p>
-            <Button appearance="primary" onClick={() => void load()}>
-              Try again
-            </Button>
-          </div>
-        ) : result?.status === 'unknown' || result?.status === 'unavailable' ? (
-          <div className="catalog-empty" role="status">
-            <LockClosedRegular aria-hidden="true" />
-            <h2>{failureCopy(result).title}</h2>
-            <p>{failureCopy(result).description}</p>
-          </div>
-        ) : result?.status === 'denied' ? (
-          <div className="catalog-empty" role="status">
-            <LockClosedRegular aria-hidden="true" />
-            <h2>No agents are available to you</h2>
-            <p>The authoritative access source returned no agent entitlements for this account.</p>
-          </div>
-        ) : result === undefined ? null : (
-          <>
-            <div className="catalog-boundary" role="note">
-              <div>
-                <InfoRegular aria-hidden="true" />
-                <span>
-                  {result.status === 'mock' ? (
-                    <>
-                      <strong>Synthetic catalog preview.</strong> These deterministic fixtures
-                      demonstrate the employee experience and are not evidence of access.
-                    </>
-                  ) : (
-                    <>
-                      <strong>Authoritative entitlement match.</strong> Only agents supported by
-                      exact evidence for your verified Entra object ID are included.
-                    </>
-                  )}
-                </span>
-              </div>
-            </div>
-            <section className="catalog-toolbar" aria-label="Catalog filters">
-              <div className="catalog-search">
-                <SearchRegular aria-hidden="true" />
-                <Input
-                  value={search}
-                  onChange={(_event, data) => setSearch(data.value)}
-                  aria-label="Search available agents"
-                  placeholder="Search your available agents"
-                />
-              </div>
-              <strong aria-live="polite">
-                {filteredAgents.length} available {filteredAgents.length === 1 ? 'agent' : 'agents'}
-              </strong>
-            </section>
-            {filteredAgents.length === 0 ? (
-              <div className="catalog-empty">
-                <BotRegular aria-hidden="true" />
-                <h2>No available agents match your search</h2>
-                <p>Clear the search to see the agents already returned for your account.</p>
-              </div>
-            ) : (
-              <div className="catalog-grid" aria-label="Personalized agent catalog">
-                {filteredAgents.map((agent) => (
-                  <article key={agent.id} className="catalog-item">
-                    <div className="catalog-item__header">
-                      <span className="catalog-item__icon">
-                        <BotRegular aria-hidden="true" />
-                      </span>
-                      <div>
-                        <Badge
-                          appearance="tint"
-                          color={result.status === 'mock' ? 'warning' : 'success'}
-                        >
-                          {result.status === 'mock' ? 'Synthetic preview' : 'Available to you'}
-                        </Badge>
-                        <h2>{agent.name}</h2>
-                        <span>{agent.platform ?? 'Publishing platform'}</span>
-                      </div>
-                    </div>
-                    <p>{agent.description}</p>
-                    {agent.version === undefined ? null : (
-                      <dl>
-                        <div>
-                          <dt>Version</dt>
-                          <dd>{agent.version}</dd>
-                        </div>
-                      </dl>
-                    )}
-                    <div className="catalog-item__entitlement-note">
-                      <LockClosedRegular aria-hidden="true" />
-                      <small>
-                        {result.status === 'mock'
-                          ? 'Preview only; confirm access in Agent 365 or the publishing platform.'
-                          : 'Access is enforced by Agent 365 or the publishing platform.'}
-                      </small>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        <div className="catalog-entra-note" role="note">
-          <strong>This is not a replacement agent store.</strong> Publishing, assignment, launch,
-          and revocation remain controlled by Agent 365 or the source publishing platform.
         </div>
-      </main>
-    </div>
+      </div>
+      <section className="catalog-summary" aria-label="Agent catalog summary">
+        <CatalogMetric label="Catalog records" value={items.length} detail="All agent nodes" />
+        <CatalogMetric
+          label="Agent 365 packages"
+          value={agent365Count}
+          detail="Agent-package records"
+        />
+        <CatalogMetric
+          label="Foundry records"
+          value={foundryCount}
+          detail="Declared agent configuration"
+        />
+        <CatalogMetric
+          label="Synthetic / test"
+          value={syntheticCount}
+          detail="Explicitly marked records"
+        />
+      </section>
+      <section className="catalog-toolbar" aria-label="Catalog filters">
+        <div className="catalog-search">
+          <SearchRegular aria-hidden="true" />
+          <Input
+            value={search}
+            onChange={(_event, data) => setSearch(data.value)}
+            aria-label="Search agent catalog"
+            placeholder="Search name, description, owner, platform, or publisher"
+          />
+        </div>
+        <label>
+          Source
+          <Select
+            aria-label="Filter by source"
+            value={sourceFilter}
+            onChange={(_event, data) => setSourceFilter(data.value)}
+          >
+            <option value="">All sources</option>
+            {sources.map((source) => (
+              <option key={source} value={source}>
+                {source}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label>
+          Platform
+          <Select
+            aria-label="Filter by platform"
+            value={platformFilter}
+            onChange={(_event, data) => setPlatformFilter(data.value)}
+          >
+            <option value="">All platforms</option>
+            {platforms.map((platform) => (
+              <option key={platform} value={platform}>
+                {platform}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <strong aria-live="polite">
+          {filteredItems.length} of {items.length} records
+        </strong>
+      </section>
+      {filteredItems.length === 0 ? (
+        <div className="catalog-empty">
+          <BotRegular aria-hidden="true" />
+          <h2>No catalog records match these filters</h2>
+          <p>Clear the search or change the source and platform filters.</p>
+        </div>
+      ) : (
+        <div className="catalog-grid" aria-label="Organization agent assurance catalog">
+          {filteredItems.map((item) => (
+            <article key={item.agent.id} className="catalog-item">
+              <div className="catalog-item__header">
+                <span className="catalog-item__icon">
+                  <BotRegular aria-hidden="true" />
+                </span>
+                <div>
+                  <Badge appearance="tint" color={item.synthetic ? 'warning' : 'informative'}>
+                    {item.synthetic
+                      ? 'Synthetic / test'
+                      : item.source === 'Agent 365'
+                        ? 'Package record'
+                        : 'Declared record'}
+                  </Badge>
+                  <h2>
+                    <Link to={`/agent-inventory/${item.agent.id}`}>{item.agent.name}</Link>
+                  </h2>
+                  <span>{item.source}</span>
+                </div>
+              </div>
+              <p>{item.agent.description}</p>
+              <dl>
+                <div>
+                  <dt>Platform</dt>
+                  <dd>{item.platform}</dd>
+                </div>
+                <div>
+                  <dt>Environment</dt>
+                  <dd>{item.agent.environment}</dd>
+                </div>
+                <div>
+                  <dt>Owner</dt>
+                  <dd>{item.agent.owner ?? 'Not provided'}</dd>
+                </div>
+                <div>
+                  <dt>Version</dt>
+                  <dd>{item.agent.metadata['version'] || 'Not provided'}</dd>
+                </div>
+              </dl>
+              <div className="catalog-item__entitlement-note">
+                <InfoRegular aria-hidden="true" />
+                <small>{sourceBoundary(item)}</small>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+      <div className="catalog-entra-note" role="note">
+        <strong>This is not a replacement agent store.</strong> Publishing, assignment, launch, and
+        revocation remain controlled by Agent 365 or the source platform.
+        {isConfigured ? (
+          <>
+            {' '}
+            <Link to="/my-agents">My agents</Link> provides the separate personalized view backed
+            only by authoritative entitlement evidence.
+          </>
+        ) : (
+          ' Personalized results are unavailable until authentication is configured.'
+        )}
+      </div>
+    </>
+  )
+}
+
+function CatalogMetric({ label, value, detail }: { label: string; value: number; detail: string }) {
+  return (
+    <article className="catalog-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
   )
 }

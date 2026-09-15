@@ -1191,6 +1191,25 @@ button {
   text-align: right;
 }
 
+.lifecycle-readiness-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 5px 12px;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+  background: #5b5fc7;
+  border: 1px solid #5b5fc7;
+  border-radius: 4px;
+}
+
+.lifecycle-readiness-link:hover {
+  background: #4f52b2;
+}
+
 .catalog-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

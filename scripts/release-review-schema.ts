@@ -835,7 +835,7 @@ function deriveGateChecks(value: {
   const demoReasons = [
     ...(value.demoReadiness.outcome === 'pass' && value.demoReadiness.evidenceRefs.length > 0
       ? []
-      : ['Demo Readiness evidence is not passing and complete.']),
+      : ['Operational release-readiness evidence is not passing and complete.']),
     ...blockerReasons('demo-readiness'),
   ]
   const decisionReasons = [
@@ -928,7 +928,7 @@ export const releaseReviewBundleSchema = releaseReviewBundleObjectSchema.superRe
     requireCanonicalOrder(
       value.demoReadiness.evidenceRefs,
       ['demoReadiness', 'evidenceRefs'],
-      'Demo Readiness references',
+      'Operational release-readiness references',
     )
     for (const [name, items] of [
       ['knownIssues', value.knownIssues],
@@ -1448,7 +1448,7 @@ export function buildReleaseReviewBundle(
       ? {
           outcome: 'blocked' as const,
           evidenceRefs: [],
-          summary: 'No sanitized Demo Readiness result was supplied.',
+          summary: 'No sanitized operational release-readiness result was supplied.',
         }
       : {
           ...input.demoReadiness,

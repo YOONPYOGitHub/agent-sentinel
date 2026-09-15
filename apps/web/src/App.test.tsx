@@ -544,6 +544,8 @@ describe('application routing', () => {
     await renderRoute('/')
     expect(await screen.findByRole('heading', { name: 'Agent operations overview' })).toBeVisible()
     expect(screen.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.queryByRole('link', { name: 'My agents' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Demo readiness' })).not.toBeInTheDocument()
   })
 
   it('renders a live estate overview when the mock attack path is absent', async () => {
@@ -695,6 +697,36 @@ describe('application routing', () => {
     expect(
       screen.getByText('Current-version evidence, not full release orchestration'),
     ).toBeVisible()
+  })
+
+  it('uses release readiness as the canonical route and redirects the compatibility path', async () => {
+    await renderRoute('/release-readiness')
+    expect(await screen.findByRole('heading', { name: 'Release readiness' })).toBeVisible()
+    expect(screen.queryByRole('link', { name: 'Release readiness' })).not.toBeInTheDocument()
+    cleanup()
+
+    await renderRoute('/demo-readiness')
+    expect(await screen.findByRole('heading', { name: 'Release readiness' })).toBeVisible()
+  })
+
+  it('shows My agents in primary navigation only when authentication is configured', async () => {
+    vi.spyOn(estateApi, 'list').mockResolvedValue({
+      defaultEstateId: 'default',
+      estates: [
+        {
+          id: 'default',
+          name: 'Default estate',
+          tenantId: 'test',
+          environment: 'test',
+          isDefault: true,
+        },
+      ],
+    })
+
+    renderAuthenticatedRoute(authenticatedContext())
+
+    expect(await screen.findByRole('heading', { name: 'Agent operations overview' })).toBeVisible()
+    expect(screen.getByRole('link', { name: 'My agents' })).toHaveAttribute('href', '/my-agents')
   })
 
   it('renders bounded optimization recommendations', async () => {

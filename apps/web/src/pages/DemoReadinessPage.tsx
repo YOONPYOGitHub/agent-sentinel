@@ -21,7 +21,7 @@ import { connectorsApi, connectorSourcesApi } from '../api/connectors-api'
 import { PageHeading } from '../components/PageHeading'
 import { useDemoState } from '../hooks/useDemoState'
 
-export interface DemoReadinessPageProps {
+export interface ReleaseReadinessPageProps {
   readonly state: AgentSentinelState
   readonly connectors?: ConnectorsCollectionResponse | undefined
   readonly connectorSources?: readonly ConnectorSourceReadModel[] | undefined
@@ -72,14 +72,14 @@ function ReadinessCard({
   )
 }
 
-export function DemoReadinessPage({
+export function ReleaseReadinessPage({
   state,
   connectors,
   connectorSources,
   loading,
   error,
   onRefresh,
-}: DemoReadinessPageProps) {
+}: ReleaseReadinessPageProps) {
   const assessment =
     connectors === undefined || connectorSources === undefined
       ? undefined
@@ -88,9 +88,9 @@ export function DemoReadinessPage({
   return (
     <>
       <PageHeading
-        section="Hackathon"
-        title="Demo readiness"
-        description="Read-only verification of persisted live Agent 365, exact identity correlation, and runtime telemetry evidence."
+        section="Operations"
+        title="Release readiness"
+        description="Read-only verification of persisted Agent 365, exact identity correlation, runtime telemetry, and deployment evidence required for release review."
         actions={
           <Button
             appearance="secondary"
@@ -102,6 +102,18 @@ export function DemoReadinessPage({
           </Button>
         }
       />
+      <section className="demo-readiness-alert" role="note">
+        <AlertRegular aria-hidden="true" />
+        <div>
+          <strong>
+            Operational evidence informs release review; it does not approve a release.
+          </strong>
+          <span>
+            A Ready result means the automated evidence gates passed. Required human review and
+            release approval remain separate.
+          </span>
+        </div>
+      </section>
 
       {error !== undefined ? (
         <section className="demo-readiness-alert" role="alert">
@@ -127,7 +139,7 @@ export function DemoReadinessPage({
         <>
           <section
             className={`demo-readiness-overall demo-readiness-overall--${assessment.status}`}
-            aria-label="Overall demo readiness"
+            aria-label="Overall release readiness"
           >
             <StatusIcon status={assessment.status} />
             <div>
@@ -138,7 +150,7 @@ export function DemoReadinessPage({
             </div>
           </section>
 
-          <section className="demo-readiness-grid" aria-label="Demo readiness categories">
+          <section className="demo-readiness-grid" aria-label="Release readiness categories">
             <ReadinessCard title="Agent 365 package catalog" category={assessment.agent365}>
               <dt>Catalog status</dt>
               <dd>{assessment.agent365.catalogStatus ?? 'Unavailable'}</dd>
@@ -207,7 +219,7 @@ export function DemoReadinessPage({
             <section className="demo-readiness-requirements">
               <div>
                 <DataUsageRegular aria-hidden="true" />
-                <h2>Requirements before a live demo</h2>
+                <h2>Requirements before release review</h2>
               </div>
               <ul>
                 {assessment.requirements.map((requirement) => (
@@ -222,7 +234,7 @@ export function DemoReadinessPage({
   )
 }
 
-export function DemoReadinessPageRoute() {
+export function ReleaseReadinessPageRoute() {
   const { load: reloadState, state } = useDemoState()
   const [connectors, setConnectors] = useState<ConnectorsCollectionResponse>()
   const [connectorSources, setConnectorSources] = useState<readonly ConnectorSourceReadModel[]>()
@@ -251,7 +263,7 @@ export function DemoReadinessPageRoute() {
   }, [load])
   if (state === undefined) return null
   return (
-    <DemoReadinessPage
+    <ReleaseReadinessPage
       state={state}
       connectors={connectors}
       connectorSources={connectorSources}
@@ -263,3 +275,7 @@ export function DemoReadinessPageRoute() {
     />
   )
 }
+
+export type DemoReadinessPageProps = ReleaseReadinessPageProps
+export const DemoReadinessPage = ReleaseReadinessPage
+export const DemoReadinessPageRoute = ReleaseReadinessPageRoute

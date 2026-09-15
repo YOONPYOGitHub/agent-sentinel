@@ -69,7 +69,7 @@ pnpm release-evidence:schema:check
 pnpm release-review:schema:check
 ```
 
-The auth commands are planning/preflight tools; protected workflows are the only approved apply paths. Live validators and `pnpm demo:verify` are operator-only after deployment.
+The auth commands are planning/preflight tools; protected workflows are the only approved apply paths. Live validators and `pnpm release-readiness:verify` are operator-only after deployment. `pnpm demo:verify` remains a compatibility alias.
 
 ## Reference-environment files
 

@@ -477,9 +477,9 @@ export function assessDemoReadiness(input: {
     observedAt: snapshot.generatedAt,
     summary:
       status === 'ready'
-        ? 'Live Agent 365, exact RUNS_AS, and live OTel evidence satisfy demo-readiness gates.'
+        ? 'Live Agent 365, exact RUNS_AS, and live OTel evidence satisfy operational release-readiness gates; release approval remains separate.'
         : status === 'partial'
-          ? 'Core live evidence is present, but explicitly identified demo evidence remains incomplete.'
+          ? 'Core live evidence is present, but explicitly identified operational evidence remains incomplete.'
           : status === 'blocked'
             ? 'One or more required live-evidence gates are blocked.'
             : 'Required deployment evidence could not be observed.',
@@ -562,7 +562,7 @@ export function assessDemoReadiness(input: {
       status: otelStatus,
       summary: otelReady
         ? 'Accepted live OTel evidence includes trace/span and token/cost provenance.'
-        : 'Live OTel evidence is insufficient for demo readiness.',
+        : 'Live OTel evidence is insufficient for operational release readiness.',
       ...(state.runtimeEvidence?.queriedAt === undefined
         ? {}
         : { observedAt: state.runtimeEvidence.queriedAt }),

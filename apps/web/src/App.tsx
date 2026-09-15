@@ -17,11 +17,12 @@ import { AgentDetailPage } from './pages/AgentDetailPage'
 import { AgentInventoryPage } from './pages/AgentInventoryPage'
 import { CloudResourcesPage } from './pages/CloudResourcesPage'
 import { ConnectorsPage } from './pages/ConnectorsPage'
-import { DemoReadinessPageRoute } from './pages/DemoReadinessPage'
+import { ReleaseReadinessPageRoute } from './pages/DemoReadinessPage'
 import { ExposureDetailPage } from './pages/ExposureDetailPage'
 import { ExposurePage } from './pages/ExposurePage'
 import { GovernancePage } from './pages/GovernancePage'
 import { LifecyclePage } from './pages/LifecyclePage'
+import { MyAgentsPage } from './pages/MyAgentsPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { ObservabilityPage } from './pages/ObservabilityPage'
 import { OptimizationPage } from './pages/OptimizationPage'
@@ -90,7 +91,8 @@ function RoutedApplication() {
         <Route path="lifecycle" element={<LifecyclePage />} />
         <Route path="trust-catalog" element={<TrustCatalogPage />} />
         <Route path="connectors" element={<ConnectorsPage />} />
-        <Route path="demo-readiness" element={<DemoReadinessPageRoute />} />
+        <Route path="release-readiness" element={<ReleaseReadinessPageRoute />} />
+        <Route path="demo-readiness" element={<Navigate to="/release-readiness" replace />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
@@ -247,8 +249,8 @@ function EstateApplication() {
     )
   }
 
-  if (matchPath('/agent-catalog', location.pathname) !== null) {
-    return <AgentCatalogPage />
+  if (matchPath('/my-agents', location.pathname) !== null) {
+    return isConfigured ? <MyAgentsPage /> : <Navigate to="/agent-catalog" replace />
   }
 
   return (
