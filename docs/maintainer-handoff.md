@@ -46,12 +46,12 @@ The runtime is a modular monolith deployed as web, API, and jobs Container Apps.
 
 ## Version truth
 
-- `feature/production-readiness-r1` is the canonical integration branch for this handoff; `dd7ff6a2f58944f135f4371cc36dffb49b1e27b8` is the verified deployed head.
+- `feature/production-readiness-r1` is the canonical integration branch for this handoff; `7c1336bc7985ea7e383c335d631b7c705fffb97c` is the verified deployed head.
 - Live base URL: `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`.
-- Web: revision `web-as-m098047--p0dd7ff6a2`, digest `sha256:78f71224c06b8d1f3530c40265d9d27529c44079bb8a9381631f48271abde049`.
-- API: revision `api-as-m098047--p1dd7ff6a2`, digest `sha256:cf80f1587200a08a5ca981ba805a0f153d6e9d0cdca12cb18ad1c203e0dcb056`.
-- Jobs: revision `jobs-as-m098047--p0dd7ff6a2`, digest `sha256:360856accc536347ee1614bb258c08d8de6ab9dba3ac8af968085b2b86d2c40a`.
-- All three components report SHA `dd7ff6a2f58944f135f4371cc36dffb49b1e27b8`; authentication and writes remain disabled.
+- Web: revision `web-as-m098047--p07c1336bc`, digest `sha256:7dca740d6d7161fc57a14a0cc79a8488e25a12cf2c0ea37f8cd677188c13e267`.
+- API: revision `api-as-m098047--p07c1336bc`, digest `sha256:b43991c120161b73737d492847bd2c3e8dbb6fe33408e4ac49fac6fa01de13a7`.
+- Jobs: revision `jobs-as-m098047--p07c1336bc`, digest `sha256:7918fa5fc0f207e11cc7b22c0a340cb40926369265c622085bab27bddf132ecc`.
+- All three components report SHA `7c1336bc7985ea7e383c335d631b7c705fffb97c`; authentication and writes remain disabled.
 
 ## Local WSL setup
 
