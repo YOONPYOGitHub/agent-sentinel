@@ -3,6 +3,12 @@ import { readFile } from 'node:fs/promises'
 import { projectRuntimeEvidence } from '@agent-sentinel/connector-sdk'
 import type { AccessToken, TokenCredential } from '@azure/core-auth'
 import type { EstateSnapshot, OtelEvidenceCaveat } from '@agent-sentinel/domain'
+import {
+  AGENT_INVOCATION_ATTRIBUTE_KEYS,
+  AGENT_INVOCATION_CONTRACT_VERSION,
+  AGENT_INVOCATION_RECORD_TYPE,
+  agentInvocationContractFixtureSchema,
+} from '@agent-sentinel/runtime-instrumentation'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -263,10 +269,45 @@ describe('Azure Monitor OTel connector', () => {
   it('strictly validates the checked-in local Azure Monitor fixture', async () => {
     const fixture = JSON.parse(
       await readFile(new URL('./fixtures/azure-monitor-query.json', import.meta.url), 'utf8'),
-    ) as unknown
+    ) as {
+      tables: Array<{ columns: Array<{ name: string; type: string }>; rows: unknown[][] }>
+    }
+    const contractFixture = agentInvocationContractFixtureSchema.parse(
+      JSON.parse(
+        await readFile(
+          new URL(
+            '../../../packages/runtime-instrumentation/contract/agent-invocation-v1.fixture.json',
+            import.meta.url,
+          ),
+          'utf8',
+        ),
+      ),
+    )
     const observations = mapAzureMonitorRows(fixture, mapBinding)
+    const fixtureTable = fixture.tables[0]!
+    const fixtureRow = Object.fromEntries(
+      fixtureTable.columns.map((column, index) => [column.name, fixtureTable.rows[0]![index]]),
+    )
 
     expect(observations).toHaveLength(4)
+    expect(fixtureRow).toMatchObject({
+      ProviderInvocationId:
+        contractFixture.span.attributes[AGENT_INVOCATION_ATTRIBUTE_KEYS.providerInvocationId],
+      TenantId: contractFixture.span.attributes[AGENT_INVOCATION_ATTRIBUTE_KEYS.tenantId],
+      AgentId: contractFixture.span.attributes[AGENT_INVOCATION_ATTRIBUTE_KEYS.agentId],
+      Environment: contractFixture.span.attributes[AGENT_INVOCATION_ATTRIBUTE_KEYS.environment],
+      SourceProjectId:
+        contractFixture.span.attributes[AGENT_INVOCATION_ATTRIBUTE_KEYS.sourceProjectId],
+      ResourceId:
+        contractFixture.span.attributes[AGENT_INVOCATION_ATTRIBUTE_KEYS.providerResourceId],
+      ProviderResourceId:
+        contractFixture.span.attributes[AGENT_INVOCATION_ATTRIBUTE_KEYS.providerResourceId],
+      ApplicationRoleName: contractFixture.resourceAttributes['service.name'],
+      RequestName: contractFixture.span.name,
+      ContractVersion: contractFixture.contractVersion,
+      RecordType: contractFixture.recordType,
+      Outcome: contractFixture.span.attributes[AGENT_INVOCATION_ATTRIBUTE_KEYS.outcome],
+    })
     expect(observations[0]).toMatchObject({
       source: 'azure-monitor-otel',
       latencyMs: 820,
@@ -383,14 +424,18 @@ describe('Azure Monitor OTel connector', () => {
     expect(body.query).toMatch(/^AppRequests\n/)
     expect(body.query).toContain('| take 1001')
     expect(body.query).toContain(
-      'ProviderInvocationId = tostring(OtelAttributes["agent.sentinel.provider_invocation_id"])',
+      `ProviderInvocationId = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.providerInvocationId}"])`,
     )
-    expect(body.query).toContain('| where ContractVersion == 1')
-    expect(body.query).toContain("| where RecordType == 'agent_invocation'")
+    expect(body.query).toContain(
+      `| where ContractVersion == ${String(AGENT_INVOCATION_CONTRACT_VERSION)}`,
+    )
+    expect(body.query).toContain(`| where RecordType == '${AGENT_INVOCATION_RECORD_TYPE}'`)
     expect(body.query).toContain('| where Synthetic == false')
     expect(body.query).toContain('TraceId = tostring(OperationId)')
     expect(body.query).toContain('SpanId = tostring(Id)')
-    expect(body.query).toContain('Synthetic = tobool(OtelAttributes["agent.sentinel.synthetic"])')
+    expect(body.query).toContain(
+      `Synthetic = tobool(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.synthetic}"])`,
+    )
     expect(body.query).not.toContain(
       'Synthetic = tobool(coalesce(OtelAttributes["agent.sentinel.synthetic"], false))',
     )
@@ -605,7 +650,7 @@ describe('Azure Monitor OTel connector', () => {
     const query = buildAzureMonitorOtelQuery(queryBinding)
 
     expect(query).toContain(
-      'SourceProjectId = tostring(OtelAttributes["agent.sentinel.source_project_id"])',
+      `SourceProjectId = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.sourceProjectId}"])`,
     )
     expect(query).toContain("| where SourceProjectId == 'project-a'")
   })

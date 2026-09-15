@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "contractVersion": {
+      "type": "number",
+      "const": 1
+    },
+    "recordType": {
+      "type": "string",
+      "const": "agent_invocation"
+    },
+    "resourceAttributes": {
+      "type": "object",
+      "properties": {
+        "service.name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": ["service.name"],
+      "additionalProperties": false
+    },
+    "span": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "const": "agent.invoke"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["SERVER", "CONSUMER"]
+        },
+        "traceId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "spanId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "attributes": {
+          "type": "object",
+          "properties": {
+            "agent.sentinel.tenant_id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "gen_ai.agent.id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "deployment.environment.name": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "agent.sentinel.source_project_id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "agent.sentinel.contract_version": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "agent.sentinel.record_type": {
+              "$ref": "#/$defs/__schema2"
+            },
+            "agent.sentinel.source_connector_id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "agent.sentinel.estate_id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "agent.sentinel.estate_tenant_id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "agent.sentinel.estate_environment": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "agent.sentinel.source_tenant_id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "agent.sentinel.source_environment": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "agent.sentinel.provider_agent_id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "agent.sentinel.provider_resource_id": {
+              "$ref": "#/$defs/__schema3"
+            },
+            "agent.sentinel.provider_invocation_id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "agent.sentinel.outcome": {
+              "$ref": "#/$defs/__schema4"
+            },
+            "agent.sentinel.synthetic": {
+              "$ref": "#/$defs/__schema5"
+            },
+            "gen_ai.agent.run.id": {
+              "$ref": "#/$defs/__schema6"
+            },
+            "agent.sentinel.run_id": {
+              "$ref": "#/$defs/__schema7"
+            },
+            "agent.sentinel.correlation_id": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "gen_ai.agent.version": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "gen_ai.usage.input_tokens": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "gen_ai.usage.output_tokens": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "agent.sentinel.cost.usd": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "agent.sentinel.tool_call_names": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "error.type": {
+              "$ref": "#/$defs/__schema14"
+            }
+          },
+          "required": [
+            "agent.sentinel.tenant_id",
+            "gen_ai.agent.id",
+            "deployment.environment.name",
+            "agent.sentinel.source_project_id",
+            "agent.sentinel.contract_version",
+            "agent.sentinel.record_type",
+            "agent.sentinel.source_connector_id",
+            "agent.sentinel.estate_id",
+            "agent.sentinel.estate_tenant_id",
+            "agent.sentinel.estate_environment",
+            "agent.sentinel.source_tenant_id",
+            "agent.sentinel.source_environment",
+            "agent.sentinel.provider_agent_id",
+            "agent.sentinel.provider_resource_id",
+            "agent.sentinel.provider_invocation_id",
+            "agent.sentinel.outcome",
+            "agent.sentinel.synthetic"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": ["name", "kind", "traceId", "spanId", "attributes"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["contractVersion", "recordType", "resourceAttributes", "span"],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/ -]{0,199}$"
+    },
+    "__schema1": {
+      "type": "number",
+      "const": 1
+    },
+    "__schema2": {
+      "type": "string",
+      "const": "agent_invocation"
+    },
+    "__schema3": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^\\/subscriptions\\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\/resourceGroups\\/[A-Za-z0-9_.()-]{1,90}\\/providers\\/Microsoft\\.Insights\\/components\\/[^%&\\\\?/#\\p{Cc}]+$"
+    },
+    "__schema4": {
+      "type": "string",
+      "enum": ["success", "error"]
+    },
+    "__schema5": {
+      "type": "boolean",
+      "const": false
+    },
+    "__schema6": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "__schema7": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "__schema8": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "__schema9": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "__schema10": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "__schema11": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "__schema12": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 10000
+    },
+    "__schema13": {
+      "type": "string",
+      "maxLength": 20000
+    },
+    "__schema14": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    }
+  },
+  "$id": "https://agent-sentinel.dev/contracts/agent-invocation-v1.schema.json",
+  "title": "Agent Sentinel external runtime invocation span contract v1"
+}

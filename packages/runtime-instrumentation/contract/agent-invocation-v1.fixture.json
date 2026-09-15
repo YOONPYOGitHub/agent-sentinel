@@ -1,0 +1,39 @@
+{
+  "contractVersion": 1,
+  "recordType": "agent_invocation",
+  "resourceAttributes": {
+    "service.name": "agent-runtime"
+  },
+  "span": {
+    "name": "agent.invoke",
+    "kind": "SERVER",
+    "traceId": "11111111111111111111111111111111",
+    "spanId": "aaaaaaaaaaaaaaaa",
+    "attributes": {
+      "agent.sentinel.tenant_id": "tenant-a",
+      "gen_ai.agent.id": "agent-a",
+      "deployment.environment.name": "production",
+      "agent.sentinel.source_project_id": "project-a",
+      "agent.sentinel.contract_version": 1,
+      "agent.sentinel.record_type": "agent_invocation",
+      "agent.sentinel.source_connector_id": "direct",
+      "agent.sentinel.estate_id": "estate-a",
+      "agent.sentinel.estate_tenant_id": "tenant-a",
+      "agent.sentinel.estate_environment": "portfolio",
+      "agent.sentinel.source_tenant_id": "tenant-a",
+      "agent.sentinel.source_environment": "production",
+      "agent.sentinel.provider_agent_id": "agent-a",
+      "agent.sentinel.provider_resource_id": "/subscriptions/11111111-1111-4111-8111-111111111111/resourcegroups/rg-test/providers/microsoft.insights/components/app-test",
+      "agent.sentinel.provider_invocation_id": "fixture-baseline-1",
+      "agent.sentinel.outcome": "success",
+      "agent.sentinel.synthetic": false,
+      "gen_ai.agent.run.id": "run-baseline-1",
+      "agent.sentinel.correlation_id": "correlation-baseline-1",
+      "gen_ai.agent.version": "17",
+      "gen_ai.usage.input_tokens": 320,
+      "gen_ai.usage.output_tokens": 110,
+      "agent.sentinel.cost.usd": 0.012,
+      "agent.sentinel.tool_call_names": "[\"knowledge_search\",\"answer\"]"
+    }
+  }
+}

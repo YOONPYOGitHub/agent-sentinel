@@ -329,6 +329,9 @@ importers:
       '@agent-sentinel/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@agent-sentinel/runtime-instrumentation':
+        specifier: workspace:*
+        version: link:../../packages/runtime-instrumentation
       '@azure/core-auth':
         specifier: ^1.10.1
         version: 1.11.0
@@ -609,6 +612,28 @@ importers:
       '@agent-sentinel/scenarios':
         specifier: workspace:*
         version: link:../scenarios
+
+  packages/runtime-instrumentation:
+    dependencies:
+      '@opentelemetry/api':
+        specifier: ^1.9.0
+        version: 1.9.1
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
+    devDependencies:
+      '@opentelemetry/sdk-trace-base':
+        specifier: ^2.0.1
+        version: 2.10.0(@opentelemetry/api@1.9.1)
+      '@types/node':
+        specifier: ^22.18.1
+        version: 22.20.1
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@22.20.1)(jsdom@26.1.0)(lightningcss@1.33.0)(tsx@4.23.12)(yaml@2.9.0)
 
   packages/scenarios:
     dependencies:

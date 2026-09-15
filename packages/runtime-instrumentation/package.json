@@ -1,0 +1,38 @@
+{
+  "name": "@agent-sentinel/runtime-instrumentation",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./contract/agent-invocation-v1.schema.json": "./contract/agent-invocation-v1.schema.json",
+    "./contract/agent-invocation-v1.fixture.json": "./contract/agent-invocation-v1.fixture.json"
+  },
+  "files": [
+    "dist",
+    "contract",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "dev": "tsup src/index.ts --format esm --dts --watch",
+    "lint": "eslint src test",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@opentelemetry/sdk-trace-base": "^2.0.1",
+    "@types/node": "^22.18.1",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

@@ -24,6 +24,12 @@ import {
   type OtelEvidenceCaveat,
   type RuntimeObservation,
 } from '@agent-sentinel/domain'
+import {
+  AGENT_INVOCATION_ATTRIBUTE_KEYS,
+  AGENT_INVOCATION_CONTRACT_VERSION,
+  AGENT_INVOCATION_RECORD_TYPE,
+  AGENT_INVOCATION_SPAN_NAME,
+} from '@agent-sentinel/runtime-instrumentation'
 import type { TokenCredential } from '@azure/core-auth'
 import {
   ClientAssertionCredential,
@@ -67,7 +73,7 @@ const SAFE_BINDING = /^[A-Za-z0-9][A-Za-z0-9._:/ -]{0,199}$/
 const bindingSchema = z.string().trim().min(1).max(200).regex(SAFE_BINDING)
 const sourceProjectBindingSchema = sourceProjectIdSchema.regex(SAFE_BINDING)
 const applicationRoleNameSchema = z.string().trim().min(1).max(200)
-const requestNameSchema = z.literal('agent.invoke').default('agent.invoke')
+const requestNameSchema = z.literal(AGENT_INVOCATION_SPAN_NAME).default(AGENT_INVOCATION_SPAN_NAME)
 
 export const azureMonitorOtelConfigSchema = z.strictObject({
   workspaceId: z.uuid(),
@@ -303,8 +309,8 @@ const rowBindingSchema = runtimeTelemetryRequestSchema.extend({
       sourceSetFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
       measuredAt: z.iso.datetime(),
       contract: z.strictObject({
-        version: z.literal(1),
-        recordType: z.literal('agent_invocation'),
+        version: z.literal(AGENT_INVOCATION_CONTRACT_VERSION),
+        recordType: z.literal(AGENT_INVOCATION_RECORD_TYPE),
         applicationRoleName: applicationRoleNameSchema,
         requestName: requestNameSchema,
       }),
@@ -585,8 +591,8 @@ function parseAzureMonitorRows(
       row.ProviderResourceId !== expectedBinding.providerResourceId ||
       row.ApplicationRoleName !== expectedBinding.applicationRoleName ||
       row.RequestName !== expectedBinding.requestName ||
-      row.ContractVersion !== 1 ||
-      row.RecordType !== 'agent_invocation' ||
+      row.ContractVersion !== AGENT_INVOCATION_CONTRACT_VERSION ||
+      row.RecordType !== AGENT_INVOCATION_RECORD_TYPE ||
       expectedBinding.sourceConnectorId === undefined ||
       row.SourceConnectorId !== expectedBinding.sourceConnectorId ||
       expectedBinding.estateId === undefined ||
@@ -1101,26 +1107,26 @@ export function buildAzureMonitorOtelQuery(binding: {
     '| where tolower(tostring(_ResourceId)) == ' + kqlString(parsed.providerResourceId),
     '| where AppRoleName == ' + kqlString(parsed.applicationRoleName),
     '| where Name == ' + kqlString(parsed.requestName),
-    '| extend TenantId = tostring(OtelAttributes["agent.sentinel.tenant_id"]),',
-    '         AgentId = tostring(OtelAttributes["gen_ai.agent.id"]),',
-    '         Environment = tostring(OtelAttributes["deployment.environment.name"]),',
-    '         SourceProjectId = tostring(OtelAttributes["agent.sentinel.source_project_id"]),',
-    '         ContractVersion = tolong(OtelAttributes["agent.sentinel.contract_version"]),',
-    '         RecordType = tostring(OtelAttributes["agent.sentinel.record_type"]),',
-    '         SourceConnectorId = tostring(OtelAttributes["agent.sentinel.source_connector_id"]),',
-    '         EstateId = tostring(OtelAttributes["agent.sentinel.estate_id"]),',
-    '         EstateTenantId = tostring(OtelAttributes["agent.sentinel.estate_tenant_id"]),',
-    '         EstateEnvironment = tostring(OtelAttributes["agent.sentinel.estate_environment"]),',
-    '         SourceTenantId = tostring(OtelAttributes["agent.sentinel.source_tenant_id"]),',
-    '         SourceEnvironment = tostring(OtelAttributes["agent.sentinel.source_environment"]),',
-    '         ProviderAgentId = tostring(OtelAttributes["agent.sentinel.provider_agent_id"]),',
-    '         ProviderResourceId = tolower(tostring(OtelAttributes["agent.sentinel.provider_resource_id"])),',
-    '         Outcome = tostring(OtelAttributes["agent.sentinel.outcome"]),',
-    '         Synthetic = tobool(OtelAttributes["agent.sentinel.synthetic"])',
+    `| extend TenantId = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.tenantId}"]),`,
+    `         AgentId = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.agentId}"]),`,
+    `         Environment = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.environment}"]),`,
+    `         SourceProjectId = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.sourceProjectId}"]),`,
+    `         ContractVersion = tolong(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.contractVersion}"]),`,
+    `         RecordType = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.recordType}"]),`,
+    `         SourceConnectorId = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.sourceConnectorId}"]),`,
+    `         EstateId = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.estateId}"]),`,
+    `         EstateTenantId = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.estateTenantId}"]),`,
+    `         EstateEnvironment = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.estateEnvironment}"]),`,
+    `         SourceTenantId = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.sourceTenantId}"]),`,
+    `         SourceEnvironment = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.sourceEnvironment}"]),`,
+    `         ProviderAgentId = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.providerAgentId}"]),`,
+    `         ProviderResourceId = tolower(tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.providerResourceId}"])),`,
+    `         Outcome = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.outcome}"]),`,
+    `         Synthetic = tobool(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.synthetic}"])`,
     `| where TimeGenerated >= datetime(${parsed.windowStart})`,
     `| where TimeGenerated < datetime(${parsed.windowEnd})`,
-    '| where ContractVersion == 1',
-    "| where RecordType == 'agent_invocation'",
+    `| where ContractVersion == ${String(AGENT_INVOCATION_CONTRACT_VERSION)}`,
+    `| where RecordType == '${AGENT_INVOCATION_RECORD_TYPE}'`,
     `| where TenantId == ${kqlString(parsed.tenantId)}`,
     `| where AgentId == ${kqlString(parsed.agentId)}`,
     `| where Environment == ${kqlString(parsed.environment)}`,
@@ -1136,18 +1142,18 @@ export function buildAzureMonitorOtelQuery(binding: {
     '| where isnotnull(Success) and isnotnull(Synthetic)',
     '| where Synthetic == false',
     '| where (Success == true and Outcome == "success") or (Success == false and Outcome == "error")',
-    '| project ProviderInvocationId = tostring(OtelAttributes["agent.sentinel.provider_invocation_id"]),',
+    `| project ProviderInvocationId = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.providerInvocationId}"]),`,
     '          ObservedAt = TimeGenerated, TenantId, AgentId, Environment,',
-    '          AgentRunId = tostring(coalesce(OtelAttributes["gen_ai.agent.run.id"], OtelAttributes["agent.sentinel.run_id"])),',
-    '          CorrelationId = tostring(coalesce(OtelAttributes["agent.sentinel.correlation_id"], OperationId)),',
-    '          AgentVersion = tostring(OtelAttributes["gen_ai.agent.version"]),',
+    `          AgentRunId = tostring(coalesce(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.agentRunId}"], OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.runId}"])),`,
+    `          CorrelationId = tostring(coalesce(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.correlationId}"], OperationId)),`,
+    `          AgentVersion = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.agentVersion}"]),`,
     '          LatencyMs = tolong(round(DurationMs)),',
-    '          InputTokens = tolong(coalesce(OtelAttributes["gen_ai.usage.input_tokens"], OtelAttributes["gen_ai.usage.prompt_tokens"])),',
-    '          OutputTokens = tolong(coalesce(OtelAttributes["gen_ai.usage.output_tokens"], OtelAttributes["gen_ai.usage.completion_tokens"])),',
-    '          CostUsd = todouble(OtelAttributes["agent.sentinel.cost.usd"]),',
+    `          InputTokens = tolong(coalesce(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.inputTokens}"], OtelAttributes["gen_ai.usage.prompt_tokens"])),`,
+    `          OutputTokens = tolong(coalesce(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.outputTokens}"], OtelAttributes["gen_ai.usage.completion_tokens"])),`,
+    `          CostUsd = todouble(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.costUsd}"]),`,
     '          Success = tobool(Success),',
-    '          ErrorCode = iff(tobool(Success), "", tostring(coalesce(OtelAttributes["error.type"], ResultCode))),',
-    '          ToolCallNames = tostring(OtelAttributes["agent.sentinel.tool_call_names"]),',
+    `          ErrorCode = iff(tobool(Success), "", tostring(coalesce(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.errorType}"], ResultCode))),`,
+    `          ToolCallNames = tostring(OtelAttributes["${AGENT_INVOCATION_ATTRIBUTE_KEYS.toolCallNames}"]),`,
     '          Synthetic,',
     '          TraceId = tostring(OperationId),',
     '          SpanId = tostring(Id),',
@@ -1946,7 +1952,7 @@ export function parseAzureMonitorOtelSources(
       workspaceId: environment.AZURE_MONITOR_WORKSPACE_ID,
       providerResourceId: environment.AZURE_MONITOR_PROVIDER_RESOURCE_ID,
       applicationRoleName: environment.AZURE_MONITOR_APPLICATION_ROLE_NAME,
-      requestName: 'agent.invoke',
+      requestName: AGENT_INVOCATION_SPAN_NAME,
       tenantId: environment.AZURE_MONITOR_TENANT_ID,
       sourceProjectId: sourceProjectIdFromEndpoint(foundryProjectEndpoint),
       environment: environment.AZURE_MONITOR_ENVIRONMENT,

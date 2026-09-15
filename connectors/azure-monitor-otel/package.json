@@ -21,6 +21,7 @@
   "dependencies": {
     "@agent-sentinel/connector-sdk": "workspace:*",
     "@agent-sentinel/domain": "workspace:*",
+    "@agent-sentinel/runtime-instrumentation": "workspace:*",
     "@azure/core-auth": "^1.10.1",
     "@azure/identity": "^4.11.1",
     "zod": "^4.1.5"

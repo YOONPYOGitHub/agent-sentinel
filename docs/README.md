@@ -23,22 +23,23 @@ Start with the [root README](../README.md) for product value and the live-vs-moc
 
 ## Engineering
 
-| Document                                                            | Read this when you need to…                                                              |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| [Maintainer handoff](maintainer-handoff.md)                         | Continue work safely from the current repository and deployment truth.                   |
-| [Architecture](architecture.md)                                     | Understand runtime topology, boundaries, and package layout.                             |
-| [Data model](data-model.md)                                         | Look up domain contracts, storage models, indexes, and messaging entities.               |
-| [Development](development.md)                                       | Set up WSL, run checks, and follow repository conventions.                               |
-| [New tenant bootstrap](new-tenant-bootstrap.md)                     | Separate mock use, live read access, operator access, approvals, and ownership transfer. |
-| [Foundry live agents](foundry-live-agents.md)                       | Understand the six synthetic validation agents and operator-only lifecycle.              |
-| [Agent 365 connector](agent365-connector.md)                        | Review the deployment-only package catalog contract and limits.                          |
-| [Azure Resource Graph connector](azure-resource-graph-connector.md) | Review bounded cloud-resource inventory and scope semantics.                             |
-| [Entra identity connector](entra-identity-connector.md)             | Review exact identity correlation and `RUNS_AS` rules.                                   |
-| [Power Platform connector](power-platform-connector.md)             | Review the unsupported unattended-authorization boundary.                                |
-| [Defender connector](defender-cloud-apps-connector.md)              | Review the bounded privacy-reduced alert/activity contract.                              |
-| [Purview connector](purview-connector.md)                           | Review the sensitivity-label catalog and its usage blind spot.                           |
-| [Teams connector](teams-distribution-connector.md)                  | Review the organization app catalog and distribution blind spot.                         |
-| [Corporate onboarding](internal-onboarding.md)                      | Follow human-owned service and corporate identity onboarding.                            |
+| Document                                                                | Read this when you need to…                                                              |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| [Maintainer handoff](maintainer-handoff.md)                             | Continue work safely from the current repository and deployment truth.                   |
+| [Architecture](architecture.md)                                         | Understand runtime topology, boundaries, and package layout.                             |
+| [Data model](data-model.md)                                             | Look up domain contracts, storage models, indexes, and messaging entities.               |
+| [Development](development.md)                                           | Set up WSL, run checks, and follow repository conventions.                               |
+| [External runtime instrumentation](external-runtime-instrumentation.md) | Emit privacy-safe invocation spans accepted by the Azure Monitor connector.              |
+| [New tenant bootstrap](new-tenant-bootstrap.md)                         | Separate mock use, live read access, operator access, approvals, and ownership transfer. |
+| [Foundry live agents](foundry-live-agents.md)                           | Understand the six synthetic validation agents and operator-only lifecycle.              |
+| [Agent 365 connector](agent365-connector.md)                            | Review the deployment-only package catalog contract and limits.                          |
+| [Azure Resource Graph connector](azure-resource-graph-connector.md)     | Review bounded cloud-resource inventory and scope semantics.                             |
+| [Entra identity connector](entra-identity-connector.md)                 | Review exact identity correlation and `RUNS_AS` rules.                                   |
+| [Power Platform connector](power-platform-connector.md)                 | Review the unsupported unattended-authorization boundary.                                |
+| [Defender connector](defender-cloud-apps-connector.md)                  | Review the bounded privacy-reduced alert/activity contract.                              |
+| [Purview connector](purview-connector.md)                               | Review the sensitivity-label catalog and its usage blind spot.                           |
+| [Teams connector](teams-distribution-connector.md)                      | Review the organization app catalog and distribution blind spot.                         |
+| [Corporate onboarding](internal-onboarding.md)                          | Follow human-owned service and corporate identity onboarding.                            |
 
 ## Operations and status
 

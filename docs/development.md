@@ -154,23 +154,39 @@ tenant inventory, and `RUNS_AS` edges never establish runtime eligibility.
 Instrumented request spans must reach `AppRequests` with these OTel/custom
 properties:
 
-| Property                           | Mapping                                                           |
-| ---------------------------------- | ----------------------------------------------------------------- |
-| `agent.sentinel.tenant_id`         | Required tenant binding                                           |
-| `gen_ai.agent.id`                  | Required agent binding                                            |
-| `deployment.environment.name`      | Required environment binding                                      |
-| `agent.sentinel.source_project_id` | Required exact Foundry project binding                            |
-| `agent.sentinel.observation_id`    | Required unique observation ID; no request/operation fallback     |
-| `gen_ai.agent.run.id`              | Optional exact agent-run identifier                               |
-| `agent.sentinel.run_id`            | Optional fallback exact agent-run identifier                      |
-| `agent.sentinel.correlation_id`    | Optional exact correlation identifier (falls back to operation)   |
-| `gen_ai.agent.version`             | Optional broad agent-version context; not counted as an exact run |
-| `gen_ai.usage.input_tokens`        | Required measured input tokens for analysis-ready evidence        |
-| `gen_ai.usage.output_tokens`       | Required measured output tokens for analysis-ready evidence       |
-| `agent.sentinel.cost.usd`          | Required measured USD cost for analysis-ready evidence            |
-| `agent.sentinel.tool_call_names`   | Optional JSON string array of ordered tools                       |
-| `agent.sentinel.synthetic`         | Required explicit classification; live evidence must be `false`   |
-| `error.type`                       | Optional error code                                               |
+The resource `service.name` must equal the connector
+`applicationRoleName`, the span name must be `agent.invoke`, and the span kind
+must be `SERVER` (or `CONSUMER` only for a queue consumer). See
+[external runtime instrumentation](external-runtime-instrumentation.md).
+
+| Property                                | Mapping                                                            |
+| --------------------------------------- | ------------------------------------------------------------------ |
+| `agent.sentinel.tenant_id`              | Required source tenant binding                                     |
+| `gen_ai.agent.id`                       | Required provider agent binding                                    |
+| `deployment.environment.name`           | Required source environment binding                                |
+| `agent.sentinel.source_project_id`      | Required exact source project binding                              |
+| `agent.sentinel.contract_version`       | Required literal `1`                                               |
+| `agent.sentinel.record_type`            | Required literal `agent_invocation`                                |
+| `agent.sentinel.source_connector_id`    | Required exact connector source binding                            |
+| `agent.sentinel.estate_id`              | Required estate binding                                            |
+| `agent.sentinel.estate_tenant_id`       | Required estate tenant binding                                     |
+| `agent.sentinel.estate_environment`     | Required estate environment binding                                |
+| `agent.sentinel.source_tenant_id`       | Required exact source tenant binding                               |
+| `agent.sentinel.source_environment`     | Required exact source environment binding                          |
+| `agent.sentinel.provider_agent_id`      | Required exact provider agent binding                              |
+| `agent.sentinel.provider_resource_id`   | Required exact lower-cased Application Insights ARM resource ID    |
+| `agent.sentinel.provider_invocation_id` | Required unique invocation/observation ID                          |
+| `agent.sentinel.outcome`                | Required terminal `success` or `error` matching native span status |
+| `agent.sentinel.synthetic`              | Required explicit classification; live evidence must be `false`    |
+| `gen_ai.agent.run.id`                   | Optional exact agent-run identifier                                |
+| `agent.sentinel.run_id`                 | Optional fallback exact agent-run identifier                       |
+| `agent.sentinel.correlation_id`         | Optional exact correlation identifier (falls back to operation)    |
+| `gen_ai.agent.version`                  | Optional broad agent-version context; not counted as an exact run  |
+| `gen_ai.usage.input_tokens`             | Optional measured provider input tokens; absent stays unknown      |
+| `gen_ai.usage.output_tokens`            | Optional measured provider output tokens; absent stays unknown     |
+| `agent.sentinel.cost.usd`               | Optional authoritative measured USD cost; never estimated          |
+| `agent.sentinel.tool_call_names`        | Optional bounded JSON string array of validated tool names         |
+| `error.type`                            | Optional sanitized error code/type                                 |
 
 `pnpm --filter @agent-sentinel/scripts validate-live` emits bounded synthetic
 validation spans. Their exact sanitized Foundry project ID supports source
