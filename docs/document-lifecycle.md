@@ -1,19 +1,22 @@
-# Document lifecycle
+<a id="document-lifecycle"></a>
+# 문서 수명주기
 
-Last reviewed **2026-09-14**.
+마지막 검토일: **2026-09-14**.
 
-## Authority classes
+<a id="authority-classes"></a>
+## 권위 수준별 분류
 
-- **Current operational truth:** `current-status.md`, `connector-availability.md`, `known-issues.md`, and `maintainer-handoff.md`. These require a review date and must agree on repository, deployment, connector, and blocker state.
-- **Durable product and engineering reference:** the product specification, `CONTEXT.md`, ADRs, architecture, data model, development, security, deployment, runbooks, supply chain, release evidence, DR, onboarding, and connector documents. Update these when their contract or procedure changes.
-- **Design/history:** accepted ADRs and explicitly historical evidence may remain when they explain a durable decision. They must not present themselves as current operational state.
-- **Ephemeral plans:** implementation plans, scratch specifications, review notes, and superseded handoffs are not long-term documentation.
+- **현재 운영 사실:** `current-status.md`, `connector-availability.md`, `known-issues.md`, `maintainer-handoff.md`. 검토 날짜가 필요하며 저장소, 배포, 커넥터, 차단 요인의 상태가 서로 일치해야 합니다.
+- **장기 제품·엔지니어링 참고 자료:** 제품 명세, `CONTEXT.md`, 아키텍처 결정 기록(ADR), 아키텍처, 데이터 모델, 개발, 보안, 배포, 운영 절차서, 공급망, 릴리스 증거, 재해 복구(DR), 온보딩, 커넥터 문서입니다. 계약이나 절차가 바뀔 때 갱신합니다.
+- **설계·이력:** 채택된 ADR과 명시적으로 과거 기록임을 밝힌 증거는 장기적인 의사결정을 설명할 때 유지할 수 있습니다. 현재 운영 상태인 것처럼 제시해서는 안 됩니다.
+- **일시적 계획:** 구현 계획, 초안 명세, 검토 메모, 대체된 인수인계 자료는 장기 문서가 아닙니다.
 
-## Maintenance rules
+<a id="maintenance-rules"></a>
+## 유지관리 규칙
 
-1. Update the existing authoritative document; do not create a parallel status ledger or handoff.
-2. Date claims that can become stale and name the evidence boundary: repository, deployed, provider-observed, synthetic, or planned.
-3. After implementation merges, fold durable behavior into reference docs and delete unreferenced plans/specs.
-4. Archive only material with lasting decision value. Otherwise delete it and remove every reference.
-5. Before merge, validate relative links, search for removed paths, run Prettier on touched Markdown, and reconcile contradictions across the four current-truth documents.
-6. Never retain secrets, private identifiers, personal contacts, raw provider data, or local absolute user paths in documentation.
+1. 기존 권위 있는 문서를 갱신하며, 병렬 상태 기록이나 인수인계 문서를 만들지 않습니다.
+2. 시간이 지나면 낡을 수 있는 주장에는 날짜와 증거 경계(저장소, 배포됨, 공급자 관측, 합성, 계획됨)를 명시합니다.
+3. 구현 병합 후 장기적으로 유지되는 동작은 참고 문서에 반영하고 참조되지 않는 계획·명세를 삭제합니다.
+4. 지속적인 의사결정 가치가 있는 자료만 보관합니다. 그 외에는 삭제하고 모든 참조를 제거합니다.
+5. 병합 전 상대 링크를 검증하고, 삭제된 경로를 검색하고, 변경한 Markdown에 Prettier를 실행하고, 현재 사실을 담은 네 문서 간 모순을 조정합니다.
+6. 비밀정보, 비공개 식별자, 개인 연락처, 공급자 원시 데이터, 사용자 로컬 절대 경로를 문서에 남기지 않습니다.

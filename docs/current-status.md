@@ -1,159 +1,170 @@
-# Current status
+<a id="current-status"></a>
+# 현재 상태
 
-**Status date: 2026-09-15** · Integration branch: `feature/production-readiness-r1` · Deployed SHA: `7c1336bc`
+**상태 기준일: 2026-09-15** · 통합 브랜치: `feature/production-readiness-r1` · 배포된 SHA: `7c1336bc`
 
-This is the authoritative dated ledger for the Agent Sentinel control plane. It separates repository capability, deployed state, provider access, and evidence quality. Missing evidence is never a pass. For operating instructions and next work, use the [maintainer handoff](maintainer-handoff.md).
+Agent Sentinel 제어 계층의 권위 있는 날짜별 현황 기록입니다. 저장소 기능, 배포 상태, 공급자 접근, 증거 품질을 구분합니다. 증거 누락을 통과로 간주하지 않습니다. 운영 지침과 다음 작업은 [유지관리자 인수인계](maintainer-handoff.md)를 참고하십시오.
 
-## Release boundary
+<a id="release-boundary"></a>
+## 릴리스 경계
 
-| Boundary       | Current truth                                                                                                                                                                                   |
+| 경계 | 현재 사실 |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Repository     | Wednesday handoff branch `work/wednesday-handoff-astra-r1` starts at `3c30327902f925078ebfe37c4414975b73e75561`; this base is not deployed. The final PR must record its own reviewed full SHA. |
-| Deployed code  | `7c1336bc7985ea7e383c335d631b7c705fffb97c` is the verified deployed integration SHA, not the current repository head.                                                                           |
-| Live URL       | The reference deployment is reachable at `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`. This URL identifies the current reference environment, not a portable tenant default.       |
-| Web            | Revision `web-as-m098047--p07c1336bc`; digest `sha256:7dca740d6d7161fc57a14a0cc79a8488e25a12cf2c0ea37f8cd677188c13e267`.                                                                        |
-| API            | Revision `api-as-m098047--p07c1336bc`; digest `sha256:b43991c120161b73737d492847bd2c3e8dbb6fe33408e4ac49fac6fa01de13a7`.                                                                        |
-| Jobs           | Revision `jobs-as-m098047--p07c1336bc`; digest `sha256:7918fa5fc0f207e11cc7b22c0a340cb40926369265c622085bab27bddf132ecc`.                                                                       |
-| Authentication | Replacement API/SPA registrations and service principals exist. `AUTH_MODE=disabled`; admin consent, user role assignment, and live JWT validation remain incomplete.                           |
-| Writes         | `AGENT_SENTINEL_WRITE_ENABLED=false`. Remediation and manifest ingestion are not live capabilities.                                                                                             |
-| Edge           | Front Door is the active HTTPS edge. Its WAF has no evidenced custom mutation rule. The mutation rule on the stopped Application Gateway does not protect Front Door.                           |
-| Estate         | One reference Foundry source contains six synthetic validation agents and no production customer agents.                                                                                        |
+| 저장소 | 수요일 인수인계 브랜치 `work/wednesday-handoff-astra-r1`은 `3c30327902f925078ebfe37c4414975b73e75561`에서 시작하며 이 기준점은 미배포입니다. 최종 PR은 자체 검토된 전체 SHA를 기록해야 합니다. |
+| 배포 코드 | `7c1336bc7985ea7e383c335d631b7c705fffb97c`는 배포가 검증된 통합 SHA이며 현재 저장소의 최신 커밋이 아닙니다. |
+| 실제 서비스 URL | 참조 배포는 `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`에서 접근할 수 있습니다. 이 URL은 현재 참조 환경을 식별하며 다른 테넌트에 그대로 적용할 기본값이 아닙니다. |
+| 웹 | 리비전 `web-as-m098047--p07c1336bc`, 다이제스트 `sha256:7dca740d6d7161fc57a14a0cc79a8488e25a12cf2c0ea37f8cd677188c13e267`. |
+| API | 리비전 `api-as-m098047--p07c1336bc`, 다이제스트 `sha256:b43991c120161b73737d492847bd2c3e8dbb6fe33408e4ac49fac6fa01de13a7`. |
+| 작업 처리기 | 리비전 `jobs-as-m098047--p07c1336bc`, 다이제스트 `sha256:7918fa5fc0f207e11cc7b22c0a340cb40926369265c622085bab27bddf132ecc`. |
+| 인증 | 대체 API·단일 페이지 앱(SPA) 등록과 서비스 주체는 존재합니다. `AUTH_MODE=disabled`이며 관리자 동의, 사용자 역할 할당, 실제 JWT(JSON 웹 토큰) 검증은 미완료입니다. |
+| 쓰기 | `AGENT_SENTINEL_WRITE_ENABLED=false`입니다. 수정 조치와 매니페스트 수집은 실제 서비스 기능으로 활성화되지 않았습니다. |
+| 에지 | Front Door가 활성 HTTPS 에지입니다. 웹 애플리케이션 방화벽(WAF)의 사용자 지정 변경 요청 규칙은 증거로 확인되지 않았습니다. 중지된 Application Gateway의 변경 요청 규칙은 Front Door를 보호하지 않습니다. |
+| 자산 집합 | 참조 Foundry 원본 하나에 합성 검증 에이전트 6개가 있으며 프로덕션 고객 에이전트는 없습니다. |
 
-A Git commit or image publication alone does not prove deployment. The immutable values above are the verified runtime boundary for this status date.
+Git 커밋이나 이미지 게시만으로 배포가 입증되지는 않습니다. 위 불변 값은 이 상태 기준일에 검증된 런타임 경계입니다.
 
-## Repository-only gap
+<a id="repository-only-gap"></a>
+## 저장소에만 있는 변경
 
-배포 코드 `7c1336bc7985ea7e383c335d631b7c705fffb97c` 이후 handoff base까지의 차이입니다.
-문서 변경이나 Git merge는 Azure revision을 갱신하지 않습니다.
+배포 코드 `7c1336bc7985ea7e383c335d631b7c705fffb97c` 이후 인수인계 기준점까지의 차이입니다.
+문서 변경이나 Git 병합은 Azure 리비전을 갱신하지 않습니다.
 
-| Git commit                                 | 저장소 변경                                  | Azure 경계                                          |
+| Git 커밋 | 저장소 변경 | Azure 경계 |
 | ------------------------------------------ | -------------------------------------------- | --------------------------------------------------- |
-| `c63cded7788534c8109021a8b4b21bbbde37f081` | `7c1336bc` catalog UX 배포 사실을 문서화     | 별도 배포가 아닌 기록                               |
-| `614b39424880abefb3cf7e48b9f456b1a5172833` | Foundry instance identity 지원               | 미배포; 현재 exact `RUNS_AS` 0을 해소한 증거가 아님 |
-| `b0dce4d1854d13ba01f86ccc041b77f01a7f2e78` | External runtime instrumentation SDK         | 미배포; qualifying live telemetry 발생 증거가 아님  |
-| `06ed453a43884e197e5b31ee37b8cb96a8046f71` | 격리된 Foundry identity pilot 계획·도구      | 미배포; 신규 pilot 승인·생성 없음                   |
-| `3c30327902f925078ebfe37c4414975b73e75561` | SDK image packaging 및 readiness timing 수정 | 미배포; handoff 작업의 Git base                     |
+| `c63cded7788534c8109021a8b4b21bbbde37f081` | `7c1336bc` 카탈로그 사용자 경험 배포 사실을 문서화 | 별도 배포가 아닌 기록 |
+| `614b39424880abefb3cf7e48b9f456b1a5172833` | Foundry 인스턴스 신원 지원 | 미배포, 현재 정확한 `RUNS_AS` 0개를 해소한 증거가 아님 |
+| `b0dce4d1854d13ba01f86ccc041b77f01a7f2e78` | 외부 런타임 계측 SDK | 미배포, 적격한 실제 텔레메트리 발생 증거가 아님 |
+| `06ed453a43884e197e5b31ee37b8cb96a8046f71` | 격리된 Foundry 신원 파일럿 계획·도구 | 미배포, 신규 파일럿 승인·생성 없음 |
+| `3c30327902f925078ebfe37c4414975b73e75561` | SDK 이미지 패키징 및 준비도 확인 타이밍 수정 | 미배포, 인수인계 작업의 Git 기준점 |
 
-Auth scaffolding/activation hardening과 release-review v2 **도구는 이미 `7c1336bc` 배포 코드에
-포함**되어 있습니다. JWT 활성화·consent/roles 완료·실제 reviewer 승인과는 별개입니다.
-향후 범위는 [runtime 계약](external-runtime-instrumentation.md)과
-[Foundry pilot 계약](foundry-identity-pilot.md)을 참고하되 데모 중 실행하지 않습니다.
+인증 기반 코드·활성화 강화와 release-review v2 **도구는 이미 `7c1336bc` 배포 코드에
+포함**되어 있습니다. JWT 활성화·동의 및 역할 할당 완료·실제 검토자 승인과는 별개입니다.
+향후 범위는 [런타임 계약](external-runtime-instrumentation.md)과
+[Foundry 파일럿 계약](foundry-identity-pilot.md)을 참고하되 데모 중 실행하지 않습니다.
 
-## Wednesday freeze boundary
+<a id="wednesday-freeze-boundary"></a>
+## 수요일 동결 범위
 
-**2026-09-16 수요일 18:00 KST는 내부 candidate 동결 목표**입니다. 최종 `main` PR은
-Catalog → synthetic Foundry 한 레코드 → Exposure evidence → Lifecycle/Release readiness를
-정직하게 보여 주고 인계하는 범위이며, **전체 production go-live나 미완료 승인 면제는 아닙니다**.
-현재 readiness는 partial, auth disabled, writes false이며 human release approvals는 대기 중입니다.
+**2026-09-16 수요일 18:00 KST는 내부 후보 동결 목표**입니다. 최종 `main` PR은
+Catalog → 합성 Foundry 레코드 하나 → Exposure 증거 → Lifecycle/Release readiness를
+정직하게 보여 주고 인계하는 범위이며, **전체 프로덕션 가동이나 미완료 승인 면제는 아닙니다**.
+현재 준비도는 partial, 인증 비활성화, 쓰기 false이며 사람의 릴리스 승인은 대기 중입니다.
 
-- 리허설·미관찰·실패는 구분하여 [5분 데모와 동결 체크리스트](maintainer-handoff.md#5-minute-demo)에 기록합니다. 이 문서 변경은 새 배포나 live 재검증을 수행한 것이 아닙니다.
-- 외부 consent/roles·JWT 활성화·identity/OTel 증거·write guard·human review는 아래 [승인 backlog](#human-approvals-still-open)로 남기며, 마감 때문에 권한이나 기능을 확장하지 않습니다.
-- [내부 사용자 과제](maintainer-handoff.md#small-real-user-task-protocol)는 선택 사항이며 현재 미실시입니다. 측정된 고객 시간·비용 절감은 없고 신규 Foundry pilot도 승인·생성되지 않았습니다.
+- 리허설·미관찰·실패는 구분하여 [5분 데모와 동결 체크리스트](maintainer-handoff.md#5-minute-demo)에 기록합니다. 이 문서 변경은 새 배포나 실제 서비스 재검증을 수행한 것이 아닙니다.
+- 외부 동의·역할 할당, JWT 활성화, 신원·OTel 증거, 쓰기 보호, 사람의 검토는 아래 [미완료 승인](#human-approvals-still-open)으로 남기며, 마감 때문에 권한이나 기능을 확장하지 않습니다.
+- [내부 사용자 과제](maintainer-handoff.md#small-real-user-task-protocol)는 선택 사항이며 현재 미실시입니다. 측정된 고객 시간·비용 절감은 없고 신규 Foundry 파일럿도 승인·생성되지 않았습니다.
 
-## Current implementation and live state
+<a id="current-implementation-and-live-state"></a>
+## 현재 구현 및 실제 서비스 상태
 
-| Area                        | Repository state                                                                                                 | Deployed/evidence state                                                                                                                                                                                           |
+| 영역 | 저장소 상태 | 배포·증거 상태 |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Web, API, jobs              | TypeScript monorepo with persisted live read models                                                              | Web, API, and jobs are live behind Front Door at the same verified full SHA and immutable digests listed above.                                                                                                   |
-| Evidence graph and policies | Deterministic graph and `AS-POL-001..003` exposure evaluation are implemented                                    | Live findings use jobs-persisted snapshots; attack-path legacy fixtures remain mock-only.                                                                                                                         |
-| Governance                  | Durable cases, guarded transitions, exceptions, and audit evidence are implemented                               | Public mutation remains blocked; remediation is simulation-only.                                                                                                                                                  |
-| Multi-estate isolation      | Estate context, partitioning, source scoping, and mismatch rejection are implemented                             | Only the reference replacement estate is evidenced live.                                                                                                                                                          |
-| Connector source plane      | Strict non-secret schemas, ETags, idempotency, immutable audit, and deployment-source protection are implemented | The reference environment's `connector-sources` container and deployment-managed source bindings are provisioned and in use. New tenants must create their own isolated container and source records.             |
-| Authentication              | JWT validation, MSAL, four roles, preflight, registration bootstrap, and protected workflows are implemented     | Replacement registrations are created, but admin consent and the test-principal role assignment are blocked on an active Entra application-administrator role; JWT remains disabled.                              |
-| Release evidence            | Versioned offline generator, schema, validator, and deterministic release-review v2 are implemented              | Tooling is included in the `7c1336bc` deployed code baseline but runs offline; this does not attest review execution. Human Security, Accessibility, OneRAI, and release decisions remain pending external gates. |
-| Release readiness           | Shared operational evaluator, CLI, and web page are implemented                                                  | **Partial:** Agent 365 is ready; `RUNS_AS` has 0 edges; OTel has 0 qualifying live records; authentication is disabled; writes are false. Ready is evidence for review, not release approval.                     |
+| 웹, API, 작업 처리기 | 영속화된 실제 서비스 읽기 모델을 갖춘 TypeScript 모노레포 | 웹·API·작업 처리기가 위에 기재된 동일한 검증된 전체 SHA 및 불변 다이제스트로 Front Door 뒤에서 실제 서비스 중입니다. |
+| 증거 그래프 및 정책 | 결정론적 그래프와 `AS-POL-001..003` 노출 평가 구현 | 실제 발견 사항은 작업 처리기가 영속화한 스냅샷을 사용하며 기존 공격 경로 픽스처는 모의 환경 전용입니다. |
+| 거버넌스 | 영속 사례, 보호된 전이, 예외, 감사 증거 구현 | 공개 변경 요청은 계속 차단되며 수정 조치는 시뮬레이션 전용입니다. |
+| 다중 자산 집합 격리 | 자산 집합 맥락, 파티셔닝, 원본 범위 지정, 불일치 거부 구현 | 참조 대체 자산 집합만 실제 서비스 증거가 있습니다. |
+| 커넥터 원본 계층 | 비밀정보를 포함하지 않는 엄격한 스키마, ETag, 멱등성, 불변 감사, 배포 원본 보호 구현 | 참조 환경의 `connector-sources` 컨테이너와 배포 관리 원본 결합이 프로비저닝되어 사용 중입니다. 새 테넌트는 자체 격리 컨테이너와 원본 레코드를 만들어야 합니다. |
+| 인증 | JWT 검증, MSAL, 네 역할, 사전 점검, 등록 초기 구성, 보호된 워크플로 구현 | 대체 등록은 생성되었으나 관리자 동의와 테스트 주체 역할 할당은 활성 Entra 애플리케이션 관리자 역할이 없어 차단되어 있습니다. JWT는 비활성화 상태입니다. |
+| 릴리스 증거 | 버전이 지정된 오프라인 생성기·스키마·검증기 및 결정론적 release-review v2 구현 | 도구는 배포 코드 기준점 `7c1336bc`에 포함되지만 오프라인으로 실행됩니다. 검토 수행을 입증하지 않습니다. 사람의 보안·접근성·OneRAI·릴리스 결정은 외부 게이트로 남아 있습니다. |
+| 릴리스 준비도 | 공통 운영 평가기, CLI, 웹 페이지 구현 | **부분 상태:** Agent 365는 ready, `RUNS_AS` 간선 0개, OTel 적격 실제 레코드 0개, 인증 비활성화, 쓰기 false입니다. Ready는 검토 증거이지 릴리스 승인이 아닙니다. |
 
-## Connector ledger
+<a id="connector-ledger"></a>
+## 커넥터 현황 기록
 
-Detailed state definitions and limits are in [connector availability](connector-availability.md).
+상세 상태 정의와 한계는 [커넥터 가용성](connector-availability.md)에 있습니다.
 
-| Connector                         | Current state                                      | Evidence boundary / blocker                                                                                                                                            |
+| 커넥터 | 현재 상태 | 증거 경계 및 차단 요인 |
 | --------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Azure AI Foundry                  | **Connected**                                      | One source; six authoritative synthetic agents; declared configuration only.                                                                                           |
-| Microsoft Entra inventory         | **Inventory connected; parity unmatched**          | 335 identity nodes; all six agents lack exact identity IDs; 0 `RUNS_AS` edges.                                                                                         |
-| Azure Resource Graph              | **Connected for current authorized view**          | Five resources persisted; current scope is not proof of subscription-wide coverage.                                                                                    |
-| Azure Monitor / OTel              | **Query connected; 0 qualifying live records**     | Query access exists, but there are no analysis-ready non-synthetic request/dependency/trace records with the required agent attributes and provenance.                 |
-| Agent 365 package catalog         | **Deployed; ready and complete**                   | 308 packages produced 302 agent-package nodes, 6 extension-package nodes, and 308 live source-bound evidence records. Package count remains distinct from agent count. |
-| Microsoft 365 / SharePoint agents | **Covered by deployed Agent 365 classification**   | Classification comes only from package metadata; there is no SharePoint scraping connector.                                                                            |
-| Defender for Cloud Apps           | **Connected, valid-empty**                         | Current bounded alert/activity reads return zero records; no evidence nodes or agent joins are inferred.                                                               |
-| Purview sensitivity labels        | **Connected**                                      | Twelve bounded label definitions; no usage, content, user, agent, trust, or compliance claim.                                                                          |
-| Teams organization catalog        | **Connected, valid-empty**                         | Zero organization entries; no installation or distribution coverage claim.                                                                                             |
-| Power Platform ResourceQuery      | **Implemented; unattended activation unsupported** | Microsoft does not provide a production-supported app-only inventory permission with enforceable scope.                                                                |
-| Business outcomes                 | **Contract complete; not configured**              | No authoritative exact-correlated outcome source; value remains unknown.                                                                                               |
-| Custom manifest adapter           | **Implemented; activation-gated**                  | Offline validation/scanning works; live ingestion is blocked by auth, writes, and active-edge requirements.                                                            |
+| Azure AI Foundry | **연결됨** | 원본 1개, 권위 있는 원본의 합성 에이전트 6개이며 선언된 설정만 제공합니다. |
+| Microsoft Entra 인벤토리 | **인벤토리 연결됨, 대응 관계 불일치** | 신원 노드 335개이며 에이전트 6개 모두 정확한 신원 ID가 없어 `RUNS_AS` 간선은 0개입니다. |
+| Azure Resource Graph | **현재 허가된 보기 범위에서 연결됨** | 리소스 5개가 영속화되었습니다. 현재 범위는 구독 전체를 포괄한다는 증거가 아닙니다. |
+| Azure Monitor / OTel | **쿼리 연결됨, 적격 실제 레코드 0개** | 쿼리 접근은 있지만 필수 에이전트 속성과 출처 정보를 갖춘 분석 가능한 비합성 요청·종속성·추적 레코드는 없습니다. |
+| Agent 365 패키지 카탈로그 | **배포됨, 준비·완전 상태** | 패키지 308개에서 agent-package 노드 302개, extension-package 노드 6개, 실제 원본 결합 증거 레코드 308개가 생성되었습니다. 패키지 수와 에이전트 수는 구분합니다. |
+| Microsoft 365 / SharePoint 에이전트 | **배포된 Agent 365 분류로 포함됨** | 패키지 메타데이터만으로 분류하며 SharePoint 스크래핑 커넥터는 없습니다. |
+| Defender for Cloud Apps | **연결됨, 유효한 빈 결과** | 현재 제한된 경고·활동 읽기는 레코드 0개를 반환합니다. 증거 노드나 에이전트 조인을 추정하지 않습니다. |
+| Purview 민감도 레이블 | **연결됨** | 제한된 레이블 정의 12개이며 사용, 콘텐츠, 사용자, 에이전트, 신뢰, 규정 준수를 주장하지 않습니다. |
+| Teams 조직 카탈로그 | **연결됨, 유효한 빈 결과** | 조직 항목 0개이며 설치나 배포의 포괄 범위를 주장하지 않습니다. |
+| Power Platform ResourceQuery | **구현됨, 무인 활성화 미지원** | Microsoft는 강제 가능한 범위를 갖춘 프로덕션 지원 앱 전용 인벤토리 권한을 제공하지 않습니다. |
+| 비즈니스 성과 | **계약 완료, 미구성** | 정확히 상관 분석된 권위 있는 성과 원본이 없으며 가치는 알 수 없는 상태입니다. |
+| 사용자 지정 매니페스트 어댑터 | **구현됨, 활성화 게이트 적용** | 오프라인 검증·검사는 작동하며 실제 수집은 인증·쓰기·활성 에지 요구 사항으로 차단되어 있습니다. |
 
-## Evidence facts that must not be overstated
+<a id="evidence-facts-that-must-not-be-overstated"></a>
+## 과장해서는 안 되는 증거 사실
 
-- The six Foundry agents are synthetic validation agents, not production customer agents.
-- Foundry returns declared agent/tool configuration, not observed runtime execution or authorization decisions.
-- Agent 365's 308 packages are normalized into 302 agent-package nodes and 6 extension-package nodes; package totals must not be restated as a count of executing agents.
-- `/agent-catalog` shows the 302 Agent 365 agent-package nodes plus the six explicitly synthetic Foundry validation agents for operators; extension-package controls are excluded.
-- `/my-agents` remains a separate fail-closed personalized surface. Authentication is disabled and no authoritative entitlement source is configured; `/api/employee/agent-catalog` provides no personalized results. Enabling login alone would not establish entitlement.
-- Valid-empty Defender and Teams results prove only that bounded requests returned zero rows.
-- Purview label definitions do not prove label application or compliance.
-- Azure Resource Graph scope reflects current role visibility, not full subscription coverage.
-- Entra inventory does not establish `RUNS_AS`; exact agent-side identity identifiers are absent.
-- OTel query access does not establish analysis readiness; there are 0 qualifying live records.
-- The advisory model is explanatory only and remains mock on the public edge until the grounded provider path is activated.
-- Release-review v2 is offline tooling. Its generated artifacts do not prove that human reviews or live release approval occurred.
-- No measured customer savings are available. The optional small internal task protocol has not been run and cannot establish customer ROI.
-- The checked-in `mngenvmcap098047-*` parameter files describe the current reference environment. They are not portable defaults and are not secrets merely because they contain tenant-specific resource names or non-secret identifiers.
+- Foundry 에이전트 6개는 합성 검증 에이전트이며 프로덕션 고객 에이전트가 아닙니다.
+- Foundry는 선언된 에이전트·도구 설정을 반환하며 관측된 런타임 실행이나 권한 부여 결정을 반환하지 않습니다.
+- Agent 365 패키지 308개는 agent-package 노드 302개와 extension-package 노드 6개로 정규화됩니다. 패키지 총수를 실행 중인 에이전트 수로 바꿔 말하지 않습니다.
+- `/agent-catalog`는 운영자에게 Agent 365 agent-package 노드 302개와 합성임을 명시한 Foundry 검증 에이전트 6개를 보여 줍니다. extension-package 제어 항목은 제외됩니다.
+- `/my-agents`는 별도의 기본 거부형(fail-closed) 개인화 화면입니다. 인증이 비활성화되어 있고 권위 있는 사용 권한 원본도 미구성이므로 `/api/employee/agent-catalog`는 개인화 결과를 제공하지 않습니다. 로그인 활성화만으로 사용 권한이 성립하지 않습니다.
+- Defender와 Teams의 유효한 빈 결과는 제한된 요청이 행 0개를 반환했다는 사실만 입증합니다.
+- Purview 레이블 정의는 레이블 적용이나 규정 준수를 입증하지 않습니다.
+- Azure Resource Graph 범위는 현재 역할의 가시성을 반영하며 구독 전체를 포괄하지 않습니다.
+- Entra 인벤토리만으로 `RUNS_AS`가 성립하지 않습니다. 정확한 에이전트 측 신원 식별자가 없습니다.
+- OpenTelemetry(OTel) 쿼리 접근만으로 분석 준비도가 성립하지 않습니다. 적격 실제 레코드는 0개입니다.
+- 자문 모델은 설명 전용이며 근거 기반 공급자 경로가 활성화되기 전까지 공개 에지에서는 모의 상태입니다.
+- release-review v2는 오프라인 도구입니다. 생성된 산출물은 사람이 검토했거나 실제 릴리스 승인이 이루어졌음을 입증하지 않습니다.
+- 측정된 고객 절감 성과는 없습니다. 선택적인 소규모 내부 과제 절차는 미실시이며 고객 투자 수익률(ROI)을 입증할 수 없습니다.
+- 저장소의 `mngenvmcap098047-*` 매개변수 파일은 현재 참조 환경을 설명합니다. 이식 가능한 기본값이 아니며 테넌트별 리소스 이름이나 비밀이 아닌 식별자를 포함한다는 이유만으로 비밀정보가 되지는 않습니다.
 
-## Active blockers
+<a id="active-blockers"></a>
+## 현재 차단 요인
 
-| Blocker                   | Current fact                                                                                                             | Required unblock                                                                                                                                                               |
+| 차단 요인 | 현재 사실 | 필요한 해소 조건 |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Replacement auth          | API/SPA registrations and service principals exist; admin consent/role assignments remain incomplete and JWT is disabled | Human review of existing registrations, least-privilege consent/assignments, then protected read-only activation and live role validation; no duplicate registration creation. |
-| Front Door writes         | Active WAF has no evidenced custom mutation rule                                                                         | Separately review, deploy, and rediscover an exact mutation rule after read-only JWT validation; writes stay false.                                                            |
-| Repository/deployment gap | Identity support, runtime SDK, pilot tooling, and packaging/timing changes through `3c303279` are not deployed           | Keep the demonstrated Azure baseline separate; any later rollout requires approved full-SHA images, digests, surgical deployment, and fresh sanitized evidence.                |
-| `RUNS_AS`                 | Six Foundry agents expose no exact object/app/client/Agent Identity IDs                                                  | Source supplies an exact authoritative identifier; no fuzzy fallback is permitted.                                                                                             |
-| OTel                      | 0 qualifying live records                                                                                                | Produce approved non-customer, complete, fresh, unsampled baseline and observed spans with exact provenance and measured fields.                                               |
-| Private deployment        | Runner availability and deployment RBAC require operator verification                                                    | Human starts/verifies the runner and approves the exact role/deployment scope.                                                                                                 |
-| Platform drift            | The historical full what-if showed 54 unrelated modifications                                                            | Do not run full Bicep; reconcile drift separately or use only a reviewed surgical workflow.                                                                                    |
-| Manifest v2 cutover       | Compatibility container remains authoritative                                                                            | Human validates the copy and cutover plan before changing the active container.                                                                                                |
-| Power Platform            | No supported unattended inventory authorization                                                                          | Wait for a production-supported app-only permission with enforceable scope.                                                                                                    |
-| Business value            | No authoritative outcome source or measured customer savings                                                             | Configure a read-only exact-correlated outcome source before claiming business outcomes; optional internal task timing is not customer ROI.                                    |
-| OneRAI                    | Product and legal/compliance onboarding is incomplete                                                                    | Human owners complete the authoritative review path.                                                                                                                           |
+| 대체 인증 | API·SPA 등록과 서비스 주체는 존재하나 관리자 동의·역할 할당은 미완료이며 JWT 비활성화 | 기존 등록의 사람 검토, 최소 권한 동의·할당 후 보호된 읽기 전용 활성화와 실제 역할 검증이 필요합니다. 중복 등록은 만들지 않습니다. |
+| Front Door 쓰기 | 활성 WAF의 사용자 지정 변경 요청 규칙이 증거로 확인되지 않음 | 읽기 전용 JWT 검증 후 정확한 변경 요청 규칙을 별도로 검토·배포·재탐색합니다. 쓰기는 false로 유지합니다. |
+| 저장소·배포 간 차이 | `3c303279`까지의 신원 지원, 런타임 SDK, 파일럿 도구, 패키징·타이밍 변경 미배포 | 시연된 Azure 기준점을 구분합니다. 이후 배포에는 승인된 전체 SHA 이미지, 다이제스트, 필요한 부분만 변경하는 배포, 새 민감정보 제거 증거가 필요합니다. |
+| `RUNS_AS` | Foundry 에이전트 6개가 정확한 개체·앱·클라이언트·Agent Identity ID를 노출하지 않음 | 원본이 정확한 권위 있는 식별자를 제공해야 하며 유사도 기반 대체는 허용하지 않습니다. |
+| OTel | 적격 실제 레코드 0개 | 정확한 출처와 실측 필드가 있고 승인된 비고객·완전·최신·비샘플링 기준 및 관측 스팬을 생성해야 합니다. |
+| 프라이빗 배포 | 실행기 가용성과 배포 RBAC(역할 기반 접근 제어)에 운영자 검증 필요 | 사람이 실행기를 시작·검증하고 정확한 역할·배포 범위를 승인해야 합니다. |
+| 플랫폼 드리프트 | 과거 전체 what-if에서 무관한 변경 54개가 나타남 | 전체 Bicep를 실행하지 않습니다. 드리프트를 별도로 조정하거나 검토된 제한적 변경 워크플로만 사용합니다. |
+| 매니페스트 v2 전환 | 호환 컨테이너가 여전히 권위 있는 원본 | 활성 컨테이너를 바꾸기 전에 사람이 복사 및 전환 계획을 검증해야 합니다. |
+| Power Platform | 지원되는 무인 인벤토리 권한 부여 없음 | 강제 가능한 범위를 갖춘 프로덕션 지원 앱 전용 권한을 기다립니다. |
+| 비즈니스 가치 | 권위 있는 성과 원본이나 측정된 고객 절감 성과 없음 | 비즈니스 성과를 주장하기 전에 읽기 전용의 정확히 상관 분석된 성과 원본을 구성해야 합니다. 선택적인 내부 과제 시간 측정은 고객 ROI가 아닙니다. |
+| OneRAI | 제품 및 법무·규정 준수 온보딩 미완료 | 담당자가 권위 있는 검토 경로를 완료해야 합니다. |
 
-Agent 365 package-catalog connector deployment and the reference `connector-sources` provisioning are complete; they are not active blockers. This does not establish agent runtime execution.
+Agent 365 패키지 카탈로그 커넥터 배포와 참조 `connector-sources` 프로비저닝은 완료되었으므로 현재 차단 요인이 아닙니다. 이것이 에이전트 런타임 실행을 입증하는 것은 아닙니다.
 
-## Human approvals still open
+<a id="human-approvals-still-open"></a>
+## 아직 남은 사람의 승인
 
-1. Human review of the already-created replacement API/SPA registrations against the exact plan; registration creation itself is not pending.
-2. Least-privilege consent and assignment of Viewer, Analyst, Approver, and Administrator test principals/groups.
-3. Private-runner start, immutable image build, and deployment environment review.
-4. Surgical read-only auth activation by digest while writes remain false.
-5. Front Door mutation-rule design and deployment before any write activation.
-6. Representative OTel traffic and workspace-access approval.
-7. Exact authoritative identity identifiers for all six Foundry agents.
-8. Optional broader Azure Resource Graph Reader scope, only if full coverage is required.
-9. OneRAI/product/legal review and final release decision.
-10. Security and Accessibility evidence review and explicit human decisions, separately from release-review tooling availability.
+1. 이미 생성된 대체 API·SPA 등록을 정확한 계획과 대조하는 사람의 검토. 등록 생성 자체는 대기 사항이 아닙니다.
+2. Viewer, Analyst, Approver, Administrator 테스트 주체·그룹에 대한 최소 권한 동의 및 할당.
+3. 프라이빗 실행기 시작, 불변 이미지 빌드, 배포 환경 검토.
+4. 쓰기를 false로 유지하면서 다이제스트로 필요한 부분만 변경하는 읽기 전용 인증 활성화.
+5. 쓰기 활성화 전 Front Door 변경 요청 규칙 설계 및 배포.
+6. 대표성 있는 OTel 트래픽과 작업 영역 접근 승인.
+7. Foundry 에이전트 6개 모두의 정확한 권위 있는 신원 식별자.
+8. 전체 포괄 범위가 필요한 경우에만 선택적으로 확대하는 Azure Resource Graph Reader 범위.
+9. OneRAI·제품·법무 검토 및 최종 릴리스 결정.
+10. 릴리스 검토 도구의 가용성과 별개인 보안·접근성 증거 검토 및 명시적인 사람의 결정.
 
-이 항목들은 production backlog이며 Wednesday candidate 동결로 승인되지 않습니다. 승인 상태·
-필요 증거만 기록하고 비공개 이메일 내용·thread ID·개인 연락처는 저장소에 복사하지 않습니다.
+이 항목들은 프로덕션 후속 작업이며 수요일 후보 동결로 승인되지 않습니다. 승인 상태·
+필요 증거만 기록하고 비공개 이메일 내용·스레드 ID·개인 연락처는 저장소에 복사하지 않습니다.
 
-## Validation baseline
+<a id="validation-baseline"></a>
+## 검증 기준 결과
 
-The last complete recorded repository baseline was measured on 2026-08-31 with Node 22. It is historical and does not attest `456d01f2` or this documentation commit.
+마지막으로 기록된 전체 저장소 기준 결과는 Node 22를 사용해 2026-08-31에 측정했습니다. 과거 기록이며 `456d01f2`나 이 문서 커밋을 입증하지 않습니다.
 
-| Check               | Recorded result                                        |
+| 검사 | 기록된 결과 |
 | ------------------- | ------------------------------------------------------ |
-| Lint                | 48/48 tasks passed                                     |
-| Typecheck           | 48/48 tasks passed                                     |
-| Unit/contract tests | 901 tests passed                                       |
-| Build               | 25/25 tasks passed                                     |
-| Playwright          | 23 tests across 10 specs passed                        |
-| Storybook build     | Passed with accessibility addon enabled                |
-| Bicep build         | Passed with baseline warnings                          |
-| Repository Prettier | Known unrelated drift existed; touched files must pass |
+| 린트 | 작업 48/48개 통과 |
+| 타입 검사 | 작업 48/48개 통과 |
+| 단위·계약 테스트 | 테스트 901개 통과 |
+| 빌드 | 작업 25/25개 통과 |
+| Playwright | 명세 10개에 걸친 테스트 23개 통과 |
+| Storybook 빌드 | 접근성 애드온을 활성화한 상태로 통과 |
+| Bicep 빌드 | 기존 경고와 함께 통과 |
+| 저장소 Prettier | 알려진 무관한 서식 차이가 있었습니다. 변경 파일은 통과해야 합니다. |
 
-A clean checkout may need `pnpm build` before isolated script tests because several workspace packages publish `dist` entry points. See [development](development.md).
+여러 작업 영역 패키지가 `dist` 진입점을 게시하므로 깨끗한 체크아웃에서는 개별 스크립트 테스트 전에 `pnpm build`가 필요할 수 있습니다. [개발](development.md)을 참고하십시오.
 
-## Safe next boundary
+<a id="safe-next-boundary"></a>
+## 안전한 다음 작업 범위
 
-A new maintainer can clone the repository and run deterministic mock mode without Azure or Microsoft 365 access. Live reproduction is a separate operator project: provision an independent tenant boundary, assign accountable owners, create least-privilege identities and permissions, deploy immutable images, and validate source-bound evidence. Follow [new tenant bootstrap](new-tenant-bootstrap.md).
+새 유지관리자는 Azure나 Microsoft 365 접근 없이 저장소를 복제하고 결정론적 모의 모드를 실행할 수 있습니다. 실제 서비스 재현은 별도의 운영자 프로젝트입니다. 독립적인 테넌트 경계를 프로비저닝하고, 책임자를 지정하고, 최소 권한 신원과 권한을 만들고, 불변 이미지를 배포하고, 원본 결합 증거를 검증해야 합니다. [새 테넌트 초기 구성](new-tenant-bootstrap.md)을 따르십시오.
 
-For the current reference environment, the post-freeze production path is: reproduce a clean local baseline → review existing registrations and complete approved consent/role assignments → build full-SHA images → record digests → activate read-only JWT surgically with writes false → validate all four roles and Front Door behavior → establish exact `RUNS_AS` and representative OTel evidence → generate validated sanitized release evidence → obtain independent human release decisions. This is not the Wednesday demo scope.
+현재 참조 환경의 동결 이후 프로덕션 경로는 다음과 같습니다. 깨끗한 로컬 기준 결과 재현 → 기존 등록 검토 및 승인된 동의·역할 할당 완료 → 전체 SHA 이미지 빌드 → 다이제스트 기록 → 쓰기 false 상태에서 필요한 부분만 변경해 읽기 전용 JWT 활성화 → 네 역할 전체와 Front Door 동작 검증 → 정확한 `RUNS_AS` 및 대표성 있는 OTel 증거 확보 → 검증되고 민감정보를 제거한 릴리스 증거 생성 → 독립적인 사람의 릴리스 결정 확보. 이는 수요일 데모 범위가 아닙니다.
 
-Do not deploy, access cloud/private data, mutate permissions, or run provider validators from an ordinary coding task.
+일반 코딩 작업에서 배포, 클라우드·비공개 데이터 접근, 권한 변경, 공급자 검증기 실행을 하지 않습니다.

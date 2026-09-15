@@ -1,59 +1,65 @@
-# New tenant bootstrap
+<a id="new-tenant-bootstrap"></a>
+# 새 테넌트 초기 구성
 
-This guide makes the repository transferable without treating the current reference environment as a template that can be copied blindly. Another developer can clone the repository and run deterministic mock mode with **no Azure or Microsoft 365 access**. Reproducing live behavior requires independently provisioned tenant resources, accountable owners, permissions, workload identities, and operator approvals.
+이 지침은 현재 참조 환경을 무조건 복사할 수 있는 템플릿으로 취급하지 않으면서 저장소를 다른 환경으로 옮길 수 있도록 돕습니다. 다른 개발자는 **Azure나 Microsoft 365 접근 없이** 저장소를 복제하고 결정론적 모의 모드를 실행할 수 있습니다. 실제 서비스 동작을 재현하려면 독립적으로 프로비저닝된 테넌트 리소스, 책임자, 권한, 워크로드 신원, 운영자 승인이 필요합니다.
 
-## Four access levels
+<a id="four-access-levels"></a>
+## 네 가지 접근 수준
 
-1. **Repository-only mock/offline development** — source, local dependencies, deterministic fixtures, tests, schemas, and offline evidence tooling. No cloud account is required.
-2. **Live read-only activation** — independently provisioned provider resources and least-privilege read permissions. Provider calls remain bounded and do not enable product writes.
-3. **Deployment/operator access** — controlled access to build, inspect, deploy, roll back, and query the tenant's own Azure resources. This is not ordinary developer access.
-4. **Approval-gated identity/write/release work** — Entra registration and consent, role assignments, public-edge mutation changes, write activation, and formal release decisions. Human approval and separate evidence are mandatory.
+1. **저장소 전용 모의·오프라인 개발** — 소스, 로컬 의존성, 결정론적 픽스처, 테스트, 스키마, 오프라인 증거 도구를 사용합니다. 클라우드 계정이 필요하지 않습니다.
+2. **실제 서비스 읽기 전용 활성화** — 독립적으로 프로비저닝된 공급자 리소스와 최소 읽기 권한을 사용합니다. 공급자 호출은 제한된 범위를 유지하며 제품 쓰기를 활성화하지 않습니다.
+3. **배포·운영자 접근** — 테넌트 자체 Azure 리소스의 빌드, 검사, 배포, 롤백, 쿼리를 위한 통제된 접근입니다. 일반 개발자 접근이 아닙니다.
+4. **승인 게이트가 적용되는 신원·쓰기·릴리스 작업** — Entra 등록 및 동의, 역할 할당, 공개 에지 변경 요청 처리 변경, 쓰기 활성화, 공식 릴리스 결정입니다. 사람의 승인과 별도 증거가 필수입니다.
 
-## Tenant input and ownership matrix
+<a id="tenant-input-and-ownership-matrix"></a>
+## 테넌트 입력 및 소유권 표
 
-| Area                                    | Repository-only mock/offline                                  | Live read-only activation                                                                                                            | Deployment/operator access                                                                                                | Approval-gated identity/write/release work                                                                        |
+| 영역 | 저장소 전용 모의·오프라인 | 실제 서비스 읽기 전용 활성화 | 배포·운영자 접근 | 승인 게이트 적용 신원·쓰기·릴리스 작업 |
 | --------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Azure subscription and resource group   | Not required                                                  | Tenant chooses its own subscription, region, resource group, naming suffix, tags, and budgets                                        | Scoped Reader/Contributor or narrower custom roles on the tenant-owned resources                                          | Subscription/RG role grants and production scope expansion require owner approval                                 |
-| Entra API and SPA applications          | Schemas, templates, and dry-run bootstrap work offline        | Required for employee JWT login; API and SPA are separate single-tenant apps                                                         | Operators deploy only approved non-secret IDs and redirect origins                                                        | App creation, consent, four app-role assignments, redirect changes, and write scopes are human-approved           |
-| Human owner accounts                    | A normal individual Git identity is sufficient                | At least primary and secondary accountable owners are recorded in authoritative systems                                              | Named individual operator accounts use just-in-time access                                                                | Emergency access is separately controlled and audited; never share credentials                                    |
-| UAMIs and workload identities           | Mock credentials only                                         | Create tenant-local identities for API/jobs/connectors with exact read permissions                                                   | Operators manage federated credentials and role assignments through reviewed IaC                                          | Permission broadening, cross-tenant federation, and credential-policy changes require approval                    |
-| Azure AI Foundry                        | Fixtures are included                                         | Provision or authorize each project independently; record exact tenant, environment, endpoint, project ID, and agent IDs             | Operators validate bounded discovery and source health                                                                    | Agent identity configuration and additional project authorization require platform owners                         |
-| Agent 365 licensing and Microsoft Graph | Fixtures are included                                         | Assign required Agent 365 licensing and `CopilotPackages.Read.All` to the approved workload identity; validate bounded package reads | Operators deploy the source binding and verify ready/complete persisted evidence                                          | License assignment and tenant-admin application consent are human-controlled                                      |
-| Exact `RUNS_AS` identifiers             | Mock exact-ID examples are included                           | Every authoritative agent must expose an exact object ID, app/client ID, or approved Agent Identity ID                               | Operators verify unmatched and ambiguous counts; names and aliases are never fallback keys                                | Identity owners configure or disclose the exact authoritative identifiers                                         |
-| Azure Monitor instrumentation and query | Representative fixtures and deterministic engines run offline | Instrument non-customer traffic with required attributes; grant bounded workspace query access                                       | Operators verify workspace binding, freshness, unsampled rows, and baseline/observed windows                              | Telemetry collection scope, retention, privacy, and query-role grants require approval                            |
-| Cosmos DB                               | In-memory persistence is sufficient                           | Tenant creates its own database, containers, partition keys, indexes, and deployment-managed connector sources                       | Operators run isolated ETag/estate/source smoke checks and backups                                                        | Data-plane roles, migrations, cutovers, retention, and destructive actions require approval                       |
-| ACR, Container Apps, and Front Door     | Not required                                                  | Required only for a live deployment                                                                                                  | Operators build immutable full-SHA images, record canonical digests, deploy API → jobs → web, and verify rollback         | Registry push roles, environment changes, WAF mutation rules, custom domains, and write exposure require approval |
-| Defender, Purview, and Teams            | Fixtures/contracts are available                              | Each connector needs its documented tenant-local read permission and may validly return empty                                        | Operators validate bounded results without inferring agent coverage                                                       | Tenant-admin consent, privacy review, and any scope expansion remain separate decisions                           |
-| GitHub Actions, OIDC, and runner        | Local commands are sufficient                                 | Optional for read-only development                                                                                                   | Tenant configures its own protected environments, OIDC trust, private runner labels/network, and minimal deployment roles | Workflow/environment approvals, runner trust, and production credentials are owner-controlled                     |
-| Service Tree and OneRAI                 | Not required for independent mock development                 | Organization-specific; use the tenant's authoritative service inventory and compliance process                                       | Operators reference approved records without committing private identifiers                                               | Accountable product, security, accessibility, privacy/legal, and release owners record decisions outside Git      |
+| Azure 구독 및 리소스 그룹 | 필요 없음 | 테넌트가 자체 구독, 지역, 리소스 그룹, 이름 접미사, 태그, 예산 선택 | 테넌트 소유 리소스에 범위가 지정된 Reader·Contributor 또는 더 좁은 사용자 지정 역할 사용 | 구독·리소스 그룹 역할 부여와 프로덕션 범위 확대에는 소유자 승인 필요 |
+| Entra API 및 SPA 애플리케이션 | 스키마, 템플릿, 초기 구성 모의 실행이 오프라인에서 동작 | 직원 JWT(JSON 웹 토큰) 로그인에 필요하며 API와 SPA(단일 페이지 앱)는 별개의 단일 테넌트 앱 | 운영자는 승인된 비밀이 아닌 ID와 리디렉션 출처만 배포 | 앱 생성, 동의, 네 앱 역할 할당, 리디렉션 변경, 쓰기 범위는 사람이 승인 |
+| 담당자 계정 | 일반 개인 Git 신원으로 충분 | 권위 있는 시스템에 최소한 주·보조 책임자를 기록 | 실명 개인 운영자 계정이 필요한 시점에만 접근 권한 사용 | 비상 접근은 별도로 통제·감사하며 자격 증명을 공유하지 않음 |
+| 사용자 할당 관리 ID(UAMI) 및 워크로드 신원 | 모의 자격 증명만 사용 | 정확한 읽기 권한으로 API·작업 처리기·커넥터용 테넌트 로컬 신원 생성 | 운영자가 검토된 코드형 인프라(IaC)로 페더레이션 자격 증명과 역할 할당 관리 | 권한 확대, 테넌트 간 페더레이션, 자격 증명 정책 변경에는 승인 필요 |
+| Azure AI Foundry | 픽스처 포함 | 각 프로젝트를 독립적으로 프로비저닝하거나 허가하고 정확한 테넌트, 환경, 엔드포인트, 프로젝트 ID, 에이전트 ID 기록 | 운영자가 제한된 탐색과 원본 상태 검증 | 에이전트 신원 설정과 추가 프로젝트 권한 부여에는 플랫폼 소유자 필요 |
+| Agent 365 라이선스 및 Microsoft Graph | 픽스처 포함 | 승인된 워크로드 신원에 필요한 Agent 365 라이선스와 `CopilotPackages.Read.All`을 할당하고 제한된 패키지 읽기 검증 | 운영자가 원본 결합을 배포하고 준비·완전 상태의 영속 증거 확인 | 라이선스 할당과 테넌트 관리자의 애플리케이션 동의는 사람이 통제 |
+| 정확한 `RUNS_AS` 식별자 | 모의 정확한 ID 예제 포함 | 권위 있는 원본의 모든 에이전트가 정확한 개체 ID, 앱·클라이언트 ID 또는 승인된 Agent Identity ID 노출 | 운영자가 불일치·모호함 개수를 확인하며 이름과 별칭을 대체 키로 사용하지 않음 | 신원 소유자가 정확한 권위 있는 식별자를 구성하거나 제공 |
+| Azure Monitor 계측 및 쿼리 | 대표 픽스처와 결정론적 엔진이 오프라인에서 실행 | 비고객 트래픽에 필수 속성을 계측하고 제한된 작업 영역 쿼리 접근 부여 | 운영자가 작업 영역 결합, 최신성, 비샘플링 행, 기준·관측 기간 확인 | 텔레메트리 수집 범위, 보존, 개인정보 보호, 쿼리 역할 부여에는 승인 필요 |
+| Cosmos DB | 메모리 영속성으로 충분 | 테넌트가 자체 데이터베이스, 컨테이너, 파티션 키, 인덱스, 배포 관리 커넥터 원본 생성 | 운영자가 격리된 ETag·자산 집합·원본 기본 동작 검사 및 백업 수행 | 데이터 계층 역할, 마이그레이션, 전환, 보존, 파괴적 작업에는 승인 필요 |
+| ACR, Container Apps, Front Door | 필요 없음 | 실제 배포에만 필요 | 운영자가 불변 전체 SHA 이미지를 빌드하고 정식 다이제스트를 기록하며 API → 작업 처리기 → 웹 순으로 배포하고 롤백 검증 | 레지스트리 푸시 역할, 환경 변경, WAF 변경 요청 규칙, 사용자 지정 도메인, 쓰기 노출에는 승인 필요 |
+| Defender, Purview, Teams | 픽스처·계약 제공 | 각 커넥터에 문서화된 테넌트 로컬 읽기 권한이 필요하며 빈 결과를 유효하게 반환할 수 있음 | 운영자가 에이전트 포괄 범위를 추정하지 않고 제한된 결과 검증 | 테넌트 관리자 동의, 개인정보 보호 검토, 모든 범위 확대는 별도 결정 |
+| GitHub Actions, OIDC, 실행기 | 로컬 명령으로 충분 | 읽기 전용 개발에서는 선택 사항 | 테넌트가 자체 보호 환경, OpenID Connect(OIDC) 신뢰, 프라이빗 실행기 레이블·네트워크, 최소 배포 역할 구성 | 워크플로·환경 승인, 실행기 신뢰, 프로덕션 자격 증명은 소유자가 통제 |
+| Service Tree 및 OneRAI | 독립적인 모의 개발에 필요 없음 | 조직별로 다르며 테넌트의 권위 있는 서비스 인벤토리와 규정 준수 절차 사용 | 운영자는 비공개 식별자를 커밋하지 않고 승인된 기록 참조 | 제품·보안·접근성·개인정보 보호·법무·릴리스 책임자가 Git 밖에 결정 기록 |
 
-## Three-account ownership-transfer model
+<a id="three-account-ownership-transfer-model"></a>
+## 세 계정 소유권 이전 모델
 
-Use three **individually attributable** accounts or owner positions. Do not create a shared mailbox password or a shared administrator credential.
+**개인별 책임 추적이 가능한** 계정 또는 담당자 직책 세 개를 사용합니다. 공유 사서함 암호나 공유 관리자 자격 증명을 만들지 않습니다.
 
-| Position        | Normal posture                                                                                                                | Transfer responsibility                                                                                           |
+| 직책 | 평상시 상태 | 이전 책임 |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Primary owner   | Day-to-day accountable owner; least-privilege standing access plus just-in-time elevation                                     | Maintains inventory, runbooks, current approvers, and the next planned handoff                                    |
-| Secondary owner | Independent backup who can review and operate after a documented handoff; no permanent broad privilege merely for convenience | Exercises restore/deploy/read-only validation periodically and can assume ownership if the primary is unavailable |
-| Emergency owner | Separate break-glass identity controlled under organizational emergency-access policy; excluded from routine work             | Used only for a declared incident, monitored, reviewed immediately, and rotated/resecured after use               |
+| 주 담당자 | 일상 업무 책임자로서 최소 상시 접근 권한과 필요 시 권한 상승 사용 | 인벤토리, 운영 절차서, 현재 승인자, 다음 인수인계 계획 유지 |
+| 보조 담당자 | 문서화된 인수인계 후 검토·운영할 수 있는 독립적 대체 담당자이며 편의를 위한 광범위한 상시 권한은 없음 | 정기적으로 복원·배포·읽기 전용 검증을 연습하고 주 담당자 부재 시 소유권 인수 |
+| 비상 담당자 | 조직의 비상 접근 정책으로 통제되는 별도 비상용 신원이며 일상 작업에서 제외 | 선언된 사고에만 사용하고 모니터링·즉시 검토하며 사용 후 자격 증명 교체·보안 재설정 |
 
-Keep at least two active human owners on Entra apps, GitHub environments, Service Tree/IcM records, subscriptions, and operational groups where the platform supports it. Prefer PIM/JIT elevation, scoped roles, expiring assignments, and approval workflows. Store recovery procedures in the approved operational system, not in Git.
+플랫폼이 지원하는 경우 Entra 앱, GitHub 환경, Service Tree·IcM 기록, 구독, 운영 그룹에 활성 담당자를 최소 두 명 유지합니다. PIM(권한 있는 ID 관리)·JIT(필요 시 권한 부여) 상승, 범위가 지정된 역할, 만료되는 할당, 승인 워크플로를 우선합니다. 복구 절차는 Git이 아닌 승인된 운영 시스템에 저장합니다.
 
-## Bootstrap sequence
+<a id="bootstrap-sequence"></a>
+## 초기 구성 순서
 
-1. Clone the canonical branch and establish the local mock baseline.
-2. Assign primary, secondary, and emergency ownership in the new organization.
-3. Choose tenant-local naming, subscription, resource group, domains, regions, and data-retention rules.
-4. Create tenant-local IaC parameters. Do not copy identifiers or resource names from the reference environment unless intentionally adopting those exact resources.
-5. Provision data, registry, runtime, edge, and workload identities with least privilege.
-6. Activate Foundry and each optional read connector independently; retain `unknown`, `blocked`, or valid-empty states honestly.
-7. Run the Entra registration/bootstrap plan, obtain approvals, and activate JWT read-only with writes false.
-8. Build and deploy immutable images, record full SHAs/digests, validate rollback, then capture sanitized release evidence.
-9. Treat exact `RUNS_AS`, representative OTel, any write path, and human release decisions as separate gates.
+1. 기준 브랜치를 복제하고 로컬 모의 기준 결과를 확보합니다.
+2. 새 조직에서 주·보조·비상 소유권을 할당합니다.
+3. 테넌트 로컬 이름 규칙, 구독, 리소스 그룹, 도메인, 지역, 데이터 보존 규칙을 선택합니다.
+4. 테넌트 로컬 IaC 매개변수를 만듭니다. 해당 리소스를 의도적으로 그대로 인수하는 경우가 아니면 참조 환경의 식별자나 리소스 이름을 복사하지 않습니다.
+5. 데이터, 레지스트리, 런타임, 에지, 워크로드 신원을 최소 권한으로 프로비저닝합니다.
+6. Foundry와 각 선택적 읽기 커넥터를 독립적으로 활성화하며 `unknown`, `blocked`, 유효한 빈 결과 상태를 정직하게 유지합니다.
+7. Entra 등록·초기 구성 계획을 실행하고 승인을 받은 뒤 쓰기 false 상태에서 읽기 전용 JWT를 활성화합니다.
+8. 불변 이미지를 빌드·배포하고 전체 SHA·다이제스트를 기록하며 롤백을 검증한 다음 민감정보를 제거한 릴리스 증거를 확보합니다.
+9. 정확한 `RUNS_AS`, 대표성 있는 OpenTelemetry(OTel), 모든 쓰기 경로, 사람의 릴리스 결정을 별도 게이트로 취급합니다.
 
-## Existing offline checks
+<a id="existing-offline-checks"></a>
+## 기존 오프라인 검사
 
-No aggregate `onboarding:check` command is added because tenant readiness spans independent owner decisions and existing domain-specific preflights. A wrapper would either duplicate them or imply that offline checks can prove live access.
+테넌트 준비도는 독립적인 소유자 결정과 기존 도메인별 사전 점검을 아우르므로 통합 `onboarding:check` 명령을 추가하지 않습니다. 래퍼를 만들면 기존 기능을 중복하거나 오프라인 검사로 실제 서비스 접근을 입증할 수 있다는 인상을 줄 수 있습니다.
 
 ```bash
 pnpm install --offline --frozen-lockfile
@@ -69,8 +75,9 @@ pnpm release-evidence:schema:check
 pnpm release-review:schema:check
 ```
 
-The auth commands are planning/preflight tools; protected workflows are the only approved apply paths. Live validators and `pnpm release-readiness:verify` are operator-only after deployment. `pnpm demo:verify` remains a compatibility alias.
+인증 명령은 계획·사전 점검 도구이며 보호된 워크플로만이 승인된 적용 경로입니다. 실제 서비스 검증기와 `pnpm release-readiness:verify`는 배포 이후 운영자만 사용합니다. `pnpm demo:verify`는 호환 별칭으로 유지됩니다.
 
-## Reference-environment files
+<a id="reference-environment-files"></a>
+## 참조 환경 파일
 
-Files named `infra/environments/mngenvmcap098047-*` describe the current reference environment. They are useful examples of resource shape and sequencing, but they are **not portable defaults**. Their tenant-specific resource names and non-secret identifiers are not secrets by themselves; tokens, credentials, personal identities, private payloads, and unapproved tenant metadata still must never be committed.
+`infra/environments/mngenvmcap098047-*` 파일은 현재 참조 환경을 설명합니다. 리소스 형태와 순서를 이해하는 데 유용한 예제이지만 **다른 테넌트에 그대로 적용할 기본값은 아닙니다**. 테넌트별 리소스 이름과 비밀이 아닌 식별자 자체는 비밀정보가 아닙니다. 그러나 토큰, 자격 증명, 개인 신원, 비공개 페이로드, 승인되지 않은 테넌트 메타데이터는 여전히 커밋해서는 안 됩니다.

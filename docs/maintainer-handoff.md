@@ -1,129 +1,138 @@
-# Maintainer handoff
+<a id="maintainer-handoff"></a>
+# 유지관리자 인수인계
 
-**Operational truth as of 2026-09-15** · Canonical integration branch: `feature/production-readiness-r1`
+**2026-09-15 기준 운영 사실** · 기준 통합 브랜치: `feature/production-readiness-r1`
 
-This is the single operational handoff for engineers and coding agents. Read [current status](current-status.md) for the dated ledger and [document lifecycle](document-lifecycle.md) before changing another status document. Versioned, sanitized release evidence overrides prose for a specific release; a repository commit never proves deployment.
+엔지니어와 코딩 에이전트를 위한 단일 운영 인수인계 문서입니다. 날짜별 기록은 [현재 상태](current-status.md)를 확인하고, 다른 상태 문서를 변경하기 전에 [문서 수명주기](document-lifecycle.md)를 읽으십시오. 특정 릴리스에서는 버전이 지정되고 민감정보를 제거한 릴리스 증거가 서술문보다 우선합니다. 저장소 커밋만으로 배포가 입증되지는 않습니다.
 
-## Product mission and non-negotiable evidence rules
+<a id="product-mission-and-non-negotiable-evidence-rules"></a>
+## 제품 목표와 반드시 지켜야 할 증거 규칙
 
-Agent Sentinel is an evidence-first control plane that connects authoritative records for enterprise AI agents, identities, tools, data, telemetry, distribution, and cloud resources. It discovers and correlates evidence, computes deterministic exposure and assurance results, and supports auditable governance. It does not replace Agent 365, Foundry, Entra, Defender, Purview, Teams, or their authorization planes.
+Agent Sentinel은 엔터프라이즈 AI 에이전트, 신원, 도구, 데이터, 텔레메트리, 배포, 클라우드 리소스에 관한 권위 있는 기록을 연결하는 증거 우선 제어 계층입니다. 증거를 발견하고 상관 분석하며, 결정론적 노출 및 보증 결과를 계산하고 감사 가능한 거버넌스를 지원합니다. Agent 365, Foundry, Entra, Defender, Purview, Teams 또는 이들의 권한 부여 계층을 대체하지 않습니다.
 
-The required loop is **connect → discover → normalize → correlate → analyze → govern**.
+필수 순환 흐름은 **연결 → 발견 → 정규화 → 상관 분석 → 분석 → 거버넌스 적용**입니다.
 
-Never violate these rules:
+다음 규칙은 반드시 지킵니다.
 
-1. Mock, synthetic, empty, missing, stale, sampled, partial, or unattributed evidence cannot establish a live pass.
-2. Preserve estate, tenant, environment, source, provider object ID, timestamp, freshness, confidence, and evidence references.
-3. Correlate identities only by exact authoritative identifiers. Never use names, aliases, owners, or fuzzy matching.
-4. Partial authoritative discovery must not overwrite the last complete snapshot or resolve earlier findings.
-5. `unknown`, `insufficient-data`, `authorization-required`, `degraded`, and valid-empty are distinct states.
-6. Policies and graph traversal establish security truth. The model may explain cited evidence but never create findings or authorize actions.
-7. Live writes require JWT, exact capability checks, writes enabled, active-edge protection, idempotency, audit evidence, rollback, and human approval.
-8. Do not broaden permissions, use preview APIs, or invent evidence to make a demo pass.
+1. 모의·합성·빈·누락·오래된·샘플링된·부분적·미귀속 증거로 실제 서비스 검증의 통과를 입증할 수 없습니다.
+2. 에이전트 자산 집합(estate), 테넌트, 환경, 원본, 공급자 개체 ID, 타임스탬프, 최신성, 신뢰도, 증거 참조를 보존합니다.
+3. 정확한 권위 있는 식별자로만 신원을 상관 분석합니다. 이름, 별칭, 소유자, 유사도 일치를 사용하지 않습니다.
+4. 부분적인 권위 있는 탐색 결과로 마지막 완전한 스냅샷을 덮어쓰거나 이전 발견 사항을 해결 처리해서는 안 됩니다.
+5. `unknown`, `insufficient-data`, `authorization-required`, `degraded`, 유효한 빈 결과(valid-empty)는 서로 다른 상태입니다.
+6. 정책과 그래프 탐색이 보안 사실을 결정합니다. 모델은 인용된 증거를 설명할 수 있지만 발견 사항을 만들거나 작업을 승인하지 않습니다.
+7. 실제 쓰기에는 JWT(JSON 웹 토큰), 정확한 기능 권한 검사, 쓰기 활성화, 활성 에지 보호, 멱등성, 감사 증거, 롤백, 사람의 승인이 필요합니다.
+8. 데모를 통과시키려고 권한을 확대하거나 미리 보기 API를 사용하거나 증거를 만들어 내지 않습니다.
 
-## Repository and architecture
+<a id="repository-and-architecture"></a>
+## 저장소 및 아키텍처
 
-The repository is a Node.js 22, pnpm 10, TypeScript, Turborepo monorepo.
+저장소는 Node.js 22, pnpm 10, TypeScript, Turborepo 기반 모노레포입니다.
 
-| Area                                                                          | Responsibility                                                                                                                                                    |
+| 영역 | 책임 |
 | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/web`                                                                    | React/Vite SPA, MSAL integration, operational and Release readiness surfaces                                                                                      |
-| `apps/api`                                                                    | Fastify API, authentication/RBAC, read models, connector and governance routes                                                                                    |
-| `apps/jobs`                                                                   | Scheduled/event-driven discovery, composition, snapshot persistence, policy evaluation                                                                            |
-| `packages/domain`                                                             | Canonical entities, evidence, findings, estate and connector-source contracts                                                                                     |
-| `packages/connector-sdk`                                                      | Connector contracts, health, manifest and operational readiness evaluator (`demo-readiness` compatibility export)                                                 |
-| `packages/connector-runtime`                                                  | Source construction and bounded connector orchestration                                                                                                           |
-| `connectors/*`                                                                | Read-only provider adapters for Foundry, Entra, Agent 365, Azure Monitor, Azure Resource Graph, Defender, Purview, Teams, Power Platform, outcomes, and manifests |
-| `packages/persistence`                                                        | In-memory and Cosmos repositories, ETag and estate isolation behavior                                                                                             |
-| `packages/policy-engine`, `packages/graph-engine`, `packages/behavior-engine` | Deterministic findings, paths, drift, reliability, and economics                                                                                                  |
-| `packages/scenarios`                                                          | Explicit synthetic validation agents and fixtures                                                                                                                 |
-| `packages/ui`                                                                 | Shared accessible design-system primitives and Storybook                                                                                                          |
-| `packages/shift-left-scanner`, `tools`                                        | Offline manifest validation and pre-publication policy checks                                                                                                     |
-| `scripts`                                                                     | Auth planning, live validators, Release readiness, Foundry helpers, release evidence                                                                              |
-| `infra`                                                                       | Bicep modules, environment parameters, private runner, identity, edge, and data services                                                                          |
+| `apps/web` | React/Vite 단일 페이지 앱(SPA), Microsoft 인증 라이브러리(MSAL) 통합, 운영 및 Release readiness 화면 |
+| `apps/api` | Fastify API, 인증·역할 기반 접근 제어(RBAC), 읽기 모델, 커넥터 및 거버넌스 라우트 |
+| `apps/jobs` | 예약·이벤트 기반 탐색, 구성 결합, 스냅샷 영속화, 정책 평가 |
+| `packages/domain` | 기준 엔터티, 증거, 발견 사항, 자산 집합 및 커넥터 원본 계약 |
+| `packages/connector-sdk` | 커넥터 계약, 상태, 매니페스트 및 운영 준비도 평가기(`demo-readiness` 호환 내보내기) |
+| `packages/connector-runtime` | 원본 생성 및 범위가 제한된 커넥터 오케스트레이션 |
+| `connectors/*` | Foundry, Entra, Agent 365, Azure Monitor, Azure Resource Graph, Defender, Purview, Teams, Power Platform, 성과, 매니페스트의 읽기 전용 공급자 어댑터 |
+| `packages/persistence` | 메모리 및 Cosmos 저장소, ETag 및 자산 집합 격리 동작 |
+| `packages/policy-engine`, `packages/graph-engine`, `packages/behavior-engine` | 결정론적 발견 사항, 경로, 드리프트, 신뢰성, 경제성 |
+| `packages/scenarios` | 합성임을 명시한 검증 에이전트 및 픽스처 |
+| `packages/ui` | 접근성을 지원하는 공통 디자인 시스템 기본 요소와 Storybook |
+| `packages/shift-left-scanner`, `tools` | 오프라인 매니페스트 검증 및 게시 전 정책 검사 |
+| `scripts` | 인증 계획, 실제 서비스 검증기, Release readiness, Foundry 보조 도구, 릴리스 증거 |
+| `infra` | Bicep 모듈, 환경 매개변수, 프라이빗 실행기, 신원, 에지, 데이터 서비스 |
 
-The runtime is a modular monolith deployed as web, API, and jobs Container Apps. Jobs compose bounded connector reads into one estate snapshot in Cosmos; API surfaces read that persisted state. See [architecture](architecture.md) and [data model](data-model.md).
+런타임은 웹, API, 작업 처리용 Container Apps로 배포되는 모듈형 모놀리스입니다. 작업 처리기는 제한된 커넥터 읽기 결과를 Cosmos의 자산 집합 스냅샷 하나로 결합하고, API 화면은 그 영속 상태를 읽습니다. [아키텍처](architecture.md)와 [데이터 모델](data-model.md)을 참고하십시오.
 
-## Version truth
+<a id="version-truth"></a>
+## 버전의 실제 상태
 
-- `feature/production-readiness-r1` is the canonical integration branch for this handoff; `7c1336bc7985ea7e383c335d631b7c705fffb97c` is the verified deployed head.
-- Live base URL: `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`.
-- Web: revision `web-as-m098047--p07c1336bc`, digest `sha256:7dca740d6d7161fc57a14a0cc79a8488e25a12cf2c0ea37f8cd677188c13e267`.
-- API: revision `api-as-m098047--p07c1336bc`, digest `sha256:b43991c120161b73737d492847bd2c3e8dbb6fe33408e4ac49fac6fa01de13a7`.
-- Jobs: revision `jobs-as-m098047--p07c1336bc`, digest `sha256:7918fa5fc0f207e11cc7b22c0a340cb40926369265c622085bab27bddf132ecc`.
-- All three components report SHA `7c1336bc7985ea7e383c335d631b7c705fffb97c`; authentication and writes remain disabled.
-- Wednesday handoff branch: `work/wednesday-handoff-astra-r1`, based on `3c30327902f925078ebfe37c4414975b73e75561`. This repository base is **not deployed**. See the exact [Git/Azure gap](current-status.md#repository-only-gap); the final PR must record its own reviewed full SHA separately.
+- `feature/production-readiness-r1`은 이 인수인계의 기준 통합 브랜치이며, `7c1336bc7985ea7e383c335d631b7c705fffb97c`는 배포가 검증된 최신 커밋입니다.
+- 실제 서비스 기본 URL: `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`.
+- 웹: 리비전 `web-as-m098047--p07c1336bc`, 다이제스트 `sha256:7dca740d6d7161fc57a14a0cc79a8488e25a12cf2c0ea37f8cd677188c13e267`.
+- API: 리비전 `api-as-m098047--p07c1336bc`, 다이제스트 `sha256:b43991c120161b73737d492847bd2c3e8dbb6fe33408e4ac49fac6fa01de13a7`.
+- 작업 처리기: 리비전 `jobs-as-m098047--p07c1336bc`, 다이제스트 `sha256:7918fa5fc0f207e11cc7b22c0a340cb40926369265c622085bab27bddf132ecc`.
+- 세 구성요소 모두 SHA `7c1336bc7985ea7e383c335d631b7c705fffb97c`를 보고하며 인증과 쓰기는 계속 비활성화되어 있습니다.
+- 수요일 인수인계 브랜치: `3c30327902f925078ebfe37c4414975b73e75561` 기반의 `work/wednesday-handoff-astra-r1`. 이 저장소 기준점은 **배포되지 않았습니다**. 정확한 [Git/Azure 차이](current-status.md#repository-only-gap)를 참고하십시오. 최종 PR은 자체 검토된 전체 SHA를 별도로 기록해야 합니다.
 
-## 5-minute demo
+<a id="5-minute-demo"></a>
+## 5분 데모
 
 목표는 **“어떤 레코드인지 → 노출 판단의 근거가 무엇인지 → 무엇이 아직 부족한지”**를
 한 흐름으로 설명하는 것입니다. [제품 명세](../agent-sentinel-product-spec.md)의 전체
-공격 검증·실제 remediation 시나리오를 현재 배포가 달성했다고 주장하지 않습니다.
+공격 검증·실제 수정 조치 시나리오를 현재 배포가 달성했다고 주장하지 않습니다.
 진행 전 [동결 체크리스트](#frozen-candidate-checklist)를 확인합니다.
 
 | 시간      | 화면과 조작                                                                                                                                                                                         | 말할 내용 / 하지 않을 주장                                                                                                                                                                                                                                 |
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0:00–0:45 | **Catalog** (`/agent-catalog`)의 요약과 source 구분을 확인합니다.                                                                                                                                   | “302개 Agent 365 agent-package 레코드와 6개 Foundry synthetic 레코드입니다.” **308개 운영 중인 production agent**라고 말하지 않습니다. Agent 365 자체 package 총수 308에는 별도의 extension control 6개가 포함됩니다.                                      |
-| 0:45–1:30 | Source를 **Microsoft Foundry**로 선택하고 `sales`를 검색해 `sales-research-vulnerable` (Sales Research Vulnerable)을 찾습니다. **Synthetic / test** 표시를 확인한 뒤 제목을 눌러 상세로 이동합니다. | “이것은 합성 검증용 Sales Research Vulnerable의 선언된 설정입니다.” `crm_read`·`external_send`가 보이면 선언된 도구라고 설명합니다. 실제 CRM 접근·외부 전송·실행 신원을 증명하지 않습니다. 이름은 탐색용이며 identity join 근거가 아닙니다.                |
-| 1:30–3:00 | **Exposure** (`/exposure`)에서 같은 agent의 finding을 열고 **Evidence provenance / Evidence drawer**의 출처, 관측 시각·최신성, 참조, **Declared configuration only**를 확인합니다.                  | “정책이 이 설정을 왜 조사 대상으로 판단했는지 근거를 추적합니다.” exact `RUNS_AS`와 qualifying runtime telemetry가 없으므로 실제 침해·완성된 권한 경로·검증된 유출이라고 말하지 않습니다. finding이 없으면 없다고 기록하며 다른 fixture로 채우지 않습니다. |
-| 3:00–4:00 | **Lifecycle** (`/lifecycle`)에서 같은 agent의 current-version evidence와 누락 항목을 확인합니다.                                                                                                    | “현재 버전의 증거를 모아 다음 검토를 돕습니다.” **Current-version evidence, not full release orchestration** 경계를 설명합니다. `Published` 등 원본 상태를 Sentinel의 승인·승격·rollback 실행으로 해석하지 않습니다.                                       |
-| 4:00–5:00 | **Release readiness** (`/release-readiness`)에서 Agent 365, identity, OTel, version 항목을 확인하고 마무리합니다.                                                                                   | “기록된 배포 기준은 partial입니다. Agent 365는 ready지만 `RUNS_AS` 0, qualifying live OTel 0이며 auth disabled / writes false입니다.” 화면이 더 나쁜 상태면 그대로 설명합니다. `Ready`가 보여도 human release approval이나 production go-live는 아닙니다.  |
+| 0:00–0:45 | **Catalog** (`/agent-catalog`)의 요약과 원본 구분을 확인합니다. | “Agent 365 agent-package 레코드 302개와 Foundry 합성 레코드 6개입니다.” **운영 중인 프로덕션 에이전트 308개**라고 말하지 않습니다. Agent 365 자체 패키지 총수 308개에는 별도의 확장 제어 항목 6개가 포함됩니다. |
+| 0:45–1:30 | Source를 **Microsoft Foundry**로 선택하고 `sales`를 검색해 `sales-research-vulnerable` (Sales Research Vulnerable)을 찾습니다. **Synthetic / test** 표시를 확인한 뒤 제목을 눌러 상세로 이동합니다. | “이것은 합성 검증용 Sales Research Vulnerable의 선언된 설정입니다.” `crm_read`·`external_send`가 보이면 선언된 도구라고 설명합니다. 실제 CRM 접근·외부 전송·실행 신원을 증명하지 않습니다. 이름은 탐색용이며 신원 조인의 근거가 아닙니다. |
+| 1:30–3:00 | **Exposure** (`/exposure`)에서 같은 에이전트의 발견 사항을 열고 **Evidence provenance / Evidence drawer**의 출처, 관측 시각·최신성, 참조, **Declared configuration only**를 확인합니다. | “정책이 이 설정을 왜 조사 대상으로 판단했는지 근거를 추적합니다.” 정확한 `RUNS_AS`와 적격 런타임 텔레메트리가 없으므로 실제 침해·완성된 권한 경로·검증된 유출이라고 말하지 않습니다. 발견 사항이 없으면 없다고 기록하며 다른 픽스처로 채우지 않습니다. |
+| 3:00–4:00 | **Lifecycle** (`/lifecycle`)에서 같은 에이전트의 현재 버전 증거와 누락 항목을 확인합니다. | “현재 버전의 증거를 모아 다음 검토를 돕습니다.” **Current-version evidence, not full release orchestration**이라는 표시가 뜻하는 “전체 릴리스 오케스트레이션이 아닌 현재 버전 증거”의 경계를 설명합니다. `Published` 등 원본 상태를 Sentinel의 승인·승격·롤백 실행으로 해석하지 않습니다. |
+| 4:00–5:00 | **Release readiness** (`/release-readiness`)에서 Agent 365, 신원, OTel, 버전 항목을 확인하고 마무리합니다. | “기록된 배포 기준은 partial입니다. Agent 365는 ready지만 `RUNS_AS` 0개, 적격 실제 OTel 0개이며 인증 비활성화, 쓰기 false입니다.” 화면이 더 나쁜 상태면 그대로 설명합니다. `Ready`가 보여도 사람의 릴리스 승인이나 프로덕션 가동은 아닙니다. |
 
-**No-op / read-only 시연:** 조회·필터·상세·drawer 열기/닫기만 수행합니다. agent 호출,
-검증 traffic 생성, `Preview response`, AI narrative 생성, 승인·실행·승격·삭제는 이
-5분 경로에서 제외합니다. 쓰기 요청을 보내 차단을 시험하지도 않습니다. Preview는
-지원되더라도 simulation이지 실제 수정 증거가 아닙니다.
+**상태 변경 없는 읽기 전용 시연:** 조회·필터·상세·서랍 열기·닫기만 수행합니다. 에이전트 호출,
+검증 트래픽 생성, `Preview response`, AI 설명 생성, 승인·실행·승격·삭제는 이
+5분 경로에서 제외합니다. 쓰기 요청을 보내 차단을 시험하지도 않습니다. 미리 보기는
+지원되더라도 시뮬레이션이지 실제 수정 증거가 아닙니다.
 
-**Unavailable 대응:** source/finding/endpoint가 없거나 stale·denied·unavailable이면
+**사용 불가 대응:** 원본·발견 사항·엔드포인트가 없거나 오래됨·거부됨·사용 불가 상태이면
 사유와 마지막 관측 시각을 읽고 해당 주장을 중단합니다. 일시 오류는 한 번만 재시도하고,
 계속 실패하면 [현재 상태](current-status.md)를 **날짜가 있는 기록**으로 설명합니다.
-필요하면 별도로 준비된 [로컬 mock](../README.md#quick-start)으로 전환하되 “오프라인
-합성 예시이며 live 검증이 아니다”라고 먼저 알립니다. 자동 fallback·화면 위장·증거 없는
-pass는 금지합니다. 빈 화면/오류만 남는 경우는 graceful 처리 성공이 아니라 미해결 결함입니다.
+필요하면 별도로 준비된 [로컬 모의 환경](../README.md#quick-start)으로 전환하되 “오프라인
+합성 예시이며 실제 서비스 검증이 아니다”라고 먼저 알립니다. 자동 대체·화면 위장·증거 없는
+통과는 금지합니다. 빈 화면이나 오류만 남는 경우는 정상적인 오류 처리 성공이 아니라 미해결 결함입니다.
 
-## Demo Q&A
+<a id="demo-qa"></a>
+## 데모 질의응답
 
-1. **Agent 365가 있는데 왜 필요한가요?** Agent 365의 registry·관리·entitlement를 복제하지 않습니다. Sentinel은 그 package 증거와 Foundry·Entra·보안 원본을 함께 보고, 플랫폼 간 관계의 근거와 누락을 조사·릴리스 판단에 연결합니다. 현재 catalog 연결은 실행·설치·사용 권한의 증명이 아닙니다.
-2. **Entra보다 더 정확한 신원을 알아내나요?** 아닙니다. Entra가 신원·권한의 원본입니다. Sentinel은 양쪽의 authoritative exact ID가 맞을 때만 연결합니다. 현재 Foundry agent 쪽 ID가 없어 `RUNS_AS`는 0이며, 이름이나 owner로 보완하지 않습니다.
-3. **Defender를 대체하거나 실제 공격을 탐지했나요?** 아닙니다. Defender의 탐지 증거를 소비하고 결정론적 설정·그래프 분석을 보완합니다. 현재 bounded Defender 결과는 valid-empty이며, Exposure의 선언 기반 finding을 탐지된 사고나 검증된 공격으로 말할 수 없습니다.
-4. **Live connector이면 실행을 실시간으로 보고 있나요?** Foundry live 읽기는 실제 서비스의 **정적 선언 설정**을 가져온다는 뜻입니다. 실제 실행 주장은 별도 non-synthetic trace/span과 정확한 귀속이 필요하며 현재 qualifying live OTel은 0입니다. [Runtime SDK](external-runtime-instrumentation.md)는 저장소에만 있고 아직 배포되지 않았습니다.
-5. **Catalog 308과 Agent 365 308은 같은 숫자인가요?** 아닙니다. Catalog는 **302 Agent 365 agent-package + 6 Foundry synthetic**입니다. Agent 365 source는 **302 agent-package + 6 extension control = 308 package**이며 extension은 agent catalog에서 제외됩니다. 어느 쪽도 running production agent 수가 아닙니다.
-6. **Catalog에 보이면 내가 쓸 수 있나요?** 운영 catalog는 estate의 증거 목록이고 **My agents**는 개인별 접근 목록입니다. 현재 auth가 꺼져 있고 authoritative entitlement source도 구성되지 않아 개인 목록은 fail-closed입니다. 로그인 활성화만으로 entitlement가 생기거나 접근 권한을 부여하지 않습니다.
-7. **Lifecycle이나 Ready가 있으면 자동 출시·수정이 되나요?** 아닙니다. Lifecycle은 current-version evidence이며 full release orchestration이 아닙니다. auth scaffolding과 release-review 도구는 배포 코드에 포함됐지만 활성화·사람 승인은 별개입니다. writes false, consent/roles 미완료, Security·Accessibility·OneRAI·Release 승인 대기 상태입니다.
-8. **얼마나 시간이나 비용을 절약했나요?** 아직 측정된 고객 절감 성과는 없습니다. 가치 가설은 “흩어진 증거를 찾고 누락을 판정하는 작업을 줄인다”입니다. 아래 [소규모 사용자 과제](#small-real-user-task-protocol)로 실제 시간과 정답을 관찰할 수 있지만, 미실시·실패·학습 효과를 숨기거나 고객 ROI로 확대하지 않습니다.
+1. **Agent 365가 있는데 왜 필요한가요?** Agent 365의 레지스트리·관리·사용 권한을 복제하지 않습니다. Sentinel은 그 패키지 증거와 Foundry·Entra·보안 원본을 함께 보고, 플랫폼 간 관계의 근거와 누락을 조사·릴리스 판단에 연결합니다. 현재 카탈로그 연결은 실행·설치·사용 권한의 증명이 아닙니다.
+2. **Entra보다 더 정확한 신원을 알아내나요?** 아닙니다. Entra가 신원·권한의 원본입니다. Sentinel은 양쪽의 권위 있는 정확한 ID가 맞을 때만 연결합니다. 현재 Foundry 에이전트 쪽 ID가 없어 `RUNS_AS`는 0개이며, 이름이나 소유자로 보완하지 않습니다.
+3. **Defender를 대체하거나 실제 공격을 탐지했나요?** 아닙니다. Defender의 탐지 증거를 소비하고 결정론적 설정·그래프 분석을 보완합니다. 현재 제한된 Defender 결과는 유효한 빈 결과이며, Exposure의 선언 기반 발견 사항을 탐지된 사고나 검증된 공격으로 말할 수 없습니다.
+4. **실제 서비스 커넥터이면 실행을 실시간으로 보고 있나요?** Foundry 실제 읽기는 실제 서비스의 **정적 선언 설정**을 가져온다는 뜻입니다. 실제 실행 주장에는 별도 비합성 추적·스팬과 정확한 귀속이 필요하며 현재 적격 실제 OTel은 0개입니다. [런타임 SDK](external-runtime-instrumentation.md)는 저장소에만 있고 아직 배포되지 않았습니다.
+5. **Catalog 308과 Agent 365 308은 같은 숫자인가요?** 아닙니다. Catalog는 **Agent 365 agent-package 302개 + Foundry 합성 6개**입니다. Agent 365 원본은 **agent-package 302개 + 확장 제어 항목 6개 = 패키지 308개**이며 확장은 에이전트 카탈로그에서 제외됩니다. 어느 쪽도 실행 중인 프로덕션 에이전트 수가 아닙니다.
+6. **Catalog에 보이면 내가 쓸 수 있나요?** 운영 카탈로그는 자산 집합의 증거 목록이고 **My agents**는 개인별 접근 목록입니다. 현재 인증이 꺼져 있고 권위 있는 사용 권한 원본도 구성되지 않아 개인 목록은 기본 거부형입니다. 로그인 활성화만으로 사용 권한이 생기거나 접근 권한을 부여하지 않습니다.
+7. **Lifecycle이나 Ready가 있으면 자동 출시·수정이 되나요?** 아닙니다. Lifecycle은 현재 버전 증거이며 전체 릴리스 오케스트레이션이 아닙니다. 인증 기반 코드와 릴리스 검토 도구는 배포 코드에 포함됐지만 활성화·사람 승인은 별개입니다. 쓰기 false, 동의·역할 할당 미완료, 보안·접근성·OneRAI·릴리스 승인 대기 상태입니다.
+8. **얼마나 시간이나 비용을 절약했나요?** 아직 측정된 고객 절감 성과는 없습니다. 가치 가설은 “흩어진 증거를 찾고 누락을 판정하는 작업을 줄인다”입니다. 아래 [소규모 사용자 과제](#small-real-user-task-protocol)로 실제 시간과 정답을 관찰할 수 있지만, 미실시·실패·학습 효과를 숨기거나 고객 투자 수익률(ROI)로 확대하지 않습니다.
 
-## Frozen-candidate checklist
+<a id="frozen-candidate-checklist"></a>
+## 후보 동결 체크리스트
 
 **내부 동결 목표: 2026-09-16 수요일 18:00 KST.** 최종 `main` PR은 정직하게 시연하고
-인계할 candidate를 동결하는 것이며 **전체 production go-live가 아닙니다**. 외부 승인
-미완료는 [승인 backlog](current-status.md#human-approvals-still-open)에 남깁니다.
+인계할 후보를 동결하는 것이며 **전체 프로덕션 가동이 아닙니다**. 외부 승인
+미완료는 [미완료 승인](current-status.md#human-approvals-still-open)에 남깁니다.
 아래 항목은 실제 관찰과 검토 기록이 있을 때만 체크하며, 이 문서 작성으로 완료되지 않습니다.
 
-- [ ] 최종 PR의 full Git SHA·검증 일시·로컬 확인 결과와 [Azure SHA/revision/digest](#version-truth)를 별도 기록했다. Git base `3c303279`와 Azure `7c1336bc`를 동일 버전으로 쓰지 않았고 [미배포 변경](current-status.md#repository-only-gap)을 명시했다.
-- [ ] Catalog → 명시적 synthetic Foundry 한 레코드 → Exposure evidence → Lifecycle → Release readiness를 5분 내 리허설하고, 같은 source/agent와 관측 시각을 추적했다. 숫자 302+6과 Agent 365 308의 차이를 설명했다.
-- [ ] `RUNS_AS` 0, qualifying OTel 0, auth disabled, writes false, personal entitlement 미구성, human approval 대기를 화면/설명에서 숨기지 않았다. 신규 Foundry pilot은 승인·생성되지 않았음을 명시했다.
-- [ ] No-op 경로에서 조회만 했으며 runtime 호출·remediation·권한 변경·배포가 없었다. 실제 write 차단 검증을 수행했다고 주장하지 않았다.
-- [ ] 누락·stale·unavailable·오류의 실제 표시와 복귀 경로를 확인했다. live 실패를 mock pass로 치환하지 않았고, 미관찰 상태는 `not-run`으로 남겼다.
-- [ ] 핵심 경로의 키보드 이동·drawer 닫기와 1440×900 / 1920×1080 표시를 확인했다. 미수행 접근성 검토를 승인으로 표기하지 않았다.
-- [ ] [Rollback 진입점](#safe-deployment-and-rollback-path)과 담당 operator, 이전 reviewed digest를 확인했다. 시연 장애는 먼저 중단하며, 실제 rollback은 별도 human approval로만 진행한다.
-- [ ] 수정 문서의 Prettier·relative links·`git diff --check`와 설치된 의존성 범위의 `auth-readiness-docs` / `edge-routing` 결과를 기록했다. 미실행·기존 실패·문구 불일치는 PR에 남겼고 doc-only 변경에 full build/test를 추가하지 않았다.
-- [ ] 선택적 사용자 과제는 실제 관측 또는 `미실시`로 기록했다. 고객 절감 수치·비공개 내용·reviewer 연락처나 이메일 thread ID는 넣지 않았다.
-- [ ] 동결 후 backlog에 consent/roles·JWT 활성화, exact identity·OTel 증거, 미배포 코드, active-edge write guard, human release approvals를 남겼다. 새 기능·권한 확대·pilot 생성으로 마감 범위를 늘리지 않았다.
+- [ ] 최종 PR의 전체 Git SHA·검증 일시·로컬 확인 결과와 [Azure SHA·리비전·다이제스트](#version-truth)를 별도 기록했다. Git 기준점 `3c303279`와 Azure `7c1336bc`를 동일 버전으로 쓰지 않았고 [미배포 변경](current-status.md#repository-only-gap)을 명시했다.
+- [ ] Catalog → 합성임을 명시한 Foundry 레코드 하나 → Exposure 증거 → Lifecycle → Release readiness를 5분 내 리허설하고, 같은 원본·에이전트와 관측 시각을 추적했다. 숫자 302+6과 Agent 365 308의 차이를 설명했다.
+- [ ] `RUNS_AS` 0개, 적격 OTel 0개, 인증 비활성화, 쓰기 false, 개인별 사용 권한 미구성, 사람의 승인 대기를 화면·설명에서 숨기지 않았다. 신규 Foundry 파일럿은 승인·생성되지 않았음을 명시했다.
+- [ ] 상태 변경 없는 경로에서 조회만 했으며 런타임 호출·수정 조치·권한 변경·배포가 없었다. 실제 쓰기 차단 검증을 수행했다고 주장하지 않았다.
+- [ ] 누락·오래됨·사용 불가·오류의 실제 표시와 복귀 경로를 확인했다. 실제 서비스 실패를 모의 통과로 치환하지 않았고, 미관찰 상태는 `not-run`으로 남겼다.
+- [ ] 핵심 경로의 키보드 이동·서랍 닫기와 1440×900 / 1920×1080 표시를 확인했다. 미수행 접근성 검토를 승인으로 표기하지 않았다.
+- [ ] [롤백 진입점](#safe-deployment-and-rollback-path)과 담당 운영자, 이전 검토된 다이제스트를 확인했다. 시연 장애는 먼저 중단하며, 실제 롤백은 별도 사람의 승인으로만 진행한다.
+- [ ] 수정 문서의 Prettier·상대 링크·`git diff --check`와 설치된 의존성 범위의 `auth-readiness-docs` / `edge-routing` 결과를 기록했다. 미실행·기존 실패·문구 불일치는 PR에 남겼고 문서 전용 변경에 전체 빌드·테스트를 추가하지 않았다.
+- [ ] 선택적 사용자 과제는 실제 관측 또는 `미실시`로 기록했다. 고객 절감 수치·비공개 내용·검토자 연락처나 이메일 스레드 ID는 넣지 않았다.
+- [ ] 동결 후 후속 작업에 동의·역할 할당·JWT 활성화, 정확한 신원·OTel 증거, 미배포 코드, 활성 에지 쓰기 보호, 사람의 릴리스 승인을 남겼다. 새 기능·권한 확대·파일럿 생성으로 마감 범위를 늘리지 않았다.
 
-## Small real-user task protocol
+<a id="small-real-user-task-protocol"></a>
+## 소규모 실제 사용자 과제 절차
 
-현재 상태는 **미실시: 참여자·시간·정답 관측 없음**입니다. 다음은 선택적 내부 usability
-확인이며 Foundry pilot 승인이나 고객 성과 측정이 아닙니다. 이 문서 작업에서는 모집·연락하지 않습니다.
+현재 상태는 **미실시: 참여자·시간·정답 관측 없음**입니다. 다음은 선택적 내부 사용성
+확인이며 Foundry 파일럿 승인이나 고객 성과 측정이 아닙니다. 이 문서 작업에서는 모집·연락하지 않습니다.
 
-1. **대상·동의:** 운영/보안/agent owner 역할의 내부 자원자 2–3명만 선택적으로 참여합니다. 목적·기록 항목·언제든 중단 가능함을 설명하고 사전 동의를 받습니다. 이름 대신 P1–P3를 사용하며 녹음·화면 수집은 기본적으로 하지 않습니다. 고객 데이터·개인 메시지·메일·토큰·tenant/provider ID는 수집하지 않습니다.
-2. **고정 과제:** 동일한 `sales-research-vulnerable` synthetic 자료로 “source와 synthetic 여부, 선언된 도구 두 개, Exposure 근거와 관측 시각, exact 실행 신원/telemetry 유무, 현재 출시 판단과 blocker”를 찾아 출처와 함께 설명하게 합니다. 실제 agent 호출이나 수정은 하지 않습니다.
-3. **Before / After:** 같은 범위·시점의 승인된 비민감 합성 증거를 사용합니다. Before는 원본별로 분리된 자료를 수동 대조하고, After는 위 Sentinel 읽기 경로를 사용합니다. 각 5분 상한으로 과제 제시부터 답 제출까지 초시계로 **실제 초**를 잽니다. 동일 자료를 준비할 수 없으면 비교를 미실시로 남깁니다. 참가자별 순서를 번갈아 배정하고 실제 순서·도움·재시도를 기록해 학습 효과를 드러냅니다.
-4. **정확성:** 고정 과제의 다섯 항목을 각각 출처까지 맞히면 1점(0–5)으로 기록합니다. synthetic을 production으로, 설정을 실행으로, partial을 release approval으로 해석한 오류는 점수와 별도로 남깁니다. 답안 기준은 당시 승인된 자료와 [현재 증거 경계](current-status.md#evidence-facts-that-must-not-be-overstated)이며 관측 없는 값은 채점 근거로 만들지 않습니다.
+1. **대상·동의:** 운영·보안·에이전트 소유자 역할의 내부 자원자 2–3명만 선택적으로 참여합니다. 목적·기록 항목·언제든 중단 가능함을 설명하고 사전 동의를 받습니다. 이름 대신 P1–P3를 사용하며 녹음·화면 수집은 기본적으로 하지 않습니다. 고객 데이터·개인 메시지·메일·토큰·테넌트·공급자 ID는 수집하지 않습니다.
+2. **고정 과제:** 동일한 `sales-research-vulnerable` 합성 자료로 “원본과 합성 여부, 선언된 도구 두 개, Exposure 근거와 관측 시각, 정확한 실행 신원·텔레메트리 유무, 현재 출시 판단과 차단 요인”을 찾아 출처와 함께 설명하게 합니다. 실제 에이전트 호출이나 수정은 하지 않습니다.
+3. **도입 전후 비교:** 같은 범위·시점의 승인된 비민감 합성 증거를 사용합니다. 도입 전(Before)은 원본별로 분리된 자료를 수동 대조하고, 도입 후(After)는 위 Sentinel 읽기 경로를 사용합니다. 각 5분 상한으로 과제 제시부터 답 제출까지 초시계로 **실제 초**를 잽니다. 동일 자료를 준비할 수 없으면 비교를 미실시로 남깁니다. 참가자별 순서를 번갈아 배정하고 실제 순서·도움·재시도를 기록해 학습 효과를 드러냅니다.
+4. **정확성:** 고정 과제의 다섯 항목을 각각 출처까지 맞히면 1점(0–5)으로 기록합니다. 합성을 프로덕션으로, 설정을 실행으로, 부분 상태를 릴리스 승인으로 해석한 오류는 점수와 별도로 남깁니다. 답안 기준은 당시 승인된 자료와 [현재 증거 경계](current-status.md#evidence-facts-that-must-not-be-overstated)이며 관측 없는 값은 채점 근거로 만들지 않습니다.
 5. **관측·보고:** 기존 검토 기록에 `참가자 코드 / 동의 / 순서 / Before 초·정답(0–5) / After 초·정답(0–5) / 오류·도움·timeout`만 남깁니다. 미완료는 `timeout`, 미참여는 `미실시`이며 0초나 성공으로 대체하지 않습니다. 실제 차이 `Before−After`와 개별 정답 변화만 보고하고, n=2–3의 편의 표본·학습 효과·합성 과제라는 한계를 병기합니다. 개선이 없거나 느려진 결과도 보존하며 고객 절감·일반 ROI를 주장하지 않습니다.
 
-## Local WSL setup
+<a id="local-wsl-setup"></a>
+## 로컬 WSL 설정
 
-Use a native WSL clone, not a OneDrive-mounted Windows clone.
+OneDrive에 마운트된 Windows 복제본이 아니라 WSL 내부 파일 시스템의 복제본을 사용합니다.
 
 ```bash
 git clone <repository-url> ~/project/agent-sentinel
@@ -134,204 +143,222 @@ nvm install 22
 nvm use 22
 corepack enable
 corepack prepare pnpm@10.15.1 --activate
-pnpm install --offline --frozen-lockfile  # use normal install only when network access is approved
+pnpm install --offline --frozen-lockfile  # 네트워크 접근이 승인된 경우에만 일반 설치 사용
 ```
 
-Common local commands:
+자주 사용하는 로컬 명령:
 
 ```bash
 pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
-pnpm test:e2e                  # web/routing changes
-pnpm storybook:build           # shared UI changes
+pnpm test:e2e                  # 웹·라우팅 변경
+pnpm storybook:build           # 공통 UI 변경
 pnpm release-evidence:schema:check
 git diff --check
 ```
 
-Build workspace dependencies before running package tests from a clean checkout when package exports point to `dist`. Never run live validation, provisioning, cleanup, auth apply, or deployment as part of ordinary local validation.
+패키지 내보내기가 `dist`를 가리키면 깨끗한 체크아웃에서 패키지 테스트를 실행하기 전에 작업 영역 의존성을 빌드합니다. 일반 로컬 검증의 일부로 실제 서비스 검증, 프로비저닝, 정리, 인증 적용, 배포를 실행하지 않습니다.
 
-## Test pyramid and known baseline
+<a id="test-pyramid-and-known-baseline"></a>
+## 테스트 피라미드와 알려진 기준 결과
 
-| Layer          | Command                                       | Known baseline                                                                                               |
+| 계층 | 명령 | 알려진 기준 결과 |
 | -------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Formatting     | `pnpm format:check`                           | Repository-wide check has unrelated historical drift; touched files must pass Prettier.                      |
-| Static         | `pnpm lint`; `pnpm typecheck`                 | Last recorded full baseline: 48/48 tasks passed on 2026-08-31.                                               |
-| Unit/contract  | `pnpm test`                                   | Last recorded full baseline: 901 passing tests on 2026-08-31.                                                |
-| Build          | `pnpm build`                                  | Last recorded full baseline: 25/25 tasks passed on 2026-08-31.                                               |
-| Browser        | `pnpm test:e2e`                               | Last recorded baseline: 23 tests across 10 specs. Run only when relevant.                                    |
-| Infrastructure | `az bicep build -f infra/platform.bicep`      | Historical build passed with baseline warnings; no what-if or deployment is implied.                         |
-| Live provider  | `pnpm foundry:validate`, auth/live validators | Operator-only, explicit, bounded, and never a CI default. Historical results do not validate a newer commit. |
+| 서식 | `pnpm format:check` | 저장소 전체 검사에는 무관한 과거 서식 차이가 있습니다. 변경 파일은 Prettier를 통과해야 합니다. |
+| 정적 검사 | `pnpm lint`; `pnpm typecheck` | 마지막 전체 기준 기록: 2026-08-31에 작업 48/48개 통과. |
+| 단위·계약 | `pnpm test` | 마지막 전체 기준 기록: 2026-08-31에 테스트 901개 통과. |
+| 빌드 | `pnpm build` | 마지막 전체 기준 기록: 2026-08-31에 작업 25/25개 통과. |
+| 브라우저 | `pnpm test:e2e` | 마지막 기준 기록: 명세 10개에 걸친 테스트 23개. 관련된 경우에만 실행합니다. |
+| 인프라 | `az bicep build -f infra/platform.bicep` | 과거 빌드는 기존 경고와 함께 통과했습니다. what-if나 배포를 수행했다는 의미는 아닙니다. |
+| 실제 공급자 | `pnpm foundry:validate`, 인증·실제 서비스 검증기 | 운영자 전용으로 명시적이며 범위가 제한됩니다. CI 기본값이 아니며 과거 결과는 새 커밋을 검증하지 않습니다. |
 
-Treat the dated baseline as historical, not as proof for the current commit. Record fresh command results in the pull request or release evidence.
+날짜가 있는 기준 결과는 과거 기록이지 현재 커밋의 증명이 아닙니다. 새 명령 결과는 풀 리퀘스트나 릴리스 증거에 기록합니다.
 
-## Current deployed state
+<a id="current-deployed-state"></a>
+## 현재 배포 상태
 
-- The reference deployment is available at `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net` with the immutable web/API/jobs versions in [Version truth](#version-truth).
-- The active Azure edge is Front Door over HTTPS. Application Gateway is stopped and diagnostic only.
-- Front Door has an active WAF policy but **no evidenced custom mutation-block rule**. The similarly named rule on the stopped Application Gateway does not protect Front Door.
-- Replacement API/SPA registrations and service principals exist. `AUTH_MODE=disabled`; admin consent, test-principal role assignment, live employee login, and deployed JWT validation remain incomplete.
-- `AGENT_SENTINEL_WRITE_ENABLED=false`; remediation and manifest ingestion remain non-live.
-- Foundry data mode is live against one reference source containing six synthetic validation agents and no production customer agents.
-- The connector-source plane is provisioned for the reference environment.
-- Agent 365 is deployed and `ready + complete`: 308 packages, 302 agent-package nodes, 6 extension-package nodes, and 308 live source-bound evidence records.
-- Release readiness is **partial**: Agent 365 ready; `RUNS_AS` 0; qualifying live OTel records 0; authentication disabled; writes false. Ready would still require separate human release approval.
+- 참조 배포는 `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`에서 제공되며 웹·API·작업 처리기의 불변 버전은 [버전의 실제 상태](#version-truth)에 있습니다.
+- 활성 Azure 에지는 HTTPS 기반 Front Door입니다. Application Gateway는 중지되었고 진단 전용입니다.
+- Front Door에는 활성 웹 애플리케이션 방화벽(WAF) 정책이 있지만 **사용자 지정 변경 요청 차단 규칙은 증거로 확인되지 않았습니다**. 중지된 Application Gateway의 유사한 이름을 가진 규칙은 Front Door를 보호하지 않습니다.
+- 대체 API·SPA 등록과 서비스 주체는 존재합니다. `AUTH_MODE=disabled`이며 관리자 동의, 테스트 주체 역할 할당, 실제 직원 로그인, 배포된 JWT 검증은 미완료입니다.
+- `AGENT_SENTINEL_WRITE_ENABLED=false`이며 수정 조치와 매니페스트 수집은 실제 서비스에서 활성화되지 않았습니다.
+- Foundry 데이터 모드는 합성 검증 에이전트 6개가 있고 프로덕션 고객 에이전트는 없는 참조 원본 하나를 실제 서비스에서 읽습니다.
+- 참조 환경의 커넥터 원본 계층은 프로비저닝되었습니다.
+- Agent 365는 배포되었고 `ready + complete`입니다. 패키지 308개, agent-package 노드 302개, extension-package 노드 6개, 실제 원본에 결합된 증거 레코드 308개입니다.
+- Release readiness는 **partial**입니다. Agent 365는 ready, `RUNS_AS`는 0개, 적격한 실제 OpenTelemetry(OTel) 레코드는 0개이며 인증 비활성화, 쓰기 false입니다. Ready여도 별도의 사람에 의한 릴리스 승인이 필요합니다.
 
-## Exact connector state
+<a id="exact-connector-state"></a>
+## 정확한 커넥터 상태
 
-| Connector                         | Current state                                         | Exact boundary / unblock                                                                                                                                                                                                               |
+| 커넥터 | 현재 상태 | 정확한 경계 및 해소 조건 |
 | --------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Azure AI Foundry                  | **Connected**                                         | One project; six authoritative synthetic agents; declared configuration only. Additional projects need separate authorization.                                                                                                         |
-| Microsoft Entra inventory         | **Inventory connected; parity unmatched**             | 335 identity nodes, but agents expose no exact identity IDs; therefore 0 `RUNS_AS` edges. Optional owner/app-role/preview reads remain separate approvals.                                                                             |
-| Azure Resource Graph              | **Connected for authorized view**                     | Five resources persisted through current scoped roles; this is not full subscription coverage and creates no agent edges.                                                                                                              |
-| Azure Monitor / OTel              | **Query connected; telemetry insufficient**           | Current audit has no analysis-ready request/dependency/trace rows and metrics lack required agent attributes. Baseline and observed windows each require at least ten fresh, complete, unsampled measured spans with exact provenance. |
-| Agent 365 package catalog         | **Deployed; ready and complete**                      | 308 packages produced 302 agent-package nodes, 6 extension-package nodes, and 308 live source-bound evidence records. Package count is not an executing-agent count.                                                                   |
-| Microsoft 365 / SharePoint agents | **Covered through deployed Agent 365 classification** | Classification is from package metadata only; no SharePoint scraping.                                                                                                                                                                  |
-| Defender for Cloud Apps           | **Connected, valid-empty**                            | Bounded alert and activity reads are ready with zero current records; no agent correlation is inferred.                                                                                                                                |
-| Purview sensitivity labels        | **Connected**                                         | Twelve bounded label definitions are persisted; they do not prove label usage, content protection, attribution, trust, or compliance.                                                                                                  |
-| Teams organization catalog        | **Connected, valid-empty**                            | Zero organization entries; this does not prove installation or distribution coverage.                                                                                                                                                  |
-| Power Platform ResourceQuery      | **Implemented; unattended activation unsupported**    | No production-supported app-only inventory authorization with enforceable scope.                                                                                                                                                       |
-| Business outcomes                 | **Contract complete; not configured**                 | Value remains unknown until an authoritative source supplies exact run, correlation, or version evidence.                                                                                                                              |
-| Custom manifest adapter           | **Implemented; activation-gated**                     | Offline validation/scanning works. Live ingestion requires activated auth, writes, active-edge protection, and approval.                                                                                                               |
+| Azure AI Foundry | **연결됨** | 프로젝트 1개, 권위 있는 원본의 합성 에이전트 6개이며 선언된 설정만 제공합니다. 추가 프로젝트에는 별도 권한 부여가 필요합니다. |
+| Microsoft Entra 인벤토리 | **인벤토리 연결됨, 대응 관계 불일치** | 신원 노드는 335개이지만 에이전트가 정확한 신원 ID를 노출하지 않으므로 `RUNS_AS` 간선은 0개입니다. 선택적 소유자·앱 역할·미리 보기 읽기는 별도 승인이 필요합니다. |
+| Azure Resource Graph | **허가된 보기 범위에서 연결됨** | 현재 범위 지정 역할을 통해 리소스 5개가 영속화되었습니다. 구독 전체를 포괄하지 않으며 에이전트 간선을 생성하지 않습니다. |
+| Azure Monitor / OTel | **쿼리 연결됨, 텔레메트리 부족** | 현재 감사 결과에는 분석 가능한 요청·종속성·추적 행이 없고 지표에는 필수 에이전트 속성이 없습니다. 기준 및 관측 기간 각각에 정확한 출처 정보가 있고 최신이며 완전하고 샘플링되지 않은 실측 스팬이 최소 10개 필요합니다. |
+| Agent 365 패키지 카탈로그 | **배포됨, 준비·완전 상태** | 패키지 308개에서 agent-package 노드 302개, extension-package 노드 6개, 실제 원본에 결합된 증거 레코드 308개가 생성되었습니다. 패키지 수는 실행 중인 에이전트 수가 아닙니다. |
+| Microsoft 365 / SharePoint 에이전트 | **배포된 Agent 365 분류로 포함됨** | 패키지 메타데이터만으로 분류하며 SharePoint를 스크래핑하지 않습니다. |
+| Defender for Cloud Apps | **연결됨, 유효한 빈 결과** | 제한된 경고·활동 읽기는 준비되었으며 현재 레코드는 0개입니다. 에이전트 상관관계를 추정하지 않습니다. |
+| Purview 민감도 레이블 | **연결됨** | 제한된 레이블 정의 12개가 영속화되었습니다. 레이블 사용, 콘텐츠 보호, 귀속, 신뢰, 규정 준수를 입증하지 않습니다. |
+| Teams 조직 카탈로그 | **연결됨, 유효한 빈 결과** | 조직 항목은 0개이며 설치 또는 배포의 포괄 범위를 입증하지 않습니다. |
+| Power Platform ResourceQuery | **구현됨, 무인 활성화 미지원** | 강제 가능한 범위를 갖춘 프로덕션 지원 앱 전용 인벤토리 권한 부여가 없습니다. |
+| 비즈니스 성과 | **계약 완료, 미구성** | 권위 있는 원본이 정확한 실행·상관관계·버전 증거를 제공할 때까지 가치는 알 수 없는 상태입니다. |
+| 사용자 지정 매니페스트 어댑터 | **구현됨, 활성화 게이트 적용** | 오프라인 검증·검사는 작동합니다. 실제 수집에는 인증·쓰기 활성화, 활성 에지 보호, 승인이 필요합니다. |
 
-See [connector availability](connector-availability.md) for the durable state definitions and detailed limits.
+지속적으로 적용되는 상태 정의와 자세한 한계는 [커넥터 가용성](connector-availability.md)을 참고하십시오.
 
-## Blocking dependencies and human-only actions
+<a id="blocking-dependencies-and-human-only-actions"></a>
+## 차단 의존성과 사람만 수행할 작업
 
-### Authentication and repository/deployment gap
+<a id="authentication-and-repositorydeployment-gap"></a>
+### 인증 및 저장소·배포 간 차이
 
-- Replacement API/SPA registrations and service principals already exist. A human owner must review them against the approved plan, complete least-privilege consent and assignments for Viewer, Analyst, Approver, and Administrator, and supply sanitized outputs; do not create duplicate registrations.
-- A protected deployment reviewer must approve immutable API/web digests and the surgical read-only auth activation. No coding agent may apply the plan.
-- Auth scaffolding/activation hardening and release-review v2 tooling are included in the `7c1336bc` deployed code baseline. Tool availability is not JWT activation, a completed review, or approval. The actual newer, undeployed identity/SDK/pilot changes are listed in the [Git/Azure gap](current-status.md#repository-only-gap).
+- 대체 API·SPA 등록과 서비스 주체는 이미 존재합니다. 담당자는 승인된 계획에 대조해 검토하고 Viewer, Analyst, Approver, Administrator의 최소 권한 동의·할당을 완료한 뒤 민감정보를 제거한 결과를 제공해야 합니다. 중복 등록을 만들지 않습니다.
+- 보호된 배포의 검토자가 불변 API·웹 다이제스트와 필요한 부분만 변경하는 읽기 전용 인증 활성화를 승인해야 합니다. 코딩 에이전트는 계획을 적용할 수 없습니다.
+- 인증 기반 코드·활성화 강화와 release-review v2 도구는 배포 코드 기준점 `7c1336bc`에 포함되어 있습니다. 도구가 있다는 것은 JWT 활성화, 검토 완료, 승인을 뜻하지 않습니다. 실제로 더 최신이며 미배포된 신원·SDK·파일럿 변경은 [Git/Azure 차이](current-status.md#repository-only-gap)에 있습니다.
 
-### `RUNS_AS` and telemetry
+<a id="runs_as-and-telemetry"></a>
+### `RUNS_AS` 및 텔레메트리
 
-- `RUNS_AS` is blocked by missing exact provider identity IDs on every authoritative Foundry agent. Only a source-local object ID, app/client ID, or separately approved Agent Identity ID can unblock it.
-- OTel is blocked by missing representative, non-customer, complete, unsampled spans with required estate/source/agent/trace/span/token/cost fields and read-only workspace query access.
+- 권위 있는 원본의 모든 Foundry 에이전트에 정확한 공급자 신원 ID가 없어 `RUNS_AS`가 차단되어 있습니다. 원본 로컬 개체 ID, 앱·클라이언트 ID 또는 별도 승인된 Agent Identity ID만으로 해소할 수 있습니다.
+- OTel은 필수 자산 집합·원본·에이전트·추적·스팬·토큰·비용 필드를 갖춘 대표성 있는 비고객·완전·비샘플링 스팬과 읽기 전용 작업 영역 쿼리 접근이 없어 차단되어 있습니다.
 
-### Deployment, runner, Cosmos, and edge
+<a id="deployment-runner-cosmos-and-edge"></a>
+### 배포, 실행기, Cosmos 및 에지
 
-- Full `infra/platform.bicep` deployment is prohibited: the latest what-if showed 54 unrelated modifications.
-- The private runner may be deallocated, does not yet have the complete approved deployment role set, and must be explicitly started and verified before builds.
-- The reference `connector-sources` container is provisioned and in use. A new tenant must provision its own isolated container and validate partition, index, estate, and ETag behavior.
-- Manifest `manifest-ingestions-v2` cutover requires manual copy verification and approval; the compatibility container remains authoritative until then.
-- Front Door needs a separately reviewed custom mutation rule before any write-stage readiness.
-- OneRAI remains a human onboarding track requiring authoritative product and legal/compliance review. It does not block local engineering.
+- 전체 `infra/platform.bicep` 배포는 금지됩니다. 최신 what-if에서 무관한 변경 54개가 나타났습니다.
+- 프라이빗 실행기는 할당 해제 상태일 수 있고 승인된 전체 배포 역할 집합도 아직 없습니다. 빌드 전에 명시적으로 시작하고 확인해야 합니다.
+- 참조 `connector-sources` 컨테이너는 프로비저닝되어 사용 중입니다. 새 테넌트는 자체 격리 컨테이너를 프로비저닝하고 파티션·인덱스·자산 집합·ETag 동작을 검증해야 합니다.
+- 매니페스트 `manifest-ingestions-v2` 전환에는 수동 복사 검증과 승인이 필요합니다. 그 전까지 호환 컨테이너가 권위 있는 원본입니다.
+- Front Door는 쓰기 단계 준비도를 갖추기 전에 별도 검토된 사용자 지정 변경 요청 규칙이 필요합니다.
+- OneRAI는 권위 있는 제품 및 법무·규정 준수 검토가 필요한 사람 중심 온보딩 경로입니다. 로컬 엔지니어링을 차단하지는 않습니다.
 
-## Post-freeze production backlog
+<a id="post-freeze-production-backlog"></a>
+## 동결 이후 프로덕션 후속 작업
 
-These are separately approved production follow-ups, not prerequisites to call the bounded Wednesday demo candidate frozen. Do not mark them complete or expand the freeze scope to obtain outside approvals.
+별도 승인을 받는 프로덕션 후속 작업이며, 범위가 제한된 수요일 데모 후보의 동결을 선언하기 위한 선행 조건이 아닙니다. 완료로 표시하거나 외부 승인을 얻으려고 동결 범위를 확대하지 않습니다.
 
-1. **Reproduce the clean repository baseline.** Record Node/pnpm versions, install method, lint, typecheck, tests, build, touched-file Prettier, and `git diff --check` against one full SHA.
-2. **Read the tenant-neutral bootstrap.** Assign primary, secondary, and emergency owners, then inventory tenant-local resources and permissions without copying the reference environment.
-3. **Reconcile the existing replacement registrations.** Review the exact offline bootstrap plan against owner-supplied sanitized outputs; do not recreate registrations or grant permissions locally.
-4. **Complete human identity approval.** Validate redirects and complete consent and four role assignments through the authoritative owner process; registrations already exist.
-5. **Build immutable release images.** Use the approved private runner, full-SHA tags, canonical digests, and protected environments.
-6. **Deploy repository-only changes surgically.** Update API first, then jobs and web only as required; keep writes false and record exact revisions/digests.
-7. **Validate authentication at Front Door.** Verify anonymous denial, `/api/auth/me`, all four roles, login/logout, and no-write posture.
-8. **Establish exact identity and telemetry evidence.** Obtain exact agent-side identifiers for all six `RUNS_AS` edges and representative qualifying OTel records; never use fuzzy identity matching or fixtures.
-9. **Generate deterministic release evidence.** Bind checks, deployed versions, connector observations, accessibility evidence, and sanitized configuration to one exact SHA.
-10. **Obtain human release decisions.** Security, Accessibility, OneRAI, and release owners approve independently; otherwise readiness remains partial or blocked.
+1. **깨끗한 저장소 기준 결과를 재현합니다.** 하나의 전체 SHA를 기준으로 Node·pnpm 버전, 설치 방법, 린트, 타입 검사, 테스트, 빌드, 변경 파일 Prettier, `git diff --check`를 기록합니다.
+2. **특정 테넌트에 종속되지 않는 초기 구성 지침을 읽습니다.** 주·보조·비상 담당자를 지정하고 참조 환경을 복사하지 않은 상태에서 테넌트 로컬 리소스와 권한 목록을 작성합니다.
+3. **기존 대체 등록을 대조합니다.** 담당자가 제공한 민감정보 제거 결과와 정확한 오프라인 초기 구성 계획을 비교 검토합니다. 로컬에서 등록을 다시 만들거나 권한을 부여하지 않습니다.
+4. **사람에 의한 신원 승인을 완료합니다.** 권위 있는 소유자 절차를 통해 리디렉션을 검증하고 동의 및 네 역할 할당을 완료합니다. 등록은 이미 존재합니다.
+5. **불변 릴리스 이미지를 빌드합니다.** 승인된 프라이빗 실행기, 전체 SHA 태그, 정식 다이제스트, 보호된 환경을 사용합니다.
+6. **저장소에만 있는 변경을 필요한 부분에 한정해 배포합니다.** API를 먼저 갱신하고 필요할 때만 작업 처리기와 웹을 갱신합니다. 쓰기는 false로 유지하고 정확한 리비전·다이제스트를 기록합니다.
+7. **Front Door에서 인증을 검증합니다.** 익명 거부, `/api/auth/me`, 네 역할 전체, 로그인·로그아웃, 쓰기 금지 상태를 확인합니다.
+8. **정확한 신원 및 텔레메트리 증거를 확보합니다.** `RUNS_AS` 간선 6개 모두에 필요한 정확한 에이전트 측 식별자와 대표성 있는 적격 OTel 레코드를 확보합니다. 유사도 기반 신원 일치나 픽스처는 사용하지 않습니다.
+9. **결정론적 릴리스 증거를 생성합니다.** 검사, 배포 버전, 커넥터 관측, 접근성 증거, 민감정보를 제거한 설정을 정확한 SHA 하나에 연결합니다.
+10. **사람의 릴리스 결정을 받습니다.** 보안, 접근성, OneRAI, 릴리스 담당자가 독립적으로 승인합니다. 그렇지 않으면 준비도는 부분 또는 차단 상태로 남습니다.
 
-## Dangerous operations: do not do
+<a id="dangerous-operations-do-not-do"></a>
+## 수행하면 안 되는 위험한 작업
 
-- Do not deploy, run cloud what-if, alter cloud resources, grant permissions, create registrations, access private tenant data, or invoke live validators without explicit operator authorization.
-- Do not run full `infra/platform.bicep` against the existing environment.
-- Do not enable writes or rely on the stopped Application Gateway rule as Front Door protection.
-- Do not use mutable image tags, retag for rollback, or claim deployment from a registry push.
-- Do not infer identities, agent status, coverage, trust, or value from names, empty results, package totals, catalog definitions, or fixtures.
-- Do not commit tokens, credentials, private identifiers, raw provider payloads, generated live evidence, local paths, or environment-specific auth plans.
-- Do not broaden RBAC/Graph scopes or enable preview APIs merely to unblock a demo.
-- Do not edit, stage, revert, normalize, or otherwise disturb unrelated changes in `infra/environments/mngenvmcap098047-foundry.parameters.bicepparam`.
+- 운영자의 명시적 허가 없이 배포, 클라우드 what-if, 클라우드 리소스 변경, 권한 부여, 등록 생성, 비공개 테넌트 데이터 접근, 실제 서비스 검증기 호출을 하지 않습니다.
+- 기존 환경에 전체 `infra/platform.bicep`를 실행하지 않습니다.
+- 쓰기를 활성화하거나 중지된 Application Gateway 규칙을 Front Door 보호 수단으로 간주하지 않습니다.
+- 변경 가능한 이미지 태그를 사용하거나 롤백을 위해 태그를 다시 지정하거나 레지스트리 푸시만으로 배포를 주장하지 않습니다.
+- 이름, 빈 결과, 패키지 총수, 카탈로그 정의, 픽스처로 신원, 에이전트 상태, 포괄 범위, 신뢰, 가치를 추정하지 않습니다.
+- 토큰, 자격 증명, 비공개 식별자, 공급자 원시 페이로드, 생성된 실제 서비스 증거, 로컬 경로, 환경별 인증 계획을 커밋하지 않습니다.
+- 단지 데모 차단을 해소하려고 RBAC·Graph 범위를 확대하거나 미리 보기 API를 활성화하지 않습니다.
+- `infra/environments/mngenvmcap098047-foundry.parameters.bicepparam`의 무관한 변경을 편집·스테이징·되돌리기·정규화하거나 그 밖의 방식으로 건드리지 않습니다.
 
-## Safe deployment and rollback path
+<a id="safe-deployment-and-rollback-path"></a>
+## 안전한 배포 및 롤백 경로
 
-Deployment is human-approved and surgical:
+배포는 사람의 승인을 받아 필요한 부분만 변경합니다.
 
-1. Confirm the exact account/tenant/subscription outside repository artifacts.
-2. Require a clean release worktree and full 40-hex SHA.
-3. Run local checks and offline Bicep builds. Review the narrowly scoped what-if.
-4. Build on the approved private runner; record canonical image digests.
-5. Deploy API first by digest, verify one active revision, health, connector status, and anonymous mutation denial.
-6. Deploy jobs second, verify one bounded ingestion and persisted health. Deploy web last only if needed.
-7. Keep writes false. Run auth edge validation, Release readiness, and sanitized release-evidence validation.
-8. Stop on any mismatch, stale/partial evidence, unexpected resource change, or extra active revision.
+1. 저장소 산출물 밖에서 정확한 계정·테넌트·구독을 확인합니다.
+2. 깨끗한 릴리스 작업 트리와 40자리 16진수 전체 SHA를 요구합니다.
+3. 로컬 검사와 오프라인 Bicep 빌드를 실행합니다. 범위가 좁게 제한된 what-if를 검토합니다.
+4. 승인된 프라이빗 실행기에서 빌드하고 정식 이미지 다이제스트를 기록합니다.
+5. 다이제스트로 API를 먼저 배포하고 활성 리비전이 하나인지, 상태와 커넥터 상태가 정상인지, 익명 변경 요청이 거부되는지 확인합니다.
+6. 작업 처리기를 두 번째로 배포하고 제한된 수집 1회와 영속화된 상태를 확인합니다. 웹은 필요한 경우에만 마지막으로 배포합니다.
+7. 쓰기를 false로 유지합니다. 인증 에지 검증, Release readiness, 민감정보를 제거한 릴리스 증거 검증을 실행합니다.
+8. 불일치, 오래된·부분 증거, 예상하지 못한 리소스 변경, 추가 활성 리비전이 하나라도 있으면 중단합니다.
 
-Rollback restores the previous reviewed API digest first, then jobs, then web if changed; restore the active Front Door mutation block first if a future approved rule exists, and keep writes false. Verify one active revision and the same smoke checks. Never retag images. See [deployment](deployment.md), [supply chain](supply-chain.md), and [runbooks](runbooks.md).
+롤백은 이전에 검토된 API 다이제스트를 먼저 복원하고 작업 처리기, 변경된 경우 웹 순서로 복원합니다. 향후 승인된 규칙이 존재하면 활성 Front Door의 변경 요청 차단을 먼저 복원하며 쓰기는 false로 유지합니다. 활성 리비전이 하나인지 확인하고 동일한 기본 동작 검사를 수행합니다. 이미지 태그를 다시 지정하지 않습니다. [배포](deployment.md), [공급망](supply-chain.md), [운영 절차서](runbooks.md)를 참고하십시오.
 
-## Operational tools
+<a id="operational-tools"></a>
+## 운영 도구
 
-### Release readiness
+<a id="release-readiness"></a>
+### 릴리스 준비도
 
-Use only after an approved deployment. `pnpm release-readiness:verify -- --url <https-url> ...` performs bounded documented `GET` requests, accepts expected SHAs/digests, emits sanitized JSON, and returns `0` ready, `3` partial, `1` blocked/unavailable/error, or `2` invalid arguments. Omit the token option only while auth is disabled. The web **Release readiness** page uses the same evaluator. Ready is evidence for human release review, not approval. `pnpm demo:verify` remains a compatibility alias. See RB-013 in [runbooks](runbooks.md).
+승인된 배포 이후에만 사용합니다. `pnpm release-readiness:verify -- --url <https-url> ...`는 문서화된 제한적 `GET` 요청을 수행하고 기대 SHA·다이제스트를 입력받아 민감정보를 제거한 JSON을 출력합니다. 반환 코드는 준비됨 `0`, 부분 `3`, 차단·사용 불가·오류 `1`, 잘못된 인수 `2`입니다. 인증이 비활성화되어 있을 때만 토큰 옵션을 생략합니다. 웹 **Release readiness** 페이지도 같은 평가기를 사용합니다. Ready는 사람의 릴리스 검토를 위한 증거이지 승인이 아닙니다. `pnpm demo:verify`는 호환 별칭으로 유지됩니다. [운영 절차서](runbooks.md)의 RB-013을 참고하십시오.
 
-### Auth preflight and bootstrap
+<a id="auth-preflight-and-bootstrap"></a>
+### 인증 사전 점검 및 초기 구성
 
-1. Copy the checked-in registration template to a secure untracked location.
-2. Run `pnpm auth:registration-bootstrap -- --input <path> --output <plan.json>`; review only, do not apply locally.
-3. After human registration approval, prepare the activation input and run `pnpm auth:preflight -- --input <path> --output <plan.json>`.
-4. The protected workflows are the only apply/deploy paths. Inputs and plans are environment-specific and must not be committed.
+1. 저장소의 등록 템플릿을 추적되지 않는 안전한 위치로 복사합니다.
+2. `pnpm auth:registration-bootstrap -- --input <path> --output <plan.json>`을 실행합니다. 검토만 하며 로컬에서 적용하지 않습니다.
+3. 사람이 등록을 승인한 뒤 활성화 입력을 준비하고 `pnpm auth:preflight -- --input <path> --output <plan.json>`을 실행합니다.
+4. 보호된 워크플로만이 적용·배포 경로입니다. 입력과 계획은 환경별 자료이므로 커밋하지 않습니다.
 
-See [security and authentication](security-authentication.md) and the auth section of [deployment](deployment.md).
+[보안 및 인증](security-authentication.md)과 [배포](deployment.md)의 인증 절을 참고하십시오.
 
-### Release evidence
+<a id="release-evidence"></a>
+### 릴리스 증거
 
-- Repository-only: `pnpm release-evidence:generate -- --output release-evidence/generated/<full-sha>.json`.
-- With owner-supplied sanitized observations: add `--input <sanitized-input.json>`.
-- Validate: `pnpm release-evidence:validate -- <manifest.json>` and `pnpm release-evidence:schema:check`.
+- 저장소만 사용: `pnpm release-evidence:generate -- --output release-evidence/generated/<full-sha>.json`.
+- 담당자가 제공한 민감정보 제거 관측을 사용: `--input <sanitized-input.json>` 추가.
+- 검증: `pnpm release-evidence:validate -- <manifest.json>` 및 `pnpm release-evidence:schema:check`.
 
-The generator is offline and does not run tests or contact providers. Unsupplied facts remain `unknown`, `planned`, or `not-run`. Generated/private evidence is ignored and must not be committed. See [release evidence](release-evidence.md).
+생성기는 오프라인으로 작동하며 테스트를 실행하거나 공급자에 접속하지 않습니다. 제공되지 않은 사실은 `unknown`, `planned`, `not-run`으로 남습니다. 생성된 증거나 비공개 증거는 버전 관리에서 제외되며 커밋해서는 안 됩니다. [릴리스 증거](release-evidence.md)를 참고하십시오.
 
-## Git workflow and clean-worktree expectations
+<a id="git-workflow-and-clean-worktree-expectations"></a>
+## Git 작업 흐름과 깨끗한 작업 트리 요구 사항
 
-- Branch from the canonical integration SHA, not stale `main`.
-- Keep one bounded concern per branch and commit. Rebase/merge only as directed by the owner.
-- Before editing, record `git status --short --branch`; preserve unrelated dirt byte-for-byte and unstaged.
-- Format only touched files when repository-wide baseline drift exists.
-- Before commit: inspect `git diff --stat`, `git diff --check`, every changed hunk, deleted-file references, and staged paths.
-- Stage explicit paths. Never use `git add -A` when unrelated dirt exists.
-- Commit generated plans/evidence only when the relevant specification explicitly requires a sanitized fixture.
-- Do not push. The parent/integration owner inspects and publishes.
+- 오래된 `main`이 아닌 기준 통합 SHA에서 브랜치를 만듭니다.
+- 브랜치와 커밋마다 범위가 한정된 주제 하나만 다룹니다. 담당자의 지시에 따라서만 리베이스·병합합니다.
+- 편집 전에 `git status --short --branch`를 기록합니다. 무관한 변경은 바이트 단위로 그대로 보존하고 스테이징하지 않습니다.
+- 저장소 전체 기준에 서식 차이가 있으면 변경한 파일만 서식을 정리합니다.
+- 커밋 전에 `git diff --stat`, `git diff --check`, 변경된 모든 부분, 삭제 파일 참조, 스테이징된 경로를 검사합니다.
+- 명시적 경로만 스테이징합니다. 무관한 변경이 있으면 `git add -A`를 사용하지 않습니다.
+- 해당 명세가 민감정보를 제거한 픽스처를 명시적으로 요구할 때만 생성된 계획·증거를 커밋합니다.
+- 푸시하지 않습니다. 상위 담당자 또는 통합 담당자가 검사하고 게시합니다.
 
-## Important files
+<a id="important-files"></a>
+## 주요 파일
 
-| File                                                                | Why it matters                                                 |
+| 파일 | 중요 이유 |
 | ------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `agent-sentinel-product-spec.md`                                    | Product requirements and immutable scope                       |
-| `docs/CONTEXT.md`                                                   | Shared domain vocabulary and evidence invariants               |
-| `docs/current-status.md`                                            | Authoritative dated operational ledger                         |
-| `docs/connector-availability.md`                                    | Connector implementation/live-state matrix                     |
-| `docs/known-issues.md`                                              | Named blockers and unblock conditions                          |
-| `docs/architecture.md`, `docs/data-model.md`                        | Runtime topology and contracts                                 |
-| `docs/development.md`, `docs/new-tenant-bootstrap.md`               | Local workflow and tenant-neutral ownership/bootstrap guidance |
-| `docs/security-authentication.md`                                   | Auth states, roles, and activation checklist                   |
-| `docs/deployment.md`, `docs/runbooks.md`, `docs/supply-chain.md`    | Deployment, operations, rollback, and image provenance         |
-| `docs/release-evidence.md`                                          | Sanitized release-evidence contract and CLI                    |
-| `infra/auth/*`                                                      | Strict registration/auth input schemas and templates           |
-| `.github/workflows/*auth*`, `.github/workflows/ci-build-deploy.yml` | Protected planning and deployment workflows                    |
+| `agent-sentinel-product-spec.md` | 제품 요구 사항과 불변 범위 |
+| `docs/CONTEXT.md` | 공통 도메인 용어 및 증거 불변 원칙 |
+| `docs/current-status.md` | 권위 있는 날짜별 운영 기록 |
+| `docs/connector-availability.md` | 커넥터 구현·실제 서비스 상태 표 |
+| `docs/known-issues.md` | 명명된 차단 요인과 해소 조건 |
+| `docs/architecture.md`, `docs/data-model.md` | 런타임 토폴로지와 계약 |
+| `docs/development.md`, `docs/new-tenant-bootstrap.md` | 로컬 작업 흐름과 특정 테넌트에 종속되지 않는 소유권·초기 구성 지침 |
+| `docs/security-authentication.md` | 인증 상태, 역할, 활성화 체크리스트 |
+| `docs/deployment.md`, `docs/runbooks.md`, `docs/supply-chain.md` | 배포, 운영, 롤백, 이미지 출처 정보 |
+| `docs/release-evidence.md` | 민감정보를 제거한 릴리스 증거 계약과 CLI |
+| `infra/auth/*` | 엄격한 등록·인증 입력 스키마와 템플릿 |
+| `.github/workflows/*auth*`, `.github/workflows/ci-build-deploy.yml` | 보호된 계획·배포 워크플로 |
 
-## Troubleshooting
+<a id="troubleshooting"></a>
+## 문제 해결
 
-- **`node_modules` missing / package entry cannot resolve:** use Node 22, run `pnpm install --offline --frozen-lockfile`, then `pnpm build` before isolated package tests that consume workspace `dist` exports.
-- **Private runner job is queued:** verify the approved runner VM is running, registered, online, and carries the exact replacement label. Do not substitute a public runner for private ACR/network work.
-- **Full what-if shows unrelated changes:** stop. Use the narrowly scoped template/workflow or reconcile drift through a separate reviewed task.
-- **Connector says ready but data is empty:** preserve valid-empty; do not describe coverage as complete.
-- **0 `RUNS_AS`:** inspect exact identity diagnostics. Missing provider IDs are expected; never add a name-based join.
-- **OTel remains insufficient:** verify raw request spans, exact attributes, unsampled rows, both time windows, sample counts, freshness, and workspace binding. Metrics alone do not qualify.
-- **Auth preflight blocks:** fix the input or approval evidence; do not relax schemas, use mutable tags, enable writes, or bypass the protected workflow.
-- **Release readiness is partial/blocked:** follow its categorized requirements. Never replace a missing live category with fixtures or treat ready as release approval.
-- **Prettier fails on untouched files:** record the baseline and run Prettier only on touched files; do not mix cleanup into the handoff change.
+- **`node_modules` 누락 또는 패키지 진입점 확인 실패:** Node 22를 사용해 `pnpm install --offline --frozen-lockfile`을 실행합니다. 작업 영역의 `dist` 내보내기를 사용하는 개별 패키지 테스트 전에 `pnpm build`를 실행합니다.
+- **프라이빗 실행기 작업이 대기열에 있음:** 승인된 실행기 VM이 실행·등록·온라인 상태이고 정확한 대체 레이블을 갖는지 확인합니다. 프라이빗 ACR·네트워크 작업에 퍼블릭 실행기를 대신 쓰지 않습니다.
+- **전체 what-if에서 무관한 변경이 나타남:** 중단합니다. 범위가 좁은 템플릿·워크플로를 사용하거나 별도 검토 작업으로 드리프트를 조정합니다.
+- **커넥터는 ready인데 데이터가 비어 있음:** 유효한 빈 결과를 보존하며 포괄 범위가 완전하다고 설명하지 않습니다.
+- **`RUNS_AS` 0개:** 정확한 신원 진단을 검사합니다. 공급자 ID 누락은 예상된 상태이며 이름 기반 조인을 추가하지 않습니다.
+- **OTel이 계속 부족함:** 원시 요청 스팬, 정확한 속성, 비샘플링 행, 두 기간, 샘플 수, 최신성, 작업 영역 결합을 확인합니다. 지표만으로는 적격하지 않습니다.
+- **인증 사전 점검이 차단함:** 입력이나 승인 증거를 수정합니다. 스키마 완화, 변경 가능한 태그 사용, 쓰기 활성화, 보호된 워크플로 우회를 하지 않습니다.
+- **Release readiness가 partial·blocked임:** 분류별 요구 사항을 따릅니다. 누락된 실제 서비스 범주를 픽스처로 대체하거나 ready를 릴리스 승인으로 간주하지 않습니다.
+- **변경하지 않은 파일에서 Prettier 실패:** 기준 상태를 기록하고 변경한 파일에만 Prettier를 실행합니다. 인수인계 변경에 무관한 정리를 섞지 않습니다.
 
-## Handoff checklist
+<a id="handoff-checklist"></a>
+## 인수인계 체크리스트
 
-- [ ] The reviewed integration base and working branch are recorded; this Wednesday handoff starts at `3c30327902f925078ebfe37c4414975b73e75561` on `work/wednesday-handoff-astra-r1`.
-- [ ] `docs/current-status.md` and connector state were read before planning.
-- [ ] Repository, deployed, and evidence versions are kept separate.
-- [ ] No live/cloud/private operation is assumed or performed by a coding task.
-- [ ] Exact evidence and identity boundaries are preserved.
-- [ ] Relevant local checks are recorded; doc-only changes use narrow checks, not full tests/builds.
-- [ ] Touched Markdown passes Prettier and relative-link validation.
-- [ ] Deleted/renamed document references are absent.
-- [ ] Worktree is clean except explicitly preserved unrelated dirt.
-- [ ] Remaining blockers, approvals, and required live validation are explicit.
+- [ ] 검토된 통합 기준점과 작업 브랜치를 기록했다. 이번 수요일 인수인계는 `work/wednesday-handoff-astra-r1`의 `3c30327902f925078ebfe37c4414975b73e75561`에서 시작한다.
+- [ ] 계획 전에 `docs/current-status.md`와 커넥터 상태를 읽었다.
+- [ ] 저장소 버전, 배포 버전, 증거 버전을 구분했다.
+- [ ] 코딩 작업에서 실제 서비스·클라우드·비공개 작업을 전제하거나 수행하지 않았다.
+- [ ] 정확한 증거 및 신원 경계를 보존했다.
+- [ ] 관련 로컬 검사를 기록했다. 문서 전용 변경에는 전체 테스트·빌드 대신 범위를 좁힌 검사를 사용했다.
+- [ ] 변경한 Markdown이 Prettier와 상대 링크 검증을 통과했다.
+- [ ] 삭제되거나 이름이 바뀐 문서에 대한 참조가 없다.
+- [ ] 명시적으로 보존한 무관한 변경 외에는 작업 트리가 깨끗하다.
+- [ ] 남은 차단 요인, 승인, 필요한 실제 서비스 검증을 명시했다.
