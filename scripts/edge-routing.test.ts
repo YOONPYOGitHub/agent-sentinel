@@ -122,8 +122,8 @@ describe('public edge routing safety', () => {
 
     expect(deployment).not.toContain('git rev-parse --short')
     expect(deployment).not.toContain('--public-network-enabled true')
-    expect(supplyChain).toContain('full 40-hex commit SHA')
-    expect(supplyChain).toContain('canonical SHA-256 digest')
+    expect(supplyChain).toContain('전체 40자리 16진수 커밋 SHA')
+    expect(supplyChain).toContain('정규 SHA-256 다이제스트')
     expect(supplyChain).not.toContain('<7-char-SHA>')
     expect(supplyChain).not.toContain('show-tags')
   })

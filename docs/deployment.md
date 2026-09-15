@@ -411,7 +411,9 @@ ID 활성화는 구성으로 제어합니다. 포털에서 Container Apps를 직
 Bicep 기본값과 저장소의 개발 매개변수는 `authMode = 'disabled'`와
 `agentSentinelWriteEnabled = false`로 실패 시 차단 상태를 유지합니다.
 과거 이전 테넌트 배포는 JWT 값을 사용했지만 대체 배포는 여전히 인증이 비활성화되어 있고
-대체 API/SPA 등록은 아직 존재하지 않습니다.
+대체 API/SPA 등록과 service principal은 생성되어 있습니다.
+기존 등록을 재생성하지 말고 승인된 계획과 대조한 뒤 관리자 동의·역할 할당·JWT 활성화를 별도로 완료합니다.
+현재 상태와 미배포 변경은 [현재 상태](current-status.md)를 참고합니다.
 향후 활성화에는 다음 승인된 입력을 포함한 등록 부트스트랩과 런타임 리비전 검토가 필요합니다.
 
 - `authTenantId`, `authAudience`, 선택적 명시적 `authIssuer` / `authJwksUri`

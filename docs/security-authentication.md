@@ -12,7 +12,9 @@ API JWT 검증기, 4개 역할의 RBAC, SPA MSAL 통합, 리디렉션 브리지,
 이 구현 상태가 배포 상태를 의미하지는 않습니다.
 
 증거로 확인된 마지막 대체 배포는 `AUTH_MODE=disabled`와
-`AGENT_SENTINEL_WRITE_ENABLED=false`를 사용합니다. 대체 API 및 SPA 앱 등록은 아직 존재하지 않습니다.
+`AGENT_SENTINEL_WRITE_ENABLED=false`를 사용합니다. 대체 API 및 SPA 앱 등록과 service principal은
+생성되어 있지만, 관리자 동의·사용자 역할 할당·실제 로그인 활성화는 미완료입니다.
+현재 배포와 저장소에만 있는 변경은 [현재 상태](current-status.md)를 기준으로 구분합니다.
 과거의 읽기 전용 직원 JWT 검증과 이전 테넌트 등록은 대체 환경의 인증을 입증하지 않습니다.
 
 활성 공개 엣지는 Azure Front Door입니다. 현재 WAF 정책에는 관리형 규칙이 있지만

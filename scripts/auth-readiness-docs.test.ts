@@ -57,10 +57,10 @@ describe('authentication readiness documentation', () => {
     const handoff = rootFile('docs/maintainer-handoff.md')
     const production = section(rootFile('README.md'), 'production-readiness', 'quick-start')
 
-    expect(security).toMatch(/registration[s]? created through the approved bootstrap plan/i)
-    expect(security).toMatch(/all four roles/i)
+    expect(security).toMatch(/승인된 부트스트랩 계획[^\n]*API[^\n]*SPA[^\n]*등록/)
+    expect(security).toMatch(/4개 역할 모두/)
     expect(handoff).toMatch(/Viewer[\s\S]*Analyst[\s\S]*Approver[\s\S]*Administrator/)
-    expect(knownIssues).toMatch(/reviewed image digests/i)
+    expect(knownIssues).toMatch(/검토된 이미지 다이제스트/)
     expect(handoff).toMatch(/사람[^\n]{0,180}승인/)
     expect(production).toContain('`Viewer`·`Analyst`·`Approver`·`Administrator`')
     expect(production).toMatch(/전체 SHA[^|\n]*다이제스트/)
