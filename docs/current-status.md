@@ -6,18 +6,18 @@ This is the authoritative dated ledger for the Agent Sentinel control plane. It 
 
 ## Release boundary
 
-| Boundary       | Current truth                                                                                                                                                                             |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Boundary       | Current truth                                                                                                                                                                                   |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Repository     | Wednesday handoff branch `work/wednesday-handoff-astra-r1` starts at `3c30327902f925078ebfe37c4414975b73e75561`; this base is not deployed. The final PR must record its own reviewed full SHA. |
-| Deployed code  | `7c1336bc7985ea7e383c335d631b7c705fffb97c` is the verified deployed integration SHA, not the current repository head. |
-| Live URL       | The reference deployment is reachable at `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`. This URL identifies the current reference environment, not a portable tenant default. |
-| Web            | Revision `web-as-m098047--p07c1336bc`; digest `sha256:7dca740d6d7161fc57a14a0cc79a8488e25a12cf2c0ea37f8cd677188c13e267`.                                                                  |
-| API            | Revision `api-as-m098047--p07c1336bc`; digest `sha256:b43991c120161b73737d492847bd2c3e8dbb6fe33408e4ac49fac6fa01de13a7`.                                                                  |
-| Jobs           | Revision `jobs-as-m098047--p07c1336bc`; digest `sha256:7918fa5fc0f207e11cc7b22c0a340cb40926369265c622085bab27bddf132ecc`.                                                                 |
-| Authentication | Replacement API/SPA registrations and service principals exist. `AUTH_MODE=disabled`; admin consent, user role assignment, and live JWT validation remain incomplete.                     |
-| Writes         | `AGENT_SENTINEL_WRITE_ENABLED=false`. Remediation and manifest ingestion are not live capabilities.                                                                                       |
-| Edge           | Front Door is the active HTTPS edge. Its WAF has no evidenced custom mutation rule. The mutation rule on the stopped Application Gateway does not protect Front Door.                     |
-| Estate         | One reference Foundry source contains six synthetic validation agents and no production customer agents.                                                                                  |
+| Deployed code  | `7c1336bc7985ea7e383c335d631b7c705fffb97c` is the verified deployed integration SHA, not the current repository head.                                                                           |
+| Live URL       | The reference deployment is reachable at `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`. This URL identifies the current reference environment, not a portable tenant default.       |
+| Web            | Revision `web-as-m098047--p07c1336bc`; digest `sha256:7dca740d6d7161fc57a14a0cc79a8488e25a12cf2c0ea37f8cd677188c13e267`.                                                                        |
+| API            | Revision `api-as-m098047--p07c1336bc`; digest `sha256:b43991c120161b73737d492847bd2c3e8dbb6fe33408e4ac49fac6fa01de13a7`.                                                                        |
+| Jobs           | Revision `jobs-as-m098047--p07c1336bc`; digest `sha256:7918fa5fc0f207e11cc7b22c0a340cb40926369265c622085bab27bddf132ecc`.                                                                       |
+| Authentication | Replacement API/SPA registrations and service principals exist. `AUTH_MODE=disabled`; admin consent, user role assignment, and live JWT validation remain incomplete.                           |
+| Writes         | `AGENT_SENTINEL_WRITE_ENABLED=false`. Remediation and manifest ingestion are not live capabilities.                                                                                             |
+| Edge           | Front Door is the active HTTPS edge. Its WAF has no evidenced custom mutation rule. The mutation rule on the stopped Application Gateway does not protect Front Door.                           |
+| Estate         | One reference Foundry source contains six synthetic validation agents and no production customer agents.                                                                                        |
 
 A Git commit or image publication alone does not prove deployment. The immutable values above are the verified runtime boundary for this status date.
 
@@ -26,13 +26,13 @@ A Git commit or image publication alone does not prove deployment. The immutable
 배포 코드 `7c1336bc7985ea7e383c335d631b7c705fffb97c` 이후 handoff base까지의 차이입니다.
 문서 변경이나 Git merge는 Azure revision을 갱신하지 않습니다.
 
-| Git commit | 저장소 변경 | Azure 경계 |
-| --- | --- | --- |
-| `c63cded7788534c8109021a8b4b21bbbde37f081` | `7c1336bc` catalog UX 배포 사실을 문서화 | 별도 배포가 아닌 기록 |
-| `614b39424880abefb3cf7e48b9f456b1a5172833` | Foundry instance identity 지원 | 미배포; 현재 exact `RUNS_AS` 0을 해소한 증거가 아님 |
-| `b0dce4d1854d13ba01f86ccc041b77f01a7f2e78` | External runtime instrumentation SDK | 미배포; qualifying live telemetry 발생 증거가 아님 |
-| `06ed453a43884e197e5b31ee37b8cb96a8046f71` | 격리된 Foundry identity pilot 계획·도구 | 미배포; 신규 pilot 승인·생성 없음 |
-| `3c30327902f925078ebfe37c4414975b73e75561` | SDK image packaging 및 readiness timing 수정 | 미배포; handoff 작업의 Git base |
+| Git commit                                 | 저장소 변경                                  | Azure 경계                                          |
+| ------------------------------------------ | -------------------------------------------- | --------------------------------------------------- |
+| `c63cded7788534c8109021a8b4b21bbbde37f081` | `7c1336bc` catalog UX 배포 사실을 문서화     | 별도 배포가 아닌 기록                               |
+| `614b39424880abefb3cf7e48b9f456b1a5172833` | Foundry instance identity 지원               | 미배포; 현재 exact `RUNS_AS` 0을 해소한 증거가 아님 |
+| `b0dce4d1854d13ba01f86ccc041b77f01a7f2e78` | External runtime instrumentation SDK         | 미배포; qualifying live telemetry 발생 증거가 아님  |
+| `06ed453a43884e197e5b31ee37b8cb96a8046f71` | 격리된 Foundry identity pilot 계획·도구      | 미배포; 신규 pilot 승인·생성 없음                   |
+| `3c30327902f925078ebfe37c4414975b73e75561` | SDK image packaging 및 readiness timing 수정 | 미배포; handoff 작업의 Git base                     |
 
 Auth scaffolding/activation hardening과 release-review v2 **도구는 이미 `7c1336bc` 배포 코드에
 포함**되어 있습니다. JWT 활성화·consent/roles 완료·실제 reviewer 승인과는 별개입니다.
@@ -52,16 +52,16 @@ Catalog → synthetic Foundry 한 레코드 → Exposure evidence → Lifecycle/
 
 ## Current implementation and live state
 
-| Area                        | Repository state                                                                                                 | Deployed/evidence state                                                                                                                                                                               |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Web, API, jobs              | TypeScript monorepo with persisted live read models                                                              | Web, API, and jobs are live behind Front Door at the same verified full SHA and immutable digests listed above.                                                                                       |
-| Evidence graph and policies | Deterministic graph and `AS-POL-001..003` exposure evaluation are implemented                                    | Live findings use jobs-persisted snapshots; attack-path legacy fixtures remain mock-only.                                                                                                             |
-| Governance                  | Durable cases, guarded transitions, exceptions, and audit evidence are implemented                               | Public mutation remains blocked; remediation is simulation-only.                                                                                                                                      |
-| Multi-estate isolation      | Estate context, partitioning, source scoping, and mismatch rejection are implemented                             | Only the reference replacement estate is evidenced live.                                                                                                                                              |
-| Connector source plane      | Strict non-secret schemas, ETags, idempotency, immutable audit, and deployment-source protection are implemented | The reference environment's `connector-sources` container and deployment-managed source bindings are provisioned and in use. New tenants must create their own isolated container and source records. |
-| Authentication              | JWT validation, MSAL, four roles, preflight, registration bootstrap, and protected workflows are implemented     | Replacement registrations are created, but admin consent and the test-principal role assignment are blocked on an active Entra application-administrator role; JWT remains disabled.                  |
+| Area                        | Repository state                                                                                                 | Deployed/evidence state                                                                                                                                                                                           |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web, API, jobs              | TypeScript monorepo with persisted live read models                                                              | Web, API, and jobs are live behind Front Door at the same verified full SHA and immutable digests listed above.                                                                                                   |
+| Evidence graph and policies | Deterministic graph and `AS-POL-001..003` exposure evaluation are implemented                                    | Live findings use jobs-persisted snapshots; attack-path legacy fixtures remain mock-only.                                                                                                                         |
+| Governance                  | Durable cases, guarded transitions, exceptions, and audit evidence are implemented                               | Public mutation remains blocked; remediation is simulation-only.                                                                                                                                                  |
+| Multi-estate isolation      | Estate context, partitioning, source scoping, and mismatch rejection are implemented                             | Only the reference replacement estate is evidenced live.                                                                                                                                                          |
+| Connector source plane      | Strict non-secret schemas, ETags, idempotency, immutable audit, and deployment-source protection are implemented | The reference environment's `connector-sources` container and deployment-managed source bindings are provisioned and in use. New tenants must create their own isolated container and source records.             |
+| Authentication              | JWT validation, MSAL, four roles, preflight, registration bootstrap, and protected workflows are implemented     | Replacement registrations are created, but admin consent and the test-principal role assignment are blocked on an active Entra application-administrator role; JWT remains disabled.                              |
 | Release evidence            | Versioned offline generator, schema, validator, and deterministic release-review v2 are implemented              | Tooling is included in the `7c1336bc` deployed code baseline but runs offline; this does not attest review execution. Human Security, Accessibility, OneRAI, and release decisions remain pending external gates. |
-| Release readiness           | Shared operational evaluator, CLI, and web page are implemented                                                  | **Partial:** Agent 365 is ready; `RUNS_AS` has 0 edges; OTel has 0 qualifying live records; authentication is disabled; writes are false. Ready is evidence for review, not release approval.         |
+| Release readiness           | Shared operational evaluator, CLI, and web page are implemented                                                  | **Partial:** Agent 365 is ready; `RUNS_AS` has 0 edges; OTel has 0 qualifying live records; authentication is disabled; writes are false. Ready is evidence for review, not release approval.                     |
 
 ## Connector ledger
 
@@ -101,19 +101,19 @@ Detailed state definitions and limits are in [connector availability](connector-
 
 ## Active blockers
 
-| Blocker                   | Current fact                                                                     | Required unblock                                                                                                                 |
-| ------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Blocker                   | Current fact                                                                                                             | Required unblock                                                                                                                                                               |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Replacement auth          | API/SPA registrations and service principals exist; admin consent/role assignments remain incomplete and JWT is disabled | Human review of existing registrations, least-privilege consent/assignments, then protected read-only activation and live role validation; no duplicate registration creation. |
-| Front Door writes         | Active WAF has no evidenced custom mutation rule                                 | Separately review, deploy, and rediscover an exact mutation rule after read-only JWT validation; writes stay false.              |
-| Repository/deployment gap | Identity support, runtime SDK, pilot tooling, and packaging/timing changes through `3c303279` are not deployed | Keep the demonstrated Azure baseline separate; any later rollout requires approved full-SHA images, digests, surgical deployment, and fresh sanitized evidence. |
-| `RUNS_AS`                 | Six Foundry agents expose no exact object/app/client/Agent Identity IDs          | Source supplies an exact authoritative identifier; no fuzzy fallback is permitted.                                               |
-| OTel                      | 0 qualifying live records                                                        | Produce approved non-customer, complete, fresh, unsampled baseline and observed spans with exact provenance and measured fields. |
-| Private deployment        | Runner availability and deployment RBAC require operator verification            | Human starts/verifies the runner and approves the exact role/deployment scope.                                                   |
-| Platform drift            | The historical full what-if showed 54 unrelated modifications                    | Do not run full Bicep; reconcile drift separately or use only a reviewed surgical workflow.                                      |
-| Manifest v2 cutover       | Compatibility container remains authoritative                                    | Human validates the copy and cutover plan before changing the active container.                                                  |
-| Power Platform            | No supported unattended inventory authorization                                  | Wait for a production-supported app-only permission with enforceable scope.                                                      |
-| Business value            | No authoritative outcome source or measured customer savings | Configure a read-only exact-correlated outcome source before claiming business outcomes; optional internal task timing is not customer ROI. |
-| OneRAI                    | Product and legal/compliance onboarding is incomplete                            | Human owners complete the authoritative review path.                                                                             |
+| Front Door writes         | Active WAF has no evidenced custom mutation rule                                                                         | Separately review, deploy, and rediscover an exact mutation rule after read-only JWT validation; writes stay false.                                                            |
+| Repository/deployment gap | Identity support, runtime SDK, pilot tooling, and packaging/timing changes through `3c303279` are not deployed           | Keep the demonstrated Azure baseline separate; any later rollout requires approved full-SHA images, digests, surgical deployment, and fresh sanitized evidence.                |
+| `RUNS_AS`                 | Six Foundry agents expose no exact object/app/client/Agent Identity IDs                                                  | Source supplies an exact authoritative identifier; no fuzzy fallback is permitted.                                                                                             |
+| OTel                      | 0 qualifying live records                                                                                                | Produce approved non-customer, complete, fresh, unsampled baseline and observed spans with exact provenance and measured fields.                                               |
+| Private deployment        | Runner availability and deployment RBAC require operator verification                                                    | Human starts/verifies the runner and approves the exact role/deployment scope.                                                                                                 |
+| Platform drift            | The historical full what-if showed 54 unrelated modifications                                                            | Do not run full Bicep; reconcile drift separately or use only a reviewed surgical workflow.                                                                                    |
+| Manifest v2 cutover       | Compatibility container remains authoritative                                                                            | Human validates the copy and cutover plan before changing the active container.                                                                                                |
+| Power Platform            | No supported unattended inventory authorization                                                                          | Wait for a production-supported app-only permission with enforceable scope.                                                                                                    |
+| Business value            | No authoritative outcome source or measured customer savings                                                             | Configure a read-only exact-correlated outcome source before claiming business outcomes; optional internal task timing is not customer ROI.                                    |
+| OneRAI                    | Product and legal/compliance onboarding is incomplete                                                                    | Human owners complete the authoritative review path.                                                                                                                           |
 
 Agent 365 package-catalog connector deployment and the reference `connector-sources` provisioning are complete; they are not active blockers. This does not establish agent runtime execution.
 
