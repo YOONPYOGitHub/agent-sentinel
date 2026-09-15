@@ -105,3 +105,31 @@ describe('replacement-tenant CI foundation parameters', () => {
     expect(parameters).not.toMatch(/subscription|tenant|clientId|token|secret/i)
   })
 })
+
+describe('runtime instrumentation container dependency', () => {
+  it.each(['api', 'jobs'])('ships the complete SDK dependency in the %s image', (component) => {
+    const containerfile = rootFile(`apps/${component}/Containerfile`)
+    const runtimeStart = containerfile.indexOf('FROM node:22-slim AS runtime')
+    expect(runtimeStart).toBeGreaterThan(0)
+    const builder = containerfile.slice(0, runtimeStart)
+    const runtime = containerfile.slice(runtimeStart)
+    const manifestCopy =
+      'COPY packages/runtime-instrumentation/package.json packages/runtime-instrumentation/'
+    expect(builder).toContain(manifestCopy)
+    expect(builder.indexOf(manifestCopy)).toBeLessThan(
+      builder.indexOf('RUN pnpm install --frozen-lockfile'),
+    )
+    const sdkBuild = 'RUN pnpm --filter @agent-sentinel/runtime-instrumentation build'
+    expect(builder).toContain(sdkBuild)
+    expect(builder.indexOf(sdkBuild)).toBeLessThan(
+      builder.indexOf('RUN pnpm --filter @agent-sentinel/azure-monitor-otel-connector build'),
+    )
+    for (const artifact of ['dist', 'package.json', 'contract']) {
+      const source = `/workspace/packages/runtime-instrumentation/${artifact}`
+      expect(runtime).toContain(`COPY --from=builder ${source} `)
+      expect(runtime.indexOf(source)).toBeLessThan(
+        runtime.indexOf('RUN pnpm install --frozen-lockfile --prod'),
+      )
+    }
+  })
+})

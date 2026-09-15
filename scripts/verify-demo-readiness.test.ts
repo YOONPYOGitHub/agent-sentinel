@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   parseVerifyDemoArgs,
@@ -16,6 +16,7 @@ const directory = dirname(fileURLToPath(import.meta.url))
 const servers: Array<ReturnType<typeof createServer>> = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   delete process.env['VERIFIER_TEST_TOKEN']
   await Promise.all(
     servers.splice(0).map(
@@ -167,6 +168,33 @@ describe('release readiness verifier CLI', () => {
     expect(report.overall).toBe('unavailable')
     expect(report.requests.every((item) => item.outcome === 'response-too-large')).toBe(true)
   })
+
+  it.each(['http-response', 'network-error'] as const)(
+    'keeps %s durations non-negative when the wall clock moves backward',
+    async (outcome) => {
+      const dateNow = vi.spyOn(Date, 'now')
+      for (let index = 0; index < 7; index += 1) dateNow.mockReturnValueOnce(10_000)
+      dateNow.mockReturnValue(1)
+
+      const report = await verifyDemoReadiness(
+        {
+          baseUrl: 'https://example.test',
+          timeoutMs: 1000,
+          maxResponseBytes: 1024,
+          expected: {},
+        },
+        () =>
+          outcome === 'http-response'
+            ? Promise.resolve(new Response('{}', { status: 503 }))
+            : Promise.reject(new Error('Network unavailable.')),
+      )
+
+      expect(report.requests).toHaveLength(7)
+      expect(
+        report.requests.every((item) => Number.isInteger(item.durationMs) && item.durationMs >= 0),
+      ).toBe(true)
+    },
+  )
 
   it('runs end-to-end against fixture GET endpoints and emits sanitized JSON', async () => {
     const baseUrl = await fixtureServer()

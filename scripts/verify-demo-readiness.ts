@@ -267,7 +267,7 @@ async function request(
   fetchImplementation: FetchImplementation,
   observations: RequestObservation[],
 ): Promise<{ readonly response: Response; readonly body: Uint8Array } | undefined> {
-  const startedAt = Date.now()
+  const startedAt = performance.now()
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), args.timeoutMs)
   try {
@@ -296,7 +296,7 @@ async function request(
     observations.push({
       path,
       status: response.status,
-      durationMs: Date.now() - startedAt,
+      durationMs: Math.round(performance.now() - startedAt),
       bytes: body.byteLength,
       outcome: response.ok ? 'ok' : 'http-error',
     })
@@ -311,7 +311,7 @@ async function request(
     observations.push({
       path,
       status: null,
-      durationMs: Date.now() - startedAt,
+      durationMs: Math.round(performance.now() - startedAt),
       bytes: 0,
       outcome,
       message: error instanceof Error ? error.message : 'Request failed.',
