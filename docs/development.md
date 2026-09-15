@@ -6,19 +6,22 @@
 
 ## 기준 개발 환경
 
-기준 소스는 `~/project/agent-sentinel`의 WSL 저장소입니다.
+개발은 승인된 브랜치를 체크아웃한 WSL Linux 파일시스템의 저장소 또는 worktree에서 수행합니다.
 GitHub를 공동 작업의 기준으로 사용합니다. OneDrive로 동기화되는 복제본에서는
 종속성을 설치하거나 개발하지 마세요.
 
 요구사항:
 
-- Node.js 22
-- pnpm 10
+- Node.js 22 이상(`package.json`의 `engines`); 이번 문서 대조 환경은 22.23.2
+- pnpm 10.15.1(`packageManager`에 고정)
 - 인프라 검증용 Azure CLI 및 Bicep
 
-오프라인에서는 WSL의 기존 package store를 사용해 설치합니다.
+WSL의 Node/pnpm 경로를 먼저 확인합니다. Windows 실행 파일이나 다른 Node 버전이
+PATH에서 먼저 선택되지 않아야 합니다. 의존성이 캐시된 환경에서만 오프라인 설치가 가능합니다.
 
 ```bash
+node --version
+pnpm --version
 pnpm install --offline --frozen-lockfile
 ```
 
@@ -28,10 +31,16 @@ pnpm install --offline --frozen-lockfile
 
 ```bash
 pnpm lint
+pnpm typecheck
 pnpm test
+pnpm build
 pnpm test:e2e
-pnpm --filter @agent-sentinel/web build
 ```
+
+단일 앱 빌드에도 workspace 의존성의 `dist`가 필요합니다.
+깨끗한 체크아웃에서는 `pnpm build`로 의존성 순서를 처리하거나
+`pnpm -r --filter @agent-sentinel/web... build`로 web과 그 의존성을 함께 빌드합니다.
+이 명령 목록은 실행 지침이며 현재 후보 전체의 통과 기록이 아닙니다.
 
 실제 Foundry 검증은 명시적으로 의도한 경우에만 실행합니다.
 
@@ -100,20 +109,24 @@ CI를 위해 기본 출력은 JSON입니다. 작성자용 설명은 `--format te
 ## Azure Monitor OpenTelemetry 런타임 커넥터
 
 `@agent-sentinel/azure-monitor-otel-connector`는 쿼리 전용입니다.
-고정된 Azure Monitor Logs 엔드포인트와 `AppRequests` 테이블에 범위가 제한된 쿼리
-하나를 보내고, 반환된 행을 기준 및 관측 `ObservationWindow` 개체에 엄격하게 매핑합니다.
+고정된 Azure Monitor Logs 엔드포인트와 `AppRequests` 테이블에 범위가 제한된 쿼리와
+제한된 후속 페이지 요청을 보내고, 반환된 행을 기준 및 관측 `ObservationWindow` 개체에 엄격하게 매핑합니다.
 리소스를 만들거나, 원격 분석을 수집하거나, 로컬 데이터로 대체하지 않습니다.
 
 실제 데이터 활성화에는 `AGENT_SENTINEL_DATA_MODE=live`와 검증된 소스 하나 이상이 필요합니다.
 `AZURE_MONITOR_SOURCES_JSON`으로 소스를 구성하거나 다음 레거시 단일 소스 변수를 사용합니다.
 
 - `AZURE_MONITOR_WORKSPACE_ID`
-- `AZURE_MONITOR_TENANT_ID`(API 테넌트 바인딩과 일치해야 함)
+- `AZURE_MONITOR_PROVIDER_RESOURCE_ID`(정확한 Application Insights ARM 리소스 ID)
+- `AZURE_MONITOR_APPLICATION_ROLE_NAME`(외부 런타임의 정확한 `service.name`)
+- `AZURE_MONITOR_TENANT_ID`(권위 있는 소스 테넌트 바인딩)
 - `AZURE_MONITOR_ENVIRONMENT`
 - `FOUNDRY_PROJECT_ENDPOINT`(마지막 경로 세그먼트가 정확한 소스 프로젝트 ID를 제공함)
 
-각 `AZURE_MONITOR_SOURCES_JSON` 항목에는 해당 소스의 권위 있는 Foundry 에이전트
-메타데이터와 일치하는 `sourceProjectId`가 포함되어야 합니다.
+각 `AZURE_MONITOR_SOURCES_JSON` 항목에는 `id`, `name`, `workspaceId`,
+`providerResourceId`, `applicationRoleName`, `tenantId`, `environment`와
+권위 있는 Foundry 메타데이터에 일치하는 `sourceProjectId`가 필요합니다.
+`requestName`은 생략하면 `agent.invoke`이며 다른 값은 허용하지 않습니다.
 Foundry 구성은 앞뒤 공백을 제거한 최대 200자 프로젝트 ID 스키마를
 커넥터 소스 API/도메인 엔드포인트 입력, 레거시 환경 입력, JSON 포트폴리오 파싱,
 커넥터 생성에 동일하게 적용합니다. 엔드포인트의 마지막 세그먼트가 너무 길면
@@ -127,15 +140,19 @@ Foundry 구성은 앞뒤 공백을 제거한 최대 200자 프로젝트 ID 스�
 실제 데이터 모드에서는 검증된 JSON 소스 또는 완전한 레거시 튜플을 투영하고,
 모의 모드에서는 Azure Monitor 구성을 파싱하거나 투영하지 않습니다.
 투영된 레코드는 읽기 전용 및 `not-tested` 상태를 유지하며, 투영은 준비 완료의 증거가 아닙니다.
-실제 데이터 모드에서 레거시 튜플의 필드 하나라도 구성하면 세 필드가 모두 필요합니다.
+실제 데이터 모드에서 위 `AZURE_MONITOR_*` 필수 필드 5개 중 하나라도 구성하면
+5개 모두와 별도의 `FOUNDRY_PROJECT_ENDPOINT`가 필요합니다.
 불완전한 튜플은 비활성 커넥터가 아니라 구성 오류입니다.
-세 필드를 모두 비워 두면 커넥터는 비활성 상태를 유지합니다.
+필수 필드 5개를 모두 비워 두면 커넥터는 비활성 상태를 유지합니다.
 비어 있지 않은 소스 JSON이 레거시 튜플보다 우선합니다.
 
 선택적 제한값은 `AZURE_MONITOR_BASELINE_WINDOW_HOURS`(기본값 168),
 `AZURE_MONITOR_OBSERVED_WINDOW_HOURS`(기본값 24),
-`AZURE_MONITOR_REQUEST_TIMEOUT_MS`(기본값 15000)입니다. 인증에는
-`DefaultAzureCredential`을 사용합니다. 대상 workspace에는 Azure Monitor Logs 쿼리 data action
+`AZURE_MONITOR_MAXIMUM_FRESHNESS_HOURS`(기본값 168),
+`AZURE_MONITOR_REQUEST_TIMEOUT_MS`(기본값 15000),
+`AZURE_MONITOR_MAX_RESPONSE_BYTES`(기본값 4194304)입니다. 기본 인증은
+`DefaultAzureCredential`이며 JSON 소스는 명시적 managed identity 또는 승인된
+`federated-app` 자격 증명도 지원합니다. 대상 workspace에는 Azure Monitor Logs 쿼리 data action
 (`Microsoft.OperationalInsights/workspaces/query/read`, 일반적으로 Log Analytics Reader를 통해 부여)만
 허용합니다. 공유 키는 허용하지 않습니다.
 시간 구간과 관측의 최신성은 신뢰할 수 있는 공급자의 `queriedAt` 타임스탬프와
@@ -235,6 +252,18 @@ Token Economics는 측정된 관측 중 에이전트 실행 또는 상관관계 
 pnpm --filter @agent-sentinel/azure-monitor-otel-connector test
 ```
 
+SDK 의존 경로는 API/jobs → `@agent-sentinel/azure-monitor-otel-connector` →
+`@agent-sentinel/runtime-instrumentation`입니다. 커넥터는 SDK의 호출 계약 상수를 가져옵니다.
+현재 API/jobs Containerfile은 SDK를 의존성보다 먼저 빌드하고 런타임 이미지에
+`dist`, `package.json`, `contract`를 복사합니다. 이 패키징 변경은 `7c1336bc` 배포 이후의 저장소 변경입니다.
+
+API/jobs의 `telemetry.ts`는 `APPLICATIONINSIGHTS_CONNECTION_STRING`이 있을 때
+Azure Monitor exporter를 초기화할 뿐, 검색된 Foundry 에이전트를 호출하거나
+`agent.invoke` 증거를 자동 생성하지 않습니다. API의 선택적 Azure OpenAI 자문 모델 호출도
+검색된 에이전트의 실행 증거와 다릅니다. 외부 실행 애플리케이션의 명시적 SDK 채택과
+정확한 호출 바인딩이 별도로 필요합니다. 2026-09-15 기준 적격 에이전트 0,
+쿼리 대상 0, 실제 런타임 증거 0이며, SDK 존재·이미지 빌드·일반 HTTP 로그는 이를 대체하지 않습니다.
+
 <a id="shared-ui-and-storybook"></a>
 
 ## 공통 UI와 Storybook
@@ -272,7 +301,8 @@ Storybook은 스토리에 프로덕션 Fluent 어두운 테마를 적용합니�
 - 실제 커넥터가 실패했을 때 모의 성공으로 대체하지 않습니다.
 - 전체 커밋 빌드 태그와 검증된 다이제스트 기반 배포 참조를 사용합니다.
 
-프라이빗 CI runner는 할당 해제되어 있을 수 있습니다.
-대기 중인 jobs를 실행하려면 먼저 runner를 시작합니다.
-runner의 managed identity는 의도적으로 이미지 푸시 권한으로 제한되어 있으며,
-플랫폼 배포는 별도의 권한이 필요한 작업으로 유지됩니다.
+2026-09-15 기준 `rg-agent-sentinel-m098047`에는 VM이 없으며 프라이빗 CI runner는 미프로비전입니다.
+VM 시작만으로 해결할 수 없습니다. IaC의 runner managed identity 권한은 ACR 범위의
+`AcrPush`이며, 프로비전·등록·what-if·배포에는 각각 별도 승인이 필요합니다.
+승인된 일회성 로컬 이미지 빌드와 이 CI 경로를 구분합니다.
+[공급망 정책](supply-chain.md#private-build-path)을 참조하세요.

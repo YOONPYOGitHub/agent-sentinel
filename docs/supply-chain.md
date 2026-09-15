@@ -44,10 +44,25 @@ Bicep은 `<private-acr>/<repository>@sha256:<digest>` 형식으로
 
 ## 프라이빗 빌드 경로
 
-이미지는 선택한 Agent Sentinel VNet 내부에서 자체 호스팅 GitHub Actions runner를 사용해 빌드해야 합니다.
+지속적인 CI의 설계 경로는 선택한 Agent Sentinel VNet 내부의 자체 호스팅 GitHub Actions runner입니다.
 Microsoft 호스팅 runner는 `publicNetworkAccess`가 `Disabled`인 대상 ACR에 접근할 수 없습니다.
-대체 환경 검증에 승인된 경로는 레지스트리의 private endpoint와 private DNS 링크를 통해
+대체 환경의 목표 경로는 레지스트리의 private endpoint와 private DNS 링크를 통해
 `vnet-as-m098047/build`에서 `acrm098047`로 연결하는 경로입니다.
+
+2026-09-15 기준 `rg-agent-sentinel-m098047`에는 VM이 없고 runner는 미프로비전입니다.
+매개변수 파일이나 워크플로의 존재를 실행 가능한 runner 또는 CI 통과의 증거로 취급하지 않습니다.
+현재 ACR은 `publicNetworkAccess=Disabled`, `defaultAction=Deny`, IP 허용 규칙 0개입니다.
+
+별도 승인된 일회성 로컬 이미지 빌드는 프라이빗 CI 실행과 다른 출처입니다.
+그 경우 정확한 SHA, 작업 트리 상태, Containerfile, 빌드·가져오기 검사 결과,
+승인된 네트워크/푸시 경로, 이미지 다이제스트와 배포 관측을 구분해 기록합니다.
+과거의 일회성 승인은 신규 빌드·푸시·배포 또는 ACR 공개 접근/IP 허용 승인이 아닙니다.
+현재 문서 갱신에는 새 승인이 없으며, 사설 연결이 없으면 게시를 차단합니다.
+로컬 빌드만으로 현재 이미지가 승인된 runner에서 생성되었다고 보고하지 않습니다.
+
+API/jobs는 Azure Monitor 커넥터를 통해 `@agent-sentinel/runtime-instrumentation`에 의존합니다.
+현재 두 Containerfile은 SDK를 빌드하고 `dist`, `package.json`, `contract`를 런타임에 포함합니다.
+이 패키징은 배포된 `7c1336bc` 이후의 변경이며, SDK 포함 자체는 외부 에이전트의 SDK 채택이나 호출 증거가 아닙니다.
 
 <a id="build-workflow"></a>
 
@@ -81,8 +96,8 @@ Microsoft 호스팅 runner는 `publicNetworkAccess`가 `Disabled`인 대상 ACR�
 
 ### 승인이 필요한 해커톤 롤아웃
 
-1. 변경 범위를 한정한 `connector-sources` what-if를 승인하고,
-   해당 기존 계정/데이터베이스의 하위 컨테이너만 생성합니다.
+1. 현재 `connector-sources`는 이미 프로비전되어 사용 중이므로 재생성하지 않습니다.
+   필요한 변경에만 범위를 한정한 what-if를 검토합니다. 새 환경의 생성도 별도 승인이 필요합니다.
 2. ACR 범위의 `AcrPush` 할당을 포함한 대상 runner 기반 인프라 what-if를 승인합니다.
    유효기간 1시간의 토큰으로 runner를 프로비전하고 부팅합니다.
 3. 정확한 릴리스 SHA, 저장소 변수, 대상 매개변수 파일, runner 레이블을 검증합니다.
@@ -97,8 +112,8 @@ Microsoft 호스팅 runner는 `publicNetworkAccess`가 `Disabled`인 대상 ACR�
    jobs를 변경했다면 다음으로 이전 jobs 다이제스트를 복원하고, web은 변경한 경우에만 복원합니다.
    복원할 때마다 활성 리비전과 스모크 테스트를 검증합니다. 이미지 태그를 다시 지정하지 않습니다.
 
-이는 필수 실행 순서이며, 배포·이미지 푸시·역할 할당·runner 등록이
-실제로 수행되었다는 의미가 아닙니다.
+이는 향후 승인된 CI 롤아웃의 순서입니다. 기존 컨테이너·배포 완료와
+아직 수행되지 않은 runner 프로비전·등록을 혼동하지 않습니다.
 
 <a id="no-long-lived-secrets"></a>
 
@@ -107,6 +122,8 @@ Microsoft 호스팅 runner는 `publicNetworkAccess`가 `Disabled`인 대상 ACR�
 CI 기반 인프라는 선택한 ACR에 대해서만 runner UAMI에 `AcrPush`를 부여합니다.
 추가 what-if 또는 배포 권한에는 별도의 최소 권한 승인이 필요합니다.
 runner 등록 토큰은 `gh api`로 새로 발급받아(TTL 1시간)
-Azure 관리 평면(TLS)을 통해 VM에 전달합니다.
+승인된 전달 방식으로 VM 실행 환경에 주입해야 합니다.
+현재 스크립트는 환경 변수를 읽으므로 Run Command의 `--parameters`가 이를 설정한다고
+가정하지 않습니다. [runner 준비 절차](runbooks.md#replacement-tenant-runner-readiness-not-executed)를 따릅니다.
 디스크에 쓰거나 Key Vault, GitHub 변수, 매개변수 파일, 소스 제어에 저장하지 않습니다.
 대상 매개변수 파일의 SSH 키 자료는 `ADMIN_SSH_PUBLIC_KEY`에서만 읽으며 반드시 공개 키여야 합니다.

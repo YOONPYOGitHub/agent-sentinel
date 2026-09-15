@@ -18,6 +18,14 @@
 커밋 SHA와 미커밋 변경 상태를 읽기 위해 로컬 Git 명령만 호출합니다.
 검증 명령, Azure, Microsoft 365, Foundry, OneRAI, 레지스트리 또는 다른 네트워크 서비스를 호출하지 않습니다.
 
+2026-09-15 기준 배포 SHA는 `7c1336bc7985ea7e383c335d631b7c705fffb97c`이며
+저장소 기준 `1129bbe8727ab9cb7a2e49a1f417a8e042d9ad94`와 다릅니다.
+현재 운영 관측은 `partial`, Entra 344, `RUNS_AS=0`, OTel 적격 0·쿼리 0·증거 0입니다.
+이를 새 SHA의 배포 또는 릴리스 통과로 옮겨 적지 않습니다.
+공식 Security, Accessibility, OneRAI, 릴리스 승인은 기록되어 있지 않습니다.
+OneRAI 이메일이나 절차 안내는 승인 레코드가 아니며 비공개 서신을 번들이나 Git에 복사하지 않습니다.
+2026-09-16 18:00 KST는 내부 후보 동결 목표이지 프로덕션 출시 승인일이 아닙니다.
+
 <a id="commands"></a>
 
 ## 명령
@@ -57,6 +65,7 @@ pnpm release-evidence:schema:check
 
 ```bash
 SHA="$(git rev-parse HEAD)"
+GENERATED_AT="$(node -e 'process.stdout.write(new Date().toISOString())')"
 
 pnpm release-review:schema:check
 pnpm release-review:dry-run -- \
@@ -64,11 +73,15 @@ pnpm release-review:dry-run -- \
   --sha "$SHA" \
   --input release-evidence/v2/templates/sanitized-input.template.json \
   --output release-evidence/generated \
-  --timestamp '2026-09-14T01:00:00.000Z'
+  --timestamp "$GENERATED_AT"
 pnpm release-review:validate -- \
   --sha "$SHA" \
   "release-evidence/generated/release-review-v2-$SHA.json"
 ```
+
+생성 시각은 한 번 정해 번들과 함께 보존합니다. 과거 `2026-09-14T01:00:00.000Z` 같은
+고정 시각은 해당 예제의 재현용이며 새로운 관측의 최신성을 만들기 위해 재사용하지 않습니다.
+기존 산출물의 타임스탬프·SHA·실패 상태를 덮어쓰지 말고 새 후보는 별도 증거로 관리합니다.
 
 선택적인 민감 정보 제거 접근성 증거는 `--accessibility <artifact.json>`과
 명시된 `--accessibility-ref <id>`로 제공합니다.
@@ -101,6 +114,13 @@ OneRAI 시나리오 행은 정렬하고 결정적 `onerai-sha256:<digest>` 참�
 실제 환경 검증, 커넥터, 운영 릴리스 준비 상태 또는 사람의 결정 통과 기준을 차단하며,
 선언된 차단 요인의 집계 기준도 차단합니다.
 CLI는 승인을 생성하지 않습니다.
+
+**스키마 검증 성공은 릴리스 통과가 아닙니다.** `readinessGate`와 각 `gateChecks`,
+`humanDecisions`를 함께 확인합니다. `dirty` 소스, 실패한 테스트, 잘못된 명령으로
+실행되지 않았거나 실패한 빌드의 원본 보고서를 통과로 승격하지 않습니다.
+최신 readiness 수정의 관련 검사와 web 빌드 통과는 전체 후보 통과를 뜻하지 않으며,
+전체 web 검사에서 발생한 5초 시간 초과 실패도 원래 SHA·시각에 보존합니다.
+다른 SHA의 과거 전체 검사 수치나 재실행 성공을 원본 실패의 대체 기록으로 사용하지 않습니다.
 
 <a id="classifications-and-outcomes"></a>
 
@@ -249,7 +269,11 @@ OneRAI 분류와 `syntheticOnly`는 정확히 일치해야 합니다.
 
 ### 안전한 구성 허용 목록
 
-다음 키만 구성 해시에 포함할 수 있습니다.
+다음 키만 구성 해시에 포함할 수 있습니다. 이는 증거 요약용 허용 목록이며
+런타임 환경 변수 목록이 아닙니다. 예를 들어 `DATA_MODE`는 실제
+`AGENT_SENTINEL_DATA_MODE` 관측을 요약하는 키이고,
+`AZURE_MONITOR_OTEL_CONNECTOR_ENABLED`는 런타임이 읽는 활성화 스위치가 아닙니다.
+OTel 런타임 활성화는 데이터 모드와 검증된 소스 구성으로 판단합니다.
 
 ```text
 AGENT365_CONNECTOR_ENABLED

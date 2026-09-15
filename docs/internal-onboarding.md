@@ -33,6 +33,9 @@ Agent Sentinel의 경우 관련 없는 해커톤 및 랩 레코드를 검토한 
 
 ## 등록된 메타데이터
 
+다음은 기존 Service Tree 등록 당시의 메타데이터입니다. 최신 단계 승인이나
+현재 공개 엣지의 네트워크 노출 여부를 새로 관측한 표가 아닙니다.
+
 | 필드                      | 값               |
 | ------------------------- | ---------------- |
 | Service name              | `Agent Sentinel` |
@@ -83,8 +86,9 @@ TrIP Digital Asset 온보딩 메타데이터는 2026-08-26에 Compliance Coach�
 Microsoft 업무 데이터, 직원 운영 디렉터리 데이터, 접근 제어 데이터를 처리합니다.
 고객 데이터, 모델 학습 데이터, 규제 대상 민감 데이터는 처리 대상으로 선언하지 않았습니다.
 
-S360은 현재 SLA 기한 내에 있는 Service Tree 관리 작업 두 건을 보고하며,
-두 작업의 기한은 모두 2026-09-20입니다.
+이전 온보딩 기록의 S360 작업 두 건은 기한이 2026-09-20이었습니다.
+2026-09-15 문서 대조에서는 S360/IcM을 다시 조회하지 않았으므로
+현재 SLA 상태나 완료를 새로 확인한 것으로 해석하지 않습니다.
 
 - IcM 온콜 팀과 테넌트를 Service Tree 서비스에 연결합니다.
 - IcM 연결 후 Security 긴급 브로드캐스트 설정을 구성합니다.
@@ -121,26 +125,35 @@ Agent Sentinel은 이 절차를 완료했으며 현재 Service Tree 레코드가
 
 ## API 앱 등록 점검 목록
 
-별도의 단일 테넌트 API 앱을 생성합니다.
+현재 대체 단일 테넌트 API 앱과 service principal은 존재합니다.
+다음은 기존 등록 대조 목록이며, 새 테넌트에서만 별도 승인 후 생성합니다.
 
 - Agent Sentinel Service Tree 레코드에 연결합니다.
 - 브라우저 리디렉션 URI는 구성하지 않습니다.
 - delegated scope `AgentSentinel.Read`와 `AgentSentinel.Write`를 노출합니다.
-- `Viewer`, `Analyst`, `Approver`, `Administrator` app role을 정의합니다.
-- role 및 scope 식별자는 배포 secret store에 보관합니다.
+- 정확한 app role 값 `AgentSentinel.Viewer`, `AgentSentinel.Analyst`,
+  `AgentSentinel.Approver`, `AgentSentinel.Administrator`를 확인합니다.
+- role 및 scope 식별자는 승인된 배포 구성에서 관리합니다. 식별자는 클라이언트 비밀이 아닙니다.
 - API에 필요한 권한만 부여합니다.
 
 <a id="spa-app-registration-checklist"></a>
 
 ## SPA 앱 등록 점검 목록
 
-별도의 단일 테넌트 SPA 앱을 생성합니다.
+현재 대체 단일 테넌트 SPA 앱과 service principal도 존재하므로 중복 생성하지 않습니다.
 
 - 동일한 Service Tree 레코드에 연결합니다.
 - Front Door HTTPS 콜백 및 로그아웃 URI를 등록합니다.
-- Agent Sentinel API에 대한 위임 권한을 추가합니다.
+- 읽기 단계에 필요한 Agent Sentinel API의 `AgentSentinel.Read` 위임 권한을 대조합니다.
 - 브라우저 애플리케이션에 클라이언트 비밀을 추가하지 않습니다.
 - 요청 권한을 검토한 후에만 테넌트 동의를 부여합니다.
+
+관리자 동의·사용자 테스트 역할 할당·읽기 전용 JWT 배포와 실제 토큰 검증은 미완료입니다.
+Global Reader의 마지막 권한 시도는 `403`이었으며 PIM 적격성이나 활성화는 확인되지 않았습니다.
+동의 권한을 가진 관리자에게 정확한 대상과 최소 권한 작업을 검토받아야 합니다.
+Service Tree 귀속, 등록 존재 또는 다른 서비스 권한으로 관리자 동의를 우회하지 않습니다.
+공식 Security, Accessibility, OneRAI, 릴리스 승인은 기록되어 있지 않으며
+OneRAI 이메일은 정식 승인으로 취급하지 않습니다.
 
 <a id="activation-and-rollback"></a>
 
@@ -148,23 +161,26 @@ Agent Sentinel은 이 절차를 완료했으며 현재 Service Tree 레코드가
 
 대체 배포는 현재 `AUTH_MODE=disabled`와
 `AGENT_SENTINEL_WRITE_ENABLED=false`를 사용합니다. JWT 인증은 활성화되지 않았으며,
-WAF의 인증 전 변경 차단은 유지되어 있습니다.
+활성 Front Door에는 확인된 사용자 지정 변경 차단 규칙이 없습니다.
+읽기 전용 안전성은 쓰기 스위치 false에 의존합니다. 저장소의 WAF 계약은
+기본 비활성 구현이며 배포 완료가 아닙니다. 과거 Application Gateway 규칙은 현재 Front Door를 보호하지 않습니다.
 
 향후 승인된 JWT 활성화 절차:
 
 1. JWT 인증 배포에 대한 승인을 받습니다.
 2. 승인된 배포 경로를 통해 tenant, API audience, client, scope, role 설정을 보존합니다.
-3. `AGENT_SENTINEL_WRITE_ENABLED=false`와 WAF 인증 전 변경 차단을 유지하면서
+3. `AGENT_SENTINEL_WRITE_ENABLED=false`를 유지하면서
    `AUTH_MODE=jwt`를 설정합니다.
 4. 쓰기 상태를 변경하지 않고 로그인과 네 역할 모두를 검증합니다.
 5. 익명 요청이 `401`, 권한이 부족한 역할이 `403`을 반환하고 쓰기가 비활성 상태로 유지되는지 확인합니다.
-6. 향후 쓰기 활성화 또는 WAF 적용 범위 축소는 별도로 승인받아야 하는 변경으로 취급합니다.
+6. 정확한 Front Door WAF 계약을 별도 승인·배포·재검색한 후에만 쓰기 승인을 검토합니다.
+   로그인은 `My agents` entitlement나 실제 에이전트 사용의 증거가 아닙니다.
 
 롤백:
 
-1. 이전 Container Apps 리비전을 복원하거나,
-   `writeEnabled=false`인 경우에만 `AUTH_MODE=disabled`를 설정합니다.
-2. 인증 전 변경을 차단하는 WAF 규칙을 복원합니다.
+1. 먼저 `writeEnabled=false`를 확인·복원합니다.
+2. 승인된 Front Door 보호 규칙이 배포된 경우 해당 계약을 복원한 뒤 이전 정상 Container Apps 리비전을 복원합니다.
+   쓰기 false인 경우에만 `AUTH_MODE=disabled`로 돌아갑니다. 미배포 WAF를 복원했다고 기록하지 않습니다.
 3. 실패한 활성화를 위해 추가한 권한 부여 또는 역할 할당을 취소합니다.
 4. 토큰이나 전체 클레임을 복사하지 않고 관측된 실패를 기록합니다.
 

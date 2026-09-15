@@ -7,16 +7,32 @@
 ## 사전 요구사항
 
 - Bicep 확장이 설치된 Azure CLI >= 2.65
-- `koreacentral`의 RG `rg-agent-sentinel` 접근 권한
-- 해당 RG의 Contributor + RBAC Administrator 역할
+- 현재 대상은 `koreacentral`의 `rg-agent-sentinel-m098047`; 실행 전에 승인된 테넌트·구독을 확인
+- 읽기 조사, 이미지 푸시, Container Apps 업데이트, 역할 할당에 필요한 권한을 각각 최소 범위로 승인
+- Contributor나 RBAC Administrator를 일괄 전제하지 않음. Azure RBAC는 Microsoft Graph 관리자 동의를 대체하지 않음
 
 <a id="current-deployment-safety"></a>
 
 ## 현재 배포 안전성
 
-기준 배포는 `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`입니다. 검증된 불변 경계는 web SHA `372944b2e70f11050d20ca0596a5bfe1cb11e5db` / 다이제스트 `sha256:ba52df80df821e67f2b8936a6f1c96bc6af881753c7187e70d0b033e66a8d1f4`, API 리비전 `api-as-m098047--p168bc0baa` / SHA `68bc0baaa346111c3f36aef07c9d7f4a7eba33ea` / 다이제스트 `sha256:aa6f191623b27ebeaaca47614bae7d582579ce251a3f62de23f09263fb7af4c9`, jobs SHA `c26fe400d6f91bed897155e49d2f8e7b18b94f95` / 다이제스트 `sha256:1438fd84ea10af0fd438609989875d8232ce43ff716e1d0d57be313476014648`입니다. Entra 활성화 강화와 릴리스 검토 v2는 이후의 저장소 변경이며 배포되지 않았습니다.
+2026-09-15 기준 배포는 `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`이며
+web/API/jobs의 SHA는 모두 `7c1336bc7985ea7e383c335d631b7c705fffb97c`입니다.
+
+| 컴포넌트 | 리비전                        | 다이제스트                                                                |
+| -------- | ----------------------------- | ------------------------------------------------------------------------- |
+| web      | `web-as-m098047--p07c1336bc`  | `sha256:7dca740d6d7161fc57a14a0cc79a8488e25a12cf2c0ea37f8cd677188c13e267` |
+| API      | `api-as-m098047--p07c1336bc`  | `sha256:b43991c120161b73737d492847bd2c3e8dbb6fe33408e4ac49fac6fa01de13a7` |
+| jobs     | `jobs-as-m098047--p07c1336bc` | `sha256:7918fa5fc0f207e11cc7b22c0a340cb40926369265c622085bab27bddf132ecc` |
+
+현재 RG에는 `fd-as-m098047`와 `appgw-as-m098047`가 있으며 VM은 없습니다.
+`acrm098047`는 `publicNetworkAccess=Disabled`, `defaultAction=Deny`, IP 허용 규칙 0개입니다.
+저장소 기준 `1129bbe8727ab9cb7a2e49a1f417a8e042d9ad94`의 Foundry instance identity,
+외부 runtime SDK·패키징, pilot 도구와 readiness 수정은 아직 배포되지 않았습니다.
+인증 기반 코드와 release-review v2의 존재도 인증 활성화나 승인 완료를 뜻하지 않습니다.
+
+이전 배포의 참고 기록은 web SHA `372944b2e70f11050d20ca0596a5bfe1cb11e5db` / 다이제스트 `sha256:ba52df80df821e67f2b8936a6f1c96bc6af881753c7187e70d0b033e66a8d1f4`, API 리비전 `api-as-m098047--p168bc0baa` / SHA `68bc0baaa346111c3f36aef07c9d7f4a7eba33ea` / 다이제스트 `sha256:aa6f191623b27ebeaaca47614bae7d582579ce251a3f62de23f09263fb7af4c9`, jobs SHA `c26fe400d6f91bed897155e49d2f8e7b18b94f95` / 다이제스트 `sha256:1438fd84ea10af0fd438609989875d8232ce43ff716e1d0d57be313476014648`입니다. 현재 관측 또는 자동 롤백 승인이 아닙니다.
 저장소에 포함된 전체 `platform.bicep`의 목표 상태는 실제 리소스 그룹과 차이가 있습니다.
-최근 what-if는 관련 없는 수정 54건을 제안했습니다.
+과거 전체 what-if는 관련 없는 수정 54건을 제안했습니다. 이번 문서 정합성 작업의 새 관측값이 아닙니다.
 이 드리프트를 해소하고 별도로 검토하기 전까지 **전체 Bicep 배포를 실행하지 마세요**.
 다음 인증 단계에서는 검토를 거친, 변경 범위를 한정한 Container Apps 리비전/이미지/구성 업데이트만 사용합니다.
 
@@ -60,12 +76,13 @@
 - `infra/environments/mngenvmcap098047-ci-foundation.parameters.bicepparam`은
   기존 `vnet-as-m098047/build` 서브넷과 `acrm098047`를 대상으로 합니다.
   SSH 공개 키는 소스 제어가 아니라 `ADMIN_SSH_PUBLIC_KEY`로 제공합니다.
+  이 파일은 목표 구성일 뿐이며 현재 RG에 runner가 프로비전되었다는 증거가 아닙니다.
 
 <a id="reference-environment-follow-up-sequence"></a>
 
 ## 기준 환경 후속 작업 순서
 
-커넥터 소스 컨테이너와 Agent 365 런타임은 기준 환경에 이미 배포되어 있습니다.
+커넥터 소스 컨테이너와 Agent 365 카탈로그 읽기 런타임은 기준 환경에 이미 배포되어 있습니다.
 남은 ID, 원격 분석, 이미지, 쓰기 변경에는 여전히 명시된 단계에서 운영자 승인이 필요합니다.
 
 1. **기존 `connector-sources` 경계 검증.** 기준 컨테이너는 프로비전되어 배포 관리형 소스에서 사용 중입니다.
@@ -79,6 +96,8 @@
    호출 시 SSH _공개_ 키만 제공합니다.
 3. **runner 승인 및 부팅.** 새로 발급한 유효기간 1시간의 GitHub 등록 토큰과
    대상 전용 레이블 `agent-sentinel-private-m098047`를 사용합니다.
+   [runner 준비 절차](runbooks.md#replacement-tenant-runner-readiness-not-executed)의
+   환경 변수 전달 제약을 검증하기 전에는 등록 명령을 실행하지 않습니다.
    runner가 온라인인지 확인한 후 [공급망](supply-chain.md)에 문서화된 저장소 변수를 구성합니다.
    토큰을 GitHub 변수, 매개변수 파일, 셸 기록 또는 저장소 파일에 저장하지 않습니다.
 4. **정확한 릴리스 SHA 검증.** 전체 40자리 16진수 커밋 SHA,
@@ -106,8 +125,8 @@
 먼저 정확한 테넌트, 구독, 계정을 확인합니다.
 대상 구독은 배포 명령으로 선택하므로 플랫폼 매개변수 파일에는 의도적으로 구독 ID를 포함하지 않습니다.
 
-API 및 SPA 등록도 이전하지 않고 재생성합니다.
-새 Front Door HTTPS 출처가 확인된 후 대체 테넌트에서 둘 다 단일 테넌트 애플리케이션으로 생성합니다.
+현재 대체 API/SPA 등록과 service principal은 이미 존재하므로 재생성하지 않습니다.
+새 테넌트에서만 기존 등록이 없음을 확인한 후 별도 승인으로 생성합니다.
 `security-authentication.md`의 정확한 범위와 역할을 보존하고,
 새 출처는 SPA에만 등록하며 `auth*` 매개변수로 새 ID를 주입합니다.
 대체 등록 및 읽기 전용 로그인 검사가 통과할 때까지
@@ -131,8 +150,9 @@ Front Door WAF 계약만 변경하는 Bicep what-if를 검토합니다.
 쓰기 스위치 상태를 알 수 없는 동안 익명 요청 보호 장치를 완화하거나 제거하지 않습니다.
 
 Foundry 에이전트는 워크로드 데이터이며 Bicep으로 생성되지 않습니다.
-대체 프로젝트와 매니페스트에서 참조하는 모델 배포가 준비되면,
-프로비전 운영자에게 해당 프로젝트의 `Foundry User`를 부여하고 다음을 실행합니다.
+현재 프로젝트의 합성 에이전트 6개는 이미 존재합니다. 다음은 새 환경 또는
+별도 승인된 재프로비전 절차의 참고 명령이며 현재 환경에서 반복 실행하지 않습니다.
+모델 배포와 프로젝트 범위의 최소 권한을 검토한 후에만 실행합니다.
 
 ```bash
 FOUNDRY_PROJECT_ENDPOINT='https://ais-agent-sentinel-m098047.services.ai.azure.com/api/projects/agent-sentinel-pjt' \
@@ -149,16 +169,20 @@ jobs가 에이전트 6개의 스냅샷을 영구 저장하는지 확인합니다
 범위가 제한된 Entra 서비스 주체, Purview 민감도 레이블, Teams 조직 카탈로그 읽기를 활성화합니다.
 Defender for Cloud Apps는 Defender XDR 테넌트 프로비전, 정확한 About 페이지 API 검색,
 별도로 승인된 애플리케이션 역할이 갖춰진 후에만 활성화합니다.
-소유자, 앱 역할 보강, 미리 보기 Agent Identity API, Agent 365, Power Platform,
-인증, 쓰기는 비활성 상태를 유지합니다.
+소유자, 앱 역할 보강, 미리 보기 Agent Identity API, Power Platform,
+인증, 쓰기는 비활성 상태를 유지합니다. Agent 365 카탈로그 읽기는 현재 활성화되어 있습니다.
 과거 앱 역할 할당이 새 managed identity로 이전되지는 않습니다.
 
-**2026-09-01 14:23 KST**의 최신 대체 환경 검증은 구성된 읽기 소스 7개 모두를
+**2026-09-01 14:23 KST**의 과거 대체 환경 검증은 당시 읽기 소스 7개 모두를
 `ready`로 보고합니다. 해당 소스는 Foundry, Entra, Defender for Cloud Apps,
 Purview, Azure Resource Graph, Teams 조직 카탈로그, Azure Monitor OTel입니다.
 Defender와 Teams 읽기는 유효한 빈 결과입니다. 반환 레코드가 0개라는 사실은
 에이전트 귀속, 설치, 배포, 신뢰 또는 더 넓은 커버리지를 입증하지 않습니다.
-Agent 365는 의도적으로 제외됩니다.
+당시 Agent 365는 의도적으로 제외되었습니다. 이 결과를 현재의 OTel 준비 완료로 재사용하지 않습니다.
+**2026-09-15** 기준 Agent 365는 패키지 308개(에이전트 패키지 노드 302개,
+확장 패키지 통제 6개), Entra는 ID 344개를 보고합니다. Foundry 소스 1개·합성 에이전트 6개이며
+`RUNS_AS=0`, OTel 적격 0·쿼리 0·실제 증거 0입니다. OTel 소스는 `degraded/not-queried`이고
+전체 릴리스 준비 상태는 `partial`입니다.
 Power Platform, 매니페스트 수집, 비즈니스 성과는 활성화 누락이 아닙니다.
 각각 지원되지 않는 무인 권한 부여, 쓰기/인증 안전성 통과 조건,
 권위 있는 소스 부재 때문에 계속 차단되어 있습니다.
@@ -166,6 +190,10 @@ Power Platform, 매니페스트 수집, 비즈니스 성과는 활성화 누락�
 <a id="infrastructure-deployment-reference-only-while-drift-is-unresolved"></a>
 
 ## 인프라 배포(드리프트 미해결 시 참고용으로만 사용)
+
+아래 A~C단계의 `rg-agent-sentinel`, `dev.parameters.bicepparam` 및 `260814` 이름은
+과거 개발 환경의 참고 전용 값입니다. 현재 RG에 적용하거나 접미사만 치환해 실행하지 않습니다.
+목표 IaC와 실배포 상태는 별개이며, 전체 배포 금지는 유지됩니다.
 
 <a id="phase-a--foundation-network-identity-observability-kv-acr"></a>
 
@@ -279,10 +307,13 @@ IaC는 Graph 앱 역할 할당, 권한, 비밀, Teams 앱 또는 Microsoft 365 �
 [Teams 배포 커넥터](teams-distribution-connector.md)를 참조하세요.
 
 Foundry 소스 ID와 일치하는 항목으로 `azureMonitorSourcesJson`을 설정합니다.
-각 항목에는 workspace customer ID, 소스 테넌트, 소스 환경 및 선택적 페더레이션 자격 증명이 포함됩니다.
-애플리케이션 UAMI에 승인된 읽기 전용 workspace 쿼리 역할이 있고 대상 에이전트가
-검증된 `agent.sentinel.tenant_id`, `gen_ai.agent.id`,
-`deployment.environment.name` 속성을 내보낼 때까지 `azureMonitorConnectorEnabled`는 false를 유지합니다.
+각 항목에는 `id`, `name`, `workspaceId`, `providerResourceId`, `applicationRoleName`,
+`sourceProjectId`, `tenantId`, `environment`와 선택적 페더레이션 자격 증명이 포함됩니다.
+`requestName`은 `agent.invoke`로 고정됩니다. 레거시 입력도 workspace·Application Insights 리소스·
+application role·테넌트·환경 5개와 Foundry 엔드포인트가 모두 필요합니다.
+[개발 문서의 정확한 OTel 계약](development.md#azure-monitor-opentelemetry-runtime-connector)을 따릅니다.
+새 소스는 읽기 전용 workspace 권한과 정확한 계측 계약을 검토한 후 활성화합니다.
+현재 `azureMonitorConnectorEnabled=true`는 구성 주입 상태이지 적격 에이전트나 수락된 호출 증거가 있다는 뜻이 아닙니다.
 
 ID 모듈은 별도의 읽기 전용 커넥터 managed identity와 Teams managed identity도 선언합니다.
 Container Apps는 이를 API/jobs에만 연결합니다.
@@ -301,17 +332,19 @@ text-embedding-3-large 배포를 추가합니다(AIServices를 변경하는 모�
 
 ### D단계: Container Apps 및 지역 진단 게이트웨이
 
-ACR 프로비전과 이미지 푸시가 완료된 후 수행합니다. platform.bicep은 다음을 배포합니다.
+다음은 `platform.bicep`의 목표 구성 설명입니다. 현재 세 Container Apps는 이미 배포되어 있으며,
+이 단계는 재프로비전 또는 전체 플랫폼 배포 지시가 아닙니다.
 
 - Container Apps(내부 ingress의 API, VNet 접근 가능 ingress의 web, ingress가 없는 jobs)
-- 선택적 지역 진단 엣지인 Application Gateway WAF v2(`appgw-as-260814`).
+- 선택적 지역 진단 엣지인 Application Gateway WAF v2(현재 리소스 `appgw-as-m098047`).
   현재 중지되어 있으며 활성 Front Door 라우트를 보호하지 않음
 
 <a id="phase-e--front-door-active"></a>
 
 ### E단계: Front Door(활성)
 
-`fd-as-260814`는 기본 HTTPS 호스트 이름으로 web과 API를 모두 라우팅합니다.
+현재 `fd-as-m098047`는 기본 HTTPS 호스트 이름으로 web과 API를 모두 라우팅합니다.
+과거 프로필 `fd-as-260814`는 현재 대상이 아닙니다.
 [아키텍처: Azure Front Door 상태](architecture.md#azure-front-door-status)를 참조하세요.
 
 <a id="container-image-build-and-push"></a>
@@ -320,7 +353,11 @@ ACR 프로비전과 이미지 푸시가 완료된 후 수행합니다. platform.
 
 각 대상 ACR은 private endpoint를 사용하고 `publicNetworkAccess: Disabled`로 설정됩니다.
 빌드를 위해 공개 레지스트리 접근을 활성화하지 않습니다.
-대상 프라이빗 자체 호스팅 runner와 `.github/workflows/ci-build-deploy.yml`을 사용합니다.
+지속적인 CI의 설계 경로는 대상 프라이빗 자체 호스팅 runner와 `.github/workflows/ci-build-deploy.yml`입니다.
+현재 RG에는 runner VM이 없으므로 사용 가능한 빌드 경로로 전제하지 않습니다.
+별도 승인된 일회성 로컬 이미지 빌드는 CI와 다른 출처로 기록하고,
+그 승인을 향후 빌드·ACR 방화벽 변경·배포 승인으로 확대하지 않습니다.
+[공급망 정책](supply-chain.md#private-build-path)의 승인 및 출처 경계를 따릅니다.
 리소스 그룹, 구독, ACR, runner managed identity 클라이언트 ID, 프라이빗 runner 레이블은
 검증된 GitHub 저장소 변수에서 가져오며, 대상 환경과 매개변수 파일은
 허용 목록에 있는 실행 요청 선택 항목입니다.
@@ -350,21 +387,22 @@ Bicep은 해당 다이제스트만 프라이빗 ACR 로그인 서버 및 컴포�
 
 ## 배포 전 what-if
 
-항상 what-if를 먼저 실행합니다.
+승인된 변경 전에 정확한 대상의 what-if를 검토합니다. 다음은 읽기 검토용이며
+전체 플랫폼 배포를 허용하지 않습니다. SHA와 세 다이제스트를 먼저 검증해야 합니다.
 
 ```bash
 az deployment group what-if \
   --mode Incremental \
-  --resource-group rg-agent-sentinel \
+  --resource-group rg-agent-sentinel-m098047 \
   --template-file infra/platform.bicep \
-  --parameters infra/environments/dev.parameters.bicepparam
+  --parameters infra/environments/mngenvmcap098047.parameters.bicepparam
 ```
 
 **what-if에 다음이 나타나면 중지합니다.**
 
 - Foundry 리소스의 `Delete`
 - 기존 서브넷의 `Delete`(추가만 예상됨)
-- `fd-as-260814`(기본 Front Door 프로필)의 `Delete`
+- `fd-as-m098047`(현재 Front Door 프로필)의 `Delete`
 
 <a id="front-door-smoke-test"></a>
 
@@ -374,8 +412,8 @@ az deployment group what-if \
 
 ```bash
 # 테넌트별 호스트 이름을 고정하지 말고 생성된 엔드포인트를 조회
-FD_HOST=$(az afd endpoint show -g rg-agent-sentinel \
-  --profile-name fd-as-260814 \
+FD_HOST=$(az afd endpoint show -g rg-agent-sentinel-m098047 \
+  --profile-name fd-as-m098047 \
   --endpoint-name agent-sentinel \
   --query hostName -o tsv)
 
@@ -391,13 +429,13 @@ curl -s "https://${FD_HOST}/health"
 curl -s "https://${FD_HOST}/api/connector/status"
 # 예상 결과: API의 JSON 응답(네트워크 오류가 아님)
 
-# 익명 변경 요청은 WAF 또는 인증에서 안전하게 차단되어야 함
+# 별도 승인된 부정 테스트만 실행. 현재 거부는 쓰기 스위치 때문이며 WAF/JWT 통과 증거가 아님
 curl -s -o /dev/null -w '%{http_code}\n' \
   -X POST "https://${FD_HOST}/api/demo/reset"
 # 예상 결과: 401 또는 403
 
 # API에 외부에서 직접 접근할 수 없는지 확인
-API_FQDN=$(az containerapp show -g rg-agent-sentinel -n api-as-260814 \
+API_FQDN=$(az containerapp show -g rg-agent-sentinel-m098047 -n api-as-m098047 \
   --query 'properties.configuration.ingress.fqdn' -o tsv)
 echo "API FQDN: ${API_FQDN}"
 # external:false이면 FQDN에 .internal.이 포함되고 내부 IP로만 확인되어야 함
@@ -414,7 +452,7 @@ Bicep 기본값과 저장소의 개발 매개변수는 `authMode = 'disabled'`�
 대체 API/SPA 등록과 service principal은 생성되어 있습니다.
 기존 등록을 재생성하지 말고 승인된 계획과 대조한 뒤 관리자 동의·역할 할당·JWT 활성화를 별도로 완료합니다.
 현재 상태와 미배포 변경은 [현재 상태](current-status.md)를 참고합니다.
-향후 활성화에는 다음 승인된 입력을 포함한 등록 부트스트랩과 런타임 리비전 검토가 필요합니다.
+향후 활성화에는 다음 승인된 입력을 포함한 기존 등록 대조와 런타임 리비전 검토가 필요합니다.
 
 - `authTenantId`, `authAudience`, 선택적 명시적 `authIssuer` / `authJwksUri`
 - `authSpaClientId`, `authSpaScopes`, `authSpaRedirectUri`,
@@ -426,7 +464,8 @@ Bicep 기본값과 저장소의 개발 매개변수는 `authMode = 'disabled'`�
 `pnpm auth:registration-bootstrap -- --input <path> --output entra-registration-plan.json`을 실행합니다.
 기본 계획은 정확한 이름의 후보를 검색하고 모호함과 과거 출처를 거부하며,
 비밀, 동의 부여, 그룹 또는 할당을 포함하지 않습니다.
-적용은 해당 산출물의 검토와 정확한 테넌트 확인을 거친 후 보호된 워크플로에서만 가능합니다.
+현재 등록은 재생성하지 않습니다. 필요한 변경만 산출물과 대조하며,
+적용은 별도 승인과 정확한 테넌트 확인을 거친 후 보호된 워크플로에서만 가능합니다.
 
 다음으로 `infra/auth/replacement-auth-activation.template.json`으로 런타임 입력을 만들고
 `pnpm auth:preflight -- --input <path> --output auth-activation-plan.json`을 실행합니다.
@@ -444,29 +483,32 @@ web보다 API를 먼저 업데이트·검증하며, 실패하면 web 다음 API 
 이 워크플로는 Entra 또는 WAF API를 호출하지 않습니다.
 
 활성 Front Door 기본 HTTPS 호스트 이름이 사용할 출처이지만,
-대체 등록, 정확한 리디렉션/로그아웃 구성, 역할 할당, 불변 배포 다이제스트,
-JWT 활성화는 여전히 사람의 승인과 최신 증거를 기다리고 있습니다.
-중지된 Application Gateway는 HTTP 전용이며 `BlockApiMutationPreAuth` 규칙은 Front Door를 보호하지 않습니다.
+대체 등록과 현재 이미지 다이제스트는 확인되어 있습니다. 정확한 리디렉션/로그아웃의
+활성 로그인 검증, 관리자 동의, 역할 할당, JWT 배포에는 여전히 승인과 최신 증거가 필요합니다.
+현재 권한 시도는 Global Reader에서 `403`이었으며 PIM 적격성이나 역할 활성화를 확인한 것으로 취급하지 않습니다.
+마지막 기록의 중지된 Application Gateway는 HTTP 전용이며,
+과거 `BlockApiMutationPreAuth` 규칙은 현재 Front Door를 보호하지 않습니다.
 활성 Front Door WAF에는 현재 증거로 확인된 변경 차단 규칙이 없으므로,
 읽기 전용 안전성은 `AGENT_SENTINEL_WRITE_ENABLED=false`에 의존하고 쓰기 활성화는 금지됩니다.
 사용자 지정 도메인은 별도의 보안 강화 작업입니다.
 
 배포 순서:
 
-1. Entra 등록 계획을 생성·검토합니다. 기본 워크플로와 풀 리퀘스트 워크플로는 계획만 수행합니다.
-2. 보호된 ID 승인을 받은 후 정확한 계획을 적용하고, 멱등성을 확인하도록 다시 검색하며,
-   민감 정보를 제거한 결과를 보존합니다. 이 단계는 동의를 부여하거나 사용자/그룹을 할당하지 않습니다.
+1. 기존 Entra 등록을 계획과 대조합니다. 기본 워크플로와 풀 리퀘스트 워크플로는 계획만 수행합니다.
+2. 변경이 필요한 경우에만 보호된 ID 승인 후 정확한 계획을 적용하고 다시 검색합니다.
+   부트스트랩은 동의나 사용자/그룹 할당을 수행하지 않습니다. 권한 있는 관리자가
+   별도로 최소 권한 동의와 격리된 테스트 주체 할당을 완료해야 하며 동의 우회는 허용하지 않습니다.
 3. 정확한 불변 이미지 다이제스트로 런타임 인증 사전 검사를 생성·검토합니다.
 4. 보호된 배포 승인을 받은 후 변경 범위를 한정한 인증 워크플로를 사용합니다.
    쓰기를 false로 유지하며 web보다 API를 먼저 업데이트합니다.
-5. 활성 Front Door를 대상으로 `pnpm auth:edge-preflight`를 실행합니다.
+5. 활성 Front Door를 대상으로 `pnpm auth:edge-preflight -- --input <path> --output active-edge-preflight.json`을 실행합니다.
    Front Door 변경 차단 규칙이 없으면 `api-writes-disabled-no-write-activation`만 안전합니다.
 6. 리비전마다 [보안 및 인증](security-authentication.md)의 읽기 단계를 실행합니다.
 7. JWT가 활성화되고 정확한 Front Door 변경 차단 규칙을 별도로 검토·배포·재검색하기 전까지
    쓰기 단계 준비 절차에 진입하지 않습니다.
 
-롤백 시 활성화되고 검토된 Front Door 변경 차단이 존재하면 이를 먼저 복원한 후,
-쓰기를 false로 복원하고 마지막으로 정상 동작이 확인된 Container Apps 리비전을 복원합니다.
+롤백 시 쓰기를 먼저 false로 복원하고, 활성화되고 검토된 Front Door 변경 차단이 존재하면
+이를 복원한 후 마지막으로 정상 동작이 확인된 Container Apps 리비전을 복원합니다.
 중지된 Application Gateway 규칙은 활성 엣지 롤백 제어 수단이 아닙니다.
 [런북](runbooks.md)의 RB-011과 RB-012를 참조하세요.
 
@@ -476,9 +518,9 @@ JWT 활성화는 여전히 사람의 승인과 최신 증거를 기다리고 있
 
 - what-if에 기존 AIServices 계정, 프로젝트 또는 모델 배포의 Delete/Modify가 표시됨
 - what-if에 기존 서브넷의 Delete가 표시됨
-- what-if에 `fd-as-260814`의 Delete가 표시됨
+- what-if에 `fd-as-m098047`의 Delete가 표시됨
 - 배포 후 Front Door 원본 상태 또는 SPA/API 스모크 라우트가 하나라도 실패함
-- what-if에 `aca-env-260814`, `web-as-260814` 또는 `api-as-260814`의 Delete가 표시됨
+- what-if에 `aca-env-m098047`, `web-as-m098047`, `api-as-m098047` 또는 `jobs-as-m098047`의 Delete가 표시됨
 
 <a id="tls--custom-domain-next-steps"></a>
 
@@ -486,7 +528,9 @@ JWT 활성화는 여전히 사람의 승인과 최신 증거를 기다리고 있
 
 활성 Front Door 기본 호스트 이름은 이미 HTTPS를 제공하며 범위가 한정된 인증 출처로 사용할 대상입니다.
 App Gateway 엔드포인트는 여전히 HTTP 전용입니다.
-승인된 사용자 지정 프로덕션 도메인에는 다음을 수행합니다.
+Front Door 사용자 지정 도메인 승인·DNS·인증서 구성은 별도 엣지 변경입니다.
+다음 목록은 HTTP Application Gateway에 별도로 TLS를 추가하는 과거 설계 참고이며,
+현재 Front Door 도메인 절차나 실행 승인이 아닙니다.
 
 1. 도메인을 등록하거나 기존 도메인 사용
 2. PFX/PEM 인증서를 생성하고 Key Vault에 저장

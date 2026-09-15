@@ -11,7 +11,7 @@ API JWT 검증기, 4개 역할의 RBAC, SPA MSAL 통합, 리디렉션 브리지,
 토큰 기반 실제 환경 검증기는 저장소 코드에 구현되어 테스트되었습니다.
 이 구현 상태가 배포 상태를 의미하지는 않습니다.
 
-증거로 확인된 마지막 대체 배포는 `AUTH_MODE=disabled`와
+2026-09-15 기준 `7c1336bc` 대체 배포는 `AUTH_MODE=disabled`와
 `AGENT_SENTINEL_WRITE_ENABLED=false`를 사용합니다. 대체 API 및 SPA 앱 등록과 service principal은
 생성되어 있지만, 관리자 동의·사용자 역할 할당·실제 로그인 활성화는 미완료입니다.
 현재 배포와 저장소에만 있는 변경은 [현재 상태](current-status.md)를 기준으로 구분합니다.
@@ -19,7 +19,7 @@ API JWT 검증기, 4개 역할의 RBAC, SPA MSAL 통합, 리디렉션 브리지,
 
 활성 공개 엣지는 Azure Front Door입니다. 현재 WAF 정책에는 관리형 규칙이 있지만
 `BlockApiMutationPreAuth` 사용자 지정 규칙은 증거로 확인되지 않았습니다.
-이 규칙은 중지된 HTTP 전용 Application Gateway에 있으며 Front Door 트래픽을
+이 규칙의 과거 Application Gateway 기록은 현재 `fd-as-m098047`의 배포 증거가 아니며 Front Door 트래픽을
 **보호하지 않습니다**. 따라서 현재의 안전한 읽기 전용 상태는 API 쓰기 스위치를 false로
 유지하는 데 의존합니다. 활성 Front Door 변경 차단 규칙을 검토하고 실제로 배치하여
 JWT와 함께 검증하기 전까지 쓰기 활성화는 금지됩니다.
@@ -89,7 +89,9 @@ Application Gateway 엔드포인트는 여전히 HTTP 전용이며 인증 출처
 
 각 단계는 별도로 승인받아야 하는 변경입니다. 불일치가 있으면 중지하고 롤백합니다.
 
-런타임 활성화 전에 대체 등록을 생성합니다.
+현재 대체 API/SPA 등록과 service principal은 이미 존재합니다. 재생성하지 말고
+승인된 계획과 기존 개체를 대조합니다. 아래 부트스트랩 생성/적용은 새 환경이나
+검토된 변경에만 해당하며 현재 동의·역할 할당을 해결하는 우회 절차가 아닙니다.
 `infra/auth/replacement-entra-registration-bootstrap.template.json`을 저장소 밖으로 복사하고,
 자리 표시자를 승인된 비밀이 아닌 값으로 바꾼 다음 계획을 생성합니다.
 
@@ -107,6 +109,13 @@ API 앱 및 service principal, delegated Read/Write scope, 4개 role, SPA 앱 �
 적용에는 검토된 계획 산출물, 정확한 테넌트 확인,
 `APPROVE_ENTRA_REGISTRATION_BOOTSTRAP`, 보호된 `entra-registration-bootstrap` 환경이 필요합니다.
 롤백은 해당 계획의 operation ID로 생성된 디렉터리 개체만 삭제합니다.
+
+관리자 동의, 현재 사용자 테스트 역할 할당, 읽기 전용 JWT 배포와 실제 토큰 검증은 미완료입니다.
+마지막 권한 시도는 Global Reader에서 `403`이었습니다. 이 역할에 쓰기 권한이 있다고
+가정하거나 PIM 적격성·활성화를 확인된 사실로 표현하지 않습니다. 동의를 부여할 권한이 있는
+관리자가 정확한 API/SPA service principal, 필요한 위임 scope, 제한된 테스트 주체와
+작업 기간을 검토해야 합니다. 읽기 단계는 `AgentSentinel.Read`와 필요한 최소 역할부터
+검증하며, 광범위한 디렉터리 역할이나 쓰기 동의를 편의상 추가하지 않습니다.
 
 그런 다음 `infra/auth/replacement-auth-activation.template.json`을 저장소 밖으로 복사하고
 오프라인 런타임 계획을 실행합니다.
@@ -135,7 +144,7 @@ API `Allow` 규칙, 비활성 JWT, true인 쓰기 스위치가 있으면 쓰기 
    대체 환경의 정확한 HTTPS 리디렉션/로그아웃 URI를 등록하고,
    쓰기를 false로 유지하면서 실패 시 차단하는 JWT 설정을 주입한 후,
    익명 `401`, Viewer `403`, `/api/auth/me`, 로그인, 로그아웃을 입증합니다.
-2. **역할 검증 완료.** Analyst, Approver, Administrator에 최소 권한 테스트 주체/그룹을 할당하고
+2. **역할 검증 수행 — 미완료.** Analyst, Approver, Administrator에 최소 권한 테스트 주체/그룹을 할당하고
    문서화된 모든 기능 권한 경계를 검증합니다. 광범위한 그룹을 기본으로 할당하지 않습니다.
 3. **활성 엣지의 익명 요청 보호 장치 생성.** 쓰기 스위치를 변경하지 않고 정확한 계약 다이제스트,
    Bicep what-if, `frontDoorAuthenticatedMutationGuardEnabled=true` 매개변수를 검토합니다.
@@ -192,8 +201,8 @@ JSON 응답의 기본 한도는 256 KiB이며,
 
 ## 활성화 점검 목록
 
-- [ ] 승인된 부트스트랩 계획을 통해 대체 API 및 SPA 앱 등록 생성
-- [ ] 대체 API Read/Write 범위 및 정확한 앱 역할 4개 생성
+- [x] 대체 API 및 SPA 앱 등록과 service principal 존재 확인(재생성 금지)
+- [ ] 기존 대체 API Read/Write scope와 정확한 앱 역할 4개를 승인된 계획에 대조
 - [x] 명시적 유형과 실패 시 차단 동작을 갖춘 API, SPA, 등록, 배포, 엣지 사전 검사, 검증 구성을 로컬에서 준비
 - [ ] 대체 HTTPS 리디렉션 및 로그아웃 출처 승인과 증거 확보
 - [ ] 대체 리디렉션 및 로그아웃 URI 등록
@@ -209,6 +218,9 @@ JSON 응답의 기본 한도는 256 KiB이며,
 
 OneRAI 또는 사내 서비스 온보딩은 독립적으로 진행할 수 있으며 로컬 인증 개발을 차단하지 않습니다.
 또한 ID, 동의, 역할 할당, 배포 또는 WAF 승인을 대체하지 않습니다.
+2026-09-15 기준 공식 Security, Accessibility, OneRAI, 릴리스 승인은 기록되어 있지 않습니다.
+OneRAI 관련 이메일이나 절차 안내를 공식 승인으로 취급하지 않으며 개인 서신을 Git에 복사하지 않습니다.
+`My agents`에는 권위 있는 entitlement resolver가 구성되어 있지 않아 로그인만으로 항목이 채워지지 않습니다.
 
 <a id="emergency-rollback"></a>
 
