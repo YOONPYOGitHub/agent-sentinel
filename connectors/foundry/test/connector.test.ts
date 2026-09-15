@@ -12,6 +12,7 @@ import {
   FOUNDRY_TRUST_REQUIRED_PLANES,
   MultiFoundryConnector,
   composeFoundryTrustAssessment,
+  foundryAgentDefinitionSchema,
   foundryAgentPageSchema,
   foundryConnectorConfigSchema,
   foundrySourceProjectId,
@@ -256,6 +257,184 @@ describe('Foundry connector', () => {
         approvalRequired: 'unknown',
         trustAssessmentStatus: 'missing',
       },
+    })
+  })
+  it('accepts only the stable snake_case Foundry identity shapes', () => {
+    expect(
+      foundryAgentDefinitionSchema.parse({
+        id: 'identity-agent',
+        instance_identity: {
+          principal_id: '11111111-1111-4111-8111-111111111111',
+          client_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          status: 'active',
+        },
+        blueprint: {
+          principal_id: '22222222-2222-4222-8222-222222222222',
+          client_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          status: 'disabled',
+        },
+        blueprint_reference: {
+          type: 'ManagedAgentIdentityBlueprint',
+          blueprint_id: 'managed-blueprint-a',
+        },
+      }),
+    ).toMatchObject({
+      instance_identity: {
+        principal_id: '11111111-1111-4111-8111-111111111111',
+        client_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      },
+      blueprint_reference: { blueprint_id: 'managed-blueprint-a' },
+    })
+    expect(() =>
+      foundryAgentDefinitionSchema.parse({
+        id: 'camel-agent',
+        instanceIdentity: {
+          principalId: '11111111-1111-4111-8111-111111111111',
+          clientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        },
+      }),
+    ).toThrow()
+    expect(() =>
+      foundryAgentDefinitionSchema.parse({
+        id: 'extended-agent',
+        instance_identity: {
+          principal_id: '11111111-1111-4111-8111-111111111111',
+          client_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          project_principal_id: '33333333-3333-4333-8333-333333333333',
+        },
+      }),
+    ).toThrow()
+  })
+  it('maps only runtime instance identity into exact Entra correlation keys', () => {
+    const snapshot = mapAgentToSnapshot(
+      [
+        {
+          id: 'identity-agent',
+          instance_identity: {
+            principal_id: '11111111-1111-4111-8111-111111111111',
+            client_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            status: 'active',
+          },
+          blueprint: {
+            principal_id: '22222222-2222-4222-8222-222222222222',
+            client_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            status: 'disabled',
+          },
+          blueprint_reference: {
+            type: 'ManagedAgentIdentityBlueprint',
+            blueprint_id: 'managed-blueprint-a',
+          },
+        },
+      ],
+      'v1',
+      config,
+    )
+
+    expect(snapshot.nodes[0]?.metadata).toMatchObject({
+      servicePrincipalId: '11111111-1111-4111-8111-111111111111',
+      clientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      foundryInstanceIdentityPrincipalId: '11111111-1111-4111-8111-111111111111',
+      foundryInstanceIdentityClientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      foundryInstanceIdentityStatus: 'active',
+      foundryBlueprintPrincipalId: '22222222-2222-4222-8222-222222222222',
+      foundryBlueprintClientId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      foundryBlueprintStatus: 'disabled',
+      foundryBlueprintReferenceType: 'ManagedAgentIdentityBlueprint',
+      foundryBlueprintReferenceId: 'managed-blueprint-a',
+    })
+    expect(snapshot.nodes[0]?.metadata['objectId']).toBeUndefined()
+    expect(snapshot.nodes[0]?.metadata['appId']).toBeUndefined()
+  })
+  it('maps the stable identity returned on the latest agent version', () => {
+    const snapshot = mapAgentToSnapshot(
+      [
+        {
+          id: 'version-identity-agent',
+          versions: {
+            latest: {
+              version: '2',
+              definition: { kind: 'prompt', model: 'gpt-5.4' },
+              instance_identity: {
+                principal_id: '11111111-1111-4111-8111-111111111111',
+                client_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              },
+            },
+          },
+        },
+      ],
+      'v1',
+      config,
+    )
+
+    expect(snapshot.nodes[0]?.metadata).toMatchObject({
+      version: '2',
+      servicePrincipalId: '11111111-1111-4111-8111-111111111111',
+      clientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    })
+  })
+  it('preserves null instance identity without creating exact correlation metadata', () => {
+    const snapshot = mapAgentToSnapshot(
+      [
+        {
+          id: 'legacy-agent',
+          instance_identity: null,
+          blueprint: null,
+          blueprint_reference: null,
+        },
+      ],
+      'v1',
+      config,
+    )
+
+    expect(snapshot.nodes[0]?.metadata).not.toHaveProperty('servicePrincipalId')
+    expect(snapshot.nodes[0]?.metadata).not.toHaveProperty('clientId')
+    expect(snapshot.nodes[0]?.metadata).not.toHaveProperty('foundryInstanceIdentityPrincipalId')
+  })
+  it('fails closed when agent and latest-version exact identities conflict', () => {
+    expect(() =>
+      foundryAgentDefinitionSchema.parse({
+        id: 'conflicting-agent',
+        instance_identity: {
+          principal_id: '11111111-1111-4111-8111-111111111111',
+          client_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        },
+        versions: {
+          latest: {
+            version: '1',
+            instance_identity: {
+              principal_id: '22222222-2222-4222-8222-222222222222',
+              client_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            },
+            definition: { kind: 'prompt', model: 'gpt-5.4' },
+          },
+        },
+      }),
+    ).toThrow('conflicting instance identity principal_id')
+  })
+  it('keeps conflicting legacy metadata visible to exact correlation', () => {
+    const snapshot = mapAgentToSnapshot(
+      [
+        {
+          id: 'conflicting-metadata-agent',
+          metadata: {
+            servicePrincipalId: '22222222-2222-4222-8222-222222222222',
+            clientId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          },
+          instance_identity: {
+            principal_id: '11111111-1111-4111-8111-111111111111',
+            client_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          },
+        },
+      ],
+      'v1',
+      config,
+    )
+
+    expect(snapshot.nodes[0]?.metadata).toMatchObject({
+      servicePrincipalId: '11111111-1111-4111-8111-111111111111',
+      entraServicePrincipalId: '22222222-2222-4222-8222-222222222222',
+      clientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      entraClientId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     })
   })
   it('does not infer trust when approval metadata is missing', () => {

@@ -483,26 +483,80 @@ export function composeFoundryTrustAssessment(
   return immutableAssessment
 }
 
-const agentVersionSchema = z
-  .object({
-    version: z.string(),
-    description: z.string().nullable().optional(),
-    metadata: z.record(z.string(), z.string()).optional(),
-    definition: z
-      .object({
-        kind: z.string(),
-        name: z.string().optional(),
-        model: z.string(),
-        instructions: z.string().optional(),
-        tools: z.array(functionToolSchema).optional(),
-      })
-      .passthrough(),
-  })
-  .passthrough()
+const foundryAgentIdentitySchema = z.strictObject({
+  principal_id: z.string().uuid(),
+  client_id: z.string().uuid(),
+  status: z.enum(['active', 'disabled']).optional(),
+})
+
+const foundryAgentBlueprintReferenceSchema = z.strictObject({
+  type: z.literal('ManagedAgentIdentityBlueprint'),
+  blueprint_id: z.string().trim().min(1),
+})
+
+type FoundryAgentIdentity = z.infer<typeof foundryAgentIdentitySchema>
+type FoundryAgentBlueprintReference = z.infer<typeof foundryAgentBlueprintReferenceSchema>
+
+function sameGuid(left: string, right: string): boolean {
+  return left.toLowerCase() === right.toLowerCase()
+}
+
+function exactIdentityConflict(
+  current: FoundryAgentIdentity | null | undefined,
+  latest: FoundryAgentIdentity | null | undefined,
+): 'principal_id' | 'client_id' | undefined {
+  if (current === null || current === undefined || latest === null || latest === undefined) {
+    return undefined
+  }
+  if (!sameGuid(current.principal_id, latest.principal_id)) return 'principal_id'
+  if (!sameGuid(current.client_id, latest.client_id)) return 'client_id'
+  return undefined
+}
+
+function blueprintReferenceConflict(
+  current: FoundryAgentBlueprintReference | null | undefined,
+  latest: FoundryAgentBlueprintReference | null | undefined,
+): boolean {
+  return (
+    current !== null &&
+    current !== undefined &&
+    latest !== null &&
+    latest !== undefined &&
+    (current.type !== latest.type || current.blueprint_id !== latest.blueprint_id)
+  )
+}
+
+const agentVersionSchema = z.strictObject({
+  object: z.literal('agent.version').optional(),
+  id: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
+  version: z.string(),
+  status: z.enum(['creating', 'active', 'failed', 'deleting', 'deleted']).optional(),
+  description: z.string().nullable().optional(),
+  created_at: z.union([z.number().int().nonnegative(), z.date()]).optional(),
+  draft: z.boolean().optional(),
+  agent_guid: z.string().uuid().optional(),
+  metadata: z.record(z.string(), z.string()).optional(),
+  instance_identity: foundryAgentIdentitySchema.nullish(),
+  blueprint: foundryAgentIdentitySchema.nullish(),
+  blueprint_reference: foundryAgentBlueprintReferenceSchema.nullish(),
+  definition: z
+    .object({
+      kind: z.string(),
+      name: z.string().optional(),
+      model: z.string(),
+      instructions: z.string().optional(),
+      tools: z.array(functionToolSchema).optional(),
+    })
+    .passthrough(),
+})
 export const foundryAgentDefinitionSchema = z
-  .object({
+  .strictObject({
+    object: z.literal('agent').optional(),
     id: z.string().min(1),
     name: z.string().nullable().optional(),
+    state: z.enum(['enabled', 'disabled']).optional(),
+    state_source: z.enum(['agent_instance_identity', 'agent_blueprint']).nullish(),
     version: z.string().optional(),
     displayName: z.string().optional(),
     description: z.string().nullable().optional(),
@@ -511,9 +565,43 @@ export const foundryAgentDefinitionSchema = z
     tools: z.array(functionToolSchema).optional(),
     metadata: z.record(z.string(), z.string()).optional(),
     trustAssessment: z.unknown().optional(),
-    versions: z.object({ latest: agentVersionSchema }).optional(),
+    instance_identity: foundryAgentIdentitySchema.nullish(),
+    blueprint: foundryAgentIdentitySchema.nullish(),
+    blueprint_reference: foundryAgentBlueprintReferenceSchema.nullish(),
+    agent_endpoint: z.unknown().optional(),
+    digital_worker_type: z.literal('m365').optional(),
+    agent_card: z.unknown().optional(),
+    versions: z.strictObject({ latest: agentVersionSchema }).optional(),
   })
-  .passthrough()
+  .superRefine((agent, context) => {
+    const latest = agent.versions?.latest
+    const instanceConflict = exactIdentityConflict(
+      agent.instance_identity,
+      latest?.instance_identity,
+    )
+    if (instanceConflict !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['instance_identity', instanceConflict],
+        message: `Foundry agent and latest version expose conflicting instance identity ${instanceConflict}.`,
+      })
+    }
+    const blueprintConflict = exactIdentityConflict(agent.blueprint, latest?.blueprint)
+    if (blueprintConflict !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['blueprint', blueprintConflict],
+        message: `Foundry agent and latest version expose conflicting blueprint identity ${blueprintConflict}.`,
+      })
+    }
+    if (blueprintReferenceConflict(agent.blueprint_reference, latest?.blueprint_reference)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['blueprint_reference'],
+        message: 'Foundry agent and latest version expose conflicting blueprint references.',
+      })
+    }
+  })
   .transform((agent) => {
     const { trustAssessment: ignoredTrustAssessment, ...inventory } = agent
     void ignoredTrustAssessment
@@ -526,20 +614,25 @@ export const foundryAgentDefinitionSchema = z
       instructions: agent.instructions ?? latest?.definition.instructions,
       tools: agent.tools ?? latest?.definition.tools,
       metadata: agent.metadata ?? latest?.metadata,
+      instance_identity: agent.instance_identity ?? latest?.instance_identity,
+      blueprint: agent.blueprint ?? latest?.blueprint,
+      blueprint_reference: agent.blueprint_reference ?? latest?.blueprint_reference,
     }
   })
 export const foundryAgentSchema = foundryAgentDefinitionSchema
 export type FoundryAgentDefinition = z.input<typeof foundryAgentDefinitionSchema>
 export type FoundryAgent = FoundryAgentDefinition
 export const foundryAgentPageSchema = z
-  .object({
+  .strictObject({
+    object: z.literal('list').optional(),
     data: z.array(foundryAgentDefinitionSchema).optional(),
     value: z.array(foundryAgentDefinitionSchema).optional(),
+    first_id: z.string().nullable().optional(),
+    last_id: z.string().nullable().optional(),
     has_more: z.boolean().optional(),
     nextLink: z.string().optional(),
     continuationToken: z.string().optional(),
   })
-  .passthrough()
   .superRefine((page, ctx) => {
     if (page.data === undefined && page.value === undefined)
       ctx.addIssue({ code: 'custom', message: 'Agent list response must contain data or value.' })
@@ -786,6 +879,60 @@ function explicitIdentityMetadata(metadata: Record<string, string>): Record<stri
   )
 }
 
+function assignExactIdentifier(
+  metadata: Record<string, string>,
+  canonicalKey: string,
+  alternateKeys: readonly string[],
+  value: string,
+): void {
+  const existing = metadata[canonicalKey]
+  if (existing !== undefined && !sameGuid(existing, value)) {
+    const alternate =
+      alternateKeys.find((key) => metadata[key] === undefined || sameGuid(metadata[key], value)) ??
+      alternateKeys.find((key) => !sameGuid(metadata[key]!, value))
+    if (alternate !== undefined) metadata[alternate] = existing
+  }
+  metadata[canonicalKey] = value
+}
+
+function foundryIdentityMetadata(
+  agent: z.output<typeof foundryAgentDefinitionSchema>,
+  metadata: Record<string, string>,
+): Record<string, string> {
+  const normalized = explicitIdentityMetadata(metadata)
+  if (agent.instance_identity !== null && agent.instance_identity !== undefined) {
+    assignExactIdentifier(
+      normalized,
+      'servicePrincipalId',
+      ['entraServicePrincipalId', 'objectId'],
+      agent.instance_identity.principal_id,
+    )
+    assignExactIdentifier(
+      normalized,
+      'clientId',
+      ['entraClientId', 'entraAppId', 'appId'],
+      agent.instance_identity.client_id,
+    )
+    normalized['foundryInstanceIdentityPrincipalId'] = agent.instance_identity.principal_id
+    normalized['foundryInstanceIdentityClientId'] = agent.instance_identity.client_id
+    if (agent.instance_identity.status !== undefined) {
+      normalized['foundryInstanceIdentityStatus'] = agent.instance_identity.status
+    }
+  }
+  if (agent.blueprint !== null && agent.blueprint !== undefined) {
+    normalized['foundryBlueprintPrincipalId'] = agent.blueprint.principal_id
+    normalized['foundryBlueprintClientId'] = agent.blueprint.client_id
+    if (agent.blueprint.status !== undefined) {
+      normalized['foundryBlueprintStatus'] = agent.blueprint.status
+    }
+  }
+  if (agent.blueprint_reference !== null && agent.blueprint_reference !== undefined) {
+    normalized['foundryBlueprintReferenceType'] = agent.blueprint_reference.type
+    normalized['foundryBlueprintReferenceId'] = agent.blueprint_reference.blueprint_id
+  }
+  return normalized
+}
+
 function explicitRuntimeEligibilityMarkers(
   metadata: Record<string, string>,
 ): Record<string, string> {
@@ -857,7 +1004,7 @@ export function mapAgentToSnapshot(
           : {}),
         ...(metadata.businessUnit !== undefined ? { businessUnit: metadata.businessUnit } : {}),
         apiVersion,
-        ...explicitIdentityMetadata(metadata),
+        ...foundryIdentityMetadata(agent, metadata),
         ...runtimeEligibilityMarkers,
       },
     })

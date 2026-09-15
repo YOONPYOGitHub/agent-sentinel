@@ -714,6 +714,62 @@ describe('normalization and correlation', () => {
     ).toBe('uncorrelated')
   })
 
+  it('creates one RUNS_AS edge for a stable Foundry instance principal ID', () => {
+    const principalId = '11111111-1111-4111-8111-111111111111'
+    const result = enrichSnapshotWithEntra(
+      baseSnapshot({
+        servicePrincipalId: principalId,
+        foundryInstanceIdentityPrincipalId: principalId,
+        foundryInstanceIdentityClientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        foundryInstanceIdentityStatus: 'active',
+      }),
+      inventorySnapshot(),
+    )
+
+    expect(result.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(1)
+    expect(result.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'matched',
+      entraCorrelationMatchKind: 'object-id',
+    })
+  })
+
+  it('keeps a stable Foundry instance client ID insufficient without object authority', () => {
+    const result = enrichSnapshotWithEntra(
+      baseSnapshot({
+        clientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        foundryInstanceIdentityClientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        foundryInstanceIdentityStatus: 'active',
+      }),
+      inventorySnapshot(),
+    )
+
+    expect(result.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
+    expect(result.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'unmatched',
+      entraCorrelationReason: 'application-id-authority-unavailable',
+    })
+  })
+
+  it('never treats Foundry blueprint or project managed identity IDs as RUNS_AS authority', () => {
+    const principalId = '11111111-1111-4111-8111-111111111111'
+    const result = enrichSnapshotWithEntra(
+      baseSnapshot({
+        foundryBlueprintPrincipalId: principalId,
+        foundryBlueprintClientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        foundryBlueprintReferenceId: principalId,
+        foundryProjectAgentIdentityId: principalId,
+        foundryProjectManagedIdentityPrincipalId: principalId,
+      }),
+      inventorySnapshot(),
+    )
+
+    expect(result.edges.filter((edge) => edge.relationship === 'RUNS_AS')).toHaveLength(0)
+    expect(result.nodes.find((node) => node.id === 'agent-1')?.metadata).toMatchObject({
+      entraCorrelationStatus: 'unmatched',
+      entraCorrelationReason: 'missing-authoritative-identifier',
+    })
+  })
+
   it('does not correlate a tenant-wide inventory without an explicit source binding', () => {
     const result = enrichSnapshotWithEntraWithoutBinding(
       baseSnapshot({ servicePrincipalId: '11111111-1111-4111-8111-111111111111' }),
@@ -807,7 +863,7 @@ describe('normalization and correlation', () => {
     })
   })
 
-  it('does not correlate when exact identifiers resolve to different identities', () => {
+  it('marks conflicting stable Foundry principal and client identifiers ambiguous', () => {
     const identities = mapEntraInventoryToSnapshot(
       {
         servicePrincipals: [
@@ -834,6 +890,8 @@ describe('normalization and correlation', () => {
       baseSnapshot({
         servicePrincipalId: '11111111-1111-4111-8111-111111111111',
         clientId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        foundryInstanceIdentityPrincipalId: '11111111-1111-4111-8111-111111111111',
+        foundryInstanceIdentityClientId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       }),
       identities,
     )

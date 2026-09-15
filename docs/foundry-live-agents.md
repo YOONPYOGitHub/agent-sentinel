@@ -89,7 +89,12 @@ to the per-request limits. Caller cancellation is propagated to credential and
 HTTP operations, and queued sources do not start after cancellation.
 The connector maps each completed source object to evidence and an estate agent;
 it does not infer tools, relationships, owners, or health that Foundry did not
-return.
+return. Stable `instance_identity.principal_id` is normalized as the runtime
+service-principal object ID and `instance_identity.client_id` as its application
+client ID. Instance status, blueprint identity fields, and
+`blueprint_reference.blueprint_id` remain source-specific descriptive metadata.
+Blueprint and project managed identities are never substituted for a missing
+runtime instance identity.
 
 ### Multiple tenants and projects
 

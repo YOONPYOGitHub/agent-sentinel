@@ -17,12 +17,16 @@ tenant, source environments, providers, Foundry project ID, and Entra inventory
 tenant. Foundry and Entra source tenants may differ when both endpoints match
 their independently registered exact source metadata in the same estate. The
 Foundry agent must then expose a complete, non-conflicting exact
-service-principal object ID. Agent Identity object IDs are eligible only when
-the separately enabled preview read confirms that classification.
+service-principal object ID. Stable Foundry
+`instance_identity.principal_id` supplies that runtime object authority;
+`instance_identity.client_id` is retained as application metadata but remains
+insufficient by itself. Agent Identity object IDs are eligible only when the
+separately enabled preview read confirms that classification.
 Application/client-ID-only matches remain unmatched until the connector emits a
 distinct application-ID authority; they never compare an application ID with a
 service-principal object ID. Names, aliases, owners, tags, descriptions, shared
-`primary` IDs, and fuzzy text are never correlation keys.
+`primary` IDs, blueprint identities, blueprint references, project managed
+identities, and fuzzy text are never correlation keys.
 
 Microsoft Entra tenant, inventory-source, principal, and binding GUIDs are
 validated as GUIDs and canonicalized to lowercase when parsed. Authority and
@@ -154,11 +158,11 @@ tenant/environment values, then enable and validate bounded v1.0 inventory.
 Separately review `AgentIdentity.Read.All` before enabling beta enrichment.
 
 The last replacement-tenant observation recorded 6 authoritative Foundry
-agents, 335 Entra identity nodes, and 0 `RUNS_AS` edges. It predates this exact
-binding contract and is not validation of it. Both the historical and
-replacement Foundry validation agents exposed null instance identity and null
-Agent Identity blueprint reference, so no current principal attribution can be
-claimed. `AUTH_MODE=disabled` is a separate corporate sign-in state and does not
-affect inventory. After deployment, the integration owner must supply reviewed
-explicit bindings and fresh replacement-tenant evidence before validating any
-considered, unmatched, ambiguous, exact-match, or emitted-edge count.
+agents, 335 Entra identity nodes, and 0 `RUNS_AS` edges. All six current agents
+exposed null instance identity, and the project ARM `properties.agentIdentityId`
+was also null. The project system-assigned managed identity is not a runtime
+fallback, so no current principal attribution can be claimed. The remaining
+pilot blocker is a newly provisioned identity-aware agent with a non-null
+`instance_identity.principal_id`, a matching Entra service-principal inventory
+record, and reviewed exact source binding. `AUTH_MODE=disabled` is a separate
+corporate sign-in state and does not affect inventory.
