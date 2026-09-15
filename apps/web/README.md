@@ -1,4 +1,5 @@
 <a id="agent-sentinel-web"></a>
+
 # Agent Sentinel 웹
 
 웹 콘솔은 자산 집합(estate) 데이터 화면을 마운트하기 전에 `/api/estates`에서
@@ -19,6 +20,7 @@ MSAL(Microsoft 인증 라이브러리) 브리지는 별도의 Vite 빌드 진입
 자산 집합 선택은 인증 리디렉션 상태를 대체하거나 영속화하지 않습니다.
 
 <a id="development"></a>
+
 ## 개발
 
 현재 두 가지 공식 플러그인을 사용할 수 있습니다.
@@ -31,6 +33,7 @@ MSAL(Microsoft 인증 라이브러리) 브리지는 별도의 Vite 빌드 진입
 React Compiler는 개발·빌드 성능에 영향을 주므로 이 템플릿에서 활성화하지 않았습니다. 추가하려면 [설치 문서](https://react.dev/learn/react-compiler/installation)를 참고하십시오.
 
 <a id="expanding-the-eslint-configuration"></a>
+
 ## ESLint 설정 확장
 
 프로덕션 애플리케이션을 개발한다면 타입을 인식하는 린트 규칙을 활성화하도록 설정을 갱신하는 것이 좋습니다.

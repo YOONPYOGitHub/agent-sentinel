@@ -98,19 +98,22 @@ describe('public edge routing safety', () => {
 
   it('keeps the Korean README product-first and honest about evidence boundaries', () => {
     const readme = rootFile('README.md')
-    const why = readme.indexOf('## Why Agent Sentinel')
-    const production = readme.indexOf('## Production readiness')
+    const why = readme.indexOf('## Agent Sentinel이 필요한 이유')
+    const production = readme.indexOf('## 프로덕션 출시 준비도')
 
     expect(why).toBeGreaterThan(readme.indexOf('# Agent Sentinel'))
     expect(production).toBeGreaterThan(why)
+    expect(readme).toContain('<a id="why-agent-sentinel"></a>')
+    expect(readme).toContain('<a id="production-readiness"></a>')
+    expect(readme).toContain('<a id="quick-start"></a>')
     expect(readme).toMatch(/증거 그래프[\s\S]*정확한 식별자/)
-    expect(readme).toMatch(/Unattributed evidence[\s\S]*임의 귀속하지 않음/)
-    expect(readme).toMatch(/Non-authoritative manifest[\s\S]*sourceOfTruth: false/)
+    expect(readme).toMatch(/미귀속 증거[^|\n]*\|[^|\n]*\|[^|\n]*임의 귀속하지 않음/)
+    expect(readme).toMatch(/비권위 매니페스트[^|\n]*\|[^|\n]*\|[^|\n]*sourceOfTruth: false/)
     expect(readme).toMatch(
-      /authoritative Foundry agent[^|\n]*usable exact identity ID[^|\n]*`RUNS_AS` 0/,
+      /권위 있는 Foundry 에이전트[^|\n]*정확한 신원 ID가 없어[^|\n]*`RUNS_AS` 0/,
     )
-    expect(readme).toContain('실제 provider 검증 script는 자동 CI에서 실행하지 않으며')
-    expect(readme).toContain('아직 production release가 아닙니다')
+    expect(readme).toContain('실제 공급자 검증 스크립트는 자동 CI에서 실행하지 않으며')
+    expect(readme).toContain('아직 프로덕션 릴리스가 아닙니다')
   })
 
   it('documents full-SHA private image builds and digest verification', () => {

@@ -1,9 +1,11 @@
 <a id="document-lifecycle"></a>
+
 # 문서 수명주기
 
 마지막 검토일: **2026-09-14**.
 
 <a id="authority-classes"></a>
+
 ## 권위 수준별 분류
 
 - **현재 운영 사실:** `current-status.md`, `connector-availability.md`, `known-issues.md`, `maintainer-handoff.md`. 검토 날짜가 필요하며 저장소, 배포, 커넥터, 차단 요인의 상태가 서로 일치해야 합니다.
@@ -12,6 +14,7 @@
 - **일시적 계획:** 구현 계획, 초안 명세, 검토 메모, 대체된 인수인계 자료는 장기 문서가 아닙니다.
 
 <a id="maintenance-rules"></a>
+
 ## 유지관리 규칙
 
 1. 기존 권위 있는 문서를 갱신하며, 병렬 상태 기록이나 인수인계 문서를 만들지 않습니다.

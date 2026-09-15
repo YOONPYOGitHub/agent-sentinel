@@ -1,4 +1,5 @@
 <a id="roadmap"></a>
+
 # 로드맵
 
 Agent Sentinel의 단계별 제공 계획입니다. `feature/production-readiness-r1` 브랜치를 기준으로 **2026-09-14**에 마지막으로 검토했습니다.
@@ -6,6 +7,7 @@ Agent Sentinel의 단계별 제공 계획입니다. `feature/production-readines
 모든 단계에는 명시적인 완료 기준이 있습니다. UI가 표시된다고 완료된 것은 아닙니다. 증거가 실제이고, 경계가 코드로 강제되며, 모델 접근 없이 테스트로 동작을 입증할 때 완료됩니다.
 
 <a id="verified-live-checkpoint"></a>
+
 ## 검증된 실제 서비스 기준점
 
 - Agent 365는 배포되었고 `ready`, `complete` 상태입니다. 패키지 308개, agent-package 노드 302개, extension-package 노드 6개, 실제 원본 결합 증거 레코드 308개입니다.
@@ -16,6 +18,7 @@ Agent Sentinel의 단계별 제공 계획입니다. `feature/production-readines
 ---
 
 <a id="two-independent-tracks"></a>
+
 ## 두 개의 독립적인 작업 경로
 
 작업은 사내 신원을 사용할 수 있을 때까지 진행할 수 없는 경로와 지금 진행할 수 있는 경로로 나뉩니다. 이 둘을 혼동하는 것이 이 프로젝트에서 가장 흔한 계획 오류입니다.
@@ -45,17 +48,18 @@ flowchart TD
     ADAPT["범용 어댑터 계약<br/>(독립적, 매니페스트 어댑터 제공됨)"]
 ```
 
-| 작업 경로 | 게이트 | 지금 시작 가능한가? |
-| -------------------------------- | ----------------------------------------------------- | ----------------- |
-| 신원·쓰기·수정 조치 | 대체 API·SPA 등록과 승인 | **코드만 가능** |
-| 런타임 텔레메트리 및 경제성 | 없음 — 커넥터 구현 작업 | **가능** |
-| 거버넌스 작업 흐름 | 없음 | **가능** |
-| 범용 어댑터 | 실제 API 수집을 위한 인증된 쓰기 활성화 | **코드 작업 가능** |
-| 공개 에지 강화 | Service Tree가 아닌 도메인 소유권 | **가능** |
+| 작업 경로                   | 게이트                                  | 지금 시작 가능한가? |
+| --------------------------- | --------------------------------------- | ------------------- |
+| 신원·쓰기·수정 조치         | 대체 API·SPA 등록과 승인                | **코드만 가능**     |
+| 런타임 텔레메트리 및 경제성 | 없음 — 커넥터 구현 작업                 | **가능**            |
+| 거버넌스 작업 흐름          | 없음                                    | **가능**            |
+| 범용 어댑터                 | 실제 API 수집을 위한 인증된 쓰기 활성화 | **코드 작업 가능**  |
+| 공개 에지 강화              | Service Tree가 아닌 도메인 소유권       | **가능**            |
 
 ---
 
 <a id="phase-0--evidence-first-foundation--complete"></a>
+
 ## 0단계 — 증거 우선 기반 · **완료**
 
 결정론적 코어, 전체 탐색 화면, 실제 Microsoft Foundry 탐색, Cosmos 기반 노출 및 거버넌스, 증거 기반 평가표, 커넥터 카탈로그, Entra RBAC(역할 기반 접근 제어) 코드 기반을 제공했습니다.
@@ -72,6 +76,7 @@ flowchart TD
 ---
 
 <a id="phase-1--governance-work-queue-and-lifecycle-workflow--complete--independent"></a>
+
 ## 1단계 — 거버넌스 작업 대기열 및 수명주기 작업 흐름 · **완료** · _독립적_
 
 읽기 전용 거버넌스 상태를 실제 운영 가능한 작업 흐름으로 전환합니다.
@@ -106,13 +111,14 @@ flowchart TD
 ---
 
 <a id="phase-2--corporate-identity-activation--in-progress--approval-required"></a>
+
 ## 2단계 — 사내 신원 활성화 · **진행 중** · _승인 필요_
 
-| 차원 | 상태 |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| 코드 준비도 | **단계적 활성화 준비 완료:** JWT·RBAC, MSAL, 초기 구성, 사전 점검, 보호된 워크플로, 검증기가 구현되었습니다. |
-| 활성화 | **차단됨:** 대체 API·SPA 등록, 동의, 역할 할당, 배포된 JWT 설정, 실제 직원 로그인이 없습니다. |
-| 활성 에지 | Front Door가 예정된 HTTPS 리디렉션·로그아웃 출처이지만 WAF의 사용자 지정 변경 요청 규칙은 증거로 확인되지 않았으며 쓰기는 false입니다. |
+| 차원        | 상태                                                                                                                                   |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 코드 준비도 | **단계적 활성화 준비 완료:** JWT·RBAC, MSAL, 초기 구성, 사전 점검, 보호된 워크플로, 검증기가 구현되었습니다.                           |
+| 활성화      | **차단됨:** 대체 API·SPA 등록, 동의, 역할 할당, 배포된 JWT 설정, 실제 직원 로그인이 없습니다.                                          |
+| 활성 에지   | Front Door가 예정된 HTTPS 리디렉션·로그아웃 출처이지만 WAF의 사용자 지정 변경 요청 규칙은 증거로 확인되지 않았으며 쓰기는 false입니다. |
 
 OneRAI와 서비스 온보딩은 독립적으로 진행하며 로컬 구현을 차단하지 않습니다.
 
@@ -135,6 +141,7 @@ OneRAI와 서비스 온보딩은 독립적으로 진행하며 로컬 구현을 �
 ---
 
 <a id="phase-3--authorized-write-path--blocked--depends-on-phase-2"></a>
+
 ## 3단계 — 승인된 쓰기 경로 · **차단됨** · _2단계에 의존_
 
 **범위**
@@ -154,6 +161,7 @@ OneRAI와 서비스 온보딩은 독립적으로 진행하며 로컬 구현을 �
 ---
 
 <a id="phase-4--runtime-telemetry-connector--query-path-connected-evidence-insufficient"></a>
+
 ## 4단계 — 런타임 텔레메트리 커넥터 · _쿼리 경로 연결됨, 증거 부족_
 
 커넥터, 엔진 연결부, 원본 라우팅, 대체 작업 영역 쿼리 경로가 구현되었습니다. 검증된 실제 적격 레코드는 0개이며 대표성 있는 기준 및 관측 증거는 계속 차단되어 있습니다.
@@ -179,6 +187,7 @@ OneRAI와 서비스 온보딩은 독립적으로 진행하며 로컬 구현을 �
 ---
 
 <a id="phase-5--additional-evidence-connectors--mixed-live-and-blocked-states"></a>
+
 ## 5단계 — 추가 증거 커넥터 · _실제 서비스와 차단 상태 혼재_
 
 **다중 원본 선행 조건 — 구현됨:** Foundry는 여러 테넌트·프로젝트 원본 정의를 수용하고
@@ -232,16 +241,16 @@ Purview 이후 공식 Global Microsoft Graph v1.0 `appCatalogs/teamsApps` 목록
 주장하지 않습니다. 대체 기본 원본은 테넌트 관리자의 `AppCatalog.Read.All`을 통해
 준비 상태이며 현재 조직 항목 0개를 반환합니다.
 
-| 커넥터 | 카탈로그 상태 | 게이트 |
-| ------------------------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Microsoft Agent 365 (`m365-agent-registry`) | `connected` | 배포된 `ready + complete` 상태. 패키지 308개를 agent-package 노드 302개와 extension-package 노드 6개로 정규화하고 원본 결합 증거 레코드 308개 보유 |
-| Microsoft Entra 신원 및 사용 권한 | `connected` | 기본 안정 버전 v1.0 인벤토리는 실제 서비스 연결 상태이며 추가 테넌트마다 동의 필요 |
-| Azure Resource Graph | `connected` | 기존 UAMI 역할로 리소스 5개가 보이며 더 넓은 Reader 범위에는 별도 승인 필요 |
-| Microsoft Purview | `connected` | 기본 레이블 정의 카탈로그는 실제 서비스 연결 상태이며 카탈로그 증거가 사용을 입증하지 않음 |
-| Microsoft Defender for Cloud Apps | `connected` | 기본 제한 경고·활동 목록이 준비되었으며 현재 결과는 비어 있음 |
-| Microsoft Copilot Studio / Agent Builder | `authorization-required` | 지원되는 무인 ResourceQuery 인벤토리 권한 부여가 없으며 스키마는 미리 보기 |
-| Microsoft 365 및 SharePoint 에이전트 | `connected` | 배포된 Agent 365 패키지 메타데이터로 분류하며 SharePoint 스크래핑은 사용하지 않음 |
-| Microsoft Teams 배포 | `connected` | 조직 카탈로그 원본이 준비되었으며 현재 결과는 비어 있음 |
+| 커넥터                                      | 카탈로그 상태            | 게이트                                                                                                                                             |
+| ------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Microsoft Agent 365 (`m365-agent-registry`) | `connected`              | 배포된 `ready + complete` 상태. 패키지 308개를 agent-package 노드 302개와 extension-package 노드 6개로 정규화하고 원본 결합 증거 레코드 308개 보유 |
+| Microsoft Entra 신원 및 사용 권한           | `connected`              | 기본 안정 버전 v1.0 인벤토리는 실제 서비스 연결 상태이며 추가 테넌트마다 동의 필요                                                                 |
+| Azure Resource Graph                        | `connected`              | 기존 UAMI 역할로 리소스 5개가 보이며 더 넓은 Reader 범위에는 별도 승인 필요                                                                        |
+| Microsoft Purview                           | `connected`              | 기본 레이블 정의 카탈로그는 실제 서비스 연결 상태이며 카탈로그 증거가 사용을 입증하지 않음                                                         |
+| Microsoft Defender for Cloud Apps           | `connected`              | 기본 제한 경고·활동 목록이 준비되었으며 현재 결과는 비어 있음                                                                                      |
+| Microsoft Copilot Studio / Agent Builder    | `authorization-required` | 지원되는 무인 ResourceQuery 인벤토리 권한 부여가 없으며 스키마는 미리 보기                                                                         |
+| Microsoft 365 및 SharePoint 에이전트        | `connected`              | 배포된 Agent 365 패키지 메타데이터로 분류하며 SharePoint 스크래핑은 사용하지 않음                                                                  |
+| Microsoft Teams 배포                        | `connected`              | 조직 카탈로그 원본이 준비되었으며 현재 결과는 비어 있음                                                                                            |
 
 **커넥터별 완료 기준**
 
@@ -253,6 +262,7 @@ Purview 이후 공식 Global Microsoft Graph v1.0 `appCatalogs/teamsApps` 목록
 ---
 
 <a id="phase-6--employee-entitlement-personalization--blocked--depends-on-phase-5"></a>
+
 ## 6단계 — 직원 사용 권한 개인화 · **차단됨** · _5단계에 의존_
 
 **범위:** Entra 사용 권한 증거를 사용해 로그인한 직원에게 실제 사용 권한이 있는 항목만 에이전트 보증 카탈로그에 표시합니다.
@@ -266,6 +276,7 @@ Purview 이후 공식 Global Microsoft Graph v1.0 `appCatalogs/teamsApps` 목록
 ---
 
 <a id="phase-7--universal-adapters--partially-delivered--independent"></a>
+
 ## 7단계 — 범용 어댑터 · **부분 제공** · _독립적_
 
 **범위:** 타사·자체 런타임을 포함한 모든 에이전트 런타임이 증거를 제공할 수 있도록 문서화된 매니페스트 스키마와 인증된 수집 API를 제공합니다. `sourceOfTruth: false`인 `custom-manifest-adapter`로 카탈로그에 등록되어 있으며 현재 `available-to-configure`입니다.
@@ -298,6 +309,7 @@ Purview 이후 공식 Global Microsoft Graph v1.0 `appCatalogs/teamsApps` 목록
 ---
 
 <a id="phase-8--behavioral-drift-and-token-economics--engine-available-live-evidence-insufficient"></a>
+
 ## 8단계 — 행동 드리프트 및 토큰 경제성 · _엔진 제공됨, 실제 증거 부족_
 
 **범위**
@@ -318,6 +330,7 @@ Purview 이후 공식 Global Microsoft Graph v1.0 `appCatalogs/teamsApps` 목록
 ---
 
 <a id="phase-9--business-value-evidence--foundation-complete-live-source-pending"></a>
+
 ## 9단계 — 비즈니스 가치 증거 · _기반 완료, 실제 원본 대기_
 
 **범위:** 에이전트 활동을 비즈니스 성과에 연결해 호출 수에서 가치를 추정하지 않고 증거로 입증합니다.
@@ -344,6 +357,7 @@ Purview 이후 공식 Global Microsoft Graph v1.0 `appCatalogs/teamsApps` 목록
 ---
 
 <a id="phase-10--shift-left-scanning--complete"></a>
+
 ## 10단계 — 시프트 레프트 검사 · **완료**
 
 **범위:** 개발 초기 단계 검사인 시프트 레프트를 통해 CI 또는 플랫폼 게시 게이트에서 게시 전에 동일한 결정론적 정책 엔진으로 에이전트 정의를 평가합니다.
@@ -367,6 +381,7 @@ Purview 이후 공식 Global Microsoft Graph v1.0 `appCatalogs/teamsApps` 목록
 ---
 
 <a id="ui-design-system-and-storybook--foundation-complete"></a>
+
 ## UI 디자인 시스템 및 Storybook · _기반 완료_
 
 제품 명세는 페이지를 더 늘리기 전에 공통 UI 기본 요소를 마련하도록 요구합니다.
@@ -384,16 +399,17 @@ Purview 이후 공식 Global Microsoft Graph v1.0 `appCatalogs/teamsApps` 목록
 ---
 
 <a id="public-edge-hardening--continuous-independent"></a>
+
 ## 공개 에지 강화 · _지속적·독립적_
 
 번호가 있는 단계는 아니며 여러 단계의 제약 조건입니다.
 
-| 항목 | 상태 |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Application Gateway HTTP 수신기 | 작동하지만 포트 80의 HTTP만 지원하며 사용자 지정 도메인이나 TLS는 없습니다. 관리 자동화 대상이며 중지될 수 있습니다. |
-| Front Door 엔드포인트 | **활성** HTTPS 경로입니다. WAF의 사용자 지정 변경 요청 규칙이 증거로 확인되지 않아 쓰기는 false를 유지해야 합니다. |
-| 사용자 지정 도메인 및 TLS | 등록되어 활성화된 Front Door 기본 HTTPS 출처에 더하는 선택적 프로덕션 강화입니다. `RB-013`을 참고하십시오. |
-| 실행기 및 배포 RBAC | 실행기 신원에는 `AcrPush`만 있으며 자동 플랫폼 배포와 what-if 권한이 없습니다. |
-| 필요한 부분만 변경하는 Container App 이미지 갱신 | 현재 수동입니다. 자동화하려면 리소스 그룹에 추가 역할 할당이 필요합니다. |
+| 항목                                             | 상태                                                                                                                 |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| Application Gateway HTTP 수신기                  | 작동하지만 포트 80의 HTTP만 지원하며 사용자 지정 도메인이나 TLS는 없습니다. 관리 자동화 대상이며 중지될 수 있습니다. |
+| Front Door 엔드포인트                            | **활성** HTTPS 경로입니다. WAF의 사용자 지정 변경 요청 규칙이 증거로 확인되지 않아 쓰기는 false를 유지해야 합니다.   |
+| 사용자 지정 도메인 및 TLS                        | 등록되어 활성화된 Front Door 기본 HTTPS 출처에 더하는 선택적 프로덕션 강화입니다. `RB-013`을 참고하십시오.           |
+| 실행기 및 배포 RBAC                              | 실행기 신원에는 `AcrPush`만 있으며 자동 플랫폼 배포와 what-if 권한이 없습니다.                                       |
+| 필요한 부분만 변경하는 Container App 이미지 갱신 | 현재 수동입니다. 자동화하려면 리소스 그룹에 추가 역할 할당이 필요합니다.                                             |
 
 전체 내용: [알려진 문제](known-issues.md) 및 [배포](deployment.md).

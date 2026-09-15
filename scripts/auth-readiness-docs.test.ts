@@ -6,9 +6,10 @@ function rootFile(path: string): string {
   return readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
 }
 
-function section(markdown: string, heading: string, nextHeading: string): string {
-  const start = markdown.indexOf(heading)
-  const end = markdown.indexOf(nextHeading, start + heading.length)
+function section(markdown: string, anchorId: string, nextAnchorId: string): string {
+  const anchor = `<a id="${anchorId}"></a>`
+  const start = markdown.indexOf(anchor)
+  const end = markdown.indexOf(`<a id="${nextAnchorId}"></a>`, start + anchor.length)
   expect(start).toBeGreaterThanOrEqual(0)
   expect(end).toBeGreaterThan(start)
   return markdown.slice(start, end)
@@ -22,7 +23,7 @@ describe('authentication readiness documentation', () => {
     const knownIssues = rootFile('docs/known-issues.md')
     const currentStatus = rootFile('docs/current-status.md')
     const handoff = rootFile('docs/maintainer-handoff.md')
-    const production = section(rootFile('README.md'), '## Production readiness', '## Quick start')
+    const production = section(rootFile('README.md'), 'production-readiness', 'quick-start')
     const operationalDocuments = [
       security,
       deployment,
@@ -31,43 +32,37 @@ describe('authentication readiness documentation', () => {
       currentStatus,
       handoff,
     ]
-    const operationalTruth = operationalDocuments.join('\n')
-
-    expect(operationalTruth).toMatch(
-      /replacement[\s\S]*(API|SPA)[\s\S]*(registrations?|service principals?)[\s\S]*(exist|created|생성 완료)/i,
-    )
-    expect(operationalTruth).toMatch(
-      /(admin consent|role assignment|역할 할당)[\s\S]*(incomplete|pending|미완료)/i,
-    )
-    expect(operationalTruth).toContain('AUTH_MODE=disabled')
-    expect(operationalTruth).toMatch(
-      /Front Door[\s\S]*(no evidenced|does not protect)[\s\S]*mutation/i,
-    )
-    expect(operationalTruth).toMatch(/write(s|Enabled)?[\s\S]*(false|disabled|prohibited|금지)/i)
+    expect(currentStatus).toMatch(/대체 API[^\n]*SPA[^\n]*등록[^\n]*서비스 주체[^\n]*존재/)
+    expect(currentStatus).toMatch(/관리자 동의[^\n]*역할 할당[^\n]*미완료/)
+    expect(currentStatus).toContain('AUTH_MODE=disabled')
+    expect(currentStatus).toMatch(/Front Door[^\n]*사용자 지정 변경 요청 규칙[^\n]*확인되지 않/)
+    expect(currentStatus).toMatch(/중지된 Application Gateway[^\n]*Front Door를 보호하지 않/)
+    expect(currentStatus).toContain('AGENT_SENTINEL_WRITE_ENABLED=false')
     for (const document of operationalDocuments) {
       expect(document).toMatch(/Front Door/i)
-      expect(document).toMatch(/write|mutation/i)
+      expect(document).toMatch(/write|mutation|쓰기|변경 요청/i)
     }
 
     expect(production).toMatch(
-      /replacement API\/SPA[^|\n]*생성 완료[^|\n]*(consent|역할 할당) 미완료/,
+      /대체 API·SPA[^|\n]*생성 완료[^|\n]*관리자 동의[^|\n]*역할 할당 미완료/,
     )
     expect(production).toContain('`AUTH_MODE=disabled`')
-    expect(production).toMatch(/Front Door (write guard|mutation rule)/)
+    expect(production).toContain('`AGENT_SENTINEL_WRITE_ENABLED=false`')
+    expect(production).toMatch(/Front Door 변경 요청 규칙/)
   })
 
   it('documents approval, all four roles, and immutable deployment evidence as blockers', () => {
     const security = rootFile('docs/security-authentication.md')
     const knownIssues = rootFile('docs/known-issues.md')
     const handoff = rootFile('docs/maintainer-handoff.md')
-    const production = section(rootFile('README.md'), '## Production readiness', '## Quick start')
+    const production = section(rootFile('README.md'), 'production-readiness', 'quick-start')
 
     expect(security).toMatch(/registration[s]? created through the approved bootstrap plan/i)
     expect(security).toMatch(/all four roles/i)
     expect(handoff).toMatch(/Viewer[\s\S]*Analyst[\s\S]*Approver[\s\S]*Administrator/)
     expect(knownIssues).toMatch(/reviewed image digests/i)
-    expect(handoff).toMatch(/human[\s\S]{0,180}approv/i)
+    expect(handoff).toMatch(/사람[^\n]{0,180}승인/)
     expect(production).toContain('`Viewer`·`Analyst`·`Approver`·`Administrator`')
-    expect(production).toMatch(/full SHA[^|\n]*image digest|full SHA[^|\n]*digest/)
+    expect(production).toMatch(/전체 SHA[^|\n]*다이제스트/)
   })
 })

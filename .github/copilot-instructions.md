@@ -1,4 +1,5 @@
 <a id="agent-sentinel-development-instructions"></a>
+
 # Agent Sentinel 개발 지침
 
 운영 사실은 `456d01f2`에서 **2026-09-14**에 마지막으로 대조·정리했습니다.
@@ -7,6 +8,7 @@
 `docs/current-status.md`를 읽으십시오.
 
 <a id="working-branch"></a>
+
 ## 작업 브랜치
 
 - 활성 통합 브랜치는 `feature/production-readiness-r1`입니다.
@@ -16,6 +18,7 @@
   작업 묶음을 합치지 않습니다.
 
 <a id="product-invariants"></a>
+
 ## 제품 불변 원칙
 
 - 핵심 순환 흐름은 커넥터 구성, 권위 있는 에이전트 발견, 계층 간 증거 상관 분석,
@@ -35,6 +38,7 @@
   역할 기반 접근 제어(RBAC), 검증, 페이지 처리 한도, 재시도 한도, 시간 초과 동작을 약화하지 않습니다.
 
 <a id="repository-conventions"></a>
+
 ## 저장소 규칙
 
 - Node.js 22와 고정된 `pnpm@10.15.1`을 사용합니다.
@@ -49,6 +53,7 @@
   클라우드 작업과 실제 데이터 검증은 검토 후 통합 담당자가 수행합니다.
 
 <a id="validation"></a>
+
 ## 검증
 
 반복 작업 중에는 범위가 좁은 패키지 검사를 실행하고 완료 전에 다음을 실행합니다.
