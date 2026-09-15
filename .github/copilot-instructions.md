@@ -2,7 +2,8 @@
 
 # Agent Sentinel 개발 지침
 
-운영 사실은 `456d01f2`에서 **2026-09-14**에 마지막으로 대조·정리했습니다.
+현재 운영 사실은 `docs/current-status.md`의 관측 시각과 배포 SHA를 기준으로 확인합니다.
+이 지침은 코드 기준점 `1129bbe8`에서 현행화했으며 저장소 HEAD를 실제 Azure 배포로 간주하지 않습니다.
 
 변경 전에 `agent-sentinel-product-spec.md`, `docs/maintainer-handoff.md`,
 `docs/current-status.md`를 읽으십시오.
@@ -41,13 +42,14 @@
 
 ## 저장소 규칙
 
-- Node.js 22와 고정된 `pnpm@10.15.1`을 사용합니다.
+- Node.js 22(기준 `22.23.2`)와 고정된 `pnpm@10.15.1`을 사용합니다. 기본 Node 18로 검증하지 않습니다.
 - TypeScript pnpm/Turborepo 모노레포입니다.
 - Zod 스키마와 기존 저장소, Fastify, React, Cosmos ETag, 감사, 커넥터 구성 결합
   패턴을 재사용합니다.
 - 타입 안전성을 유지합니다. `any`, 광범위한 예외 포착, 조용한 대체 동작,
   성공처럼 보이는 기본값을 사용하지 않습니다.
 - 동작 변경에 테스트를 추가하고 직접 관련된 문서를 갱신합니다.
+- 설명·안내는 한국어로 쓰되 Azure 서비스명, 실제 메뉴, API·권한·명령어·파일명은 원어로 유지합니다. 현재 수량은 관측 원장을 참조하고 불변 heading anchor를 보존합니다.
 - 생성된 실제 서비스 증거, 자격 증명, 토큰, 비공개 데이터를 커밋하지 않습니다.
 - Azure, Microsoft 365, Entra, OneRAI, DARSy 등 외부 시스템을 변경하지 않습니다.
   클라우드 작업과 실제 데이터 검증은 검토 후 통합 담당자가 수행합니다.
@@ -59,15 +61,20 @@
 반복 작업 중에는 범위가 좁은 패키지 검사를 실행하고 완료 전에 다음을 실행합니다.
 
 ```bash
+pnpm build
 pnpm lint
 pnpm typecheck
 pnpm test
-pnpm build
 git diff --check
 ```
 
 웹 작업 흐름이나 라우팅을 변경하면 `pnpm test:e2e`를 실행합니다. 기존 저장소 전체
 Prettier 서식 차이는 별도로 추적하므로 작업에서 변경한 파일만 서식을 정리합니다.
+
+동일 checkout에서 build/lint/typecheck/test를 서로 다른 Turbo 프로세스로 동시에 실행하지
+않습니다. 의존 패키지의 `dist --clean`이 경합할 수 있으므로 위 순서로 실행합니다.
+실패·timeout·미실행은 그대로 보고하며 재시도 횟수나 테스트 제한을 바꿔 통과로 숨기지 않습니다.
+문서만 바뀐 경우에는 기존 문서 검사·링크·서식 검사를 우선하고 전체 제품 검사를 반복하지 않습니다.
 
 구현한 내용, 실행한 테스트, 남은 미확인 사항, 실제 대체 테넌트 검증이
 아직 필요한 주장을 정확히 보고합니다.

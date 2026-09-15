@@ -4,6 +4,10 @@
 
 이 지침은 현재 참조 환경을 무조건 복사할 수 있는 템플릿으로 취급하지 않으면서 저장소를 다른 환경으로 옮길 수 있도록 돕습니다. 다른 개발자는 **Azure나 Microsoft 365 접근 없이** 저장소를 복제하고 결정론적 모의 모드를 실행할 수 있습니다. 실제 서비스 동작을 재현하려면 독립적으로 프로비저닝된 테넌트 리소스, 책임자, 권한, 워크로드 신원, 운영자 승인이 필요합니다.
 
+**2026-09-15 현행화:** 이 문서의 신규 등록·리소스 생성 절차는 새 테넌트용입니다.
+기존 참조 환경에는 API/SPA 등록과 `connector-sources`가 이미 있으므로 다시 만들지 않습니다.
+현재 미완료 사항과 실제 배포 값은 [현재 상태](current-status.md)를 따릅니다.
+
 <a id="four-access-levels"></a>
 
 ## 네 가지 접근 수준
@@ -57,7 +61,7 @@
 4. 테넌트 로컬 IaC 매개변수를 만듭니다. 해당 리소스를 의도적으로 그대로 인수하는 경우가 아니면 참조 환경의 식별자나 리소스 이름을 복사하지 않습니다.
 5. 데이터, 레지스트리, 런타임, 에지, 워크로드 신원을 최소 권한으로 프로비저닝합니다.
 6. Foundry와 각 선택적 읽기 커넥터를 독립적으로 활성화하며 `unknown`, `blocked`, 유효한 빈 결과 상태를 정직하게 유지합니다.
-7. Entra 등록·초기 구성 계획을 실행하고 승인을 받은 뒤 쓰기 false 상태에서 읽기 전용 JWT를 활성화합니다.
+7. 기존 등록을 먼저 검색하고, 없는 경우에만 Entra 초기 구성 계획과 승인을 거칩니다. 관리자 동의·역할을 별도로 완료한 뒤 쓰기 false 상태에서 읽기 전용 JWT를 활성화합니다.
 8. 불변 이미지를 빌드·배포하고 전체 SHA·다이제스트를 기록하며 롤백을 검증한 다음 민감정보를 제거한 릴리스 증거를 확보합니다.
 9. 정확한 `RUNS_AS`, 대표성 있는 OpenTelemetry(OTel), 모든 쓰기 경로, 사람의 릴리스 결정을 별도 게이트로 취급합니다.
 
@@ -69,19 +73,27 @@
 
 ```bash
 pnpm install --offline --frozen-lockfile
+pnpm build
 pnpm lint
 pnpm typecheck
 pnpm test
-pnpm build
 pnpm manifest:validate -- <absolute-manifest-path> --tenant <tenant> --environment <environment>
-pnpm auth:registration-bootstrap -- --input <sanitized-input.json> --output <plan.json>
+pnpm auth:registration-bootstrap -- --input <sanitized-input.json> --state <sanitized-state.json> --output <plan.json>
 pnpm auth:preflight -- --input <sanitized-input.json> --output <plan.json>
-pnpm auth:edge-preflight -- --input <sanitized-input.json> --output <report.json>
+pnpm auth:edge-preflight -- --input <sanitized-input.json> --snapshot <sanitized-edge-snapshot.json> --output <report.json>
 pnpm release-evidence:schema:check
 pnpm release-review:schema:check
 ```
 
-인증 명령은 계획·사전 점검 도구이며 보호된 워크플로만이 승인된 적용 경로입니다. 실제 서비스 검증기와 `pnpm release-readiness:verify`는 배포 이후 운영자만 사용합니다. `pnpm demo:verify`는 호환 별칭으로 유지됩니다.
+`--state`와 `--snapshot`을 사용하는 위 명령은 제공된 데이터로 오프라인 검사합니다.
+이를 생략한 registration/edge preflight는 Graph/ARM 및 배포 URL을 조회하므로
+클라우드 접근이 없는 개발 명령과 섞지 않습니다. `auth:preflight`의 ready는 입력 계약의
+유효성이지 권한·로그인·출시 승인 완료가 아닙니다. 보호된 워크플로의 적용은 별도 승인 단계입니다.
+`pnpm release-readiness:verify`는 배포 이후 운영자만 사용하고 `pnpm demo:verify`는 호환 별칭입니다.
+
+새 테넌트에서 My agents를 제공하려면 실제 authoritative entitlement resolver가
+추가로 필요합니다. 현재는 주입 계약만 있으며 기본 서버에 원본이 연결되어 있지 않습니다.
+Agent 365 라이선스나 그룹 멤버십만으로 개인 접근 권한을 추정하지 않습니다.
 
 <a id="reference-environment-files"></a>
 
