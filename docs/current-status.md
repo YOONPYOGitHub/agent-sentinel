@@ -1,22 +1,22 @@
 # Current status
 
-**Status date: 2026-09-14** · Integration branch: `feature/production-readiness-r1` · Integration SHA: `456d01f2`
+**Status date: 2026-09-15** · Integration branch: `feature/production-readiness-r1` · Deployed SHA: `dd7ff6a2`
 
 This is the authoritative dated ledger for the Agent Sentinel control plane. It separates repository capability, deployed state, provider access, and evidence quality. Missing evidence is never a pass. For operating instructions and next work, use the [maintainer handoff](maintainer-handoff.md).
 
 ## Release boundary
 
-| Boundary       | Current truth                                                                                                                                                                                                   |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Repository     | `456d01f2` is the current integration head. Staged Entra activation hardening (`43cde6ab`) and deterministic release-review v2 (`456d01f2`) are repository changes after the deployed API and are not deployed. |
-| Live URL       | The reference deployment is reachable at `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`. This URL identifies the current reference environment, not a portable tenant default.                       |
-| Web            | Deployed SHA `372944b2e70f11050d20ca0596a5bfe1cb11e5db`; digest `sha256:ba52df80df821e67f2b8936a6f1c96bc6af881753c7187e70d0b033e66a8d1f4`.                                                                      |
-| API            | Active revision `api-as-m098047--p168bc0baa`; deployed SHA `68bc0baaa346111c3f36aef07c9d7f4a7eba33ea`; digest `sha256:aa6f191623b27ebeaaca47614bae7d582579ce251a3f62de23f09263fb7af4c9`.                        |
-| Jobs           | Deployed SHA `c26fe400d6f91bed897155e49d2f8e7b18b94f95`; digest `sha256:1438fd84ea10af0fd438609989875d8232ce43ff716e1d0d57be313476014648`.                                                                      |
-| Authentication | `AUTH_MODE=disabled`; no live employee login, role assignment, or deployed JWT validation exists.                                                                                                               |
-| Writes         | `AGENT_SENTINEL_WRITE_ENABLED=false`. Remediation and manifest ingestion are not live capabilities.                                                                                                             |
-| Edge           | Front Door is the active HTTPS edge. Its WAF has no evidenced custom mutation rule. The mutation rule on the stopped Application Gateway does not protect Front Door.                                           |
-| Estate         | One reference Foundry source contains six synthetic validation agents and no production customer agents.                                                                                                        |
+| Boundary       | Current truth                                                                                                                                                                             |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository     | `dd7ff6a2f58944f135f4371cc36dffb49b1e27b8` is the verified deployed integration SHA.                                                                                                      |
+| Live URL       | The reference deployment is reachable at `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`. This URL identifies the current reference environment, not a portable tenant default. |
+| Web            | Revision `web-as-m098047--p0dd7ff6a2`; digest `sha256:78f71224c06b8d1f3530c40265d9d27529c44079bb8a9381631f48271abde049`.                                                                  |
+| API            | Revision `api-as-m098047--p1dd7ff6a2`; digest `sha256:cf80f1587200a08a5ca981ba805a0f153d6e9d0cdca12cb18ad1c203e0dcb056`.                                                                  |
+| Jobs           | Revision `jobs-as-m098047--p0dd7ff6a2`; digest `sha256:360856accc536347ee1614bb258c08d8de6ab9dba3ac8af968085b2b86d2c40a`.                                                                 |
+| Authentication | Replacement API/SPA registrations and service principals exist. `AUTH_MODE=disabled`; admin consent, user role assignment, and live JWT validation remain incomplete.                     |
+| Writes         | `AGENT_SENTINEL_WRITE_ENABLED=false`. Remediation and manifest ingestion are not live capabilities.                                                                                       |
+| Edge           | Front Door is the active HTTPS edge. Its WAF has no evidenced custom mutation rule. The mutation rule on the stopped Application Gateway does not protect Front Door.                     |
+| Estate         | One reference Foundry source contains six synthetic validation agents and no production customer agents.                                                                                  |
 
 A Git commit or image publication alone does not prove deployment. The immutable values above are the verified runtime boundary for this status date.
 
@@ -24,12 +24,12 @@ A Git commit or image publication alone does not prove deployment. The immutable
 
 | Area                        | Repository state                                                                                                 | Deployed/evidence state                                                                                                                                                                               |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Web, API, jobs              | TypeScript monorepo with persisted live read models                                                              | Web, API, and jobs are live behind Front Door at the distinct immutable versions listed above. Repository-only auth hardening and release-review v2 are newer than the deployed API.                  |
+| Web, API, jobs              | TypeScript monorepo with persisted live read models                                                              | Web, API, and jobs are live behind Front Door at the same verified full SHA and immutable digests listed above.                                                                                       |
 | Evidence graph and policies | Deterministic graph and `AS-POL-001..003` exposure evaluation are implemented                                    | Live findings use jobs-persisted snapshots; attack-path legacy fixtures remain mock-only.                                                                                                             |
 | Governance                  | Durable cases, guarded transitions, exceptions, and audit evidence are implemented                               | Public mutation remains blocked; remediation is simulation-only.                                                                                                                                      |
 | Multi-estate isolation      | Estate context, partitioning, source scoping, and mismatch rejection are implemented                             | Only the reference replacement estate is evidenced live.                                                                                                                                              |
 | Connector source plane      | Strict non-secret schemas, ETags, idempotency, immutable audit, and deployment-source protection are implemented | The reference environment's `connector-sources` container and deployment-managed source bindings are provisioned and in use. New tenants must create their own isolated container and source records. |
-| Authentication              | JWT validation, MSAL, four roles, preflight, registration bootstrap, and protected workflows are implemented     | No replacement registrations or live JWT activation. The latest staged activation hardening is not deployed.                                                                                          |
+| Authentication              | JWT validation, MSAL, four roles, preflight, registration bootstrap, and protected workflows are implemented     | Replacement registrations are created, but admin consent and the test-principal role assignment are blocked on an active Entra application-administrator role; JWT remains disabled.                  |
 | Release evidence            | Versioned offline generator, schema, validator, and deterministic release-review v2 are implemented              | Release-review v2 is repository-only. Human Security, Accessibility, OneRAI, and release decisions remain external gates.                                                                             |
 | Demo Readiness              | Shared evaluator, CLI, and web page are implemented                                                              | **Partial:** Agent 365 is ready; `RUNS_AS` has 0 edges; OTel has 0 qualifying live records; authentication is disabled; writes are false.                                                             |
 

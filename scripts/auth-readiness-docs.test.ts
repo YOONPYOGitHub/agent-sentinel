@@ -34,7 +34,10 @@ describe('authentication readiness documentation', () => {
     const operationalTruth = operationalDocuments.join('\n')
 
     expect(operationalTruth).toMatch(
-      /replacement[\s\S]*(API|SPA)[\s\S]*(do not(?: yet)? exist|does not exist|미생성|없)/i,
+      /replacement[\s\S]*(API|SPA)[\s\S]*(registrations?|service principals?)[\s\S]*(exist|created|생성 완료)/i,
+    )
+    expect(operationalTruth).toMatch(
+      /(admin consent|role assignment|역할 할당)[\s\S]*(incomplete|pending|미완료)/i,
     )
     expect(operationalTruth).toContain('AUTH_MODE=disabled')
     expect(operationalTruth).toMatch(
@@ -46,7 +49,9 @@ describe('authentication readiness documentation', () => {
       expect(document).toMatch(/write|mutation/i)
     }
 
-    expect(production).toMatch(/replacement API\/SPA[^|\n]*(미생성|없)/)
+    expect(production).toMatch(
+      /replacement API\/SPA[^|\n]*생성 완료[^|\n]*(consent|역할 할당) 미완료/,
+    )
     expect(production).toContain('`AUTH_MODE=disabled`')
     expect(production).toMatch(/Front Door (write guard|mutation rule)/)
   })

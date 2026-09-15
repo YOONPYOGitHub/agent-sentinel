@@ -46,12 +46,12 @@ The runtime is a modular monolith deployed as web, API, and jobs Container Apps.
 
 ## Version truth
 
-- `feature/production-readiness-r1` is the canonical integration branch for this handoff; `456d01f2` is its current integration head.
+- `feature/production-readiness-r1` is the canonical integration branch for this handoff; `dd7ff6a2f58944f135f4371cc36dffb49b1e27b8` is the verified deployed head.
 - Live base URL: `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net`.
-- Web: SHA `372944b2e70f11050d20ca0596a5bfe1cb11e5db`, digest `sha256:ba52df80df821e67f2b8936a6f1c96bc6af881753c7187e70d0b033e66a8d1f4`.
-- API: revision `api-as-m098047--p168bc0baa`, SHA `68bc0baaa346111c3f36aef07c9d7f4a7eba33ea`, digest `sha256:aa6f191623b27ebeaaca47614bae7d582579ce251a3f62de23f09263fb7af4c9`.
-- Jobs: SHA `c26fe400d6f91bed897155e49d2f8e7b18b94f95`, digest `sha256:1438fd84ea10af0fd438609989875d8232ce43ff716e1d0d57be313476014648`.
-- Entra staged activation hardening (`43cde6ab`) and deterministic release-review v2 (`456d01f2`) are newer than the deployed API. They are repository-ready, not deployed.
+- Web: revision `web-as-m098047--p0dd7ff6a2`, digest `sha256:78f71224c06b8d1f3530c40265d9d27529c44079bb8a9381631f48271abde049`.
+- API: revision `api-as-m098047--p1dd7ff6a2`, digest `sha256:cf80f1587200a08a5ca981ba805a0f153d6e9d0cdca12cb18ad1c203e0dcb056`.
+- Jobs: revision `jobs-as-m098047--p0dd7ff6a2`, digest `sha256:360856accc536347ee1614bb258c08d8de6ab9dba3ac8af968085b2b86d2c40a`.
+- All three components report SHA `dd7ff6a2f58944f135f4371cc36dffb49b1e27b8`; authentication and writes remain disabled.
 
 ## Local WSL setup
 
@@ -103,7 +103,7 @@ Treat the dated baseline as historical, not as proof for the current commit. Rec
 - The reference deployment is available at `https://agent-sentinel-dadmh3cee9edbwha.b01.azurefd.net` with the immutable web/API/jobs versions in [Version truth](#version-truth).
 - The active Azure edge is Front Door over HTTPS. Application Gateway is stopped and diagnostic only.
 - Front Door has an active WAF policy but **no evidenced custom mutation-block rule**. The similarly named rule on the stopped Application Gateway does not protect Front Door.
-- `AUTH_MODE=disabled`; there are no replacement API or SPA app registrations, no live employee login, no role assignments, and no deployed JWT activation.
+- Replacement API/SPA registrations and service principals exist. `AUTH_MODE=disabled`; admin consent, test-principal role assignment, live employee login, and deployed JWT validation remain incomplete.
 - `AGENT_SENTINEL_WRITE_ENABLED=false`; remediation and manifest ingestion remain non-live.
 - Foundry data mode is live against one reference source containing six synthetic validation agents and no production customer agents.
 - The connector-source plane is provisioned for the reference environment.
