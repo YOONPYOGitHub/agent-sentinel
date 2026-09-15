@@ -11,6 +11,7 @@
   "scripts": {
     "provision-agents": "tsx provision-agents.ts",
     "cleanup-agents": "tsx cleanup-agents.ts",
+    "foundry-identity-pilot": "tsx foundry-identity-pilot.ts",
     "validate-live": "tsx validate-live.ts",
     "validate-onerai-live": "tsx validate-onerai-live.ts",
     "validate-telemetry-live": "AGENT_SENTINEL_TELEMETRY_PROBE_ONLY=true tsx validate-live.ts",

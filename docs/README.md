@@ -32,6 +32,7 @@ Start with the [root README](../README.md) for product value and the live-vs-moc
 | [External runtime instrumentation](external-runtime-instrumentation.md) | Emit privacy-safe invocation spans accepted by the Azure Monitor connector.              |
 | [New tenant bootstrap](new-tenant-bootstrap.md)                         | Separate mock use, live read access, operator access, approvals, and ownership transfer. |
 | [Foundry live agents](foundry-live-agents.md)                           | Understand the six synthetic validation agents and operator-only lifecycle.              |
+| [Foundry identity pilot](foundry-identity-pilot.md)                     | Preview, validate, and roll back one isolated identity-aware synthetic agent.            |
 | [Agent 365 connector](agent365-connector.md)                            | Review the deployment-only package catalog contract and limits.                          |
 | [Azure Resource Graph connector](azure-resource-graph-connector.md)     | Review bounded cloud-resource inventory and scope semantics.                             |
 | [Entra identity connector](entra-identity-connector.md)                 | Review exact identity correlation and `RUNS_AS` rules.                                   |
